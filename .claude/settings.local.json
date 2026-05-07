@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\marce\\\\OneDrive\\\\Escritorio\\\\Lumar\\\\John\\\\api_john\" -Force | Select-Object Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"Directory\"}else{\"File\"}}} | Format-Table -AutoSize)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\marce\\\\OneDrive\\\\Escritorio\\\\Lumar\\\\John\\\\api_john\\\\src\" -Recurse -Force | Select-Object @{Name=\"Path\";Expression={$_.FullName -replace [regex]::Escape\\(\"C:\\\\Users\\\\marce\\\\OneDrive\\\\Escritorio\\\\Lumar\\\\John\\\\api_john\\\\src\\\\\"\\), \"\"}} | Format-Table -AutoSize -Wrap)",
+      "Bash(Get-ChildItem *)"
+    ]
+  }
+}
