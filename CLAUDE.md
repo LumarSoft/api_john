@@ -42,3 +42,12 @@ NestJS REST API with MySQL via Prisma ORM. The project is in early stages — th
 **Validation:** `class-validator` and `class-transformer` are installed. Enable the global `ValidationPipe` in `main.ts` when adding DTOs.
 
 **Port:** Reads from `process.env.PORT`, defaults to 3000.
+
+## Rules
+See @docs/rules/architecture.md for module structure rules.
+See @docs/rules/database.md for Prisma and MySQL rules.
+See @docs/rules/validation.md for DTO and validation rules.
+See @docs/rules/error-handling.md for error handling rules.
+See @docs/rules/security.md for security rules.
+See @docs/rules/naming.md for naming conventions.
+See @docs/rules/commits.md for commit conventions.
