@@ -14,10 +14,10 @@ Registers a new user.
 
 **Request body**
 
-| Field    | Type   | Required | Constraints         |
-|----------|--------|----------|---------------------|
-| email    | string | Yes      | Valid email format  |
-| password | string | Yes      | Minimum 6 characters|
+| Field    | Type   | Required | Constraints          |
+|----------|--------|----------|----------------------|
+| email    | string | Yes      | Valid email format   |
+| password | string | Yes      | Minimum 6 characters |
 
 ```json
 {
@@ -90,6 +90,50 @@ Authenticates a user and returns a JWT access token.
 ```
 
 `400 Bad Request` — Validation error (missing or invalid fields)
+
+---
+
+## Cotizador
+
+### POST /cotizador/auto
+
+Requests an auto insurance quote from the Triunfo API. If the request includes a valid JWT, the quote is saved to the database linked to that user. Unauthenticated requests are allowed — the quote is saved without a user association.
+
+**Auth required:** No (optional — send Bearer token to associate the quote with a user)
+
+**Request body**
+
+| Field           | Type   | Required | Constraints                              |
+|-----------------|--------|----------|------------------------------------------|
+| marca           | string | Yes      | Triunfo brand code                       |
+| modelo          | string | Yes      | Triunfo model code                       |
+| anioFabricacion | number | Yes      | Integer between 1900 and current year +1 |
+| codigoPostal    | number | Yes      | Integer                                  |
+
+```json
+{
+  "marca": "2",
+  "modelo": "12345",
+  "anioFabricacion": 2020,
+  "codigoPostal": 1425
+}
+```
+
+**Responses**
+
+`201 Created` — Raw Triunfo API response. Key field:
+```json
+{
+  "SDTSrvCotizacionOut": {
+    "PresupuestoNro": 987654,
+    "..."
+  }
+}
+```
+
+`400 Bad Request` — Validation error (missing or invalid fields)
+
+`401 Unauthorized` — Triunfo token could not be obtained
 
 ---
 

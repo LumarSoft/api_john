@@ -29,7 +29,19 @@ api/
 │   │   ├── auth.module.ts
 │   │   ├── auth.service.ts
 │   │   ├── jwt-auth.guard.ts      # Guard for protected routes
-│   │   └── jwt.strategy.ts        # Passport JWT strategy
+│   │   ├── jwt.strategy.ts        # Passport JWT strategy
+│   │   └── optional-jwt-auth.guard.ts  # Guard for optionally authenticated routes
+│   │
+│   ├── cotizador/                 # Auto insurance quotation module
+│   │   ├── dto/
+│   │   │   └── cotizar-auto.dto.ts
+│   │   ├── cotizador.controller.ts  # POST /cotizador/auto
+│   │   ├── cotizador.module.ts
+│   │   └── cotizador.service.ts
+│   │
+│   ├── triunfo/                   # Triunfo external API integration
+│   │   ├── triunfo.module.ts
+│   │   └── triunfo.service.ts     # Token caching + auth for Triunfo API
 │   │
 │   ├── prisma/                    # Global database module
 │   │   ├── prisma.module.ts
@@ -58,8 +70,10 @@ api/
 
 ## Module overview
 
-| Module   | Path          | Responsibility                          |
-|----------|---------------|-----------------------------------------|
-| AppModule | `src/`       | Root module, wires everything together  |
-| AuthModule | `src/auth/` | Registration, login, JWT strategy/guard |
-| PrismaModule | `src/prisma/` | Global DB access via PrismaService  |
+| Module          | Path               | Responsibility                                      |
+|-----------------|--------------------|-----------------------------------------------------|
+| AppModule       | `src/`             | Root module, wires everything together              |
+| AuthModule      | `src/auth/`        | Registration, login, JWT strategy/guard             |
+| CotizadorModule | `src/cotizador/`   | Auto insurance quotations via Triunfo API           |
+| TriunfoModule   | `src/triunfo/`     | Triunfo external API client — token caching + auth  |
+| PrismaModule    | `src/prisma/`      | Global DB access via PrismaService                  |

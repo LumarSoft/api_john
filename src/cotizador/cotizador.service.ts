@@ -42,9 +42,8 @@ export class CotizadorService {
         },
       }),
     )
-
     const resultado = response.data
-    const presupuestoNro: number = resultado?.SDTSrvCotizacionOut?.PresupuestoNro
+    const presupuestoNro: number = Number.parseInt(resultado?.SDTSrvCotizacionOut?.Presupuesto?.Numero, 10)
 
     if (presupuestoNro) {
       await this.prisma.cotizacion.upsert({
