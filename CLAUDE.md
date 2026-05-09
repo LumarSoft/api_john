@@ -51,3 +51,4 @@ See @docs/rules/error-handling.md for error handling rules.
 See @docs/rules/security.md for security rules.
 See @docs/rules/naming.md for naming conventions.
 See @docs/rules/commits.md for commit conventions.
+See @docs/rules/documentation.md for endpoint documentation rules.
