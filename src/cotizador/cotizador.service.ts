@@ -25,7 +25,7 @@ export class CotizadorService {
             Bonificacion: '0',
             Catalogo: 'IA',
             CeroKM: 0,
-            Cobertura: '',
+            Cobertura: dto.cobertura ?? '',
             Marca: dto.marca,
             Modelo: dto.modelo,
             Origen: 'N',

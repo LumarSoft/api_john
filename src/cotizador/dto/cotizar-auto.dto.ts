@@ -1,4 +1,4 @@
-import { IsInt, IsString, Min, Max } from 'class-validator'
+import { IsInt, IsString, Min, Max, IsOptional } from 'class-validator'
 
 export class CotizarAutoDto {
   @IsString()
@@ -14,4 +14,8 @@ export class CotizarAutoDto {
 
   @IsInt()
   codigoPostal: number
+
+  @IsOptional()
+  @IsString()
+  cobertura?: string
 }
