@@ -1,0 +1,12 @@
+import { Module } from '@nestjs/common'
+import { HttpModule } from '@nestjs/axios'
+import { ConfigModule } from '@nestjs/config'
+import { InfoAutoService } from './infoauto.service'
+import { InfoAutoController } from './infoauto.controller'
+
+@Module({
+  imports: [HttpModule, ConfigModule],
+  controllers: [InfoAutoController],
+  providers: [InfoAutoService],
+})
+export class InfoAutoModule {}
