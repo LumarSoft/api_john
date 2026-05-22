@@ -39,6 +39,15 @@ api/
 │   │   ├── cotizador.module.ts
 │   │   └── cotizador.service.ts
 │   │
+│   ├── infoauto/                  # InfoAuto external API integration
+│   │   ├── dto/
+│   │   │   ├── infoauto-query.dto.ts   # Shared query params (query_string, page, page_size)
+│   │   │   ├── brand-id-param.dto.ts   # :brandId path param
+│   │   │   └── group-params.dto.ts     # :brandId + :groupId path params
+│   │   ├── infoauto.controller.ts  # GET /infoauto/brands, /groups, /models
+│   │   ├── infoauto.module.ts
+│   │   └── infoauto.service.ts
+│   │
 │   ├── triunfo/                   # Triunfo external API integration
 │   │   ├── triunfo.module.ts
 │   │   └── triunfo.service.ts     # Token caching + auth for Triunfo API
@@ -75,5 +84,6 @@ api/
 | AppModule       | `src/`             | Root module, wires everything together              |
 | AuthModule      | `src/auth/`        | Registration, login, JWT strategy/guard             |
 | CotizadorModule | `src/cotizador/`   | Auto insurance quotations via Triunfo API           |
+| InfoAutoModule  | `src/infoauto/`    | InfoAuto API client — brands, groups, models        |
 | TriunfoModule   | `src/triunfo/`     | Triunfo external API client — token caching + auth  |
 | PrismaModule    | `src/prisma/`      | Global DB access via PrismaService                  |
