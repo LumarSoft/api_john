@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -12,15 +10,76 @@ datasource db {
   provider = "mysql"
 }
 
+// ─── PRODUCTOR (tenant) ──────────────────────────────────
+
+model Producer {
+  id            Int            @id @default(autoincrement())
+  name          String
+  slug          String         @unique
+  systemPrompt  String         @db.Text
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+
+  phoneNumbers  PhoneNumber[]
+  users         User[]
+  clients       Client[]
+  cotizaciones  Cotizacion[]
+  conversations Conversation[]
+}
+
+model PhoneNumber {
+  id            Int       @id @default(autoincrement())
+  phoneNumberId String    @unique   // ID de Meta
+  number        String              // display: "+1 555 151 7253"
+  isActive      Boolean   @default(true)
+  deletedAt     DateTime?
+  producerId    Int
+  producer      Producer  @relation(fields: [producerId], references: [id])
+}
+
+// ─── EMPLEADOS / ADMINS DE JOHN ──────────────────────────
+
 model User {
-  id           Int           @id @default(autoincrement())
-  email        String        @unique
+  id           Int          @id @default(autoincrement())
+  email        String       @unique
   password     String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  role         String       @default("admin")  // "admin" | "empleado"
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
   deletedAt    DateTime?
+
+  producerId   Int
+  producer     Producer     @relation(fields: [producerId], references: [id])
   cotizaciones Cotizacion[]
 }
+
+// ─── CLIENTES ASEGURADOS ─────────────────────────────────
+
+model Client {
+  id           Int       @id @default(autoincrement())
+  dni          String
+  nombre       String
+  apellido     String
+  email        String
+  password     String
+  telefono     String?             // waId de WhatsApp
+  localidad    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  producerId    Int
+  producer      Producer       @relation(fields: [producerId], references: [id])
+  conversations Conversation[]
+
+  @@unique([email, producerId])
+  @@unique([dni, producerId])
+  @@unique([telefono, producerId])
+}
+
+// ─── COTIZACIONES ────────────────────────────────────────
 
 model Cotizacion {
   id              Int       @id @default(autoincrement())
@@ -34,6 +93,37 @@ model Cotizacion {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  userId          Int?
-  user            User?       @relation(fields: [userId], references: [id])
+  producerId      Int
+  producer        Producer  @relation(fields: [producerId], references: [id])
+  userId          Int?              // empleado que la generó (opcional)
+  user            User?     @relation(fields: [userId], references: [id])
+}
+
+// ─── CONVERSACIONES WHATSAPP ─────────────────────────────
+
+model Conversation {
+  id         Int       @id @default(autoincrement())
+  waId       String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  producerId Int
+  producer   Producer  @relation(fields: [producerId], references: [id])
+  clientId   Int?      // se vincula cuando el cliente se identifica por DNI
+  client     Client?   @relation(fields: [clientId], references: [id])
+  messages   Message[]
+
+  @@unique([waId, producerId])
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  role           String       // "user" | "assistant"
+  content        String       @db.Text
+  createdAt      DateTime     @default(now())
+  deletedAt      DateTime?
+
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
 }
