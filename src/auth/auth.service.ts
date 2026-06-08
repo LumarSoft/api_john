@@ -18,11 +18,11 @@ export class AuthService {
 
     const hashed = await bcrypt.hash(dto.password, 10)
     const user = await this.prisma.user.create({
-      data: { email: dto.email, password: hashed },
+      data: { email: dto.email, password: hashed, producerId: dto.producerId },
+      select: { id: true, email: true, role: true, producerId: true, createdAt: true },
     })
 
-    const { password: _, ...result } = user
-    return result
+    return user
   }
 
   async login(dto: LoginDto) {
@@ -32,7 +32,7 @@ export class AuthService {
     const valid = await bcrypt.compare(dto.password, user.password)
     if (!valid) throw new UnauthorizedException('Invalid credentials')
 
-    const payload = { sub: user.id, email: user.email }
+    const payload = { sub: user.id, email: user.email, type: 'user', producerId: user.producerId }
     return { access_token: this.jwtService.sign(payload) }
   }
 }

@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from 'class-validator'
+import { IsEmail, IsString, IsInt, MinLength } from 'class-validator'
 
 export class RegisterDto {
   @IsEmail()
@@ -7,4 +7,7 @@ export class RegisterDto {
   @IsString()
   @MinLength(6)
   password: string
+
+  @IsInt()
+  producerId: number
 }
