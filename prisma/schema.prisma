@@ -58,17 +58,17 @@ model User {
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
 
 model Client {
-  id           Int       @id @default(autoincrement())
-  dni          String
-  nombre       String
-  apellido     String
-  email        String
-  password     String
-  telefono     String?             // waId de WhatsApp
-  localidad    String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  id            Int       @id @default(autoincrement())
+  dni           String
+  firstName     String
+  lastName      String
+  email         String
+  password      String
+  phone         String?
+  city          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
 
   producerId    Int
   producer      Producer       @relation(fields: [producerId], references: [id])
@@ -76,26 +76,26 @@ model Client {
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
-  @@unique([telefono, producerId])
+  @@unique([phone, producerId])
 }
 
 // ─── COTIZACIONES ────────────────────────────────────────
 
 model Cotizacion {
   id              Int       @id @default(autoincrement())
-  presupuestoNro  Int       @unique
-  marcaCodigo     String
-  modeloCodigo    String
-  anioFabricacion Int
-  codigoPostal    Int
-  resultado       Json
+  quoteNumber     Int       @unique
+  brandCode       String
+  modelCode       String
+  manufactureYear Int
+  postalCode      Int
+  result          Json
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
   producerId      Int
   producer        Producer  @relation(fields: [producerId], references: [id])
-  userId          Int?              // empleado que la generó (opcional)
+  userId          Int?
   user            User?     @relation(fields: [userId], references: [id])
 }
 

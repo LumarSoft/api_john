@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs'
 import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { CotizarAutoDto } from './dto/cotizar-auto.dto'
+
 @Injectable()
 export class CotizadorService {
   constructor(
@@ -12,7 +13,7 @@ export class CotizadorService {
     private readonly triunfo: TriunfoService,
   ) {}
 
-  async cotizarAuto(dto: CotizarAutoDto, userId: number | null) {
+  async cotizarAuto(dto: CotizarAutoDto, producerId: number, userId: number | null) {
     const auth = await this.triunfo.getAuth()
 
     const response = await firstValueFrom(
@@ -21,13 +22,13 @@ export class CotizadorService {
           Automotor: {
             Accesorios: [],
             Adicionales: [],
-            AnioFabricacion: dto.anioFabricacion,
+            AnioFabricacion: dto.manufactureYear,
             Bonificacion: '0',
             Catalogo: 'IA',
             CeroKM: 0,
-            Cobertura: dto.cobertura ?? '',
-            Marca: dto.marca,
-            Modelo: dto.modelo,
+            Cobertura: dto.coverage ?? '',
+            Marca: dto.brand,
+            Modelo: dto.model,
             Origen: 'N',
             Uso: 1,
             Valor: '0',
@@ -36,31 +37,33 @@ export class CotizadorService {
             Articulo: 458,
             CantidadCuotas: 1,
             GenerarPresupuesto: true,
-            ZonaRiesgoCP: dto.codigoPostal,
+            ZonaRiesgoCP: dto.postalCode,
           },
           Autenticacion: auth,
         },
       }),
     )
-    const resultado = response.data
-    const presupuestoNro: number = Number.parseInt(resultado?.SDTSrvCotizacionOut?.Presupuesto?.Numero, 10)
 
-    if (presupuestoNro) {
+    const result = response.data
+    const quoteNumber: number = Number.parseInt(result?.SDTSrvCotizacionOut?.Presupuesto?.Numero, 10)
+
+    if (quoteNumber) {
       await this.prisma.cotizacion.upsert({
-        where: { presupuestoNro },
+        where: { quoteNumber },
         create: {
-          presupuestoNro,
-          marcaCodigo: dto.marca,
-          modeloCodigo: dto.modelo,
-          anioFabricacion: dto.anioFabricacion,
-          codigoPostal: dto.codigoPostal,
-          resultado,
+          quoteNumber,
+          brandCode: dto.brand,
+          modelCode: dto.model,
+          manufactureYear: dto.manufactureYear,
+          postalCode: dto.postalCode,
+          result,
+          producerId,
           userId,
         },
-        update: { resultado },
+        update: { result },
       })
     }
 
-    return resultado
+    return result
   }
 }

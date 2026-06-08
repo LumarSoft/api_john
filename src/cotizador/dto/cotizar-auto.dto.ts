@@ -2,20 +2,20 @@ import { IsInt, IsString, Min, Max, IsOptional } from 'class-validator'
 
 export class CotizarAutoDto {
   @IsString()
-  marca: string
+  brand: string
 
   @IsString()
-  modelo: string
+  model: string
 
   @IsInt()
   @Min(1900)
   @Max(new Date().getFullYear() + 1)
-  anioFabricacion: number
+  manufactureYear: number
 
   @IsInt()
-  codigoPostal: number
+  postalCode: number
 
   @IsOptional()
   @IsString()
-  cobertura?: string
+  coverage?: string
 }

@@ -3,7 +3,12 @@
     "allow": [
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\marce\\\\OneDrive\\\\Escritorio\\\\Lumar\\\\John\\\\api_john\" -Force | Select-Object Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"Directory\"}else{\"File\"}}} | Format-Table -AutoSize)",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\marce\\\\OneDrive\\\\Escritorio\\\\Lumar\\\\John\\\\api_john\\\\src\" -Recurse -Force | Select-Object @{Name=\"Path\";Expression={$_.FullName -replace [regex]::Escape\\(\"C:\\\\Users\\\\marce\\\\OneDrive\\\\Escritorio\\\\Lumar\\\\John\\\\api_john\\\\src\\\\\"\\), \"\"}} | Format-Table -AutoSize -Wrap)",
-      "Bash(Get-ChildItem *)"
+      "Bash(Get-ChildItem *)",
+      "mcp__prisma__migrate-status",
+      "mcp__prisma__migrate-reset",
+      "Bash(PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION=\"Si\" npx prisma *)",
+      "mcp__prisma__migrate-dev",
+      "Bash(npx prisma *)"
     ]
   }
 }

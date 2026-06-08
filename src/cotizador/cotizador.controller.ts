@@ -11,6 +11,7 @@ export class CotizadorController {
   @Post('auto')
   cotizarAuto(@Body() dto: CotizarAutoDto, @Request() req) {
     const userId = req.user?.id ?? null
-    return this.cotizadorService.cotizarAuto(dto, userId)
+    const producerId = req.user?.producerId ?? null
+    return this.cotizadorService.cotizarAuto(dto, producerId, userId)
   }
 }

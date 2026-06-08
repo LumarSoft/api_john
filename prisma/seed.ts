@@ -8,13 +8,13 @@ const prisma = new PrismaClient({ adapter })
 
 async function main() {
   const producer = await prisma.producer.upsert({
-    where: { slug: 'john-seguros' },
+    where: { slug: 'john' },
     update: {},
     create: {
-      name: 'John Seguros',
-      slug: 'john-seguros',
+      name: 'John',
+      slug: 'john',
       systemPrompt:
-        'Eres un asistente de seguros. Ayudá a los clientes a obtener cotizaciones y resolver sus consultas.',
+        'Eres un asistente de seguros de John Pellegrini Management Group. Ayudá a los clientes a obtener cotizaciones y resolver sus consultas.',
       isActive: true,
     },
   })
@@ -22,16 +22,28 @@ async function main() {
   const hashedPassword = await bcrypt.hash('admin123', 10)
 
   await prisma.user.upsert({
-    where: { email: 'admin@johnseguros.com' },
+    where: { email: 'admin@johnpellegrini.com.ar' },
     update: {},
     create: {
-      email: 'admin@johnseguros.com',
+      email: 'admin@johnpellegrini.com.ar',
       password: hashedPassword,
+      role: 'admin',
       producerId: producer.id,
     },
   })
 
-  console.log('Seed completado.')
+  await prisma.phoneNumber.upsert({
+    where: { phoneNumberId: 'TEST_META_PHONE_ID' },
+    update: {},
+    create: {
+      phoneNumberId: 'TEST_META_PHONE_ID',
+      number: '+54 9 11 0000-0000',
+      isActive: true,
+      producerId: producer.id,
+    },
+  })
+
+  console.log('Seed completed.')
 }
 
 main()
