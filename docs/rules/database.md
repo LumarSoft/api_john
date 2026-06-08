@@ -34,5 +34,28 @@ return this.prisma.user.findUnique({
 
 - Every model must have a primary key (`@id`).
 - Use `@default(now())` for `createdAt` and `@updatedAt` for `updatedAt`.
+- Every model must include a `deletedAt DateTime?` field for soft deletes — never use hard deletes.
 - Foreign keys must have explicit `@relation` annotations.
 - Keep the schema as the single source of truth for the database structure.
+
+## Soft deletes
+
+- Never use `delete` or `deleteMany` in Prisma — always set `deletedAt` to the current timestamp.
+- All queries that list or fetch records must filter `deletedAt: null` to exclude soft-deleted rows.
+- Unique constraints that could conflict with soft-deleted rows must account for this (e.g. deactivate before re-creating, or use composite uniqueness).
+
+```typescript
+// Wrong — hard delete
+await this.prisma.user.delete({ where: { id } })
+
+// Correct — soft delete
+await this.prisma.user.update({
+  where: { id },
+  data: { deletedAt: new Date() },
+})
+
+// Correct — exclude soft-deleted rows in queries
+await this.prisma.user.findMany({
+  where: { deletedAt: null },
+})
+```
