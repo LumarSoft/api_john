@@ -33,7 +33,7 @@ export class AuthController {
 
   @Patch('client/change-password')
   @UseGuards(ClientAuthGuard)
-  changePassword(@Request() req: { user: { sub: number } }, @Body() dto: ChangePasswordDto) {
-    return this.authService.changeClientPassword(req.user.sub, dto.newPassword)
+  changePassword(@Request() req: { user: { id: number } }, @Body() dto: ChangePasswordDto) {
+    return this.authService.changeClientPassword(req.user.id, dto.newPassword)
   }
 }
