@@ -557,3 +557,76 @@ Returns a health-check string. Not intended for production use.
 ```
 Hello World!
 ```
+
+
+---
+
+## Pagos
+
+### GET /admin/clients/pagos
+
+Returns a paginated list of clients that have at least one installment (cuota), enriched with payment stats per client. Used by the payment status admin page.
+
+**Auth required:** Yes (JWT user token)
+
+**Query parameters**
+
+| Parameter | Type   | Required | Description                                              |
+|-----------|--------|----------|----------------------------------------------------------|
+| search    | string | No       | Filter by first name, last name, email, or DNI           |
+| estado    | string | No       | `con_deuda` \| `rechazado` \| `al_dia`                   |
+| page      | number | No       | Page number (default: 1)                                 |
+| pageSize  | number | No       | Results per page (default: 20, max: 100)                 |
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "firstName": "María",
+      "lastName": "García",
+      "dni": "12345678",
+      "email": "maria@example.com",
+      "phone": "+54 11 1234-5678",
+      "pendingCount": 2,
+      "overdueCount": 1,
+      "rejectedCount": 0,
+      "paidCount": 5,
+      "totalDeuda": "15420.00",
+      "lastPaymentDate": "2026-05-01T00:00:00.000Z"
+    }
+  ],
+  "total": 40,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 2
+}
+```
+
+`401 Unauthorized` — Missing or invalid JWT
+
+---
+
+### GET /admin/clients/pagos/stats
+
+Returns aggregate payment stats across all clients for the authenticated producer.
+
+**Auth required:** Yes (JWT user token)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "clientesConDeuda": 12,
+  "cuotasVencidas": 18,
+  "cuotasRechazadas": 3,
+  "cuotasPendientes": 47,
+  "montoDeudaTotal": "284500.00"
+}
+```
+
+`401 Unauthorized` — Missing or invalid JWT

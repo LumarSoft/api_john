@@ -79,6 +79,7 @@ function buildDateRange(): { fechaDesde: string; fechaHasta: string } {
 function mapCuotaStatus(estado: string, dueDate: Date | null): string {
   const upper = (estado ?? '').toUpperCase()
   if (upper === 'PAGADA' || upper === 'COBRADA') return 'paid'
+  if (upper === 'RECHAZADA' || upper === 'RECHAZADO' || upper === 'DEBITO_RECHAZADO') return 'rejected'
   if (dueDate && dueDate < new Date()) return 'overdue'
   return 'pending'
 }
