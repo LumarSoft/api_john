@@ -25,6 +25,7 @@ model Producer {
   phoneNumbers  PhoneNumber[]
   users         User[]
   clients       Client[]
+  polizas       Poliza[]
   cotizaciones  Cotizacion[]
   conversations Conversation[]
 }
@@ -74,10 +75,82 @@ model Client {
   producerId    Int
   producer      Producer       @relation(fields: [producerId], references: [id])
   conversations Conversation[]
+  polizas       Poliza[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
   @@unique([phone, producerId])
+}
+
+// ─── PÓLIZAS ─────────────────────────────────────────────
+
+enum RiskType {
+  auto
+  home
+  life
+  commercial
+  other
+}
+
+model Poliza {
+  id            Int       @id @default(autoincrement())
+  certificado   String    // certificate number from Triunfo
+  suplemento    Int       @default(0)    // policy version / supplement
+  company       String    // "triunfo" — expandable for future companies
+  riskType      RiskType  @default(other)
+  status        String    // "VIGENTE" | "VENCIDA" | "REFACTURACION" etc.
+  vigenciaDesde DateTime?
+  vigenciaHasta DateTime?
+  premio        Decimal?  @db.Decimal(12, 2)
+  paymentMethod String?
+  rawData       Json      // full provider response for this policy
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  clientId   Int
+  client     Client   @relation(fields: [clientId], references: [id])
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
+
+  vehiculo Vehiculo?
+  cuotas   Cuota[]
+
+  @@unique([certificado, producerId])
+}
+
+model Vehiculo {
+  id            Int      @id @default(autoincrement())
+  dominio       String?  // license plate
+  marca         String?
+  modelo        String?
+  subModelo     String?
+  anio          Int?
+  tipo          String?  // "AUTOMOVIL" | "MOTO" etc.
+  uso           String?  // "PARTICULAR" | "COMERCIAL" etc.
+  cobertura     String?  // coverage code (e.g. "A", "B", "C")
+  sumaAsegurada Decimal? @db.Decimal(14, 2)
+  ceroKm        Boolean  @default(false)
+  chasis        String?
+  motor         String?
+  deletedAt     DateTime?
+
+  polizaId Int    @unique
+  poliza   Poliza @relation(fields: [polizaId], references: [id])
+}
+
+model Cuota {
+  id          Int       @id @default(autoincrement())
+  numeroCuota Int
+  amount      Decimal   @db.Decimal(12, 2)
+  dueDate     DateTime?
+  status      String    @default("pending") // "pending" | "paid" | "overdue"
+  deletedAt   DateTime?
+
+  polizaId Int
+  poliza   Poliza @relation(fields: [polizaId], references: [id])
+
+  @@unique([polizaId, numeroCuota])
 }
 
 // ─── COTIZACIONES ────────────────────────────────────────

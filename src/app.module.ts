@@ -8,6 +8,8 @@ import { UsersModule } from './users/users.module'
 import { TriunfoModule } from './triunfo/triunfo.module'
 import { CotizadorModule } from './cotizador/cotizador.module'
 import { InfoAutoModule } from './infoauto/infoauto.module'
+import { ClientsModule } from './clients/clients.module'
+import { CarteraSyncModule } from './cartera-sync/cartera-sync.module'
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { InfoAutoModule } from './infoauto/infoauto.module'
     TriunfoModule,
     CotizadorModule,
     InfoAutoModule,
+    ClientsModule,
+    CarteraSyncModule,
   ],
   controllers: [AppController],
   providers: [AppService],
