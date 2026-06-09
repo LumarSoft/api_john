@@ -58,17 +58,18 @@ model User {
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
 
 model Client {
-  id            Int       @id @default(autoincrement())
-  dni           String
-  firstName     String
-  lastName      String
-  email         String
-  password      String
-  phone         String?
-  city          String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  id                     Int       @id @default(autoincrement())
+  dni                    String
+  firstName              String
+  lastName               String
+  email                  String
+  password               String
+  requiresPasswordChange Boolean   @default(true)
+  phone                  String?
+  city                   String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
 
   producerId    Int
   producer      Producer       @relation(fields: [producerId], references: [id])
