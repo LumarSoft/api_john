@@ -565,7 +565,7 @@ Hello World!
 
 ### GET /admin/cobranzas
 
-Returns a paginated worklist of clients that owe money, enriched with debt stats and total debt per client. Results are filtered to debtors and ordered by urgency (most overdue installments first, then largest debt). Used by the admin Cobranzas page.
+Returns a paginated worklist of clients that owe money, enriched with debt stats and total debt per client. Results are filtered to debtors and ordered by urgency (oldest overdue installment first, then largest debt). Used by the admin Cobranzas page. `oldestOverdueDate` is the ISO date of the client's oldest overdue installment, or `null` when the client has no overdue installments.
 
 **Auth required:** Yes (JWT user token)
 
@@ -597,7 +597,8 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
       "overdueCount": 1,
       "rejectedCount": 0,
       "paidCount": 5,
-      "totalDeuda": "15420.00"
+      "totalDeuda": "15420.00",
+      "oldestOverdueDate": "2026-04-10T00:00:00.000Z"
     }
   ],
   "total": 40,
