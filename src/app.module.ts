@@ -4,6 +4,7 @@ import { AppController } from './app.controller'
 import { AppService } from './app.service'
 import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './auth/auth.module'
+import { UsersModule } from './users/users.module'
 import { TriunfoModule } from './triunfo/triunfo.module'
 import { CotizadorModule } from './cotizador/cotizador.module'
 import { InfoAutoModule } from './infoauto/infoauto.module'
@@ -13,6 +14,7 @@ import { InfoAutoModule } from './infoauto/infoauto.module'
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     AuthModule,
+    UsersModule,
     TriunfoModule,
     CotizadorModule,
     InfoAutoModule,

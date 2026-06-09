@@ -248,6 +248,208 @@ The `codia` is the identifier used in `POST /cotizador/auto` as the `modelo` fie
 
 ---
 
+## Users
+
+All endpoints require a valid `User` JWT (`Authorization: Bearer <token>`). Users are scoped to the producer of the authenticated user. Every administrator has `role: "admin"` and can manage other administrators (sub-admins).
+
+### GET /users/me
+
+Returns the authenticated user's profile.
+
+**Auth required:** Yes
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "id": 2,
+  "email": "test@gmail.com",
+  "role": "admin",
+  "producerId": 1,
+  "createdAt": "2026-06-08T00:00:00.000Z",
+  "updatedAt": "2026-06-08T00:00:00.000Z"
+}
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+---
+
+### PATCH /users/me
+
+Updates the authenticated user's own email and/or password (settings screen).
+
+**Auth required:** Yes
+
+**Request body**
+
+| Field    | Type   | Required | Constraints          |
+|----------|--------|----------|----------------------|
+| email    | string | No       | Valid email format   |
+| password | string | No       | Minimum 6 characters |
+
+```json
+{
+  "email": "nuevo@gmail.com",
+  "password": "newsecret123"
+}
+```
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "id": 2,
+  "email": "nuevo@gmail.com",
+  "role": "admin",
+  "producerId": 1,
+  "createdAt": "2026-06-08T00:00:00.000Z",
+  "updatedAt": "2026-06-08T12:00:00.000Z"
+}
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+`409 Conflict` — Email already in use
+```json
+{ "statusCode": 409, "message": "Email already in use", "error": "Conflict" }
+```
+
+---
+
+### GET /users
+
+Lists all (non-deleted) administrators of the authenticated user's producer.
+
+**Auth required:** Yes
+
+**Responses**
+
+`200 OK`
+```json
+[
+  {
+    "id": 2,
+    "email": "test@gmail.com",
+    "role": "admin",
+    "producerId": 1,
+    "createdAt": "2026-06-08T00:00:00.000Z",
+    "updatedAt": "2026-06-08T00:00:00.000Z"
+  }
+]
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+---
+
+### POST /users
+
+Creates a new administrator (sub-admin) under the authenticated user's producer.
+
+**Auth required:** Yes
+
+**Request body**
+
+| Field    | Type   | Required | Constraints          |
+|----------|--------|----------|----------------------|
+| email    | string | Yes      | Valid email format   |
+| password | string | Yes      | Minimum 6 characters |
+
+```json
+{
+  "email": "subadmin@gmail.com",
+  "password": "secret123"
+}
+```
+
+**Responses**
+
+`201 Created`
+```json
+{
+  "id": 3,
+  "email": "subadmin@gmail.com",
+  "role": "admin",
+  "producerId": 1,
+  "createdAt": "2026-06-08T00:00:00.000Z",
+  "updatedAt": "2026-06-08T00:00:00.000Z"
+}
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+`409 Conflict` — Email already in use
+```json
+{ "statusCode": 409, "message": "Email already in use", "error": "Conflict" }
+```
+
+---
+
+### PATCH /users/:id
+
+Updates an administrator's email and/or password.
+
+**Auth required:** Yes
+
+**Request body**
+
+| Field    | Type   | Required | Constraints          |
+|----------|--------|----------|----------------------|
+| email    | string | No       | Valid email format   |
+| password | string | No       | Minimum 6 characters |
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "id": 3,
+  "email": "subadmin@gmail.com",
+  "role": "admin",
+  "producerId": 1,
+  "createdAt": "2026-06-08T00:00:00.000Z",
+  "updatedAt": "2026-06-08T12:00:00.000Z"
+}
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+`404 Not Found` — User does not exist within the producer
+```json
+{ "statusCode": 404, "message": "User with id 3 not found", "error": "Not Found" }
+```
+
+`409 Conflict` — Email already in use
+
+---
+
+### DELETE /users/:id
+
+Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own account.
+
+**Auth required:** Yes
+
+**Responses**
+
+`200 OK`
+```json
+{ "id": 3 }
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+`403 Forbidden` — Attempting to delete your own account
+```json
+{ "statusCode": 403, "message": "You cannot delete your own account", "error": "Forbidden" }
+```
+
+`404 Not Found` — User does not exist within the producer
+
+---
+
 ## Health
 
 ### GET /
