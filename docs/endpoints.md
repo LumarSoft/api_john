@@ -561,22 +561,22 @@ Hello World!
 
 ---
 
-## Pagos
+## Cobranzas
 
-### GET /admin/clients/pagos
+### GET /admin/cobranzas
 
-Returns a paginated list of clients that have at least one installment (cuota), enriched with payment stats per client. Used by the payment status admin page.
+Returns a paginated worklist of clients that owe money, enriched with debt stats and total debt per client. Results are filtered to debtors and ordered by urgency (most overdue installments first, then largest debt). Used by the admin Cobranzas page.
 
 **Auth required:** Yes (JWT user token)
 
 **Query parameters**
 
-| Parameter | Type   | Required | Description                                              |
-|-----------|--------|----------|----------------------------------------------------------|
-| search    | string | No       | Filter by first name, last name, email, or DNI           |
-| estado    | string | No       | `con_deuda` \| `rechazado` \| `al_dia`                   |
-| page      | number | No       | Page number (default: 1)                                 |
-| pageSize  | number | No       | Results per page (default: 20, max: 100)                 |
+| Parameter | Type   | Required | Description                                                       |
+|-----------|--------|----------|-------------------------------------------------------------------|
+| search    | string | No       | Filter by first name, last name, email, DNI, phone, or plate      |
+| estado    | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`) |
+| page      | number | No       | Page number (default: 1)                                          |
+| pageSize  | number | No       | Results per page (default: 20, max: 100)                          |
 
 **Responses**
 
@@ -591,12 +591,13 @@ Returns a paginated list of clients that have at least one installment (cuota), 
       "dni": "12345678",
       "email": "maria@example.com",
       "phone": "+54 11 1234-5678",
+      "ramos": ["auto", "home"],
+      "dominio": "AB123CD",
       "pendingCount": 2,
       "overdueCount": 1,
       "rejectedCount": 0,
       "paidCount": 5,
-      "totalDeuda": "15420.00",
-      "lastPaymentDate": "2026-05-01T00:00:00.000Z"
+      "totalDeuda": "15420.00"
     }
   ],
   "total": 40,
@@ -610,9 +611,9 @@ Returns a paginated list of clients that have at least one installment (cuota), 
 
 ---
 
-### GET /admin/clients/pagos/stats
+### GET /admin/cobranzas/stats
 
-Returns aggregate payment stats across all clients for the authenticated producer.
+Returns aggregate debt stats across all clients for the authenticated producer. Includes both per-client counts (used by the segmented filter badges) and per-installment counts.
 
 **Auth required:** Yes (JWT user token)
 
@@ -622,6 +623,9 @@ Returns aggregate payment stats across all clients for the authenticated produce
 ```json
 {
   "clientesConDeuda": 12,
+  "clientesVencidas": 7,
+  "clientesRechazadas": 2,
+  "clientesPendientes": 10,
   "cuotasVencidas": 18,
   "cuotasRechazadas": 3,
   "cuotasPendientes": 47,

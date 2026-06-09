@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { Prisma } from 'generated/prisma/client'
+import { Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ClientEstadoFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
-import { ListPagosDto, PagoEstadoFilter } from './dto/list-pagos.dto'
+import { CobranzaEstadoFilter, ListCobranzasDto } from './dto/list-cobranzas.dto'
 
 // ─── Bien data extracted from rawData.SDTOtrosRiesgosDatos ───────────────────
 // Present on non-vehicle policies (life, home, commercial, other).
@@ -290,16 +290,19 @@ export class ClientsService {
 
     const search = query.search?.trim()
     if (search) {
-      and.push({
-        OR: [
-          { firstName: { contains: search } },
-          { lastName: { contains: search } },
-          { email: { contains: search } },
-          { dni: { contains: search } },
-          { phone: { contains: search } },
-          { polizas: { some: { deletedAt: null, vehiculo: { dominio: { contains: search } } } } },
-        ],
-      })
+      const words = search.split(/\s+/).filter(Boolean)
+      for (const word of words) {
+        and.push({
+          OR: [
+            { firstName: { contains: word } },
+            { lastName: { contains: word } },
+            { email: { contains: word } },
+            { dni: { contains: word } },
+            { phone: { contains: word } },
+            { polizas: { some: { deletedAt: null, vehiculo: { dominio: { contains: word } } } } },
+          ],
+        })
+      }
     }
 
     if (query.riskType) {
@@ -371,7 +374,7 @@ export class ClientsService {
     return { ...rest, bien: extractBien(rawData) }
   }
 
-  async findPagosForAdmin(producerId: number, query: ListPagosDto) {
+  async findCobranzasForAdmin(producerId: number, query: ListCobranzasDto) {
     const page = query.page ?? 1
     const pageSize = query.pageSize ?? 20
     const search = query.search?.trim()
@@ -383,16 +386,17 @@ export class ClientsService {
     }
 
     if (search) {
-      where.AND = [
-        {
-          OR: [
-            { firstName: { contains: search } },
-            { lastName: { contains: search } },
-            { email: { contains: search } },
-            { dni: { contains: search } },
-          ],
-        },
-      ]
+      const words = search.split(/\s+/).filter(Boolean)
+      where.AND = words.map(word => ({
+        OR: [
+          { firstName: { contains: word } },
+          { lastName: { contains: word } },
+          { email: { contains: word } },
+          { dni: { contains: word } },
+          { phone: { contains: word } },
+          { polizas: { some: { deletedAt: null, vehiculo: { dominio: { contains: word } } } } },
+        ],
+      }))
     }
 
     const clients = await this.prisma.client.findMany({
@@ -407,9 +411,11 @@ export class ClientsService {
         polizas: {
           where: { deletedAt: null },
           select: {
+            riskType: true,
+            vehiculo: { select: { dominio: true } },
             cuotas: {
               where: { deletedAt: null },
-              select: { amount: true, dueDate: true, status: true },
+              select: { amount: true, status: true },
             },
           },
         },
@@ -424,9 +430,12 @@ export class ClientsService {
       const rejected = allCuotas.filter(c => c.status === 'rejected')
       const paid = allCuotas.filter(c => c.status === 'paid')
       const totalDeuda = [...pending, ...overdue, ...rejected].reduce((sum, c) => sum + Number(c.amount), 0)
-      const lastPayment = paid
-        .filter(c => c.dueDate)
-        .sort((a, b) => new Date(b.dueDate!).getTime() - new Date(a.dueDate!).getTime())[0]
+
+      const ramos: RiskType[] = []
+      for (const p of client.polizas) {
+        if (!ramos.includes(p.riskType)) ramos.push(p.riskType)
+      }
+      const dominio = client.polizas.find(p => p.vehiculo?.dominio)?.vehiculo?.dominio ?? null
 
       return {
         id: client.id,
@@ -435,27 +444,35 @@ export class ClientsService {
         dni: client.dni,
         email: client.email,
         phone: client.phone,
+        ramos,
+        dominio,
         pendingCount: pending.length,
         overdueCount: overdue.length,
         rejectedCount: rejected.length,
         paidCount: paid.length,
         totalDeuda: totalDeuda.toFixed(2),
-        lastPaymentDate: lastPayment?.dueDate?.toISOString() ?? null,
       }
     })
 
-    let filtered = enriched
+    let filtered: typeof enriched
     switch (query.estado) {
-      case PagoEstadoFilter.CON_DEUDA:
-        filtered = enriched.filter(c => c.pendingCount + c.overdueCount > 0)
+      case CobranzaEstadoFilter.VENCIDAS:
+        filtered = enriched.filter(c => c.overdueCount > 0)
         break
-      case PagoEstadoFilter.RECHAZADO:
+      case CobranzaEstadoFilter.RECHAZADAS:
         filtered = enriched.filter(c => c.rejectedCount > 0)
         break
-      case PagoEstadoFilter.AL_DIA:
-        filtered = enriched.filter(c => c.pendingCount + c.overdueCount + c.rejectedCount === 0)
+      case CobranzaEstadoFilter.PENDIENTES:
+        filtered = enriched.filter(c => c.pendingCount > 0)
+        break
+      case CobranzaEstadoFilter.TODAS:
+      default:
+        filtered = enriched.filter(c => c.pendingCount + c.overdueCount + c.rejectedCount > 0)
         break
     }
+
+    // Most urgent first: more overdue cuotas, then larger debt.
+    filtered.sort((a, b) => b.overdueCount - a.overdueCount || Number(b.totalDeuda) - Number(a.totalDeuda))
 
     const total = filtered.length
     const data = filtered.slice((page - 1) * pageSize, page * pageSize)
@@ -463,34 +480,58 @@ export class ClientsService {
     return { data, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
   }
 
-  async getPagosStats(producerId: number) {
-    const baseWhere = { deletedAt: null, poliza: { producerId, deletedAt: null } }
+  async getCobranzasStats(producerId: number) {
+    const baseCuota = { deletedAt: null, poliza: { producerId, deletedAt: null } }
+    const clientWithCuotaStatus = (status: 'pending' | 'overdue' | 'rejected'): Prisma.ClientWhereInput => ({
+      producerId,
+      deletedAt: null,
+      polizas: { some: { deletedAt: null, cuotas: { some: { deletedAt: null, status } } } },
+    })
 
-    const [cuotasVencidas, cuotasRechazadas, cuotasPendientes] = await this.prisma.$transaction([
-      this.prisma.cuota.count({ where: { ...baseWhere, status: 'overdue' } }),
-      this.prisma.cuota.count({ where: { ...baseWhere, status: 'rejected' } }),
-      this.prisma.cuota.count({ where: { ...baseWhere, status: 'pending' } }),
+    const [
+      cuotasVencidas,
+      cuotasRechazadas,
+      cuotasPendientes,
+      clientesVencidas,
+      clientesRechazadas,
+      clientesPendientes,
+      clientesConDeuda,
+    ] = await this.prisma.$transaction([
+      this.prisma.cuota.count({ where: { ...baseCuota, status: 'overdue' } }),
+      this.prisma.cuota.count({ where: { ...baseCuota, status: 'rejected' } }),
+      this.prisma.cuota.count({ where: { ...baseCuota, status: 'pending' } }),
+      this.prisma.client.count({ where: clientWithCuotaStatus('overdue') }),
+      this.prisma.client.count({ where: clientWithCuotaStatus('rejected') }),
+      this.prisma.client.count({ where: clientWithCuotaStatus('pending') }),
+      this.prisma.client.count({
+        where: {
+          producerId,
+          deletedAt: null,
+          polizas: {
+            some: {
+              deletedAt: null,
+              cuotas: { some: { deletedAt: null, status: { in: ['pending', 'overdue', 'rejected'] } } },
+            },
+          },
+        },
+      }),
     ])
 
     const deudaCuotas = await this.prisma.cuota.findMany({
-      where: { ...baseWhere, status: { in: ['pending', 'overdue', 'rejected'] } },
+      where: { ...baseCuota, status: { in: ['pending', 'overdue', 'rejected'] } },
       select: { amount: true },
     })
     const montoDeudaTotal = deudaCuotas.reduce((sum, c) => sum + Number(c.amount), 0).toFixed(2)
 
-    const clientesConDeuda = await this.prisma.client.count({
-      where: {
-        producerId,
-        deletedAt: null,
-        polizas: {
-          some: {
-            deletedAt: null,
-            cuotas: { some: { deletedAt: null, status: { in: ['pending', 'overdue', 'rejected'] } } },
-          },
-        },
-      },
-    })
-
-    return { clientesConDeuda, cuotasVencidas, cuotasRechazadas, cuotasPendientes, montoDeudaTotal }
+    return {
+      clientesConDeuda,
+      clientesVencidas,
+      clientesRechazadas,
+      clientesPendientes,
+      cuotasVencidas,
+      cuotasRechazadas,
+      cuotasPendientes,
+      montoDeudaTotal,
+    }
   }
 }
