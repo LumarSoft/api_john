@@ -86,6 +86,7 @@ model Client {
 
 enum RiskType {
   auto
+  moto
   home
   life
   commercial
