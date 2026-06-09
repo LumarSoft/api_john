@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ClientEstadoFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
+import { ListPagosDto, PagoEstadoFilter } from './dto/list-pagos.dto'
 
 // ─── Bien data extracted from rawData.SDTOtrosRiesgosDatos ───────────────────
 // Present on non-vehicle policies (life, home, commercial, other).
@@ -83,6 +84,10 @@ const ADMIN_CLIENT_SELECT = {
           cobertura: true,
           sumaAsegurada: true,
         },
+      },
+      cuotas: {
+        where: { deletedAt: null },
+        select: { status: true },
       },
     },
     orderBy: { vigenciaHasta: 'asc' as const },
@@ -227,7 +232,7 @@ export class ClientsService {
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : DEFAULT_PAGE_SIZE
     const where = this.buildAdminWhere(producerId, query)
 
-    const [total, data] = await this.prisma.$transaction([
+    const [total, raw] = await this.prisma.$transaction([
       this.prisma.client.count({ where }),
       this.prisma.client.findMany({
         where,
@@ -237,6 +242,20 @@ export class ClientsService {
         take: pageSize,
       }),
     ])
+
+    const data = raw.map(client => {
+      const allCuotas = client.polizas.flatMap(p => p.cuotas)
+      return {
+        ...client,
+        polizas: client.polizas.map(({ cuotas: _, ...p }) => p),
+        cuotaStats: {
+          pending: allCuotas.filter(c => c.status === 'pending').length,
+          overdue: allCuotas.filter(c => c.status === 'overdue').length,
+          rejected: allCuotas.filter(c => c.status === 'rejected').length,
+          paid: allCuotas.filter(c => c.status === 'paid').length,
+        },
+      }
+    })
 
     return {
       data,
@@ -350,5 +369,128 @@ export class ClientsService {
 
     const { rawData, ...rest } = poliza
     return { ...rest, bien: extractBien(rawData) }
+  }
+
+  async findPagosForAdmin(producerId: number, query: ListPagosDto) {
+    const page = query.page ?? 1
+    const pageSize = query.pageSize ?? 20
+    const search = query.search?.trim()
+
+    const where: Prisma.ClientWhereInput = {
+      producerId,
+      deletedAt: null,
+      polizas: { some: { deletedAt: null, cuotas: { some: { deletedAt: null } } } },
+    }
+
+    if (search) {
+      where.AND = [
+        {
+          OR: [
+            { firstName: { contains: search } },
+            { lastName: { contains: search } },
+            { email: { contains: search } },
+            { dni: { contains: search } },
+          ],
+        },
+      ]
+    }
+
+    const clients = await this.prisma.client.findMany({
+      where,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        dni: true,
+        email: true,
+        phone: true,
+        polizas: {
+          where: { deletedAt: null },
+          select: {
+            cuotas: {
+              where: { deletedAt: null },
+              select: { amount: true, dueDate: true, status: true },
+            },
+          },
+        },
+      },
+      orderBy: { lastName: 'asc' },
+    })
+
+    const enriched = clients.map(client => {
+      const allCuotas = client.polizas.flatMap(p => p.cuotas)
+      const pending = allCuotas.filter(c => c.status === 'pending')
+      const overdue = allCuotas.filter(c => c.status === 'overdue')
+      const rejected = allCuotas.filter(c => c.status === 'rejected')
+      const paid = allCuotas.filter(c => c.status === 'paid')
+      const totalDeuda = [...pending, ...overdue, ...rejected].reduce((sum, c) => sum + Number(c.amount), 0)
+      const lastPayment = paid
+        .filter(c => c.dueDate)
+        .sort((a, b) => new Date(b.dueDate!).getTime() - new Date(a.dueDate!).getTime())[0]
+
+      return {
+        id: client.id,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        dni: client.dni,
+        email: client.email,
+        phone: client.phone,
+        pendingCount: pending.length,
+        overdueCount: overdue.length,
+        rejectedCount: rejected.length,
+        paidCount: paid.length,
+        totalDeuda: totalDeuda.toFixed(2),
+        lastPaymentDate: lastPayment?.dueDate?.toISOString() ?? null,
+      }
+    })
+
+    let filtered = enriched
+    switch (query.estado) {
+      case PagoEstadoFilter.CON_DEUDA:
+        filtered = enriched.filter(c => c.pendingCount + c.overdueCount > 0)
+        break
+      case PagoEstadoFilter.RECHAZADO:
+        filtered = enriched.filter(c => c.rejectedCount > 0)
+        break
+      case PagoEstadoFilter.AL_DIA:
+        filtered = enriched.filter(c => c.pendingCount + c.overdueCount + c.rejectedCount === 0)
+        break
+    }
+
+    const total = filtered.length
+    const data = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+    return { data, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
+  }
+
+  async getPagosStats(producerId: number) {
+    const baseWhere = { deletedAt: null, poliza: { producerId, deletedAt: null } }
+
+    const [cuotasVencidas, cuotasRechazadas, cuotasPendientes] = await this.prisma.$transaction([
+      this.prisma.cuota.count({ where: { ...baseWhere, status: 'overdue' } }),
+      this.prisma.cuota.count({ where: { ...baseWhere, status: 'rejected' } }),
+      this.prisma.cuota.count({ where: { ...baseWhere, status: 'pending' } }),
+    ])
+
+    const deudaCuotas = await this.prisma.cuota.findMany({
+      where: { ...baseWhere, status: { in: ['pending', 'overdue', 'rejected'] } },
+      select: { amount: true },
+    })
+    const montoDeudaTotal = deudaCuotas.reduce((sum, c) => sum + Number(c.amount), 0).toFixed(2)
+
+    const clientesConDeuda = await this.prisma.client.count({
+      where: {
+        producerId,
+        deletedAt: null,
+        polizas: {
+          some: {
+            deletedAt: null,
+            cuotas: { some: { deletedAt: null, status: { in: ['pending', 'overdue', 'rejected'] } } },
+          },
+        },
+      },
+    })
+
+    return { clientesConDeuda, cuotasVencidas, cuotasRechazadas, cuotasPendientes, montoDeudaTotal }
   }
 }

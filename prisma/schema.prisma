@@ -148,7 +148,7 @@ model Cuota {
   numeroCuota Int
   amount      Decimal   @db.Decimal(12, 2)
   dueDate     DateTime?
-  status      String    @default("pending") // "pending" | "paid" | "overdue"
+  status      String    @default("pending") // "pending" | "paid" | "overdue" | "rejected"
   deletedAt   DateTime?
 
   polizaId Int
