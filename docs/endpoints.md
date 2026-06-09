@@ -450,6 +450,99 @@ Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own
 
 ---
 
+## Admin — Asegurados
+
+All endpoints are scoped to the authenticated user's `producerId` and require a `user` JWT.
+
+### GET /admin/clients
+
+Returns a paginated, searchable and filterable list of insured clients (asegurados) with a summary of their policies.
+
+**Auth required:** Yes
+
+**Query parameters**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `search` | string | No | Max 120 chars. Matches first name, last name, email, DNI, phone or vehicle plate (`dominio`). |
+| `riskType` | enum | No | One of `auto`, `home`, `life`, `commercial`, `other`. Filters clients with at least one policy of that risk. |
+| `estado` | enum | No | One of `vigente` (has an in-force policy), `por_vencer` (a policy expiring within 30 days), `vencida` (has policies but none in force), `sin_polizas` (no policies). |
+| `sort` | enum | No | One of `nombre_asc` (default), `nombre_desc`, `reciente`. |
+| `page` | int | No | `>= 1`. Defaults to 1. |
+| `pageSize` | int | No | `1..100`. Defaults to 20. |
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "data": [
+    {
+      "id": 12,
+      "firstName": "Juan",
+      "lastName": "Pérez",
+      "email": "juan@example.com",
+      "phone": "+5491155550000",
+      "city": "CABA",
+      "dni": "30111222",
+      "createdAt": "2026-01-10T12:00:00.000Z",
+      "polizas": [
+        {
+          "id": 88,
+          "certificado": "000123",
+          "riskType": "auto",
+          "status": "VIGENTE",
+          "vigenciaDesde": "2026-01-01T00:00:00.000Z",
+          "vigenciaHasta": "2027-01-01T00:00:00.000Z",
+          "premio": "150000.00",
+          "vehiculo": { "id": 5, "dominio": "AB123CD", "marca": "Toyota", "modelo": "Corolla", "subModelo": null, "anio": 2022, "cobertura": "C", "sumaAsegurada": "12000000.00" }
+        }
+      ]
+    }
+  ],
+  "total": 134,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 7
+}
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+### GET /admin/clients/stats
+
+Returns aggregate portfolio metrics for the dashboard/stat bar.
+
+**Auth required:** Yes
+
+**Responses**
+
+`200 OK`
+```json
+{ "totalClients": 134, "vigentes": 210, "porVencer": 12, "vencidas": 8, "cuotasVencidas": 5 }
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+### GET /admin/clients/:id
+
+Returns the full detail of a single insured client, including every policy with its vehicle and instalments (`cuotas`).
+
+**Auth required:** Yes
+
+**Responses**
+
+`200 OK` — Client detail object (see `AdminClientDetail`).
+
+`401 Unauthorized` — Missing or invalid token
+
+`404 Not Found` — Client does not exist within the producer
+```json
+{ "statusCode": 404, "message": "Client 99 not found", "error": "Not Found" }
+```
+
+---
+
 ## Health
 
 ### GET /
