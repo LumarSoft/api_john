@@ -10,6 +10,8 @@ import { CotizadorModule } from './cotizador/cotizador.module'
 import { InfoAutoModule } from './infoauto/infoauto.module'
 import { ClientsModule } from './clients/clients.module'
 import { CarteraSyncModule } from './cartera-sync/cartera-sync.module'
+import { SiniestrosModule } from './siniestros/siniestros.module'
+import { MailModule } from './mail/mail.module'
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { CarteraSyncModule } from './cartera-sync/cartera-sync.module'
     InfoAutoModule,
     ClientsModule,
     CarteraSyncModule,
+    MailModule,
+    SiniestrosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
