@@ -415,7 +415,7 @@ export class ClientsService {
             vehiculo: { select: { dominio: true } },
             cuotas: {
               where: { deletedAt: null },
-              select: { amount: true, status: true },
+              select: { amount: true, status: true, dueDate: true },
             },
           },
         },
@@ -429,13 +429,22 @@ export class ClientsService {
       const overdue = allCuotas.filter(c => c.status === 'overdue')
       const rejected = allCuotas.filter(c => c.status === 'rejected')
       const paid = allCuotas.filter(c => c.status === 'paid')
-      const totalDeuda = [...pending, ...overdue, ...rejected].reduce((sum, c) => sum + Number(c.amount), 0)
+      // Negative-amount cuotas are insurer credits/adjustments, not debt — excluded from the owed total.
+      const totalDeuda = [...pending, ...overdue, ...rejected].reduce(
+        (sum, c) => sum + Math.max(0, Number(c.amount)),
+        0,
+      )
 
       const ramos: RiskType[] = []
       for (const p of client.polizas) {
         if (!ramos.includes(p.riskType)) ramos.push(p.riskType)
       }
       const dominio = client.polizas.find(p => p.vehiculo?.dominio)?.vehiculo?.dominio ?? null
+
+      const overdueDates = overdue.map(c => c.dueDate).filter((d): d is Date => d != null)
+      const oldestOverdueDate = overdueDates.length
+        ? overdueDates.reduce((min, d) => (d < min ? d : min)).toISOString()
+        : null
 
       return {
         id: client.id,
@@ -451,6 +460,7 @@ export class ClientsService {
         rejectedCount: rejected.length,
         paidCount: paid.length,
         totalDeuda: totalDeuda.toFixed(2),
+        oldestOverdueDate,
       }
     })
 
@@ -471,8 +481,13 @@ export class ClientsService {
         break
     }
 
-    // Most urgent first: more overdue cuotas, then larger debt.
-    filtered.sort((a, b) => b.overdueCount - a.overdueCount || Number(b.totalDeuda) - Number(a.totalDeuda))
+    // Most urgent first: clients with the oldest overdue cuota, then by larger debt.
+    filtered.sort((a, b) => {
+      if (a.oldestOverdueDate && b.oldestOverdueDate) return a.oldestOverdueDate.localeCompare(b.oldestOverdueDate)
+      if (a.oldestOverdueDate) return -1
+      if (b.oldestOverdueDate) return 1
+      return Number(b.totalDeuda) - Number(a.totalDeuda)
+    })
 
     const total = filtered.length
     const data = filtered.slice((page - 1) * pageSize, page * pageSize)
@@ -521,7 +536,8 @@ export class ClientsService {
       where: { ...baseCuota, status: { in: ['pending', 'overdue', 'rejected'] } },
       select: { amount: true },
     })
-    const montoDeudaTotal = deudaCuotas.reduce((sum, c) => sum + Number(c.amount), 0).toFixed(2)
+    // Negative-amount cuotas are insurer credits/adjustments, not debt — excluded from the owed total.
+    const montoDeudaTotal = deudaCuotas.reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0).toFixed(2)
 
     return {
       clientesConDeuda,
