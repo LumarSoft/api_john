@@ -32,6 +32,17 @@ async function main() {
     },
   })
 
+  await prisma.user.upsert({
+    where: { email: 'test@gmail.com' },
+    update: {},
+    create: {
+      email: 'test@gmail.com',
+      password: await bcrypt.hash('test123', 10),
+      role: 'admin',
+      producerId: producer.id,
+    },
+  })
+
   await prisma.phoneNumber.upsert({
     where: { phoneNumberId: 'TEST_META_PHONE_ID' },
     update: {},
