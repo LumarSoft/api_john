@@ -3,6 +3,53 @@ import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ClientEstadoFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
 
+// ─── Bien data extracted from rawData.SDTOtrosRiesgosDatos ───────────────────
+// Present on non-vehicle policies (life, home, commercial, other).
+// Never sent on vehicle policies (they use the Vehiculo relation instead).
+
+export interface BienCobertura {
+  riesgo: string
+  cobertura: string
+  sumaAsegurada: string
+}
+
+export interface BienData {
+  descripcion: string | null
+  coberturas: BienCobertura[]
+}
+
+function extractBien(rawData: Prisma.JsonValue): BienData | null {
+  if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return null
+  const raw = rawData as Record<string, Prisma.JsonValue>
+  const otros = raw.SDTOtrosRiesgosDatos
+  if (!otros || typeof otros !== 'object' || Array.isArray(otros)) return null
+  const o = otros as Record<string, Prisma.JsonValue>
+
+  const descripcion =
+    typeof o.ObjetoSeguroDescripcion === 'string' && o.ObjetoSeguroDescripcion.trim()
+      ? o.ObjetoSeguroDescripcion.trim()
+      : null
+
+  const coberturas: BienCobertura[] = []
+  if (Array.isArray(o.SDTRiesgosCoberturas)) {
+    for (const c of o.SDTRiesgosCoberturas) {
+      if (c && typeof c === 'object' && !Array.isArray(c)) {
+        const cob = c as Record<string, Prisma.JsonValue>
+        if (typeof cob.Riesgo === 'string' && typeof cob.Cobertura === 'string') {
+          coberturas.push({
+            riesgo: cob.Riesgo,
+            cobertura: cob.Cobertura,
+            sumaAsegurada: typeof cob.SumaAsegurada === 'string' ? cob.SumaAsegurada : '0.00',
+          })
+        }
+      }
+    }
+  }
+
+  if (!descripcion && coberturas.length === 0) return null
+  return { descripcion, coberturas }
+}
+
 const DEFAULT_PAGE_SIZE = 20
 const EXPIRING_WINDOW_DAYS = 30
 
@@ -90,7 +137,7 @@ const ADMIN_CLIENT_DETAIL_SELECT = {
   },
 } as const
 
-// Poliza shape returned for list — includes cuotas for payment summary, omits rawData
+// Poliza shape fetched from DB — rawData is extracted server-side and dropped from the response
 const POLIZA_LIST_SELECT = {
   id: true,
   certificado: true,
@@ -103,6 +150,7 @@ const POLIZA_LIST_SELECT = {
   premio: true,
   paymentMethod: true,
   createdAt: true,
+  rawData: true,
   vehiculo: {
     select: {
       id: true,
@@ -160,17 +208,18 @@ export class ClientsService {
       orderBy: { vigenciaDesde: 'desc' },
     })
 
-    // For auto policies: keep only the most recent per vehicle dominio.
-    // Ordering by vigenciaDesde desc means the first occurrence per dominio is the newest.
+    // For vehicle policies: keep only the most recent per dominio (dedup by plate).
     const seenDominio = new Set<string>()
 
-    return polizas.filter(p => {
-      const dominio = p.vehiculo?.dominio
-      if (!dominio) return true // non-auto policies are always returned
-      if (seenDominio.has(dominio)) return false
-      seenDominio.add(dominio)
-      return true
-    })
+    return polizas
+      .filter(p => {
+        const dominio = p.vehiculo?.dominio
+        if (!dominio) return true
+        if (seenDominio.has(dominio)) return false
+        seenDominio.add(dominio)
+        return true
+      })
+      .map(({ rawData, ...rest }) => ({ ...rest, bien: extractBien(rawData) }))
   }
 
   async findAllForAdmin(producerId: number, query: ListClientsDto) {
@@ -297,10 +346,9 @@ export class ClientsService {
       select: POLIZA_DETAIL_SELECT,
     })
 
-    if (!poliza) {
-      throw new NotFoundException(`Policy ${id} not found`)
-    }
+    if (!poliza) throw new NotFoundException(`Policy ${id} not found`)
 
-    return poliza
+    const { rawData, ...rest } = poliza
+    return { ...rest, bien: extractBien(rawData) }
   }
 }

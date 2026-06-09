@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
 import * as bcrypt from 'bcrypt'
 import { ConfigService } from '@nestjs/config'
+import { RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import {
   TriunfoService,
@@ -11,11 +12,31 @@ import {
 
 // ─── Helpers ─────────────────────────────────────────────
 
-// Map Triunfo Articulo code to our RiskType enum values
-function articuloToRiskType(articulo: number | string): 'auto' | 'other' {
-  const code = String(articulo).trim()
-  if (code === '458' || code === '481') return 'auto'
-  return 'other'
+/**
+ * Determine RiskType from vehicle data and Triunfo article code.
+ *
+ * Vehicle policies: always have SDTVehiculoDatos — classify by Tipo field.
+ *   - MOTO / MOTOCICLETA / MOTOS * CC  → moto
+ *   - AUTOMOVIL / PICK UP / CAMION / TRAILER / OMNIBUS / ACOPLADO → auto
+ *
+ * Non-vehicle policies: classify by Triunfo article code.
+ *   - 197, 128, 124, 195 → life  (sepelio, accidentes personales)
+ *   - 267, 264           → home  (hogar — incendio + robo + contenido)
+ *   - 170, 802           → commercial (comercio / edificio / RC)
+ *   - 657                → other (bicicleta — robo, incendio, RC)
+ *   - rest               → other
+ */
+function resolveRiskType(vehiculoDatos: TriunfoVehiculoDato | null, articulo: number | string): RiskType {
+  if (vehiculoDatos) {
+    const tipo = (vehiculoDatos.Tipo ?? '').toUpperCase()
+    if (tipo.includes('MOTO') || tipo === 'MOTOCICLETA') return RiskType.moto
+    return RiskType.auto
+  }
+  const code = Number(articulo)
+  if (code === 197 || code === 128 || code === 124 || code === 195) return RiskType.life
+  if (code === 267 || code === 264) return RiskType.home
+  if (code === 170 || code === 802) return RiskType.commercial
+  return RiskType.other
 }
 
 // "BENITEZ EVELYN ELIZABETH" → { firstName: "EVELYN ELIZABETH", lastName: "BENITEZ" }
@@ -140,16 +161,19 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     const premio = novedad.DetallePremio?.Premio ?? novedad.Premio ?? null
     const paymentMethod = novedad.MedioPagoDescripcion ?? null
     const suplemento = novedad.Suplemento ?? 0
-    const riskType = articuloToRiskType(novedad.Articulo)
 
+    // Extract vehicle data first — presence determines riskType
     const vehiculoDatos: TriunfoVehiculoDato | null =
       Array.isArray(novedad.SDTVehiculoDatos) && novedad.SDTVehiculoDatos.length > 0
         ? novedad.SDTVehiculoDatos[0]
         : null
 
+    const riskType = resolveRiskType(vehiculoDatos, novedad.Articulo)
+
     const cuotasDatos: TriunfoCuotaDato[] = Array.isArray(novedad.SDTCuota) ? novedad.SDTCuota : []
 
     // ── 1. Find or create Client ──────────────────────────
+
     let client = await this.prisma.client.findFirst({
       where: { dni, producerId, deletedAt: null },
       select: { id: true, email: true, firstName: true },
@@ -227,10 +251,10 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       select: { id: true },
     })
 
-    // ── 3. Upsert Vehiculo (auto policies only) ───────────
-    const patente = vehiculoDatos?.Dominio?.trim() ?? novedad.Patente?.trim()
-    if (patente && riskType === 'auto') {
+    // ── 3. Upsert Vehiculo (any policy with SDTVehiculoDatos) ─
+    if (vehiculoDatos) {
       const v = vehiculoDatos
+      const patente = v.Dominio?.trim() || null
       await this.prisma.vehiculo.upsert({
         where: { polizaId: poliza.id },
         create: {
