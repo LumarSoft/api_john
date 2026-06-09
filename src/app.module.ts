@@ -11,6 +11,7 @@ import { InfoAutoModule } from './infoauto/infoauto.module'
 import { ClientsModule } from './clients/clients.module'
 import { CarteraSyncModule } from './cartera-sync/cartera-sync.module'
 import { SiniestrosModule } from './siniestros/siniestros.module'
+import { DocumentosModule } from './documentos/documentos.module'
 import { MailModule } from './mail/mail.module'
 
 @Module({
@@ -26,6 +27,7 @@ import { MailModule } from './mail/mail.module'
     CarteraSyncModule,
     MailModule,
     SiniestrosModule,
+    DocumentosModule,
   ],
   controllers: [AppController],
   providers: [AppService],
