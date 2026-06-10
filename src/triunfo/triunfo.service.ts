@@ -62,11 +62,30 @@ export interface TriunfoNovedad {
   Cobertura?: string
 }
 
+// Document returned by RESTConsultaInspV2 for a policy.
+export interface TriunfoDocumento {
+  Codigo: string
+  Nombre: string
+  Url: string
+}
+
 @Injectable()
 export class TriunfoService {
   private readonly logger = new Logger(TriunfoService.name)
   private cachedToken: string | null = null
   private tokenExpiresAt: number | null = null
+
+  // Short-lived in-memory cache of policy documents, keyed by certificado.
+  private readonly documentosCache = new Map<string, { data: TriunfoDocumento[]; expiresAt: number }>()
+  private static readonly DOCUMENTOS_TTL_MS = 10 * 60 * 1000 // 10 minutes
+
+  // Fallback display names for known Triunfo document codes, used when the
+  // provider returns an empty `Nombre`.
+  private static readonly DOCUMENTO_NOMBRES: Record<string, string> = {
+    '1000': 'Certificado de Cobertura',
+    '1001': 'Tarjeta de Circulación',
+    '1002': 'Cupón de Pago',
+  }
 
   private readonly baseUrlAuth: string
   readonly baseUrlSip: string
@@ -161,5 +180,81 @@ export class TriunfoService {
     // Triunfo returns a single object instead of array when there is only one result
     const raw = out.Novedades ?? []
     return Array.isArray(raw) ? raw : [raw]
+  }
+
+  /**
+   * Fetches the available documents of an emitted policy (certificado) on demand
+   * via RESTConsultaInspV2. Requires a JWT, so the token is requested first.
+   * Results are cached in memory for a few minutes per certificado.
+   */
+  async getDocumentos(certificado: string): Promise<TriunfoDocumento[]> {
+    const cached = this.documentosCache.get(certificado)
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data
+    }
+
+    this.logger.log(`Consultando documentos de la póliza ${certificado}`)
+
+    const response = await firstValueFrom(
+      this.httpService.post(`${this.baseUrlSip}/RESTConsultaInspV2`, {
+        Autenticacion: await this.getAuth(),
+        TipoOperacion: 'C', // C = Certificado (emitted policy)
+        Operacion: certificado,
+      }),
+    )
+
+    // Triunfo's real shape differs from the Postman sample: the wrapper is
+    // `SDTConsultaInsp` (not `...Out`), the result is `SDTResultado` (not `Resultado`),
+    // and documents may come as a `Documentos[]` array OR as a single `URL` string.
+    // We parse both shapes defensively.
+    const out = response.data?.SDTConsultaInsp ?? response.data?.SDTConsultaInspOut
+
+    if (!out) {
+      throw new Error(`Triunfo ConsultaInsp: respuesta inesperada — ${JSON.stringify(response.data)}`)
+    }
+
+    const resultado = out.SDTResultado ?? out.Resultado
+    const estado: string | undefined = resultado?.Estado
+    const mensajes: Array<{ Description?: string; Id?: string; Type?: number }> = resultado?.Mensajes ?? []
+
+    // Estado 'S' = success. Anything else (e.g. 'N' — "no hay documentos" or
+    // "no se encuentra esa operación") is a valid empty result for the portal,
+    // not a hard error. Common in the sandbox where test certificados don't exist.
+    if (estado !== 'S') {
+      const msg = mensajes.map(m => m.Description ?? m.Id ?? '?').join('; ')
+      this.logger.debug(`ConsultaInsp ${certificado}: sin documentos (${estado ?? '?'})${msg ? ` — ${msg}` : ''}`)
+      this.documentosCache.set(certificado, { data: [], expiresAt: Date.now() + TriunfoService.DOCUMENTOS_TTL_MS })
+      return []
+    }
+
+    const documentos = this.parseDocumentos(out)
+
+    this.documentosCache.set(certificado, {
+      data: documentos,
+      expiresAt: Date.now() + TriunfoService.DOCUMENTOS_TTL_MS,
+    })
+
+    return documentos
+  }
+
+  // Normalizes the documents payload, which Triunfo returns either as a
+  // `Documentos` array of { Codigo, Nombre, Url } or as a single `URL` string.
+  private parseDocumentos(out: {
+    Documentos?: TriunfoDocumento | TriunfoDocumento[]
+    URL?: string
+  }): TriunfoDocumento[] {
+    if (out.Documentos) {
+      const raw = Array.isArray(out.Documentos) ? out.Documentos : [out.Documentos]
+      return raw
+        .filter(doc => doc?.Url)
+        .map(doc => ({
+          ...doc,
+          Nombre: doc.Nombre?.trim() || TriunfoService.DOCUMENTO_NOMBRES[doc.Codigo] || 'Documento de póliza',
+        }))
+    }
+    if (out.URL) {
+      return [{ Codigo: '', Nombre: 'Documento de póliza', Url: out.URL }]
+    }
+    return []
   }
 }
