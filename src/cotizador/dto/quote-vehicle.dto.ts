@@ -1,6 +1,8 @@
 import { IsInt, IsString, Min, Max, IsOptional } from 'class-validator'
 
-export class CotizarAutoDto {
+// Same shape for every vehicle line (auto, moto). The line is taken from the
+// route segment, not the body.
+export class QuoteVehicleDto {
   @IsString()
   brand: string
 

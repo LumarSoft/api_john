@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core'
-import { ValidationPipe } from '@nestjs/common'
+import { ValidationPipe, BadRequestException, Logger } from '@nestjs/common'
 import { NestExpressApplication } from '@nestjs/platform-express'
 import { join } from 'path'
 import type { ServerResponse } from 'http'
@@ -25,16 +25,25 @@ async function bootstrap() {
     },
   })
 
+  const validationLogger = new Logger('ValidationPipe')
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      exceptionFactory: errors => {
+        validationLogger.warn(
+          `Validation failed — ${errors.map(e => `[${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}]`).join(' ')}`,
+        )
+        return new BadRequestException(errors)
+      },
     }),
   )
 
   const port = process.env.PORT ?? 3000
   await app.listen(port)
-  console.log(`App running on port ${port}`)
+  new Logger('Bootstrap').log(`App running on port ${port}`)
 }
-bootstrap()
+
+void bootstrap()
