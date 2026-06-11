@@ -95,58 +95,150 @@ Authenticates a user and returns a JWT access token.
 
 ## Cotizador
 
-### POST /cotizador/auto
+### POST /cotizador/:vehicleType
 
-Requests an auto insurance quote from the Triunfo API. If the request includes a valid JWT, the quote is saved to the database linked to that user. Unauthenticated requests are allowed — the quote is saved without a user association.
+Requests a vehicle insurance quote from the Triunfo API. `vehicleType` is the path segment `auto` or `moto`; it selects both the InfoAuto catalog (cars vs motorcycles) and the Triunfo product code (`Articulo` 458 auto / 481 moto). If the request includes a valid JWT, the quote is saved to the database linked to that user. Unauthenticated requests are allowed — the quote is saved without a user association.
 
 **Auth required:** No (optional — send Bearer token to associate the quote with a user)
+
+**Path params**
+
+| Param       | Type   | Constraints     |
+|-------------|--------|-----------------|
+| vehicleType | string | `auto` or `moto` |
+
+The vehicle value is resolved from InfoAuto (0km list price, or used price by year) and sent to Triunfo. The raw Triunfo response is persisted as `Cotizacion` (with `vehicleType`); the endpoint returns a normalized result with one entry per valid coverage, sorted by premium ascending.
 
 **Request body**
 
 | Field           | Type   | Required | Constraints                              |
 |-----------------|--------|----------|------------------------------------------|
-| marca           | string | Yes      | Triunfo brand code                       |
-| modelo          | string | Yes      | Triunfo model code                       |
-| anioFabricacion | number | Yes      | Integer between 1900 and current year +1 |
-| codigoPostal    | number | Yes      | Integer                                  |
+| brand           | string | Yes      | InfoAuto brand id                        |
+| model           | string | Yes      | InfoAuto CODIA                           |
+| manufactureYear | number | Yes      | Integer between 1900 and current year +1 |
+| postalCode      | number | Yes      | Integer                                  |
+| coverage        | string | No       | Triunfo coverage code — empty quotes all |
 
 ```json
 {
-  "marca": "2",
-  "modelo": "12345",
-  "anioFabricacion": 2020,
-  "codigoPostal": 1425
+  "brand": "2",
+  "model": "12345",
+  "manufactureYear": 2020,
+  "postalCode": 1425
 }
 ```
 
 **Responses**
 
-`201 Created` — Raw Triunfo API response. Key field:
+`201 Created`
 ```json
 {
-  "SDTSrvCotizacionOut": {
-    "PresupuestoNro": 987654,
-    "..."
-  }
+  "quoteNumber": "15464992",
+  "validUntil": "2026-06-25",
+  "vehicleValue": "5000000.00",
+  "coverages": [
+    {
+      "code": "A",
+      "paymentOptions": [
+        { "code": "6", "name": "Contado", "premium": 59228, "installmentValue": 59228, "installments": 1 },
+        { "code": "1", "name": "Débito Automático", "premium": 60889, "installmentValue": 60889, "installments": 1 }
+      ]
+    }
+  ],
+  "messages": []
 }
 ```
+
+`messages` contains Triunfo error descriptions (e.g. `"Código de modelo no válido"`) when the quote returns no coverages.
 
 `400 Bad Request` — Validation error (missing or invalid fields)
 
 `401 Unauthorized` — Triunfo token could not be obtained
 
+`502 Bad Gateway` — Triunfo cotizador unreachable or returned an unexpected response
+
+### POST /cotizador/:vehicleType/:quoteNumber/solicitud
+
+Records the coverage request (lead) for an existing quote: the coverage the visitor chose, the desired start date, and their personal data. It does not emit the policy — the broker follows up manually (inspection + emission are pending integrations). `vehicleType` (`auto` or `moto`) keeps the path parallel to the quote route; the lead itself is keyed by `quoteNumber`.
+
+**Auth required:** No
+
+**Request body**
+
+| Field      | Type   | Required | Constraints                                          |
+|------------|--------|----------|------------------------------------------------------|
+| coverage   | string | Yes      | Triunfo coverage code chosen by the visitor (≤ 10)   |
+| startDate  | string | Yes      | ISO date `YYYY-MM-DD`, today or later                |
+| personType | string | Yes      | `FISICA` or `JURIDICA`                               |
+| firstName  | string | Yes      | ≤ 80 — razón social when `personType` is `JURIDICA`  |
+| lastName   | string | No       | ≤ 80                                                 |
+| email      | string | Yes      | Valid email                                          |
+| phone      | string | Yes      | ≤ 25                                                 |
+| birthDate  | string | No       | ISO date `YYYY-MM-DD`                                |
+| docType    | string | Yes      | `DNI`, `CUIL`, `CUIT` or `PASAPORTE`                 |
+| docNumber  | string | Yes      | ≤ 15                                                 |
+| address    | string | Yes      | ≤ 160                                                |
+| paymentMethod | string | Yes   | `CREDIT`, `DEBIT` or `OTHER`                         |
+| cardCompany | string | If card | ≤ 30 — required when `paymentMethod` is `CREDIT`/`DEBIT` |
+| cardNumber | string | If card  | 13–19 digits — required when `paymentMethod` is `CREDIT`/`DEBIT` |
+| cardExpiry | string | If card  | `YYYYMM`, current month or later — required when `paymentMethod` is `CREDIT`/`DEBIT` |
+| cardHolder | string | If card  | ≤ 80 — required when `paymentMethod` is `CREDIT`/`DEBIT` |
+
+With `paymentMethod: "OTHER"` no card data is taken — an agent contacts the applicant by phone to finish the purchase. Card fields sent with `OTHER` are ignored.
+
+```json
+{
+  "coverage": "C1",
+  "startDate": "2026-07-01",
+  "personType": "FISICA",
+  "firstName": "Juan",
+  "lastName": "Pérez",
+  "email": "juan@email.com",
+  "phone": "3413000000",
+  "birthDate": "1990-01-15",
+  "docType": "DNI",
+  "docNumber": "30123456",
+  "address": "Calle Ejemplo 123, Rosario",
+  "paymentMethod": "CREDIT",
+  "cardCompany": "VISA",
+  "cardNumber": "4111111111111111",
+  "cardExpiry": "202712",
+  "cardHolder": "Juan Pérez"
+}
+```
+
+**Responses**
+
+`201 Created`
+```json
+{
+  "quoteNumber": "15465802",
+  "coverage": "C1",
+  "startDate": "2026-07-01"
+}
+```
+
+`400 Bad Request` — Validation error, `startDate` is in the past, or `cardExpiry` is in the past
+
+`404 Not Found` — No quote exists with that `quoteNumber`
+
 ---
 
 ## InfoAuto
 
-Proxies the InfoAuto API (`INFOAUTO_BASE_URL`) to expose vehicle data for the quotation form.
-All endpoints are public. Responses include a `pagination` object parsed from the `X-Pagination` header.
+Proxies the InfoAuto API to expose vehicle data for the quotation form. The `vehicleType` path segment (`auto` or `moto`) selects the catalog: cars (`INFOAUTO_BASE_URL`) or motorcycles (`INFOAUTO_MOTO_BASE_URL`). All endpoints are public. Responses include a `pagination` object parsed from the `X-Pagination` header.
 
-### GET /infoauto/brands
+### GET /infoauto/:vehicleType/brands
 
 Returns a paginated list of vehicle brands for the brand selector.
 
 **Auth required:** No
+
+**Path params**
+
+| Param       | Type   | Constraints      |
+|-------------|--------|------------------|
+| vehicleType | string | `auto` or `moto` |
 
 **Query params**
 
@@ -172,7 +264,7 @@ Returns a paginated list of vehicle brands for the brand selector.
 
 ---
 
-### GET /infoauto/brands/:brandId/groups
+### GET /infoauto/:vehicleType/brands/:brandId/groups
 
 Returns the groups (model families, e.g. "Corolla", "Hilux") for a given brand.
 
@@ -180,11 +272,12 @@ Returns the groups (model families, e.g. "Corolla", "Hilux") for a given brand.
 
 **Path params**
 
-| Param   | Type    | Required |
-|---------|---------|----------|
-| brandId | integer | Yes      |
+| Param       | Type    | Required | Constraints      |
+|-------------|---------|----------|------------------|
+| vehicleType | string  | Yes      | `auto` or `moto` |
+| brandId     | integer | Yes      |                  |
 
-**Query params** — same as `/infoauto/brands`
+**Query params** — same as `/infoauto/:vehicleType/brands`
 
 **Responses**
 
@@ -204,21 +297,22 @@ Returns the groups (model families, e.g. "Corolla", "Hilux") for a given brand.
 
 ---
 
-### GET /infoauto/brands/:brandId/groups/:groupId/models
+### GET /infoauto/:vehicleType/brands/:brandId/groups/:groupId/models
 
 Returns the specific versions (with their `codia`) for a given brand + group.
-The `codia` is the identifier used in `POST /cotizador/auto` as the `modelo` field.
+The `codia` is the identifier used in `POST /cotizador/:vehicleType` as the `model` field.
 
 **Auth required:** No
 
 **Path params**
 
-| Param   | Type    | Required |
-|---------|---------|----------|
-| brandId | integer | Yes      |
-| groupId | integer | Yes      |
+| Param       | Type    | Required | Constraints      |
+|-------------|---------|----------|------------------|
+| vehicleType | string  | Yes      | `auto` or `moto` |
+| brandId     | integer | Yes      |                  |
+| groupId     | integer | Yes      |                  |
 
-**Query params** — same as `/infoauto/brands`
+**Query params** — same as `/infoauto/:vehicleType/brands`
 
 **Responses**
 

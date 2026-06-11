@@ -183,6 +183,7 @@ model Siniestro {
 model Cotizacion {
   id              Int       @id @default(autoincrement())
   quoteNumber     Int       @unique
+  vehicleType     String    @default("AUTO") // AUTO | MOTO
   brandCode       String
   modelCode       String
   manufactureYear Int
@@ -196,6 +197,38 @@ model Cotizacion {
   producer        Producer  @relation(fields: [producerId], references: [id])
   userId          Int?
   user            User?     @relation(fields: [userId], references: [id])
+  solicitud       Solicitud?
+}
+
+// ─── SOLICITUDES DE COBERTURA (LEADS) ────────────────────
+
+model Solicitud {
+  id           Int        @id @default(autoincrement())
+  cotizacionId Int        @unique
+  cotizacion   Cotizacion @relation(fields: [cotizacionId], references: [id])
+
+  selectedCoverage  String
+  coverageStartDate DateTime
+
+  applicantType      String // FISICA | JURIDICA
+  applicantFirstName String // razón social when applicantType is JURIDICA
+  applicantLastName  String?
+  applicantEmail     String
+  applicantPhone     String
+  applicantBirthDate DateTime?
+  applicantDocType   String // DNI | CUIL | CUIT | PASAPORTE
+  applicantDocNumber String
+  applicantAddress   String
+
+  paymentMethod String // CREDIT | DEBIT | OTHER
+  cardCompany   String?
+  cardNumber    String?
+  cardExpiry    String? // YYYYMM (Triunfo format)
+  cardHolder    String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 }
 
 // ─── CONVERSACIONES WHATSAPP ─────────────────────────────

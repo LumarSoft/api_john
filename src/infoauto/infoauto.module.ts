@@ -8,5 +8,6 @@ import { InfoAutoController } from './infoauto.controller'
   imports: [HttpModule, ConfigModule],
   controllers: [InfoAutoController],
   providers: [InfoAutoService],
+  exports: [InfoAutoService],
 })
 export class InfoAutoModule {}
