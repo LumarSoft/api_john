@@ -44,11 +44,14 @@ async function main() {
   })
 
   // ── Phone number ────────────────────────────────────────
+  // The Meta phone_number_id must match what arrives in the webhook, or the bot
+  // can't resolve the producer. Set SEED_PHONE_NUMBER_ID to your dev number.
+  const phoneNumberId = process.env.SEED_PHONE_NUMBER_ID ?? 'TEST_META_PHONE_ID'
   await prisma.phoneNumber.upsert({
-    where: { phoneNumberId: 'TEST_META_PHONE_ID' },
+    where: { phoneNumberId },
     update: {},
     create: {
-      phoneNumberId: 'TEST_META_PHONE_ID',
+      phoneNumberId,
       number: '+54 9 11 0000-0000',
       isActive: true,
       producerId: producer.id,

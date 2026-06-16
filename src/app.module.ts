@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config'
+import { ScheduleModule } from '@nestjs/schedule'
 import { AppController } from './app.controller'
 import { AppService } from './app.service'
 import { PrismaModule } from './prisma/prisma.module'
@@ -12,11 +13,13 @@ import { ClientsModule } from './clients/clients.module'
 import { CarteraSyncModule } from './cartera-sync/cartera-sync.module'
 import { SiniestrosModule } from './siniestros/siniestros.module'
 import { DocumentosModule } from './documentos/documentos.module'
+import { BotModule } from './bot/bot.module'
 import { MailModule } from './mail/mail.module'
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -28,6 +31,7 @@ import { MailModule } from './mail/mail.module'
     MailModule,
     SiniestrosModule,
     DocumentosModule,
+    BotModule,
   ],
   controllers: [AppController],
   providers: [AppService],

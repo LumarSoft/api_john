@@ -160,11 +160,14 @@ model Cuota {
 // ─── SINIESTROS (denuncias del cliente) ──────────────────
 
 model Siniestro {
-  id          Int       @id @default(autoincrement())
-  tipo        String // "auto" | "hogar" | "robo" | "otro"
-  descripcion String    @db.Text
-  fecha       DateTime // date of the incident
-  estado      String    @default("pendiente") // "pendiente" | "en_proceso" | "resuelto"
+  id                   Int       @id @default(autoincrement())
+  tipo                 String // "auto" | "hogar" | "robo" | "otro"
+  descripcion          String    @db.Text
+  fecha                DateTime // date of the incident
+  estado               String    @default("pendiente") // "pendiente" | "en_proceso" | "resuelto"
+  // Official claim number, set by the admin after manually filing the claim in
+  // Triunfo's web (their API has no claims endpoint yet).
+  nroSiniestroCompania String?
   adjuntos    Json? // array of { filename, originalName, url, mimeType, size }
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -258,4 +261,8 @@ model Message {
 
   conversationId Int
   conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  // History is fetched as `where conversationId order by createdAt desc take 10`
+  // on every inbound message, and the retention job prunes by createdAt.
+  @@index([conversationId, createdAt])
 }
