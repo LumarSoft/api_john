@@ -59,3 +59,12 @@ await this.prisma.user.findMany({
   where: { deletedAt: null },
 })
 ```
+
+## Exceptions to soft delete
+
+The soft-delete rule applies to all business records. The single sanctioned
+exception is the **bot `Message` retention job** (`src/bot/message-retention.service.ts`):
+chat transcripts are ephemeral and the goal is to keep the `Message` table from
+growing unbounded, which a `deletedAt` flag cannot do. That job hard-deletes
+messages older than `MESSAGE_RETENTION_DAYS` (default 30). Any new hard delete
+must be justified the same way and documented here.

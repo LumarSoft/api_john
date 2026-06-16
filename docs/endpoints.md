@@ -729,3 +729,402 @@ Returns aggregate debt stats across all clients for the authenticated producer. 
 ```
 
 `401 Unauthorized` — Missing or invalid JWT
+
+## Admin — Siniestros
+
+Triunfo's API has no claims endpoint, so claims filed through the bot or the client portal are stored locally with `estado: "pendiente"`. The admin reviews them here, files them manually in Triunfo's web, and records the official claim number via `PATCH`.
+
+All endpoints require an employee/admin JWT (`type: "user"`). A client token returns `403`.
+
+### GET /admin/siniestros
+
+Paginated list of the producer's claims, newest first.
+
+**Auth required:** Yes (user JWT)
+
+**Query params**
+
+| Param    | Type   | Required | Constraints                                              |
+|----------|--------|----------|----------------------------------------------------------|
+| estado   | string | No       | `pendiente`, `en_proceso` or `resuelto`                  |
+| search   | string | No       | Matches client name, DNI, certificado or official number |
+| page     | number | No       | Default 1                                                |
+| pageSize | number | No       | Default 20, max 100                                      |
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "data": [
+    {
+      "id": 6,
+      "tipo": "auto",
+      "descripcion": "Granizo, daños en capot y techo",
+      "fecha": "2026-06-11T00:00:00.000Z",
+      "estado": "pendiente",
+      "nroSiniestroCompania": null,
+      "adjuntos": null,
+      "createdAt": "2026-06-12T13:05:00.000Z",
+      "updatedAt": "2026-06-12T13:05:00.000Z",
+      "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456", "email": "evelyn@example.com", "phone": "5491155556666" },
+      "poliza": {
+        "id": 12,
+        "certificado": "334455",
+        "company": "triunfo",
+        "riskType": "auto",
+        "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS" }
+      }
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1
+}
+```
+
+`401 Unauthorized` — Missing or invalid JWT
+
+`403 Forbidden` — Token is not an employee/admin token
+
+### GET /admin/siniestros/stats
+
+Claim counters for the admin dashboard. `sinNroCompania` counts claims not yet filed in Triunfo's web.
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK`
+```json
+{ "pendientes": 3, "enProceso": 1, "resueltos": 14, "sinNroCompania": 4 }
+```
+
+### GET /admin/siniestros/:id
+
+Detail of a single claim (same shape as the list items).
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK` — Claim object
+
+`404 Not Found` — Claim not found in this tenant
+
+### PATCH /admin/siniestros/:id
+
+Progresses the claim and/or records the official Triunfo number after filing it manually. Sending an empty `nroSiniestroCompania` clears it.
+
+**Auth required:** Yes (user JWT)
+
+**Request body**
+
+| Field                | Type   | Required | Constraints                              |
+|----------------------|--------|----------|------------------------------------------|
+| estado               | string | No*      | `pendiente`, `en_proceso` or `resuelto`  |
+| nroSiniestroCompania | string | No*      | Max 50 chars                             |
+
+*At least one field is required.
+
+```json
+{ "estado": "en_proceso", "nroSiniestroCompania": "SIN-884213" }
+```
+
+**Responses**
+
+`200 OK` — Updated claim object
+
+`400 Bad Request` — Empty body (nothing to update)
+
+`404 Not Found` — Claim not found in this tenant
+
+## Bot (WhatsApp)
+
+All `/bot/*` endpoints require the header `x-bot-secret` matching the `BOT_SECRET` env variable. They are consumed exclusively by `whatsapp-bot-seguros` — the bot never accesses the database directly.
+
+`401 Unauthorized` is returned by every endpoint when the header is missing or invalid, or when `BOT_SECRET` is not configured.
+
+### GET /bot/context/:phoneNumberId
+
+Resolves the producer (tenant) behind a Meta phone number ID, including its system prompt.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "producerId": 1,
+  "producerName": "John Pellegrini Management Group SRL",
+  "producerSlug": "john",
+  "systemPrompt": "Sos el asistente virtual de..."
+}
+```
+
+`404 Not Found` — Phone number not registered or producer inactive
+
+### GET /bot/conversation/:phoneNumberId/:waId
+
+Finds or creates the conversation for a WhatsApp user (`waId`) under the producer that owns `phoneNumberId`. Returns the last 10 messages of the **current session** in chronological order and the linked client (or `null` if the user has not identified yet).
+
+**Inactivity timeout (lazy):** if more than `SESSION_TIMEOUT_MINUTES` (env, default 5) elapsed since the last message, a new session is started — older messages are excluded from the response (they remain in the DB until the retention job) and `newSession` is `true` so the bot can greet the user again. The identified client link is kept across sessions. There is no background job: the boundary is evaluated on each inbound message.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "conversationId": 7,
+  "client": null,
+  "newSession": false,
+  "messages": [
+    { "id": 41, "role": "user", "content": "Hola", "createdAt": "2026-06-12T13:00:00.000Z" },
+    { "id": 42, "role": "assistant", "content": "¡Hola! ¿Sos cliente?", "createdAt": "2026-06-12T13:00:02.000Z" }
+  ]
+}
+```
+
+`404 Not Found` — Phone number not registered
+
+### POST /bot/conversation/:conversationId/reset
+
+Resets the conversation session (used by the secret `/reset` dev command in the bot). Moves the session boundary to now so the chat history drops out of the context window on the next message; the identified client link is kept. Old messages stay in the DB until the retention job prunes them.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`201 Created`
+```json
+{ "ok": true }
+```
+
+`404 Not Found` — Conversation not found
+
+### POST /bot/conversations/pending-warnings
+
+Sweep used by the bot's inactivity job (runs every minute). Finds the conversations that have been idle longer than `SESSION_TIMEOUT_MINUTES` and have not been warned yet, and **atomically marks them as warned** so the same silence is never warned twice. Each returned item carries the user's `waId` and the Meta `phoneNumberId` the chat came through, so the warning is sent from the same number the user wrote to.
+
+The chat is always finalized (claimed), but the warning is only **returned** during office hours (Mon–Fri 08–16, Argentina time); outside that window the conversations are finalized silently and the response is empty. Legacy conversations with no stored phone number are skipped until the next inbound message backfills it.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`201 Created`
+```json
+[
+  { "conversationId": 7, "waId": "5491155556666", "phoneNumberId": "123456789012345" }
+]
+```
+
+### POST /bot/conversation/:conversationId/message
+
+Persists a message in the conversation.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field   | Type   | Required | Constraints              |
+|---------|--------|----------|--------------------------|
+| role    | string | Yes      | `user` or `assistant`    |
+| content | string | Yes      | Non-empty, max 10000 chars |
+
+```json
+{ "role": "user", "content": "Quiero cotizar mi auto" }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{ "id": 43, "role": "user", "content": "Quiero cotizar mi auto", "createdAt": "2026-06-12T13:01:00.000Z" }
+```
+
+`404 Not Found` — Conversation not found
+
+### POST /bot/conversation/:conversationId/identify
+
+Links the conversation to a `Client` found by DNI or license plate within the producer's tenant. Required before calling the client-scoped endpoints below.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field | Type   | Required | Constraints   |
+|-------|--------|----------|---------------|
+| dni   | string | One of   | 6–11 chars    |
+| plate | string | One of   | 5–10 chars    |
+
+```json
+{ "dni": "30123456" }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{
+  "client": {
+    "id": 3,
+    "firstName": "EVELYN",
+    "lastName": "BENITEZ",
+    "dni": "30123456",
+    "email": "evelyn@example.com",
+    "phone": "5491155556666",
+    "city": "CABA"
+  },
+  "polizasCount": 2
+}
+```
+
+`400 Bad Request` — Neither `dni` nor `plate` provided
+
+`404 Not Found` — No client matches the given dni/plate
+
+### GET /bot/conversation/:conversationId/polizas
+
+Policies of the identified client, with vehicle summary.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK`
+```json
+[
+  {
+    "id": 12,
+    "certificado": "334455",
+    "company": "triunfo",
+    "riskType": "auto",
+    "status": "VIGENTE",
+    "vigenciaDesde": "2026-01-01T00:00:00.000Z",
+    "vigenciaHasta": "2027-01-01T00:00:00.000Z",
+    "paymentMethod": "Débito Automático",
+    "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS", "anio": 2022, "cobertura": "C" }
+  }
+]
+```
+
+`403 Forbidden` — Conversation has no identified client
+
+### GET /bot/conversation/:conversationId/estado-cuenta
+
+Account status per policy: unpaid installments (pending / overdue / rejected), paid count, and a `tieneRechazos` flag for debit-rejection detection.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK`
+```json
+[
+  {
+    "id": 12,
+    "certificado": "334455",
+    "riskType": "auto",
+    "status": "VIGENTE",
+    "paymentMethod": "Débito Automático",
+    "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS" },
+    "cuotasPagas": 4,
+    "cuotasImpagas": [
+      { "numeroCuota": 5, "amount": "45200.00", "dueDate": "2026-06-10T00:00:00.000Z", "status": "rejected" }
+    ],
+    "tieneRechazos": true
+  }
+]
+```
+
+`403 Forbidden` — Conversation has no identified client
+
+### GET /bot/conversation/:conversationId/polizas/:polizaId/documentos
+
+Documents of a policy (tarjeta de circulación, certificado de cobertura, cupón de pago) fetched on demand from Triunfo. The policy must belong to the identified client.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK`
+```json
+[
+  { "codigo": "1001", "nombre": "Tarjeta de Circulación", "url": "https://..." },
+  { "codigo": "1000", "nombre": "Certificado de Cobertura", "url": "https://..." }
+]
+```
+
+`403 Forbidden` — Conversation has no identified client
+
+`404 Not Found` — Policy not found or not owned by the client
+
+### GET /bot/conversation/:conversationId/siniestros
+
+Claims filed by the identified client, newest first, with their internal tracking state.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK`
+```json
+[
+  {
+    "id": 5,
+    "tipo": "auto",
+    "descripcion": "Choque en Av. Corrientes",
+    "fecha": "2026-06-10T00:00:00.000Z",
+    "estado": "en_proceso",
+    "nroSiniestroCompania": "SIN-884213",
+    "createdAt": "2026-06-10T15:00:00.000Z",
+    "poliza": { "id": 12, "certificado": "334455", "riskType": "auto" }
+  }
+]
+```
+
+`403 Forbidden` — Conversation has no identified client
+
+### POST /bot/conversation/:conversationId/siniestros
+
+Files a new claim for one of the identified client's policies and notifies the advisor by email. Attachments are not supported through the bot — photos are handled by an advisor or the client portal.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field       | Type   | Required | Constraints            |
+|-------------|--------|----------|------------------------|
+| polizaId    | number | Yes      | Policy of the client   |
+| tipo        | string | Yes      | Max 50 chars           |
+| fecha       | string | Yes      | ISO date (incident)    |
+| descripcion | string | Yes      | Max 5000 chars         |
+
+```json
+{ "polizaId": 12, "tipo": "auto", "fecha": "2026-06-11", "descripcion": "Granizo, daños en capot y techo" }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{
+  "id": 6,
+  "tipo": "auto",
+  "descripcion": "Granizo, daños en capot y techo",
+  "fecha": "2026-06-11T00:00:00.000Z",
+  "estado": "pendiente",
+  "nroSiniestroCompania": null,
+  "createdAt": "2026-06-12T13:05:00.000Z",
+  "poliza": { "id": 12, "certificado": "334455", "riskType": "auto" }
+}
+```
+
+`403 Forbidden` — Conversation has no identified client
+
+`404 Not Found` — Policy not found or not owned by the client

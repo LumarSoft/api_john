@@ -160,11 +160,14 @@ model Cuota {
 // ─── SINIESTROS (denuncias del cliente) ──────────────────
 
 model Siniestro {
-  id          Int       @id @default(autoincrement())
-  tipo        String // "auto" | "hogar" | "robo" | "otro"
-  descripcion String    @db.Text
-  fecha       DateTime // date of the incident
-  estado      String    @default("pendiente") // "pendiente" | "en_proceso" | "resuelto"
+  id                   Int       @id @default(autoincrement())
+  tipo                 String // "auto" | "hogar" | "robo" | "otro"
+  descripcion          String    @db.Text
+  fecha                DateTime // date of the incident
+  estado               String    @default("pendiente") // "pendiente" | "en_proceso" | "resuelto"
+  // Official claim number, set by the admin after manually filing the claim in
+  // Triunfo's web (their API has no claims endpoint yet).
+  nroSiniestroCompania String?
   adjuntos    Json? // array of { filename, originalName, url, mimeType, size }
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -240,6 +243,21 @@ model Conversation {
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
 
+  // Start of the current chat session. Messages older than this stay in the DB
+  // (until the retention job prunes them) but are excluded from the context
+  // window, so an idle user that comes back after the inactivity window starts
+  // from scratch. Bumped on timeout and by the /reset dev command.
+  sessionStartedAt DateTime?
+  // Denormalized timestamp of the last message, kept for the inactivity sweep
+  // so it doesn't have to join Message. Null = no activity to warn/expire.
+  lastMessageAt    DateTime?
+  // Set when the proactive inactivity warning was pushed for the current idle
+  // period; cleared on new activity. Prevents re-warning the same silence.
+  warnedAt         DateTime?
+  // Meta phone_number_id this chat came through. Stored so a proactive warning
+  // is sent FROM the same number the user wrote to (a producer may own several).
+  phoneNumberId    String?
+
   producerId Int
   producer   Producer  @relation(fields: [producerId], references: [id])
   clientId   Int?      // se vincula cuando el cliente se identifica por DNI
@@ -258,4 +276,8 @@ model Message {
 
   conversationId Int
   conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  // History is fetched as `where conversationId order by createdAt desc take 10`
+  // on every inbound message, and the retention job prunes by createdAt.
+  @@index([conversationId, createdAt])
 }
