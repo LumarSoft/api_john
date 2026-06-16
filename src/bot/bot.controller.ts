@@ -25,6 +25,16 @@ export class BotController {
     return this.botService.saveMessage(conversationId, dto)
   }
 
+  @Post('conversation/:conversationId/reset')
+  resetSession(@Param('conversationId', ParseIntPipe) conversationId: number) {
+    return this.botService.resetSession(conversationId)
+  }
+
+  @Post('conversations/pending-warnings')
+  claimPendingWarnings() {
+    return this.botService.claimPendingWarnings()
+  }
+
   @Post('conversation/:conversationId/identify')
   identifyClient(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: IdentifyClientDto) {
     return this.botService.identifyClient(conversationId, dto)

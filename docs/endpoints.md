@@ -868,7 +868,9 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
 
 ### GET /bot/conversation/:phoneNumberId/:waId
 
-Finds or creates the conversation for a WhatsApp user (`waId`) under the producer that owns `phoneNumberId`. Returns the last 10 messages in chronological order and the linked client (or `null` if the user has not identified yet).
+Finds or creates the conversation for a WhatsApp user (`waId`) under the producer that owns `phoneNumberId`. Returns the last 10 messages of the **current session** in chronological order and the linked client (or `null` if the user has not identified yet).
+
+**Inactivity timeout (lazy):** if more than `SESSION_TIMEOUT_MINUTES` (env, default 5) elapsed since the last message, a new session is started — older messages are excluded from the response (they remain in the DB until the retention job) and `newSession` is `true` so the bot can greet the user again. The identified client link is kept across sessions. There is no background job: the boundary is evaluated on each inbound message.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -879,6 +881,7 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 {
   "conversationId": 7,
   "client": null,
+  "newSession": false,
   "messages": [
     { "id": 41, "role": "user", "content": "Hola", "createdAt": "2026-06-12T13:00:00.000Z" },
     { "id": 42, "role": "assistant", "content": "¡Hola! ¿Sos cliente?", "createdAt": "2026-06-12T13:00:02.000Z" }
@@ -887,6 +890,38 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 ```
 
 `404 Not Found` — Phone number not registered
+
+### POST /bot/conversation/:conversationId/reset
+
+Resets the conversation session (used by the secret `/reset` dev command in the bot). Moves the session boundary to now so the chat history drops out of the context window on the next message; the identified client link is kept. Old messages stay in the DB until the retention job prunes them.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`201 Created`
+```json
+{ "ok": true }
+```
+
+`404 Not Found` — Conversation not found
+
+### POST /bot/conversations/pending-warnings
+
+Sweep used by the bot's inactivity job (runs every minute). Finds the conversations that have been idle longer than `SESSION_TIMEOUT_MINUTES` and have not been warned yet, and **atomically marks them as warned** so the same silence is never warned twice. Each returned item carries the user's `waId` and the Meta `phoneNumberId` the chat came through, so the warning is sent from the same number the user wrote to.
+
+The chat is always finalized (claimed), but the warning is only **returned** during office hours (Mon–Fri 08–16, Argentina time); outside that window the conversations are finalized silently and the response is empty. Legacy conversations with no stored phone number are skipped until the next inbound message backfills it.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`201 Created`
+```json
+[
+  { "conversationId": 7, "waId": "5491155556666", "phoneNumberId": "123456789012345" }
+]
+```
 
 ### POST /bot/conversation/:conversationId/message
 

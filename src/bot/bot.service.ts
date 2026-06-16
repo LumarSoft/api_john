@@ -1,10 +1,20 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
 import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
+
+// Inactivity window after which a chat is considered finished (see getOrCreateConversation).
+const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
+
+// Office hours (Argentina) for the proactive inactivity warning. Outside this
+// window the chat is still finalized, but no WhatsApp notice is pushed.
+const BUSINESS_TZ = 'America/Argentina/Buenos_Aires'
+const BUSINESS_START_HOUR = 8
+const BUSINESS_END_HOUR = 16
 
 const CLIENT_SUMMARY_SELECT = {
   id: true,
@@ -38,11 +48,18 @@ const POLIZA_SUMMARY_SELECT = {
 
 @Injectable()
 export class BotService {
+  private readonly sessionTimeoutMs: number
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly triunfo: TriunfoService,
     private readonly mail: MailService,
-  ) {}
+    config: ConfigService,
+  ) {
+    const minutes = Number(config.get<string>('SESSION_TIMEOUT_MINUTES'))
+    const valid = Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_SESSION_TIMEOUT_MINUTES
+    this.sessionTimeoutMs = valid * 60_000
+  }
 
   /** Resolves the producer (tenant) behind a Meta phone number ID. */
   async getContext(phoneNumberId: string) {
@@ -60,24 +77,71 @@ export class BotService {
     return { producerId: id, producerName: name, producerSlug: slug, systemPrompt }
   }
 
-  /** Finds or creates the conversation for a WhatsApp user and returns its recent history. */
+  /**
+   * Finds or creates the conversation for a WhatsApp user and returns its recent
+   * history scoped to the current session.
+   *
+   * Lazy inactivity timeout: if the last message is older than the inactivity
+   * window, the session boundary is moved to now so the previous transcript
+   * drops out of the context window and the user starts from scratch. There is
+   * no background job — the boundary is recomputed here on every inbound
+   * message, so it costs nothing while the chat is idle. `newSession` lets the
+   * bot greet the returning user again. The identified client link is kept.
+   */
   async getOrCreateConversation(phoneNumberId: string, waId: string) {
     const { producerId } = await this.getContext(phoneNumberId)
 
+    const CONVERSATION_SELECT = {
+      id: true,
+      sessionStartedAt: true,
+      lastMessageAt: true,
+      phoneNumberId: true,
+      client: { select: CLIENT_SUMMARY_SELECT },
+    } as const
+
     let conversation = await this.prisma.conversation.findFirst({
       where: { waId, producerId, deletedAt: null },
-      select: { id: true, client: { select: CLIENT_SUMMARY_SELECT } },
+      select: CONVERSATION_SELECT,
     })
 
     if (!conversation) {
       conversation = await this.prisma.conversation.create({
-        data: { waId, producerId },
-        select: { id: true, client: { select: CLIENT_SUMMARY_SELECT } },
+        data: { waId, producerId, phoneNumberId, sessionStartedAt: new Date() },
+        select: CONVERSATION_SELECT,
+      })
+    }
+
+    let sessionStartedAt = conversation.sessionStartedAt
+    let newSession = false
+
+    // Keep the originating number current (self-heals older rows) so proactive
+    // warnings are sent from the number the user actually wrote to.
+    const phoneChanged = conversation.phoneNumberId !== phoneNumberId
+
+    const lastActivity = conversation.lastMessageAt
+    if (lastActivity && Date.now() - lastActivity.getTime() > this.sessionTimeoutMs) {
+      sessionStartedAt = new Date()
+      newSession = true
+    }
+
+    if (newSession || phoneChanged) {
+      // warnedAt is left as-is here; saveMessage clears it when the user's new
+      // message lands, which avoids a race with the inactivity sweep.
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          ...(newSession ? { sessionStartedAt } : {}),
+          ...(phoneChanged ? { phoneNumberId } : {}),
+        },
       })
     }
 
     const messages = await this.prisma.message.findMany({
-      where: { conversationId: conversation.id, deletedAt: null },
+      where: {
+        conversationId: conversation.id,
+        deletedAt: null,
+        ...(sessionStartedAt ? { createdAt: { gte: sessionStartedAt } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 10,
       select: { id: true, role: true, content: true, createdAt: true },
@@ -86,16 +150,103 @@ export class BotService {
     return {
       conversationId: conversation.id,
       client: conversation.client,
+      newSession,
       messages: messages.reverse(),
     }
+  }
+
+  /**
+   * Resets the conversation session (secret /reset dev command). Moves the
+   * session boundary to now so the chat history drops out of the context
+   * window; the identified client link is intentionally kept. Old messages stay
+   * in the DB until the retention job prunes them.
+   */
+  async resetSession(conversationId: number) {
+    await this.findConversation(conversationId)
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      // lastMessageAt/warnedAt cleared so the sweep doesn't warn a just-reset chat.
+      data: { sessionStartedAt: new Date(), lastMessageAt: null, warnedAt: null },
+    })
+    return { ok: true }
+  }
+
+  /**
+   * Claims the conversations that have been idle past the inactivity window and
+   * not yet warned, marking them warned in the same call so the same silence is
+   * never warned twice. Returns what the bot needs to push the WhatsApp warning:
+   * the user's waId and the Meta phone number the chat came through.
+   *
+   * The chat is always finalized (claimed); the warning is only **returned**
+   * during office hours — outside them it is finalized silently. Conversations
+   * with no stored phone number (legacy rows) are skipped until the next inbound
+   * message backfills it.
+   */
+  async claimPendingWarnings(limit = 50) {
+    const cutoff = new Date(Date.now() - this.sessionTimeoutMs)
+
+    const candidates = await this.prisma.conversation.findMany({
+      where: {
+        deletedAt: null,
+        warnedAt: null,
+        phoneNumberId: { not: null },
+        lastMessageAt: { not: null, lte: cutoff },
+      },
+      take: limit,
+      select: { id: true, waId: true, phoneNumberId: true },
+    })
+
+    if (candidates.length === 0) return []
+
+    // Claim regardless of the hour so the same silence is never warned twice.
+    await this.prisma.conversation.updateMany({
+      where: { id: { in: candidates.map(c => c.id) } },
+      data: { warnedAt: new Date() },
+    })
+
+    // Outside office hours the chat is finalized silently (no WhatsApp notice).
+    if (!this.isWithinBusinessHours()) return []
+
+    return candidates.map(c => ({
+      conversationId: c.id,
+      waId: c.waId,
+      phoneNumberId: String(c.phoneNumberId),
+    }))
+  }
+
+  /** True on weekdays (Mon–Fri) within office hours, evaluated in Argentina time. */
+  private isWithinBusinessHours(now = new Date()): boolean {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: BUSINESS_TZ,
+      weekday: 'short',
+      hour: '2-digit',
+      hour12: false,
+    }).formatToParts(now)
+
+    const weekday = parts.find(p => p.type === 'weekday')?.value
+    const hour = Number(parts.find(p => p.type === 'hour')?.value)
+    const isWeekday = weekday !== 'Sat' && weekday !== 'Sun'
+
+    return isWeekday && hour >= BUSINESS_START_HOUR && hour < BUSINESS_END_HOUR
   }
 
   async saveMessage(conversationId: number, dto: SaveMessageDto) {
     await this.findConversation(conversationId)
 
-    return this.prisma.message.create({
-      data: { conversationId, role: dto.role, content: dto.content },
-      select: { id: true, role: true, content: true, createdAt: true },
+    // Persist the message and refresh activity atomically so lastMessageAt can
+    // never drift from the actual last message (and warnedAt is cleared with it).
+    return this.prisma.$transaction(async tx => {
+      const message = await tx.message.create({
+        data: { conversationId, role: dto.role, content: dto.content },
+        select: { id: true, role: true, content: true, createdAt: true },
+      })
+
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: message.createdAt, warnedAt: null },
+      })
+
+      return message
     })
   }
 
