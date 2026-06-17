@@ -1,11 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
 import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
+import { AdjuntoMeta, MAX_FILES, toAdjuntoMeta } from '../siniestros/siniestro-upload.config'
 
 // Inactivity window after which a chat is considered finished (see getOrCreateConversation).
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
@@ -350,7 +352,7 @@ export class BotService {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
     const poliza = await this.prisma.poliza.findFirst({
-      where: { id: polizaId, clientId, producerId, deletedAt: null },
+      where: this.polizaRefWhere(polizaId, clientId, producerId),
       select: { certificado: true },
     })
     if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
@@ -382,7 +384,7 @@ export class BotService {
     const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
 
     const poliza = await this.prisma.poliza.findFirst({
-      where: { id: dto.polizaId, clientId, producerId, deletedAt: null },
+      where: this.polizaRefWhere(dto.polizaId, clientId, producerId),
       select: { id: true, certificado: true, company: true },
     })
     if (!poliza) throw new NotFoundException(`Policy ${dto.polizaId} not found`)
@@ -423,7 +425,54 @@ export class BotService {
     return siniestro
   }
 
+  /**
+   * Attaches WhatsApp photos to the conversation's most recent open siniestro.
+   * Images arrive as separate messages outside the LLM loop, so we target the
+   * latest non-resolved claim of the identified client. The total is capped at
+   * MAX_FILES, keeping the most recent attachments.
+   */
+  async attachAdjuntos(conversationId: number, files: Express.Multer.File[]) {
+    if (!files.length) throw new BadRequestException('No files received')
+
+    const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
+
+    const siniestro = await this.prisma.siniestro.findFirst({
+      where: { clientId, producerId, deletedAt: null, estado: { not: 'resuelto' } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, adjuntos: true },
+    })
+    if (!siniestro) {
+      throw new NotFoundException('No open siniestro to attach photos to')
+    }
+
+    const existing = Array.isArray(siniestro.adjuntos) ? (siniestro.adjuntos as unknown as AdjuntoMeta[]) : []
+    const merged = [...existing, ...files.map(toAdjuntoMeta)].slice(-MAX_FILES)
+
+    await this.prisma.siniestro.update({
+      where: { id: siniestro.id },
+      data: { adjuntos: merged as unknown as Prisma.InputJsonValue },
+    })
+
+    return { siniestroId: siniestro.id, adjuntosCount: merged.length }
+  }
+
   // ─── Helpers ───────────────────────────────────────────
+
+  /**
+   * Locates one of the client's policies by the reference the bot passes, which
+   * may be either the internal `id` or the visible `certificado` number — the
+   * LLM routinely confuses the two (it shows the certificado to the user and
+   * then sends it back as the id). Scoped to the identified client, so the OR
+   * can never resolve to another client's policy.
+   */
+  private polizaRefWhere(ref: number, clientId: number, producerId: number) {
+    return {
+      clientId,
+      producerId,
+      deletedAt: null,
+      OR: [{ id: ref }, { certificado: String(ref) }],
+    }
+  }
 
   private async findConversation(conversationId: number) {
     const conversation = await this.prisma.conversation.findFirst({
