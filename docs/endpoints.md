@@ -1092,7 +1092,7 @@ Claims filed by the identified client, newest first, with their internal trackin
 
 ### POST /bot/conversation/:conversationId/siniestros
 
-Files a new claim for one of the identified client's policies and notifies the advisor by email. Attachments are not supported through the bot — photos are handled by an advisor or the client portal.
+Files a new claim for one of the identified client's policies and notifies the advisor by email. Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1128,3 +1128,31 @@ Files a new claim for one of the identified client's policies and notifies the a
 `403 Forbidden` — Conversation has no identified client
 
 `404 Not Found` — Policy not found or not owned by the client
+
+### POST /bot/conversation/:conversationId/adjuntos
+
+Attaches photos (received by the bot over WhatsApp) to the conversation's most
+recent open claim — the latest siniestro of the identified client whose `estado`
+is not `resuelto`. The total per claim is capped at 5 attachments, keeping the
+most recent. Sent as `multipart/form-data`.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body** (`multipart/form-data`)
+
+| Field    | Type   | Required | Constraints                                        |
+|----------|--------|----------|----------------------------------------------------|
+| adjuntos | file[] | Yes      | 1–5 files, ≤5 MB each, jpeg/png/webp/heic/pdf only |
+
+**Responses**
+
+`201 Created`
+```json
+{ "siniestroId": 6, "adjuntosCount": 2 }
+```
+
+`400 Bad Request` — No files received
+
+`403 Forbidden` — Conversation has no identified client
+
+`404 Not Found` — No open siniestro to attach photos to
