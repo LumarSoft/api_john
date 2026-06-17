@@ -67,4 +67,9 @@ export class BotController {
   createSiniestro(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: CreateBotSiniestroDto) {
     return this.botService.createSiniestro(conversationId, dto)
   }
+
+  @Post('conversation/:conversationId/request-handoff')
+  requestHandoff(@Param('conversationId', ParseIntPipe) conversationId: number) {
+    return this.botService.requestHandoff(conversationId)
+  }
 }

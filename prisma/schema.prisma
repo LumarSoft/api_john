@@ -52,9 +52,10 @@ model User {
   updatedAt    DateTime     @updatedAt
   deletedAt    DateTime?
 
-  producerId   Int
-  producer     Producer     @relation(fields: [producerId], references: [id])
-  cotizaciones Cotizacion[]
+  producerId            Int
+  producer              Producer       @relation(fields: [producerId], references: [id])
+  cotizaciones          Cotizacion[]
+  assignedConversations Conversation[] @relation("assigned_conversations")
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
@@ -257,6 +258,15 @@ model Conversation {
   // Meta phone_number_id this chat came through. Stored so a proactive warning
   // is sent FROM the same number the user wrote to (a producer may own several).
   phoneNumberId    String?
+
+  // ─── Human handoff ───────────────────────────────────────
+  // status: "open" (bot active) | "pending" (waiting for agent) | "closed"
+  status           String    @default("open")
+  // When true the bot skips the LLM/flow loop and only stores inbound messages.
+  botPaused        Boolean   @default(false)
+  assignedToUserId Int?
+  assignedTo       User?     @relation("assigned_conversations", fields: [assignedToUserId], references: [id])
+  handedOverAt     DateTime?
 
   producerId Int
   producer   Producer  @relation(fields: [producerId], references: [id])

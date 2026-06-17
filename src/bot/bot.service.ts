@@ -96,6 +96,7 @@ export class BotService {
       sessionStartedAt: true,
       lastMessageAt: true,
       phoneNumberId: true,
+      botPaused: true,
       client: { select: CLIENT_SUMMARY_SELECT },
     } as const
 
@@ -421,6 +422,16 @@ export class BotService {
     })
 
     return siniestro
+  }
+
+  /** Marks the conversation as pending human attention (called by the bot when the user requests an advisor). */
+  async requestHandoff(conversationId: number) {
+    await this.findConversation(conversationId)
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { status: 'pending' },
+    })
+    return { ok: true }
   }
 
   // ─── Helpers ───────────────────────────────────────────
