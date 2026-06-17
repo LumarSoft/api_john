@@ -92,4 +92,9 @@ export class BotController {
   getOrCreateConversation(@Param('phoneNumberId') phoneNumberId: string, @Param('waId') waId: string) {
     return this.botService.getOrCreateConversation(phoneNumberId, waId)
   }
+
+  @Post('conversation/:conversationId/request-handoff')
+  requestHandoff(@Param('conversationId', ParseIntPipe) conversationId: number) {
+    return this.botService.requestHandoff(conversationId)
+  }
 }

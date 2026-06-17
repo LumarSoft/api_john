@@ -15,6 +15,7 @@ import { SiniestrosModule } from './siniestros/siniestros.module'
 import { DocumentosModule } from './documentos/documentos.module'
 import { BotModule } from './bot/bot.module'
 import { MailModule } from './mail/mail.module'
+import { InboxModule } from './inbox/inbox.module'
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { MailModule } from './mail/mail.module'
     SiniestrosModule,
     DocumentosModule,
     BotModule,
+    InboxModule,
   ],
   controllers: [AppController],
   providers: [AppService],
