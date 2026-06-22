@@ -98,7 +98,7 @@ describe('BotService', () => {
 
       expect(prisma.conversation.update).toHaveBeenCalledWith({
         where: { id: 7 },
-        data: { sessionStartedAt: expect.any(Date), lastMessageAt: null, warnedAt: null },
+        data: { sessionStartedAt: expect.any(Date), lastMessageAt: null, warnedAt: null, flowState: null },
       })
     })
   })

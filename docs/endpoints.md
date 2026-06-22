@@ -882,6 +882,8 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
   "conversationId": 7,
   "client": null,
   "newSession": false,
+  "botPaused": false,
+  "flowState": "{\"step\":\"CLIENT_MENU\",\"data\":{}}",
   "messages": [
     { "id": 41, "role": "user", "content": "Hola", "createdAt": "2026-06-12T13:00:00.000Z" },
     { "id": 42, "role": "assistant", "content": "¡Hola! ¿Sos cliente?", "createdAt": "2026-06-12T13:00:02.000Z" }
@@ -896,6 +898,31 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 Resets the conversation session (used by the secret `/reset` dev command in the bot). Moves the session boundary to now so the chat history drops out of the context window on the next message; the identified client link is kept. Old messages stay in the DB until the retention job prunes them.
 
 **Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`201 Created`
+```json
+{ "ok": true }
+```
+
+`404 Not Found` — Conversation not found
+
+### POST /bot/conversation/:conversationId/flow-state
+
+Persists the bot's deterministic flow state for a conversation (the serialized `{ step, data }` snapshot of the state machine), or clears it with `null`. This is what makes the bot stateless: it rehydrates the snapshot on the next inbound message instead of keeping it in process memory, so a restart or deploy doesn't lose the user's place in the flow. The snapshot is returned as `flowState` by `GET /bot/conversation/:phoneNumberId/:waId` and is cleared automatically when a new session starts.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field       | Type           | Required | Constraints                          |
+|-------------|----------------|----------|--------------------------------------|
+| `flowState` | string \| null | Yes      | string ≤ 20000 chars, or `null` to clear |
+
+```json
+{ "flowState": "{\"step\":\"CLIENT_MENU\",\"data\":{}}" }
+```
 
 **Responses**
 

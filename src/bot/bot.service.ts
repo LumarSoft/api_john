@@ -99,6 +99,7 @@ export class BotService {
       lastMessageAt: true,
       phoneNumberId: true,
       botPaused: true,
+      flowState: true,
       client: { select: CLIENT_SUMMARY_SELECT },
     } as const
 
@@ -127,13 +128,17 @@ export class BotService {
       newSession = true
     }
 
+    // A new session means the previous flow is over: drop the persisted state so
+    // the bot greets the returning user from scratch instead of resuming a stale step.
+    const flowState = newSession ? null : conversation.flowState
+
     if (newSession || phoneChanged) {
       // warnedAt is left as-is here; saveMessage clears it when the user's new
       // message lands, which avoids a race with the inactivity sweep.
       await this.prisma.conversation.update({
         where: { id: conversation.id },
         data: {
-          ...(newSession ? { sessionStartedAt } : {}),
+          ...(newSession ? { sessionStartedAt, flowState: null } : {}),
           ...(phoneChanged ? { phoneNumberId } : {}),
         },
       })
@@ -158,8 +163,25 @@ export class BotService {
       // received `undefined` and kept replying even after an admin took over the
       // chat. Returning it makes the takeover (botPaused) actually mute the bot.
       botPaused: conversation.botPaused,
+      // Durable deterministic flow state; the bot rehydrates from it so a restart
+      // or deploy doesn't lose the user's place. Null = start fresh.
+      flowState,
       messages: messages.reverse(),
     }
+  }
+
+  /**
+   * Persists the bot's deterministic flow state for a conversation (serialized
+   * JSON, or null to clear it). This is what makes the bot stateless: it reloads
+   * the snapshot on the next message instead of keeping it in process memory.
+   */
+  async saveFlowState(conversationId: number, flowState: string | null) {
+    await this.findConversation(conversationId)
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { flowState },
+    })
+    return { ok: true }
   }
 
   /**
@@ -172,8 +194,9 @@ export class BotService {
     await this.findConversation(conversationId)
     await this.prisma.conversation.update({
       where: { id: conversationId },
-      // lastMessageAt/warnedAt cleared so the sweep doesn't warn a just-reset chat.
-      data: { sessionStartedAt: new Date(), lastMessageAt: null, warnedAt: null },
+      // lastMessageAt/warnedAt cleared so the sweep doesn't warn a just-reset chat;
+      // flowState cleared so the next message starts the flow from scratch.
+      data: { sessionStartedAt: new Date(), lastMessageAt: null, warnedAt: null, flowState: null },
     })
     return { ok: true }
   }

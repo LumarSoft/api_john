@@ -13,6 +13,7 @@ import { FilesInterceptor } from '@nestjs/platform-express'
 import { BotService } from './bot.service'
 import { BotAuthGuard } from './bot-auth.guard'
 import { SaveMessageDto } from './dto/save-message.dto'
+import { SaveFlowStateDto } from './dto/save-flow-state.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
 import { MAX_FILES, siniestroMulterOptions } from '../siniestros/siniestro-upload.config'
@@ -35,6 +36,11 @@ export class BotController {
   @Post('conversation/:conversationId/reset')
   resetSession(@Param('conversationId', ParseIntPipe) conversationId: number) {
     return this.botService.resetSession(conversationId)
+  }
+
+  @Post('conversation/:conversationId/flow-state')
+  saveFlowState(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: SaveFlowStateDto) {
+    return this.botService.saveFlowState(conversationId, dto.flowState)
   }
 
   @Post('conversations/pending-warnings')

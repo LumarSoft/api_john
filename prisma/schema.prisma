@@ -261,6 +261,10 @@ model Conversation {
   // Meta phone_number_id this chat came through. Stored so a proactive warning
   // is sent FROM the same number the user wrote to (a producer may own several).
   phoneNumberId    String?
+  // Serialized deterministic flow state owned by the bot (JSON: { step, data }).
+  // Persisted so the bot is stateless and resumes the exact step after a restart
+  // or deploy instead of greeting from scratch. Cleared when a new session starts.
+  flowState        String?   @db.Text
 
   // ─── Human handoff ───────────────────────────────────────
   // status: "open" (bot active) | "pending" (waiting for agent) | "closed"
