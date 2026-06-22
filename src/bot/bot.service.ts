@@ -68,15 +68,15 @@ export class BotService {
     const phoneNumber = await this.prisma.phoneNumber.findFirst({
       where: { phoneNumberId, isActive: true, deletedAt: null },
       select: {
-        producer: { select: { id: true, name: true, slug: true, systemPrompt: true, isActive: true } },
+        producer: { select: { id: true, name: true, slug: true, botName: true, systemPrompt: true, isActive: true } },
       },
     })
     if (!phoneNumber || !phoneNumber.producer.isActive) {
       throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
     }
 
-    const { id, name, slug, systemPrompt } = phoneNumber.producer
-    return { producerId: id, producerName: name, producerSlug: slug, systemPrompt }
+    const { id, name, slug, botName, systemPrompt } = phoneNumber.producer
+    return { producerId: id, producerName: name, producerSlug: slug, botName, systemPrompt }
   }
 
   /**
@@ -154,6 +154,10 @@ export class BotService {
       conversationId: conversation.id,
       client: conversation.client,
       newSession,
+      // BUGFIX: botPaused was selected above but never returned, so the bot
+      // received `undefined` and kept replying even after an admin took over the
+      // chat. Returning it makes the takeover (botPaused) actually mute the bot.
+      botPaused: conversation.botPaused,
       messages: messages.reverse(),
     }
   }

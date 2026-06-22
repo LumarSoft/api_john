@@ -8,14 +8,20 @@ const prisma = new PrismaClient({ adapter })
 
 async function main() {
   // ── Producer ────────────────────────────────────────────
+  // Bot display name (configurable later from the admin "Configuración" screen).
+  const BOT_NAME = 'NICO'
+  // Optional per-producer tone (no name here — the name comes from botName).
+  const PRODUCER_TONE =
+    'Atendé con calidez y cercanía, como alguien del equipo de la productora: voseo argentino, respuestas breves y humanas.'
   const producer = await prisma.producer.upsert({
     where: { slug: 'john' },
-    update: {},
+    // Keep name/tone in sync on re-seed (this update used to be a no-op).
+    update: { botName: BOT_NAME, systemPrompt: PRODUCER_TONE },
     create: {
       name: 'John',
       slug: 'john',
-      systemPrompt:
-        'Eres un asistente de seguros de John Pellegrini Management Group. Ayudá a los clientes a obtener cotizaciones y resolver sus consultas.',
+      botName: BOT_NAME,
+      systemPrompt: PRODUCER_TONE,
       isActive: true,
     },
   })

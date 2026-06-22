@@ -16,6 +16,9 @@ model Producer {
   id            Int            @id @default(autoincrement())
   name          String
   slug          String         @unique
+  // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
+  // Null/empty → the bot falls back to "el asistente de JPMG".
+  botName       String?        @db.VarChar(60)
   systemPrompt  String         @db.Text
   isActive      Boolean        @default(true)
   createdAt     DateTime       @default(now())

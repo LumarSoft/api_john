@@ -18,6 +18,33 @@ const SAFE_SELECT = {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Bot/producer configuration shown in the admin "Configuración" screen. */
+  async getProducerConfig(producerId: number) {
+    const producer = await this.prisma.producer.findFirst({
+      where: { id: producerId, deletedAt: null },
+      select: { botName: true },
+    })
+    if (!producer) throw new NotFoundException('Producer not found')
+    return { botName: producer.botName }
+  }
+
+  /** Updates the producer config. An empty botName clears it (bot uses fallback). */
+  async updateProducerConfig(producerId: number, dto: { botName?: string }) {
+    const producer = await this.prisma.producer.findFirst({
+      where: { id: producerId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!producer) throw new NotFoundException('Producer not found')
+
+    const botName = dto.botName?.trim()
+    const updated = await this.prisma.producer.update({
+      where: { id: producerId },
+      data: { botName: botName ? botName : null },
+      select: { botName: true },
+    })
+    return { botName: updated.botName }
+  }
+
   findAll(producerId: number) {
     return this.prisma.user.findMany({
       where: { producerId, deletedAt: null },
