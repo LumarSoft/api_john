@@ -20,7 +20,7 @@ import { FIXED_PRODUCT_TYPES, type FixedProductType } from '../../solicitudes/so
 export class CoverageItemDto {
   @IsString()
   @IsNotEmpty()
-  @MaxLength(80)
+  @MaxLength(150)
   label: string
 
   @IsOptional()
