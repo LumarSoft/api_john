@@ -13,15 +13,27 @@ async function main() {
   // Optional per-producer tone (no name here — the name comes from botName).
   const PRODUCER_TONE =
     'Atendé con calidez y cercanía, como alguien del equipo de la productora: voseo argentino, respuestas breves y humanas.'
+  // Weekly hours shown by the bot and the public web (Mon–Fri 8–16, weekend
+  // closed). Edited later from the admin "Horarios" screen.
+  const BUSINESS_HOURS = {
+    mon: [{ from: '08:00', to: '16:00' }],
+    tue: [{ from: '08:00', to: '16:00' }],
+    wed: [{ from: '08:00', to: '16:00' }],
+    thu: [{ from: '08:00', to: '16:00' }],
+    fri: [{ from: '08:00', to: '16:00' }],
+    sat: [],
+    sun: [],
+  }
   const producer = await prisma.producer.upsert({
     where: { slug: 'john' },
     // Keep name/tone in sync on re-seed (this update used to be a no-op).
-    update: { botName: BOT_NAME, systemPrompt: PRODUCER_TONE },
+    update: { botName: BOT_NAME, systemPrompt: PRODUCER_TONE, businessHours: BUSINESS_HOURS },
     create: {
       name: 'John',
       slug: 'john',
       botName: BOT_NAME,
       systemPrompt: PRODUCER_TONE,
+      businessHours: BUSINESS_HOURS,
       isActive: true,
     },
   })

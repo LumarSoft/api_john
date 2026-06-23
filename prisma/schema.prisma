@@ -19,6 +19,11 @@ model Producer {
   // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
   // Null/empty → the bot falls back to "el asistente de JPMG".
   botName       String?        @db.VarChar(60)
+  // Weekly business hours (Mon–Sun) shown across every channel (WhatsApp bot and
+  // the public web) and used to compute "open now". Single source of truth edited
+  // from the admin "Horarios" screen. JSON shape: { mon: [{from,to}], ..., sun: [] }
+  // where each day holds zero or more HH:mm ranges ([] = closed). Null → app default.
+  businessHours Json?
   systemPrompt  String         @db.Text
   isActive      Boolean        @default(true)
   createdAt     DateTime       @default(now())
@@ -35,6 +40,26 @@ model Producer {
   novedades     Novedad[]
   contactLeads  ContactLead[]
   productPlans  ProductPlan[]
+  businessClosures BusinessClosure[]
+}
+
+// A temporary closure (holiday, vacation, etc.) that overrides the weekly hours
+// for a date or date range. The bot surfaces the `reason` to anyone asking about
+// hours while the closure is active. Single-day closures use startDate == endDate.
+model BusinessClosure {
+  id         Int       @id @default(autoincrement())
+  startDate  DateTime  @db.Date
+  endDate    DateTime  @db.Date
+  // Why the office is closed (required) — quoted back to users by the bot.
+  reason     String    @db.VarChar(160)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  producerId Int
+  producer   Producer  @relation(fields: [producerId], references: [id])
+
+  @@index([producerId, startDate, endDate])
 }
 
 model PhoneNumber {

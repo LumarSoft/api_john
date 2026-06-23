@@ -1514,3 +1514,124 @@ Soft delete del plan.
 
 `200 OK` → `{ "ok": true }`
 `404 Not Found`
+
+---
+
+## Public
+
+Unauthenticated read-only data shared by the public web and the WhatsApp bot.
+Single source of truth so the site and the bot never contradict each other.
+
+### GET /public/products
+
+Canonical product catalog (marketing copy, **no prices**). Prices come from
+Triunfo (auto/moto) and `ProductPlan` (bolso/hogar).
+
+**Auth required:** No
+
+`200 OK`
+```json
+[
+  {
+    "id": "auto",
+    "label": "Auto",
+    "sub": "Todo riesgo, terceros completo",
+    "summary": "Cobertura para vehículos particulares y comerciales…",
+    "includes": ["Responsabilidad civil", "Robo, hurto y daño total"],
+    "excludes": ["Conducción sin registro"],
+    "flow": "instant"
+  }
+]
+```
+
+### GET /public/producer
+
+Public attention window of the default producer (`DEFAULT_PRODUCER_SLUG`, default
+`john`). Falls back to the app default when unset.
+
+**Auth required:** No
+
+`200 OK`
+```json
+{ "attentionHours": "Lunes a viernes de 8 a 16 hs" }
+```
+
+---
+
+## Business hours
+
+Weekly schedule (Mon–Sun, split shifts supported) + temporary closures. Single
+source of truth for the bot and the public web. Admin routes are scoped to the
+caller's producer; the public route serves the default producer.
+
+Schedule JSON shape: `{ mon: [{ "from": "09:00", "to": "12:00" }], ..., sun: [] }`
+(empty array = closed that day).
+
+### GET /admin/business-hours
+
+Current weekly schedule + active/upcoming closures.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`200 OK`
+```json
+{
+  "weekly": { "mon": [{ "from": "09:00", "to": "12:00" }, { "from": "17:00", "to": "19:30" }], "sat": [], "sun": [] },
+  "closures": [{ "id": 3, "startDate": "2026-06-24", "endDate": "2026-06-24", "reason": "Día de la Bandera" }]
+}
+```
+
+### PATCH /admin/business-hours/schedule
+
+**Auth required:** Yes (Bearer, type `user`)
+
+**Request body**
+
+| Field  | Type   | Required | Constraints |
+|--------|--------|----------|-------------|
+| weekly | object | Yes      | 7 day keys; each an array of `{from,to}` HH:mm, `from` < `to`, no overlaps |
+
+`200 OK` → `{ "weekly": { ... } }`
+`400 Bad Request` → invalid HH:mm / overlapping ranges
+
+### POST /admin/business-hours/closures
+
+Adds a temporary closure (single day → `startDate == endDate`).
+
+**Auth required:** Yes (Bearer, type `user`)
+
+**Request body**
+
+| Field     | Type   | Required | Constraints |
+|-----------|--------|----------|-------------|
+| startDate | string | Yes      | YYYY-MM-DD |
+| endDate   | string | Yes      | YYYY-MM-DD, ≥ startDate |
+| reason    | string | Yes      | 1–160 chars |
+
+`201 Created` → `{ "id": 3, "startDate": "...", "endDate": "...", "reason": "..." }`
+
+### DELETE /admin/business-hours/closures/:id
+
+Soft-deletes a closure.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`200 OK` → `{ "ok": true }`
+`404 Not Found`
+
+### GET /public/hours
+
+Live hours for the default producer: formatted week, open-now and ready copy.
+
+**Auth required:** No
+
+`200 OK`
+```json
+{
+  "formatted": "Lunes a viernes de 9 a 12 y de 17 a 19:30 hs · Sábado de 9 a 13 hs",
+  "isOpenNow": false,
+  "todayClosure": null,
+  "message": "Ahora estamos fuera de horario. Nuestro horario es: …. Volvemos a atender hoy a las 17 hs.",
+  "closedNote": "_Ahora estamos fuera de horario; te respondemos al reabrir (hoy a las 17 hs)._"
+}
+```

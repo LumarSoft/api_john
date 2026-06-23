@@ -9,15 +9,12 @@ import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
 import { AdjuntoMeta, MAX_FILES, toAdjuntoMeta } from '../siniestros/siniestro-upload.config'
+import { type ActiveClosure, computeStatus, formatSchedule, parseSchedule } from '../business-hours/schedule'
 
 // Inactivity window after which a chat is considered finished (see getOrCreateConversation).
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
 
-// Office hours (Argentina) for the proactive inactivity warning. Outside this
-// window the chat is still finalized, but no WhatsApp notice is pushed.
-const BUSINESS_TZ = 'America/Argentina/Buenos_Aires'
-const BUSINESS_START_HOUR = 8
-const BUSINESS_END_HOUR = 16
+const toDateStr = (d: Date): string => d.toISOString().slice(0, 10)
 
 const CLIENT_SUMMARY_SELECT = {
   id: true,
@@ -70,15 +67,28 @@ export class BotService {
     const phoneNumber = await this.prisma.phoneNumber.findFirst({
       where: { phoneNumberId, isActive: true, deletedAt: null },
       select: {
-        producer: { select: { id: true, name: true, slug: true, botName: true, systemPrompt: true, isActive: true } },
+        producer: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            botName: true,
+            businessHours: true,
+            systemPrompt: true,
+            isActive: true,
+          },
+        },
       },
     })
     if (!phoneNumber || !phoneNumber.producer.isActive) {
       throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
     }
 
-    const { id, name, slug, botName, systemPrompt } = phoneNumber.producer
-    return { producerId: id, producerName: name, producerSlug: slug, botName, systemPrompt }
+    const { id, name, slug, botName, businessHours, systemPrompt } = phoneNumber.producer
+    // The bot shows the formatted week as its general "horario" line; richer
+    // open-now info comes from GET /public/hours when a user asks.
+    const attentionHours = formatSchedule(parseSchedule(businessHours))
+    return { producerId: id, producerName: name, producerSlug: slug, botName, attentionHours, systemPrompt }
   }
 
   /**
@@ -225,7 +235,12 @@ export class BotService {
         lastMessageAt: { not: null, lte: cutoff },
       },
       take: limit,
-      select: { id: true, waId: true, phoneNumberId: true },
+      select: {
+        id: true,
+        waId: true,
+        phoneNumberId: true,
+        producer: { select: { id: true, businessHours: true } },
+      },
     })
 
     if (candidates.length === 0) return []
@@ -236,30 +251,34 @@ export class BotService {
       data: { warnedAt: new Date() },
     })
 
-    // Outside office hours the chat is finalized silently (no WhatsApp notice).
-    if (!this.isWithinBusinessHours()) return []
+    // Each producer's own weekly schedule + active closures decide whether we are
+    // open now: outside hours (or on a holiday) the chat is finalized silently.
+    const producerIds = [...new Set(candidates.map(c => c.producer.id))]
+    const today = new Date(`${toDateStr(new Date())}T00:00:00Z`)
+    const closureRows = await this.prisma.businessClosure.findMany({
+      where: { producerId: { in: producerIds }, deletedAt: null, endDate: { gte: today } },
+      select: { producerId: true, startDate: true, endDate: true, reason: true },
+    })
+    const closuresByProducer = new Map<number, ActiveClosure[]>()
+    for (const r of closureRows) {
+      const list = closuresByProducer.get(r.producerId) ?? []
+      list.push({ startDate: toDateStr(r.startDate), endDate: toDateStr(r.endDate), reason: r.reason })
+      closuresByProducer.set(r.producerId, list)
+    }
 
-    return candidates.map(c => ({
-      conversationId: c.id,
-      waId: c.waId,
-      phoneNumberId: String(c.phoneNumberId),
-    }))
-  }
-
-  /** True on weekdays (Mon–Fri) within office hours, evaluated in Argentina time. */
-  private isWithinBusinessHours(now = new Date()): boolean {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: BUSINESS_TZ,
-      weekday: 'short',
-      hour: '2-digit',
-      hour12: false,
-    }).formatToParts(now)
-
-    const weekday = parts.find(p => p.type === 'weekday')?.value
-    const hour = Number(parts.find(p => p.type === 'hour')?.value)
-    const isWeekday = weekday !== 'Sat' && weekday !== 'Sun'
-
-    return isWeekday && hour >= BUSINESS_START_HOUR && hour < BUSINESS_END_HOUR
+    const out: { conversationId: number; waId: string; phoneNumberId: string; attentionHours: string }[] = []
+    for (const c of candidates) {
+      const status = computeStatus(parseSchedule(c.producer.businessHours), closuresByProducer.get(c.producer.id) ?? [])
+      if (!status.isOpenNow) continue
+      out.push({
+        conversationId: c.id,
+        waId: c.waId,
+        phoneNumberId: String(c.phoneNumberId),
+        // Carried so the bot's inactivity notice quotes the producer's own hours.
+        attentionHours: status.formatted,
+      })
+    }
+    return out
   }
 
   async saveMessage(conversationId: number, dto: SaveMessageDto) {

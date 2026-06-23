@@ -19,6 +19,8 @@ import { InboxModule } from './inbox/inbox.module'
 import { NovedadesModule } from './novedades/novedades.module'
 import { SolicitudesModule } from './solicitudes/solicitudes.module'
 import { ProductPlansModule } from './product-plans/product-plans.module'
+import { PublicModule } from './public/public.module'
+import { BusinessHoursModule } from './business-hours/business-hours.module'
 
 @Module({
   imports: [
@@ -40,6 +42,8 @@ import { ProductPlansModule } from './product-plans/product-plans.module'
     NovedadesModule,
     SolicitudesModule,
     ProductPlansModule,
+    PublicModule,
+    BusinessHoursModule,
   ],
   controllers: [AppController],
   providers: [AppService],
