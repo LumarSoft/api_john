@@ -23,8 +23,8 @@ describe('BotService', () => {
   beforeEach(() => {
     prisma = createPrismaMock()
     const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService
-    // triunfo/mail are unused by the methods under test.
-    service = new BotService(prisma as any, {} as any, {} as any, config)
+    // triunfo/mail/novedades are unused by the methods under test.
+    service = new BotService(prisma as any, {} as any, {} as any, {} as any, config)
   })
 
   describe('getOrCreateConversation', () => {

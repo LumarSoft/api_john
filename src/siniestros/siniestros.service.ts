@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { MailService } from '../mail/mail.service'
+import { NovedadesService } from '../novedades/novedades.service'
 import { CreateSiniestroDto } from './dto/create-siniestro.dto'
 import { ListSiniestrosDto } from './dto/list-siniestros.dto'
 import { UpdateSiniestroDto } from './dto/update-siniestro.dto'
@@ -60,6 +61,7 @@ export class SiniestrosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
+    private readonly novedades: NovedadesService,
   ) {}
 
   async create(clientId: number, producerId: number, dto: CreateSiniestroDto, files: Express.Multer.File[]) {
@@ -89,6 +91,17 @@ export class SiniestrosService {
     })
 
     await this.notifyAdvisor(siniestro.id, clientId, dto, poliza, adjuntos.length)
+
+    const cliente = await this.prisma.client.findUnique({
+      where: { id: clientId },
+      select: { firstName: true, lastName: true },
+    })
+    await this.novedades.recordSiniestro(producerId, {
+      siniestroId: siniestro.id,
+      clientId,
+      clienteNombre: cliente ? `${cliente.firstName} ${cliente.lastName}`.trim() : `Cliente #${clientId}`,
+      descripcion: siniestro.descripcion,
+    })
 
     return siniestro
   }

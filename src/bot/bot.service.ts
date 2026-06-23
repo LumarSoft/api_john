@@ -4,6 +4,7 @@ import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
+import { NovedadesService } from '../novedades/novedades.service'
 import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
@@ -56,6 +57,7 @@ export class BotService {
     private readonly prisma: PrismaService,
     private readonly triunfo: TriunfoService,
     private readonly mail: MailService,
+    private readonly novedades: NovedadesService,
     config: ConfigService,
   ) {
     const minutes = Number(config.get<string>('SESSION_TIMEOUT_MINUTES'))
@@ -450,6 +452,13 @@ export class BotService {
       adjuntosCount: 0,
     })
 
+    await this.novedades.recordSiniestro(producerId, {
+      siniestroId: siniestro.id,
+      clientId,
+      clienteNombre: `${client.firstName} ${client.lastName}`.trim(),
+      descripcion: siniestro.descripcion,
+    })
+
     return siniestro
   }
 
@@ -486,11 +495,36 @@ export class BotService {
 
   /** Marks the conversation as pending human attention (called by the bot when the user requests an advisor). */
   async requestHandoff(conversationId: number) {
-    await this.findConversation(conversationId)
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, deletedAt: null },
+      select: {
+        id: true,
+        status: true,
+        waId: true,
+        producerId: true,
+        clientId: true,
+        client: { select: { firstName: true, lastName: true } },
+      },
+    })
+    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
+
+    // Already waiting for an agent — don't bump again or emit a duplicate novedad.
+    if (conversation.status === 'pending') return { ok: true }
+
     await this.prisma.conversation.update({
       where: { id: conversationId },
       data: { status: 'pending' },
     })
+
+    const clienteNombre = conversation.client
+      ? `${conversation.client.firstName} ${conversation.client.lastName}`.trim()
+      : conversation.waId
+    await this.novedades.recordHandoff(conversation.producerId, {
+      conversationId,
+      clientId: conversation.clientId,
+      clienteNombre,
+    })
+
     return { ok: true }
   }
 

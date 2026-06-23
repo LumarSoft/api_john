@@ -32,6 +32,7 @@ model Producer {
   cotizaciones  Cotizacion[]
   conversations Conversation[]
   siniestros    Siniestro[]
+  novedades     Novedad[]
 }
 
 model PhoneNumber {
@@ -82,6 +83,7 @@ model Client {
   conversations Conversation[]
   polizas       Poliza[]
   siniestros    Siniestro[]
+  novedades     Novedad[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
@@ -183,6 +185,34 @@ model Siniestro {
   poliza     Poliza   @relation(fields: [polizaId], references: [id])
   producerId Int
   producer   Producer @relation(fields: [producerId], references: [id])
+}
+
+// ─── NOVEDADES (centro de notificaciones del admin) ──────
+// Generic notification feed for the admin panel. Each row is one actionable
+// event the broker should see: a new claim (type "siniestro") or a customer
+// asking for a human advisor (type "handoff"). title/body are denormalized at
+// creation so the list needs no joins; the full detail is fetched from the
+// source entity via `refId` when the admin opens it.
+model Novedad {
+  id        Int       @id @default(autoincrement())
+  type      String // "siniestro" | "handoff"
+  refId     Int // Siniestro.id when type="siniestro"; Conversation.id when "handoff"
+  title     String
+  body      String?   @db.Text
+  readAt    DateTime? // null = unread; set when the admin marks it read
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
+  // Denormalized so the admin can filter/search novedades by client (DNI/name).
+  // Nullable: a handoff from an unidentified WhatsApp number has no client yet.
+  clientId   Int?
+  client     Client?  @relation(fields: [clientId], references: [id])
+
+  @@index([producerId, readAt])
+  @@index([producerId, type, createdAt])
+  @@index([clientId])
 }
 
 // ─── COTIZACIONES ────────────────────────────────────────

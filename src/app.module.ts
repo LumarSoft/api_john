@@ -16,6 +16,7 @@ import { DocumentosModule } from './documentos/documentos.module'
 import { BotModule } from './bot/bot.module'
 import { MailModule } from './mail/mail.module'
 import { InboxModule } from './inbox/inbox.module'
+import { NovedadesModule } from './novedades/novedades.module'
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { InboxModule } from './inbox/inbox.module'
     DocumentosModule,
     BotModule,
     InboxModule,
+    NovedadesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

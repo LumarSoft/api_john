@@ -22,7 +22,7 @@ const CONVERSATION_SUMMARY_SELECT = {
   lastMessageAt: true,
   sessionStartedAt: true,
   phoneNumberId: true,
-  client: { select: { id: true, firstName: true, lastName: true } },
+  client: { select: { id: true, firstName: true, lastName: true, dni: true } },
 } as const
 
 @Injectable()
@@ -34,12 +34,23 @@ export class InboxService {
 
   async listConversations(producerId: number, dto: ListInboxDto) {
     const statusFilter = dto.status ? [dto.status] : ['open', 'pending']
+    const search = dto.search?.trim()
 
     return this.prisma.conversation.findMany({
       where: {
         producerId,
         deletedAt: null,
         status: { in: statusFilter },
+        ...(search
+          ? {
+              OR: [
+                { client: { firstName: { contains: search } } },
+                { client: { lastName: { contains: search } } },
+                { client: { dni: { contains: search } } },
+                { waId: { contains: search } },
+              ],
+            }
+          : {}),
       },
       orderBy: [
         // "pending" (user requested agent) sorts before "open" alphabetically.

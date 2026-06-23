@@ -840,6 +840,151 @@ Progresses the claim and/or records the official Triunfo number after filing it 
 
 `404 Not Found` — Claim not found in this tenant
 
+## Admin — Bandeja (Inbox)
+
+### GET /admin/inbox
+
+Active conversations for the producer (defaults to `open` + `pending`), pending ones first.
+
+**Auth required:** Yes (user JWT)
+
+**Query params**
+
+| Param  | Type   | Required | Constraints                                                  |
+|--------|--------|----------|--------------------------------------------------------------|
+| status | string | No       | `open`, `pending` or `closed`                                |
+| search | string | No       | Matches client name, DNI or the WhatsApp number (`waId`)     |
+
+**Responses**
+
+`200 OK` — Array of conversation summaries; `client` is the linked insured (null if not identified).
+```json
+[
+  {
+    "id": 1,
+    "waId": "5493411234567",
+    "status": "pending",
+    "botPaused": false,
+    "assignedToUserId": null,
+    "assignedTo": null,
+    "handedOverAt": null,
+    "lastMessageAt": "2026-06-22T19:39:00.000Z",
+    "sessionStartedAt": "2026-06-22T19:18:00.000Z",
+    "phoneNumberId": "1234567890",
+    "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456" }
+  }
+]
+```
+
+`401 Unauthorized` — Missing or invalid JWT
+
+`403 Forbidden` — Token is not an employee/admin token
+
+## Admin — Novedades
+
+A notifications feed for the panel. A novedad is created automatically when a new claim is filed (`type: "siniestro"`, `refId` = claim id) or when a customer asks to talk to a human advisor (`type: "handoff"`, `refId` = conversation id). `title`/`body` are denormalized at creation; open the source entity via `refId` for full detail (e.g. `GET /admin/siniestros/:refId` for claims, or the inbox for handoffs).
+
+All endpoints require an employee/admin JWT (`type: "user"`). A client token returns `403`.
+
+### GET /admin/novedades
+
+Paginated list of novedades, unread first then newest.
+
+**Auth required:** Yes (user JWT)
+
+**Query params**
+
+| Param    | Type    | Required | Constraints                          |
+|----------|---------|----------|--------------------------------------|
+| type     | string  | No       | `siniestro` or `handoff`               |
+| unread   | boolean | No       | `true` returns only unread novedades   |
+| search   | string  | No       | Matches the linked client's name or DNI |
+| clientId | number  | No       | Restrict to a single client's novedades |
+| page     | number  | No       | Default 1                              |
+| pageSize | number  | No       | Default 20, max 100                    |
+
+**Responses**
+
+`200 OK` — `client` is the linked insured (null for an unidentified handoff).
+```json
+{
+  "data": [
+    {
+      "id": 8,
+      "type": "siniestro",
+      "refId": 6,
+      "title": "Nuevo siniestro · Evelyn Benitez",
+      "body": "Choque de frente, daños en el paragolpes",
+      "readAt": null,
+      "createdAt": "2026-06-22T19:39:00.000Z",
+      "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456" }
+    },
+    {
+      "id": 7,
+      "type": "handoff",
+      "refId": 1,
+      "title": "Pedido de asesor · Ana Gómez",
+      "body": null,
+      "readAt": "2026-06-22T18:10:00.000Z",
+      "createdAt": "2026-06-22T18:02:00.000Z",
+      "client": { "id": 5, "firstName": "Ana", "lastName": "Gómez", "dni": "27888999" }
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1
+}
+```
+
+`401 Unauthorized` — Missing or invalid JWT
+
+`403 Forbidden` — Token is not an employee/admin token
+
+### GET /admin/novedades/stats
+
+Unread counters for the sidebar badge and category filters.
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK`
+```json
+{ "unreadTotal": 3, "unreadSiniestros": 2, "unreadHandoff": 1 }
+```
+
+### PATCH /admin/novedades/read-all
+
+Marks every unread novedad as read. Restrict to one category with `?type=`.
+
+**Auth required:** Yes (user JWT)
+
+**Query params**
+
+| Param | Type   | Required | Constraints              |
+|-------|--------|----------|--------------------------|
+| type  | string | No       | `siniestro` or `handoff` |
+
+**Responses**
+
+`200 OK`
+```json
+{ "updated": 3 }
+```
+
+### PATCH /admin/novedades/:id/read
+
+Marks a single novedad as read (idempotent — re-marking a read novedad is a no-op).
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK` — Updated novedad object
+
+`404 Not Found` — Novedad not found in this tenant
+
 ## Bot (WhatsApp)
 
 All `/bot/*` endpoints require the header `x-bot-secret` matching the `BOT_SECRET` env variable. They are consumed exclusively by `whatsapp-bot-seguros` — the bot never accesses the database directly.
