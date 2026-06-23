@@ -1328,3 +1328,189 @@ most recent. Sent as `multipart/form-data`.
 `403 Forbidden` — Conversation has no identified client
 
 `404 Not Found` — No open siniestro to attach photos to
+
+## Cotización — Leads (productos sin cotización online)
+
+Para los productos cuyo precio no se cotiza online (bici, comercio, praxis,
+personas) o que tienen plan de precio fijo (bolso, hogar), la web y el bot crean
+un `ContactLead`. Aparecen en el panel admin unificado (ver "Admin — Solicitudes").
+
+### POST /leads
+
+Crea un lead desde el cotizador web público (productor por defecto).
+
+**Auth required:** No
+
+**Request body**
+
+| Field          | Type   | Required | Constraints                                            |
+|----------------|--------|----------|--------------------------------------------------------|
+| productType    | string | Yes      | bici, comercio, praxis, personas, bolso, hogar         |
+| contactName    | string | Yes      | 1–120 chars                                            |
+| phone          | string | Yes      | 1–30 chars                                             |
+| email          | string | No       | email válido, ≤160                                     |
+| payload        | object | Yes      | campos específicos del producto (JSON libre)           |
+| selectedPlanId | number | No       | sólo bolso/hogar; debe existir y coincidir productType |
+
+**Responses**
+
+`201 Created`
+```json
+{ "id": 12 }
+```
+
+`400 Bad Request` — `selectedPlanId` inexistente o no coincide con `productType`
+
+### POST /bot/conversation/:conversationId/leads
+
+Igual que `POST /leads` pero desde el bot: scope al productor de la conversación,
+`channel = WHATSAPP`. Mismo body (sin `channel`).
+
+**Auth required:** Yes (`x-bot-secret`)
+
+`201 Created` → `{ "id": 12 }`
+`404 Not Found` — Conversation no encontrada
+
+## Pricing — Planes de precio fijo
+
+### GET /pricing/:productType
+
+Planes activos del producto (`bolso` | `hogar`) del productor por defecto, para
+el cotizador web público.
+
+**Auth required:** No
+
+**Responses**
+
+`200 OK`
+```json
+[
+  {
+    "id": 1,
+    "productType": "bolso",
+    "name": "Básico",
+    "monthlyPrice": 4200,
+    "description": "Protección esencial para tus efectos personales.",
+    "coverageItems": ["Robo en vía pública", "Hurto en transporte"],
+    "isActive": true,
+    "sortOrder": 1
+  }
+]
+```
+
+`400 Bad Request` — `productType` inválido
+
+### GET /bot/conversation/:conversationId/pricing/:productType
+
+Igual que `GET /pricing/:productType` pero scope al productor de la conversación.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+## Admin — Solicitudes de cotización
+
+Panel unificado: lista los leads (`ContactLead`) y las solicitudes de cobertura
+auto/moto (`Solicitud`) en un mismo stream. `UserAuthGuard`, scope al productor.
+
+### GET /admin/solicitudes
+
+**Auth required:** Yes (Bearer, type `user`)
+
+**Query params**
+
+| Field       | Type   | Required | Constraints                                        |
+|-------------|--------|----------|----------------------------------------------------|
+| status      | string | No       | NEW, CONTACTED, CLOSED                              |
+| productType | string | No       | auto, moto, bici, comercio, praxis, personas, bolso, hogar |
+| kind        | string | No       | lead, cotizacion                                   |
+| search      | string | No       | nombre, teléfono o email (≤120)                    |
+| page        | number | No       | ≥1                                                 |
+| pageSize    | number | No       | 1–100 (default 20)                                 |
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "data": [
+    {
+      "id": 12, "kind": "lead", "productType": "hogar",
+      "contactName": "María P.", "phone": "3410000000", "email": null,
+      "summary": "Plan Hogar Integral", "channel": "WEB",
+      "status": "NEW", "createdAt": "2026-06-22T20:00:00.000Z"
+    }
+  ],
+  "total": 1, "page": 1, "pageSize": 20, "totalPages": 1
+}
+```
+
+### GET /admin/solicitudes/:kind/:id
+
+Detalle de una solicitud. `kind` = `lead` | `cotizacion`.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`200 OK` — campos completos según `kind` (los datos de tarjeta nunca se devuelven)
+`404 Not Found`
+
+### PATCH /admin/solicitudes/:kind/:id
+
+Actualiza el seguimiento de una solicitud.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+**Request body**
+
+| Field  | Type   | Required | Constraints              |
+|--------|--------|----------|--------------------------|
+| status | string | No       | NEW, CONTACTED, CLOSED   |
+| notes  | string | No       | ≤2000                    |
+
+`200 OK` → `{ "ok": true }`
+`400 Bad Request` — nada para actualizar
+
+## Admin — Planes de precio fijo
+
+CRUD de `ProductPlan` (bolso, hogar). `UserAuthGuard`, scope al productor.
+
+### GET /admin/pricing
+
+Lista todos los planes (activos e inactivos) del productor.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+### POST /admin/pricing
+
+**Auth required:** Yes (Bearer, type `user`)
+
+**Request body**
+
+| Field         | Type     | Required | Constraints                  |
+|---------------|----------|----------|------------------------------|
+| productType   | string   | Yes      | bolso, hogar                 |
+| name          | string   | Yes      | 1–80                         |
+| monthlyPrice  | number   | Yes      | ≥0, 2 decimales              |
+| description   | string   | No       | ≤500                         |
+| coverageItems | string[] | Yes      | ≤20 items, cada uno ≤120     |
+| isActive      | boolean  | No       | default true                 |
+| sortOrder     | number   | No       | ≥0, default 0                |
+
+`201 Created` → plan creado
+
+### PATCH /admin/pricing/:id
+
+Igual al body de creación pero todos los campos opcionales (`productType` no es
+modificable).
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`200 OK` → plan actualizado
+`404 Not Found`
+
+### DELETE /admin/pricing/:id
+
+Soft delete del plan.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`200 OK` → `{ "ok": true }`
+`404 Not Found`

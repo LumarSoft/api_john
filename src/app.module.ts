@@ -17,6 +17,8 @@ import { BotModule } from './bot/bot.module'
 import { MailModule } from './mail/mail.module'
 import { InboxModule } from './inbox/inbox.module'
 import { NovedadesModule } from './novedades/novedades.module'
+import { SolicitudesModule } from './solicitudes/solicitudes.module'
+import { ProductPlansModule } from './product-plans/product-plans.module'
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { NovedadesModule } from './novedades/novedades.module'
     BotModule,
     InboxModule,
     NovedadesModule,
+    SolicitudesModule,
+    ProductPlansModule,
   ],
   controllers: [AppController],
   providers: [AppService],

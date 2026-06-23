@@ -26,6 +26,98 @@ async function main() {
     },
   })
 
+  // ── Fixed-price plans (bolso, hogar) ────────────────────
+  // ProductPlan has no natural unique key, so seed idempotently by
+  // (producerId, productType, name): create only when missing.
+  // coverageItems carry the insured sum per coverage row; rows with the same
+  // label/category align across a product's plans in the comparison table.
+  const SEED_PLANS = [
+    {
+      productType: 'bolso',
+      name: 'Bolso Base',
+      monthlyPrice: 4200,
+      description: 'Protección esencial para tus efectos personales.',
+      coverageItems: [
+        { label: 'Robo en vía pública', category: 'ROBO', amount: 300000 },
+        { label: 'Hurto en transporte', category: 'HURTO', amount: 150000 },
+        { label: 'Reposición de documentación', category: 'DOCUMENTACIÓN', amount: 50000 },
+      ],
+      sortOrder: 1,
+    },
+    {
+      productType: 'bolso',
+      name: 'Bolso Plus',
+      monthlyPrice: 6900,
+      description: 'Suma asegurada ampliada e incluye electrónica.',
+      coverageItems: [
+        { label: 'Robo en vía pública', category: 'ROBO', amount: 500000 },
+        { label: 'Hurto en transporte', category: 'HURTO', amount: 300000 },
+        { label: 'Reposición de documentación', category: 'DOCUMENTACIÓN', amount: 80000 },
+        { label: 'Notebook y celular', category: 'ELECTRÓNICA', amount: 400000 },
+      ],
+      sortOrder: 2,
+    },
+    {
+      productType: 'hogar',
+      name: 'Hogar Base',
+      monthlyPrice: 10632,
+      description: 'Cobertura esencial para tu vivienda.',
+      coverageItems: [
+        { label: 'Incendio', category: 'EDIFICIO', amount: 9000000 },
+        { label: 'Robo y daño a electrodomésticos', category: 'CONTENIDO GENERAL', amount: 900000 },
+        { label: 'Responsabilidad Civil privada', category: 'HECHOS PRIVADOS', amount: 900000 },
+        { label: 'Cristales', category: 'CRISTALES', amount: 225000 },
+      ],
+      sortOrder: 1,
+    },
+    {
+      productType: 'hogar',
+      name: 'Hogar Plus',
+      monthlyPrice: 13117,
+      description: 'Más cobertura para edificio y contenido.',
+      coverageItems: [
+        { label: 'Incendio', category: 'EDIFICIO', amount: 12000000 },
+        { label: 'Robo y daño a electrodomésticos', category: 'CONTENIDO GENERAL', amount: 1200000 },
+        { label: 'Responsabilidad Civil privada', category: 'HECHOS PRIVADOS', amount: 1200000 },
+        { label: 'Cristales', category: 'CRISTALES', amount: 300000 },
+      ],
+      sortOrder: 2,
+    },
+    {
+      productType: 'hogar',
+      name: 'Hogar Premium',
+      monthlyPrice: 18086,
+      description: 'Máxima tranquilidad para tu hogar.',
+      coverageItems: [
+        { label: 'Incendio', category: 'EDIFICIO', amount: 18000000 },
+        { label: 'Robo y daño a electrodomésticos', category: 'CONTENIDO GENERAL', amount: 1800000 },
+        { label: 'Responsabilidad Civil privada', category: 'HECHOS PRIVADOS', amount: 1800000 },
+        { label: 'Cristales', category: 'CRISTALES', amount: 450000 },
+      ],
+      sortOrder: 3,
+    },
+  ] as const
+
+  for (const plan of SEED_PLANS) {
+    const existing = await prisma.productPlan.findFirst({
+      where: { producerId: producer.id, productType: plan.productType, name: plan.name, deletedAt: null },
+      select: { id: true },
+    })
+    if (!existing) {
+      await prisma.productPlan.create({
+        data: {
+          producerId: producer.id,
+          productType: plan.productType,
+          name: plan.name,
+          monthlyPrice: plan.monthlyPrice,
+          description: plan.description,
+          coverageItems: plan.coverageItems.map(c => ({ ...c })),
+          sortOrder: plan.sortOrder,
+        },
+      })
+    }
+  }
+
   // ── Admin users ─────────────────────────────────────────
   await prisma.user.upsert({
     where: { email: 'admin@johnpellegrini.com.ar' },
