@@ -637,6 +637,51 @@ Returns the full detail of a single insured client, including every policy with 
 
 ---
 
+## Admin — Dashboard
+
+### GET /admin/dashboard
+
+Returns the aggregated home-dashboard payload for the admin panel: KPI counters, the
+upcoming-renewals pipeline (policies expiring per month over the next 6 months plus the
+premium at risk), and breakdowns for cartera, solicitudes por estado, cobranzas and
+siniestros. All metrics are scoped to the authenticated user's producer.
+
+**Auth required:** Yes (user)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "kpis": {
+    "asegurados": 134,
+    "solicitudesNuevas": 7,
+    "cuotasVencidas": 5,
+    "montoDeudaTotal": "182340.50",
+    "siniestrosAbiertos": 3
+  },
+  "renovaciones": {
+    "primaEnRiesgo": "2415000.00",
+    "timeline": [
+      { "month": "2026-06", "label": "Jun", "total": 9, "prima": "540000.00" },
+      { "month": "2026-07", "label": "Jul", "total": 18, "prima": "910000.00" },
+      { "month": "2026-08", "label": "Ago", "total": 7, "prima": "320000.00" },
+      { "month": "2026-09", "label": "Sep", "total": 12, "prima": "415000.00" },
+      { "month": "2026-10", "label": "Oct", "total": 14, "prima": "180000.00" },
+      { "month": "2026-11", "label": "Nov", "total": 6, "prima": "50000.00" }
+    ]
+  },
+  "cartera": { "vigentes": 210, "porVencer": 12, "vencidas": 8 },
+  "solicitudesPorEstado": { "nuevas": 7, "contactadas": 14, "cerradas": 31 },
+  "cobranzas": { "pendientes": 22, "vencidas": 5, "rechazadas": 2 },
+  "siniestrosPorEstado": { "pendiente": 2, "enProceso": 1, "resuelto": 9 }
+}
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+---
+
 ## Health
 
 ### GET /

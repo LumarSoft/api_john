@@ -21,6 +21,7 @@ import { SolicitudesModule } from './solicitudes/solicitudes.module'
 import { ProductPlansModule } from './product-plans/product-plans.module'
 import { PublicModule } from './public/public.module'
 import { BusinessHoursModule } from './business-hours/business-hours.module'
+import { DashboardModule } from './dashboard/dashboard.module'
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { BusinessHoursModule } from './business-hours/business-hours.module'
     ProductPlansModule,
     PublicModule,
     BusinessHoursModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],
