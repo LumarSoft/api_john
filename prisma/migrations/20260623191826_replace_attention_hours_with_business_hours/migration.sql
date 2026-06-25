@@ -1,6 +1,5 @@
 -- AlterTable
-ALTER TABLE `Producer` DROP COLUMN `attentionHours`,
-    ADD COLUMN `businessHours` JSON NULL;
+ALTER TABLE `Producer` ADD COLUMN `businessHours` JSON NULL;
 
 -- CreateTable
 CREATE TABLE `BusinessClosure` (
