@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -12,26 +10,404 @@ datasource db {
   provider = "mysql"
 }
 
-model User {
-  id           Int           @id @default(autoincrement())
-  email        String        @unique
-  password     String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  cotizaciones Cotizacion[]  
+// ─── PRODUCTOR (tenant) ──────────────────────────────────
+
+model Producer {
+  id            Int            @id @default(autoincrement())
+  name          String
+  slug          String         @unique
+  // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
+  // Null/empty → the bot falls back to "el asistente de JPMG".
+  botName       String?        @db.VarChar(60)
+  // Weekly business hours (Mon–Sun) shown across every channel (WhatsApp bot and
+  // the public web) and used to compute "open now". Single source of truth edited
+  // from the admin "Horarios" screen. JSON shape: { mon: [{from,to}], ..., sun: [] }
+  // where each day holds zero or more HH:mm ranges ([] = closed). Null → app default.
+  businessHours Json?
+  systemPrompt  String         @db.Text
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+
+  phoneNumbers  PhoneNumber[]
+  users         User[]
+  clients       Client[]
+  polizas       Poliza[]
+  cotizaciones  Cotizacion[]
+  conversations Conversation[]
+  siniestros    Siniestro[]
+  novedades     Novedad[]
+  contactLeads  ContactLead[]
+  productPlans  ProductPlan[]
+  businessClosures BusinessClosure[]
 }
 
-model Cotizacion {
-  id              Int      @id @default(autoincrement())
-  presupuestoNro  Int      @unique  
-  marcaCodigo     String
-  modeloCodigo    String
-  anioFabricacion Int
-  codigoPostal    Int
-  resultado       Json     
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+// A temporary closure (holiday, vacation, etc.) that overrides the weekly hours
+// for a date or date range. The bot surfaces the `reason` to anyone asking about
+// hours while the closure is active. Single-day closures use startDate == endDate.
+model BusinessClosure {
+  id         Int       @id @default(autoincrement())
+  startDate  DateTime  @db.Date
+  endDate    DateTime  @db.Date
+  // Why the office is closed (required) — quoted back to users by the bot.
+  reason     String    @db.VarChar(160)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
 
-  userId          Int?        
-  user            User?       @relation(fields: [userId], references: [id]) 
+  producerId Int
+  producer   Producer  @relation(fields: [producerId], references: [id])
+
+  @@index([producerId, startDate, endDate])
+}
+
+model PhoneNumber {
+  id            Int       @id @default(autoincrement())
+  phoneNumberId String    @unique   // ID de Meta
+  number        String              // display: "+1 555 151 7253"
+  isActive      Boolean   @default(true)
+  deletedAt     DateTime?
+  producerId    Int
+  producer      Producer  @relation(fields: [producerId], references: [id])
+}
+
+// ─── EMPLEADOS / ADMINS DE JOHN ──────────────────────────
+
+model User {
+  id           Int          @id @default(autoincrement())
+  email        String       @unique
+  password     String
+  role         String       @default("admin")  // "admin" | "empleado"
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  producerId            Int
+  producer              Producer       @relation(fields: [producerId], references: [id])
+  cotizaciones          Cotizacion[]
+  assignedConversations Conversation[] @relation("assigned_conversations")
+}
+
+// ─── CLIENTES ASEGURADOS ─────────────────────────────────
+
+model Client {
+  id                     Int       @id @default(autoincrement())
+  dni                    String
+  firstName              String
+  lastName               String
+  email                  String
+  password               String
+  requiresPasswordChange Boolean   @default(true)
+  phone                  String?
+  city                   String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
+
+  producerId    Int
+  producer      Producer       @relation(fields: [producerId], references: [id])
+  conversations Conversation[]
+  polizas       Poliza[]
+  siniestros    Siniestro[]
+  novedades     Novedad[]
+
+  @@unique([email, producerId])
+  @@unique([dni, producerId])
+  @@unique([phone, producerId])
+}
+
+// ─── PÓLIZAS ─────────────────────────────────────────────
+
+enum RiskType {
+  auto
+  moto
+  home
+  life
+  commercial
+  other
+}
+
+model Poliza {
+  id            Int       @id @default(autoincrement())
+  certificado   String    // certificate number from Triunfo
+  suplemento    Int       @default(0)    // policy version / supplement
+  company       String    // "triunfo" — expandable for future companies
+  riskType      RiskType  @default(other)
+  status        String    // "VIGENTE" | "VENCIDA" | "REFACTURACION" etc.
+  vigenciaDesde DateTime?
+  vigenciaHasta DateTime?
+  premio        Decimal?  @db.Decimal(12, 2)
+  paymentMethod String?
+  rawData       Json      // full provider response for this policy
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  clientId   Int
+  client     Client   @relation(fields: [clientId], references: [id])
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
+
+  vehiculo   Vehiculo?
+  cuotas     Cuota[]
+  siniestros Siniestro[]
+
+  @@unique([certificado, producerId])
+}
+
+model Vehiculo {
+  id            Int      @id @default(autoincrement())
+  dominio       String?  // license plate
+  marca         String?
+  modelo        String?
+  subModelo     String?
+  anio          Int?
+  tipo          String?  // "AUTOMOVIL" | "MOTO" etc.
+  uso           String?  // "PARTICULAR" | "COMERCIAL" etc.
+  cobertura     String?  // coverage code (e.g. "A", "B", "C")
+  sumaAsegurada Decimal? @db.Decimal(14, 2)
+  ceroKm        Boolean  @default(false)
+  chasis        String?
+  motor         String?
+  deletedAt     DateTime?
+
+  polizaId Int    @unique
+  poliza   Poliza @relation(fields: [polizaId], references: [id])
+}
+
+model Cuota {
+  id          Int       @id @default(autoincrement())
+  numeroCuota Int
+  amount      Decimal   @db.Decimal(12, 2)
+  dueDate     DateTime?
+  status      String    @default("pending") // "pending" | "paid" | "overdue" | "rejected"
+  deletedAt   DateTime?
+
+  polizaId Int
+  poliza   Poliza @relation(fields: [polizaId], references: [id])
+
+  @@unique([polizaId, numeroCuota])
+}
+
+// ─── SINIESTROS (denuncias del cliente) ──────────────────
+
+model Siniestro {
+  id                   Int       @id @default(autoincrement())
+  tipo                 String // "auto" | "hogar" | "robo" | "otro"
+  descripcion          String    @db.Text
+  fecha                DateTime // date of the incident
+  estado               String    @default("pendiente") // "pendiente" | "en_proceso" | "resuelto"
+  // Official claim number, set by the admin after manually filing the claim in
+  // Triunfo's web (their API has no claims endpoint yet).
+  nroSiniestroCompania String?
+  adjuntos    Json? // array of { filename, originalName, url, mimeType, size }
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  clientId   Int
+  client     Client   @relation(fields: [clientId], references: [id])
+  polizaId   Int
+  poliza     Poliza   @relation(fields: [polizaId], references: [id])
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
+}
+
+// ─── NOVEDADES (centro de notificaciones del admin) ──────
+// Generic notification feed for the admin panel. Each row is one actionable
+// event the broker should see: a new claim (type "siniestro") or a customer
+// asking for a human advisor (type "handoff"). title/body are denormalized at
+// creation so the list needs no joins; the full detail is fetched from the
+// source entity via `refId` when the admin opens it.
+model Novedad {
+  id        Int       @id @default(autoincrement())
+  type      String // "siniestro" | "handoff"
+  refId     Int // Siniestro.id when type="siniestro"; Conversation.id when "handoff"
+  title     String
+  body      String?   @db.Text
+  readAt    DateTime? // null = unread; set when the admin marks it read
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
+  // Denormalized so the admin can filter/search novedades by client (DNI/name).
+  // Nullable: a handoff from an unidentified WhatsApp number has no client yet.
+  clientId   Int?
+  client     Client?  @relation(fields: [clientId], references: [id])
+
+  @@index([producerId, readAt])
+  @@index([producerId, type, createdAt])
+  @@index([clientId])
+}
+
+// ─── COTIZACIONES ────────────────────────────────────────
+
+model Cotizacion {
+  id              Int       @id @default(autoincrement())
+  quoteNumber     Int       @unique
+  vehicleType     String    @default("AUTO") // AUTO | MOTO
+  brandCode       String
+  modelCode       String
+  manufactureYear Int
+  postalCode      Int
+  result          Json
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  producerId      Int
+  producer        Producer  @relation(fields: [producerId], references: [id])
+  userId          Int?
+  user            User?     @relation(fields: [userId], references: [id])
+  solicitud       Solicitud?
+}
+
+// ─── SOLICITUDES DE COBERTURA (LEADS) ────────────────────
+
+model Solicitud {
+  id           Int        @id @default(autoincrement())
+  cotizacionId Int        @unique
+  cotizacion   Cotizacion @relation(fields: [cotizacionId], references: [id])
+
+  selectedCoverage  String
+  coverageStartDate DateTime
+
+  applicantType      String // FISICA | JURIDICA
+  applicantFirstName String // razón social when applicantType is JURIDICA
+  applicantLastName  String?
+  applicantEmail     String
+  applicantPhone     String
+  applicantBirthDate DateTime?
+  applicantDocType   String // DNI | CUIL | CUIT | PASAPORTE
+  applicantDocNumber String
+  applicantAddress   String
+
+  paymentMethod String // CREDIT | DEBIT | OTHER
+  cardCompany   String?
+  cardNumber    String?
+  cardExpiry    String? // YYYYMM (Triunfo format)
+  cardHolder    String?
+
+  // Follow-up state for the unified "Solicitudes de cotización" admin panel,
+  // shared with ContactLead so both lead kinds are managed the same way.
+  status String  @default("NEW") // NEW | CONTACTED | CLOSED
+  notes  String? @db.Text
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+}
+
+// ─── LEADS DE COTIZACIÓN (productos sin cotización online) ─
+// Advisor-contact leads for the non-instant products. The `lead` products
+// (bici, comercio, praxis, personas) come straight from a contact form; the
+// `fixed` products (bolso, hogar) carry the chosen ProductPlan in selectedPlanId.
+model ContactLead {
+  id             Int       @id @default(autoincrement())
+  productType    String // bici | comercio | praxis | personas | bolso | hogar
+  channel        String // WEB | WHATSAPP
+  status         String    @default("NEW") // NEW | CONTACTED | CLOSED
+  contactName    String
+  phone          String
+  email          String?
+  payload        Json // product-specific fields (actividad, superficie, bici subtype, etc.)
+  selectedPlanId Int? // set only for the fixed-price products (bolso, hogar)
+  notes          String?   @db.Text
+  conversationId Int? // set when the lead came from the WhatsApp bot
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  producerId   Int
+  producer     Producer     @relation(fields: [producerId], references: [id])
+  selectedPlan ProductPlan? @relation(fields: [selectedPlanId], references: [id])
+
+  @@index([producerId, status, createdAt])
+}
+
+// ─── PLANES DE PRECIO FIJO (configurables por el admin) ───
+// Admin-managed fixed-price plans for the products whose premium is a flat,
+// pre-agreed monthly amount (bolso, hogar). The admin can create as many as
+// needed per product type.
+model ProductPlan {
+  id            Int       @id @default(autoincrement())
+  productType   String // bolso | hogar
+  name          String // "Básico", "Plus", ...
+  monthlyPrice  Decimal   @db.Decimal(12, 2)
+  description   String?
+  coverageItems Json // string[] of included coverages
+  isActive      Boolean   @default(true)
+  sortOrder     Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  producerId Int
+  producer   Producer      @relation(fields: [producerId], references: [id])
+  leads      ContactLead[]
+
+  @@index([producerId, productType, isActive])
+}
+
+// ─── CONVERSACIONES WHATSAPP ─────────────────────────────
+
+model Conversation {
+  id         Int       @id @default(autoincrement())
+  waId       String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  // Start of the current chat session. Messages older than this stay in the DB
+  // (until the retention job prunes them) but are excluded from the context
+  // window, so an idle user that comes back after the inactivity window starts
+  // from scratch. Bumped on timeout and by the /reset dev command.
+  sessionStartedAt DateTime?
+  // Denormalized timestamp of the last message, kept for the inactivity sweep
+  // so it doesn't have to join Message. Null = no activity to warn/expire.
+  lastMessageAt    DateTime?
+  // Set when the proactive inactivity warning was pushed for the current idle
+  // period; cleared on new activity. Prevents re-warning the same silence.
+  warnedAt         DateTime?
+  // Meta phone_number_id this chat came through. Stored so a proactive warning
+  // is sent FROM the same number the user wrote to (a producer may own several).
+  phoneNumberId    String?
+  // Serialized deterministic flow state owned by the bot (JSON: { step, data }).
+  // Persisted so the bot is stateless and resumes the exact step after a restart
+  // or deploy instead of greeting from scratch. Cleared when a new session starts.
+  flowState        String?   @db.Text
+
+  // ─── Human handoff ───────────────────────────────────────
+  // status: "open" (bot active) | "pending" (waiting for agent) | "closed"
+  status           String    @default("open")
+  // When true the bot skips the LLM/flow loop and only stores inbound messages.
+  botPaused        Boolean   @default(false)
+  assignedToUserId Int?
+  assignedTo       User?     @relation("assigned_conversations", fields: [assignedToUserId], references: [id])
+  handedOverAt     DateTime?
+
+  producerId Int
+  producer   Producer  @relation(fields: [producerId], references: [id])
+  clientId   Int?      // se vincula cuando el cliente se identifica por DNI
+  client     Client?   @relation(fields: [clientId], references: [id])
+  messages   Message[]
+
+  @@unique([waId, producerId])
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  role           String       // "user" | "assistant"
+  content        String       @db.Text
+  createdAt      DateTime     @default(now())
+  deletedAt      DateTime?
+
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  // History is fetched as `where conversationId order by createdAt desc take 10`
+  // on every inbound message, and the retention job prunes by createdAt.
+  @@index([conversationId, createdAt])
 }
