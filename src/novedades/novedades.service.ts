@@ -28,12 +28,19 @@ export class NovedadesService {
 
   async recordSiniestro(
     producerId: number,
-    input: { siniestroId: number; clientId: number; clienteNombre: string; descripcion: string },
+    input: {
+      siniestroId: number
+      clientId: number
+      clienteNombre: string
+      descripcion: string
+      producerCodeId?: number | null
+    },
   ): Promise<void> {
     await this.safeCreate(producerId, {
       type: NovedadType.SINIESTRO,
       refId: input.siniestroId,
       clientId: input.clientId,
+      producerCodeId: input.producerCodeId ?? null,
       title: `Nuevo siniestro · ${input.clienteNombre}`,
       body: input.descripcion,
     })
@@ -41,12 +48,18 @@ export class NovedadesService {
 
   async recordHandoff(
     producerId: number,
-    input: { conversationId: number; clientId: number | null; clienteNombre: string },
+    input: {
+      conversationId: number
+      clientId: number | null
+      clienteNombre: string
+      producerCodeId?: number | null
+    },
   ): Promise<void> {
     await this.safeCreate(producerId, {
       type: NovedadType.HANDOFF,
       refId: input.conversationId,
       clientId: input.clientId,
+      producerCodeId: input.producerCodeId ?? null,
       title: `Pedido de asesor · ${input.clienteNombre}`,
       body: null,
     })
@@ -56,7 +69,14 @@ export class NovedadesService {
   // creation, handoff). Log and move on, mirroring MailService's behavior.
   private async safeCreate(
     producerId: number,
-    data: { type: NovedadType; refId: number; clientId: number | null; title: string; body: string | null },
+    data: {
+      type: NovedadType
+      refId: number
+      clientId: number | null
+      producerCodeId: number | null
+      title: string
+      body: string | null
+    },
   ): Promise<void> {
     try {
       await this.prisma.novedad.create({
@@ -65,6 +85,7 @@ export class NovedadesService {
           type: data.type,
           refId: data.refId,
           clientId: data.clientId,
+          producerCodeId: data.producerCodeId,
           title: data.title,
           body: data.body,
         },
@@ -76,13 +97,20 @@ export class NovedadesService {
 
   // ─── Admin panel ───────────────────────────────────────
 
-  async listForAdmin(producerId: number, dto: ListNovedadesDto) {
+  // Code-level visibility for an admin. Includes novedades not yet attributed to
+  // a code (handoffs from unidentified numbers) so they stay visible to the org.
+  private codeScope(codeIds: number[]): Prisma.NovedadWhereInput {
+    return { OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }
+  }
+
+  async listForAdmin(producerId: number, codeIds: number[], dto: ListNovedadesDto) {
     const page = dto.page && dto.page > 0 ? dto.page : 1
     const pageSize = dto.pageSize && dto.pageSize > 0 ? dto.pageSize : DEFAULT_PAGE_SIZE
     const search = dto.search?.trim()
     const where: Prisma.NovedadWhereInput = {
       producerId,
       deletedAt: null,
+      ...this.codeScope(codeIds),
       ...(dto.type ? { type: dto.type } : {}),
       ...(dto.unread ? { readAt: null } : {}),
       ...(dto.clientId ? { clientId: dto.clientId } : {}),
@@ -120,8 +148,8 @@ export class NovedadesService {
     }
   }
 
-  async getStats(producerId: number) {
-    const base = { producerId, deletedAt: null, readAt: null }
+  async getStats(producerId: number, codeIds: number[]) {
+    const base = { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds) }
 
     const [unreadTotal, unreadSiniestros, unreadHandoff] = await this.prisma.$transaction([
       this.prisma.novedad.count({ where: base }),
@@ -132,9 +160,9 @@ export class NovedadesService {
     return { unreadTotal, unreadSiniestros, unreadHandoff }
   }
 
-  async markRead(id: number, producerId: number) {
+  async markRead(id: number, producerId: number, codeIds: number[]) {
     const novedad = await this.prisma.novedad.findFirst({
-      where: { id, producerId, deletedAt: null },
+      where: { id, producerId, deletedAt: null, ...this.codeScope(codeIds) },
       select: { id: true, readAt: true },
     })
     if (!novedad) throw new NotFoundException(`Novedad ${id} not found`)
@@ -151,9 +179,9 @@ export class NovedadesService {
     })
   }
 
-  async markAllRead(producerId: number, type?: NovedadType) {
+  async markAllRead(producerId: number, codeIds: number[], type?: NovedadType) {
     const result = await this.prisma.novedad.updateMany({
-      where: { producerId, deletedAt: null, readAt: null, ...(type ? { type } : {}) },
+      where: { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds), ...(type ? { type } : {}) },
       data: { readAt: new Date() },
     })
     return { updated: result.count }

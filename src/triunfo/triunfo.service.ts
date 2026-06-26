@@ -141,9 +141,17 @@ export class TriunfoService {
     }
   }
 
-  // NovedadesCartera uses Codigo/Usuario/Password auth — NOT JWT
-  async getNovedadesCartera(fechaDesde: string, fechaHasta: string): Promise<TriunfoNovedad[]> {
-    this.logger.log(`Consultando NovedadesCartera ${fechaDesde} → ${fechaHasta}`)
+  // NovedadesCartera uses Codigo/Usuario/Password auth — NOT JWT.
+  // `codigo` selects which producer-code's cartera to pull. Confirmed against
+  // Postman: the same master Usuario/Password works for every dependent código,
+  // varying only `Codigo` in the request — so the cron iterates codes with the
+  // org-level credential. Defaults to the org master code (TRIUNFO_PRODUCTOR).
+  async getNovedadesCartera(
+    fechaDesde: string,
+    fechaHasta: string,
+    codigo: string = this.productor,
+  ): Promise<TriunfoNovedad[]> {
+    this.logger.log(`Consultando NovedadesCartera código=${codigo} ${fechaDesde} → ${fechaHasta}`)
 
     const response = await firstValueFrom(
       this.httpService.post(`${this.baseUrlSip}/RESTNovedadesCartera`, {
@@ -153,7 +161,7 @@ export class TriunfoService {
           FechaDesde: fechaDesde,
           FechaHasta: fechaHasta,
           Productor: {
-            Codigo: this.productor,
+            Codigo: codigo,
             Password: this.password,
             Usuario: this.usuario,
           },

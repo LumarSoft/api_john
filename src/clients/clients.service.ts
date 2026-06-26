@@ -227,10 +227,10 @@ export class ClientsService {
       .map(({ rawData, ...rest }) => ({ ...rest, bien: extractBien(rawData) }))
   }
 
-  async findAllForAdmin(producerId: number, query: ListClientsDto) {
+  async findAllForAdmin(producerId: number, codeIds: number[], query: ListClientsDto) {
     const page = query.page && query.page > 0 ? query.page : 1
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : DEFAULT_PAGE_SIZE
-    const where = this.buildAdminWhere(producerId, query)
+    const where = this.buildAdminWhere(producerId, codeIds, query)
 
     const [total, raw] = await this.prisma.$transaction([
       this.prisma.client.count({ where }),
@@ -266,26 +266,27 @@ export class ClientsService {
     }
   }
 
-  async getAdminStats(producerId: number) {
+  async getAdminStats(producerId: number, codeIds: number[]) {
     const now = new Date()
     const expiringLimit = new Date(now.getTime() + EXPIRING_WINDOW_DAYS * 86_400_000)
-    const activePoliza = { producerId, deletedAt: null }
+    const codeScope = { producerCodeId: { in: codeIds } }
+    const activePoliza = { producerId, deletedAt: null, ...codeScope }
 
     const [totalClients, vigentes, porVencer, vencidas, cuotasVencidas] = await this.prisma.$transaction([
-      this.prisma.client.count({ where: { producerId, deletedAt: null } }),
+      this.prisma.client.count({ where: { producerId, deletedAt: null, ...codeScope } }),
       this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { gte: now } } }),
       this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { gte: now, lte: expiringLimit } } }),
       this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { lt: now } } }),
       this.prisma.cuota.count({
-        where: { deletedAt: null, status: 'overdue', poliza: { producerId, deletedAt: null } },
+        where: { deletedAt: null, status: 'overdue', poliza: { producerId, deletedAt: null, ...codeScope } },
       }),
     ])
 
     return { totalClients, vigentes, porVencer, vencidas, cuotasVencidas }
   }
 
-  private buildAdminWhere(producerId: number, query: ListClientsDto): Prisma.ClientWhereInput {
-    const where: Prisma.ClientWhereInput = { producerId, deletedAt: null }
+  private buildAdminWhere(producerId: number, codeIds: number[], query: ListClientsDto): Prisma.ClientWhereInput {
+    const where: Prisma.ClientWhereInput = { producerId, deletedAt: null, producerCodeId: { in: codeIds } }
     const and: Prisma.ClientWhereInput[] = []
 
     const search = query.search?.trim()
@@ -353,9 +354,9 @@ export class ClientsService {
     }
   }
 
-  async findOneForAdmin(id: number, producerId: number) {
+  async findOneForAdmin(id: number, producerId: number, codeIds: number[]) {
     const client = await this.prisma.client.findFirst({
-      where: { id, producerId, deletedAt: null },
+      where: { id, producerId, deletedAt: null, producerCodeId: { in: codeIds } },
       select: ADMIN_CLIENT_DETAIL_SELECT,
     })
     if (!client) throw new NotFoundException(`Client ${id} not found`)
@@ -374,7 +375,7 @@ export class ClientsService {
     return { ...rest, bien: extractBien(rawData) }
   }
 
-  async findCobranzasForAdmin(producerId: number, query: ListCobranzasDto) {
+  async findCobranzasForAdmin(producerId: number, codeIds: number[], query: ListCobranzasDto) {
     const page = query.page ?? 1
     const pageSize = query.pageSize ?? 20
     const search = query.search?.trim()
@@ -382,6 +383,7 @@ export class ClientsService {
     const where: Prisma.ClientWhereInput = {
       producerId,
       deletedAt: null,
+      producerCodeId: { in: codeIds },
       polizas: { some: { deletedAt: null, cuotas: { some: { deletedAt: null } } } },
     }
 
@@ -495,11 +497,13 @@ export class ClientsService {
     return { data, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
   }
 
-  async getCobranzasStats(producerId: number) {
-    const baseCuota = { deletedAt: null, poliza: { producerId, deletedAt: null } }
+  async getCobranzasStats(producerId: number, codeIds: number[]) {
+    const codeScope = { producerCodeId: { in: codeIds } }
+    const baseCuota = { deletedAt: null, poliza: { producerId, deletedAt: null, ...codeScope } }
     const clientWithCuotaStatus = (status: 'pending' | 'overdue' | 'rejected'): Prisma.ClientWhereInput => ({
       producerId,
       deletedAt: null,
+      ...codeScope,
       polizas: { some: { deletedAt: null, cuotas: { some: { deletedAt: null, status } } } },
     })
 
@@ -522,6 +526,7 @@ export class ClientsService {
         where: {
           producerId,
           deletedAt: null,
+          ...codeScope,
           polizas: {
             some: {
               deletedAt: null,

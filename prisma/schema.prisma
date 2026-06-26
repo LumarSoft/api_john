@@ -10,12 +10,21 @@ datasource db {
   provider = "mysql"
 }
 
-// ─── PRODUCTOR (tenant) ──────────────────────────────────
+// ─── ORGANIZATION (tenant) ───────────────────────────────
+// `Producer` is the unit of tenancy = the billable ORGANIZATION you sell to
+// (e.g. "JOHN PELLEGRINI MANAGEMENT GROUP SRL", master code 11425). It is NOT
+// a single insurance agent. Each real Triunfo agent code (8074, 14831, ...) is a
+// `ProducerCode` child of this organization. Naming caveat: in code "Producer"
+// means the organization/tenant; "ProducerCode" means the Triunfo agent code.
+// (Kept the name `Producer` to avoid a destabilizing rename — see CONTEXT.md.)
 
 model Producer {
   id            Int            @id @default(autoincrement())
   name          String
   slug          String         @unique
+  // The organization's principal Triunfo code (e.g. "11425"). The cartera of every
+  // dependent code rolls up to this org. Informational/anchor for the master code.
+  masterCode    String?        @db.VarChar(20)
   // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
   // Null/empty → the bot falls back to "el asistente de JPMG".
   botName       String?        @db.VarChar(60)
@@ -30,6 +39,7 @@ model Producer {
   updatedAt     DateTime       @updatedAt
   deletedAt     DateTime?
 
+  producerCodes ProducerCode[]
   phoneNumbers  PhoneNumber[]
   users         User[]
   clients       Client[]
@@ -41,6 +51,67 @@ model Producer {
   contactLeads  ContactLead[]
   productPlans  ProductPlan[]
   businessClosures BusinessClosure[]
+  usageMonthly  UsageMonthly[]
+}
+
+// ─── PRODUCER CODE (Triunfo agent code) ──────────────────
+// A single Triunfo "código de productor" that belongs to an organization. The
+// cartera (clients/policies/cuotas) is keyed by this code in Triunfo, so it is a
+// first-class scoping unit. Admin users are granted visibility over one or more
+// of these via UserProducerCode; a SuperAdmin implicitly sees all codes of its org.
+model ProducerCode {
+  id         Int       @id @default(autoincrement())
+  // Triunfo agent code, e.g. "8074". Unique within an organization.
+  code       String    @db.VarChar(20)
+  // Human-readable holder, e.g. "PELLEGRINI JOHN" / "CANARELLI ADRIANA".
+  holderName String?
+  // True for the organization's principal code (mirrors Producer.masterCode).
+  isMaster   Boolean   @default(false)
+  isActive   Boolean   @default(true)
+  // OPTIONAL per-code Triunfo credentials. Only needed if Triunfo requires a
+  // separate login per agent code to pull that code's cartera. If null, the
+  // org-level TRIUNFO_* env credentials (master code) are used. See cartera-sync.
+  triunfoUsuario  String?
+  triunfoPassword String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  producerId Int
+  producer   Producer  @relation(fields: [producerId], references: [id])
+
+  users         UserProducerCode[]
+  clients       Client[]
+  polizas       Poliza[]
+  cotizaciones  Cotizacion[]
+  siniestros    Siniestro[]
+  contactLeads  ContactLead[]
+  conversations Conversation[]
+  novedades     Novedad[]
+  // Phone numbers whose billing is attributed to this code.
+  responsibleForPhones PhoneNumber[] @relation("phone_responsible_code")
+  // Phone numbers this code is served by (many-to-many, e.g. shared office line).
+  servedByPhones PhoneNumberProducerCode[]
+  usageMonthly   UsageMonthly[]
+
+  @@unique([producerId, code])
+  @@index([producerId, isActive])
+}
+
+// ─── USER ↔ PRODUCER CODE (visibility grants) ────────────
+// Which producer codes an ADMIN user may see. SuperAdmin needs no rows here
+// (resolved at runtime to all codes of the org). An admin always implicitly sees
+// at least the code(s) granted here; the SuperAdmin manages these grants.
+model UserProducerCode {
+  id             Int          @id @default(autoincrement())
+  userId         Int
+  user           User         @relation(fields: [userId], references: [id])
+  producerCodeId Int
+  producerCode   ProducerCode @relation(fields: [producerCodeId], references: [id])
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, producerCodeId])
+  @@index([producerCodeId])
 }
 
 // A temporary closure (holiday, vacation, etc.) that overrides the weekly hours
@@ -70,21 +141,94 @@ model PhoneNumber {
   deletedAt     DateTime?
   producerId    Int
   producer      Producer  @relation(fields: [producerId], references: [id])
+
+  // Billing: the code this number is invoiced to. A number may serve several
+  // codes (shared office line), but exactly one is the "responsible" for billing.
+  // We bill per active PhoneNumber, attributed to this code. Nullable during
+  // migration; should be set for every production number.
+  responsibleProducerCodeId Int?
+  responsibleProducerCode   ProducerCode? @relation("phone_responsible_code", fields: [responsibleProducerCodeId], references: [id])
+  // All codes this number routes/serves (many-to-many).
+  servedCodes               PhoneNumberProducerCode[]
+
+  // Monthly cost cap in USD for this number (OpenAI + Meta). Null → platform
+  // default (DEFAULT_MONTHLY_BUDGET_USD env). When the running month total
+  // crosses the cap, budgetExceededAt is stamped and the bot disables the (paid)
+  // LLM while the deterministic flows keep working at zero token cost.
+  monthlyBudgetUsd  Decimal?  @db.Decimal(10, 2)
+  budgetExceededAt  DateTime?
+
+  usageMonthly      UsageMonthly[]
+
+  @@index([responsibleProducerCodeId])
 }
 
-// ─── EMPLEADOS / ADMINS DE JOHN ──────────────────────────
+// Monthly cost aggregate per phone number (one row per number per "YYYY-MM").
+// Incremented as the bot reports OpenAI token usage and Meta conversations, so
+// reporting per number/código/org/month is a cheap indexed read. producerId and
+// producerCodeId are denormalized from the PhoneNumber at write time.
+model UsageMonthly {
+  id                 Int      @id @default(autoincrement())
+  period             String   @db.VarChar(7) // "YYYY-MM"
+  openaiInputTokens  Int      @default(0)
+  openaiOutputTokens Int      @default(0)
+  openaiCostUsd      Decimal  @default(0) @db.Decimal(12, 6)
+  metaConversations  Int      @default(0)
+  metaCostUsd        Decimal  @default(0) @db.Decimal(12, 6)
+  totalCostUsd       Decimal  @default(0) @db.Decimal(12, 6)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
+  phoneNumberId  Int
+  phoneNumber    PhoneNumber   @relation(fields: [phoneNumberId], references: [id])
+
+  @@unique([period, phoneNumberId])
+  @@index([producerId, period])
+  @@index([producerCodeId, period])
+}
+
+// Join: which producer codes a single WhatsApp number serves. Lets several codes
+// (e.g. coworkers in the same office) share one number while we still attribute
+// billing to `PhoneNumber.responsibleProducerCode`.
+model PhoneNumberProducerCode {
+  id             Int          @id @default(autoincrement())
+  phoneNumberId  Int
+  phoneNumber    PhoneNumber  @relation(fields: [phoneNumberId], references: [id])
+  producerCodeId Int
+  producerCode   ProducerCode @relation(fields: [producerCodeId], references: [id])
+
+  @@unique([phoneNumberId, producerCodeId])
+  @@index([producerCodeId])
+}
+
+// ─── ADMINS / SUPERADMINS DE LA ORGANIZACIÓN ─────────────
+
+// Role within an organization (tenant). Above these sits the platform Owner
+// (Lumar), modelled at deployment level (provisions organizations), not as a row.
+//   SUPERADMIN → sees ALL producer codes of its org; manages admins & grants.
+//   ADMIN      → sees only the producer codes granted via UserProducerCode.
+enum Role {
+  SUPERADMIN
+  ADMIN
+}
 
 model User {
   id           Int          @id @default(autoincrement())
   email        String       @unique
   password     String
-  role         String       @default("admin")  // "admin" | "empleado"
+  role         Role         @default(ADMIN)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
   deletedAt    DateTime?
 
   producerId            Int
   producer              Producer       @relation(fields: [producerId], references: [id])
+  // Producer codes this admin may access (ignored for SUPERADMIN = all codes).
+  producerCodes         UserProducerCode[]
   cotizaciones          Cotizacion[]
   assignedConversations Conversation[] @relation("assigned_conversations")
 }
@@ -107,6 +251,10 @@ model Client {
 
   producerId    Int
   producer      Producer       @relation(fields: [producerId], references: [id])
+  // Triunfo agent code that owns this client's cartera. Nullable during migration;
+  // back-filled to the org master code, then refined per Triunfo cartera.
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   conversations Conversation[]
   polizas       Poliza[]
   siniestros    Siniestro[]
@@ -115,6 +263,7 @@ model Client {
   @@unique([email, producerId])
   @@unique([dni, producerId])
   @@unique([phone, producerId])
+  @@index([producerCodeId])
 }
 
 // ─── PÓLIZAS ─────────────────────────────────────────────
@@ -148,12 +297,16 @@ model Poliza {
   client     Client   @relation(fields: [clientId], references: [id])
   producerId Int
   producer   Producer @relation(fields: [producerId], references: [id])
+  // Triunfo agent code that owns this policy (cartera is keyed by code in Triunfo).
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
 
   vehiculo   Vehiculo?
   cuotas     Cuota[]
   siniestros Siniestro[]
 
   @@unique([certificado, producerId])
+  @@index([producerCodeId])
 }
 
 model Vehiculo {
@@ -212,6 +365,11 @@ model Siniestro {
   poliza     Poliza   @relation(fields: [polizaId], references: [id])
   producerId Int
   producer   Producer @relation(fields: [producerId], references: [id])
+  // Triunfo agent code that owns the underlying policy/client (for admin scoping).
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
+
+  @@index([producerCodeId])
 }
 
 // ─── NOVEDADES (centro de notificaciones del admin) ──────
@@ -232,6 +390,10 @@ model Novedad {
 
   producerId Int
   producer   Producer @relation(fields: [producerId], references: [id])
+  // Triunfo agent code this novedad belongs to, so an admin only sees novedades
+  // of the codes it can access. Nullable for handoffs not yet attributed to a code.
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   // Denormalized so the admin can filter/search novedades by client (DNI/name).
   // Nullable: a handoff from an unidentified WhatsApp number has no client yet.
   clientId   Int?
@@ -240,6 +402,7 @@ model Novedad {
   @@index([producerId, readAt])
   @@index([producerId, type, createdAt])
   @@index([clientId])
+  @@index([producerCodeId])
 }
 
 // ─── COTIZACIONES ────────────────────────────────────────
@@ -259,9 +422,14 @@ model Cotizacion {
 
   producerId      Int
   producer        Producer  @relation(fields: [producerId], references: [id])
+  // Triunfo agent code credited with this quote (defaults to the quoting user's code).
+  producerCodeId  Int?
+  producerCode    ProducerCode? @relation(fields: [producerCodeId], references: [id])
   userId          Int?
   user            User?     @relation(fields: [userId], references: [id])
   solicitud       Solicitud?
+
+  @@index([producerCodeId])
 }
 
 // ─── SOLICITUDES DE COBERTURA (LEADS) ────────────────────
@@ -322,9 +490,13 @@ model ContactLead {
 
   producerId   Int
   producer     Producer     @relation(fields: [producerId], references: [id])
+  // Triunfo agent code credited with this lead (for admin scoping). Nullable.
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   selectedPlan ProductPlan? @relation(fields: [selectedPlanId], references: [id])
 
   @@index([producerId, status, createdAt])
+  @@index([producerCodeId])
 }
 
 // ─── PLANES DE PRECIO FIJO (configurables por el admin) ───
@@ -390,11 +562,17 @@ model Conversation {
 
   producerId Int
   producer   Producer  @relation(fields: [producerId], references: [id])
+  // Triunfo agent code this chat resolves to. Set when the client identifies
+  // (DNI/patente) — a number shared by several codes routes to the right code by
+  // identification, not by the number. Drives inbox scoping for admins.
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   clientId   Int?      // se vincula cuando el cliente se identifica por DNI
   client     Client?   @relation(fields: [clientId], references: [id])
   messages   Message[]
 
   @@unique([waId, producerId])
+  @@index([producerCodeId])
 }
 
 model Message {

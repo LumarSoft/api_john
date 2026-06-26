@@ -12,6 +12,7 @@ const DEFAULT_PAGE_SIZE = 20
 interface CreateLeadContext {
   channel: 'WEB' | 'WHATSAPP'
   producerId: number
+  producerCodeId?: number | null
   conversationId?: number
 }
 
@@ -29,14 +30,19 @@ export class SolicitudesService {
     return this.createLead(dto, { channel: 'WEB', producerId: await this.resolveDefaultProducerId() })
   }
 
-  /** Creates a lead from the WhatsApp bot, scoped to the conversation's producer. */
+  /** Creates a lead from the WhatsApp bot, scoped to the conversation's producer + code. */
   async createBotLead(conversationId: number, dto: CreateLeadDto): Promise<{ id: number }> {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
-      select: { producerId: true },
+      select: { producerId: true, producerCodeId: true },
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
-    return this.createLead(dto, { channel: 'WHATSAPP', producerId: conversation.producerId, conversationId })
+    return this.createLead(dto, {
+      channel: 'WHATSAPP',
+      producerId: conversation.producerId,
+      producerCodeId: conversation.producerCodeId,
+      conversationId,
+    })
   }
 
   private async createLead(dto: CreateLeadDto, ctx: CreateLeadContext): Promise<{ id: number }> {
@@ -55,6 +61,7 @@ export class SolicitudesService {
     const lead = await this.prisma.contactLead.create({
       data: {
         producerId: ctx.producerId,
+        producerCodeId: ctx.producerCodeId ?? null,
         productType: dto.productType,
         channel: ctx.channel,
         contactName: dto.contactName,
@@ -77,7 +84,7 @@ export class SolicitudesService {
    * normalized into one stream. Both sources are small for a broker, so they're
    * fetched, merged and paginated in memory rather than with a SQL UNION.
    */
-  async listForAdmin(producerId: number, dto: ListSolicitudesDto) {
+  async listForAdmin(producerId: number, codeIds: number[], dto: ListSolicitudesDto) {
     const page = dto.page && dto.page > 0 ? dto.page : 1
     const pageSize = dto.pageSize && dto.pageSize > 0 ? dto.pageSize : DEFAULT_PAGE_SIZE
     const search = dto.search?.trim().toLowerCase()
@@ -85,10 +92,10 @@ export class SolicitudesService {
     const items: SolicitudListItem[] = []
 
     if (dto.kind !== 'cotizacion') {
-      items.push(...(await this.loadLeads(producerId, dto)))
+      items.push(...(await this.loadLeads(producerId, codeIds, dto)))
     }
     if (dto.kind !== 'lead') {
-      items.push(...(await this.loadCotizaciones(producerId, dto)))
+      items.push(...(await this.loadCotizaciones(producerId, codeIds, dto)))
     }
 
     const filtered = search
@@ -103,11 +110,18 @@ export class SolicitudesService {
     return { data, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
   }
 
-  private async loadLeads(producerId: number, dto: ListSolicitudesDto): Promise<SolicitudListItem[]> {
+  private async loadLeads(
+    producerId: number,
+    codeIds: number[],
+    dto: ListSolicitudesDto,
+  ): Promise<SolicitudListItem[]> {
     const leads = await this.prisma.contactLead.findMany({
       where: {
         producerId,
         deletedAt: null,
+        // Include leads not yet attributed to a code (anonymous web leads) so any
+        // admin of the org can pick them up.
+        OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }],
         ...(dto.status ? { status: dto.status } : {}),
         ...(dto.productType ? { productType: dto.productType } : {}),
       },
@@ -139,7 +153,11 @@ export class SolicitudesService {
     }))
   }
 
-  private async loadCotizaciones(producerId: number, dto: ListSolicitudesDto): Promise<SolicitudListItem[]> {
+  private async loadCotizaciones(
+    producerId: number,
+    codeIds: number[],
+    dto: ListSolicitudesDto,
+  ): Promise<SolicitudListItem[]> {
     // The auto/moto Solicitud panel filters by vehicleType ("AUTO"/"MOTO").
     const vehicleType = dto.productType === 'auto' ? 'AUTO' : dto.productType === 'moto' ? 'MOTO' : undefined
     // A non-vehicle productType filter excludes every cotizacion.
@@ -152,6 +170,7 @@ export class SolicitudesService {
         cotizacion: {
           producerId,
           deletedAt: null,
+          OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }],
           ...(vehicleType ? { vehicleType } : {}),
         },
       },
@@ -183,10 +202,11 @@ export class SolicitudesService {
     }))
   }
 
-  async getDetail(producerId: number, kind: LeadKind, id: number) {
+  async getDetail(producerId: number, codeIds: number[], kind: LeadKind, id: number) {
+    const codeOr = [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }]
     if (kind === 'lead') {
       const lead = await this.prisma.contactLead.findFirst({
-        where: { id, producerId, deletedAt: null },
+        where: { id, producerId, deletedAt: null, OR: codeOr },
         select: {
           id: true,
           productType: true,
@@ -213,7 +233,7 @@ export class SolicitudesService {
 
     // Card data is intentionally excluded from the detail response.
     const solicitud = await this.prisma.solicitud.findFirst({
-      where: { id, deletedAt: null, cotizacion: { producerId } },
+      where: { id, deletedAt: null, cotizacion: { producerId, OR: codeOr } },
       select: {
         id: true,
         status: true,
@@ -239,10 +259,11 @@ export class SolicitudesService {
     return { kind, ...solicitud }
   }
 
-  async updateStatus(producerId: number, kind: LeadKind, id: number, dto: UpdateSolicitudDto) {
+  async updateStatus(producerId: number, codeIds: number[], kind: LeadKind, id: number, dto: UpdateSolicitudDto) {
     if (dto.status === undefined && dto.notes === undefined) {
       throw new BadRequestException('Nothing to update')
     }
+    const codeOr = [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }]
     const data = {
       ...(dto.status !== undefined ? { status: dto.status } : {}),
       ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
@@ -250,7 +271,7 @@ export class SolicitudesService {
 
     if (kind === 'lead') {
       const lead = await this.prisma.contactLead.findFirst({
-        where: { id, producerId, deletedAt: null },
+        where: { id, producerId, deletedAt: null, OR: codeOr },
         select: { id: true },
       })
       if (!lead) throw new NotFoundException(`Lead ${id} not found`)
@@ -259,7 +280,7 @@ export class SolicitudesService {
     }
 
     const solicitud = await this.prisma.solicitud.findFirst({
-      where: { id, deletedAt: null, cotizacion: { producerId } },
+      where: { id, deletedAt: null, cotizacion: { producerId, OR: codeOr } },
       select: { id: true },
     })
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} not found`)

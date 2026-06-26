@@ -33,6 +33,13 @@ export class ListClientsDto {
   @IsEnum(ClientSort)
   sort?: ClientSort
 
+  // SuperAdmin/admin "filter by código" selector (must be an accessible code).
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  producerCodeId?: number
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

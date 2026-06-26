@@ -1,4 +1,5 @@
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator'
+import { Type } from 'class-transformer'
+import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
 
 export class ListInboxDto {
   @IsOptional()
@@ -10,4 +11,11 @@ export class ListInboxDto {
   @IsString()
   @MaxLength(120)
   search?: string
+
+  // SuperAdmin/admin "filter by código" selector (must be an accessible code).
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  producerCodeId?: number
 }

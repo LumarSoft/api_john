@@ -31,16 +31,20 @@ export interface DashboardData {
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getDashboard(producerId: number): Promise<DashboardData> {
+  async getDashboard(producerId: number, codeIds: number[]): Promise<DashboardData> {
     const now = new Date()
     const expiringLimit = new Date(now.getTime() + EXPIRING_WINDOW_DAYS * 86_400_000)
+    const code = { producerCodeId: { in: codeIds } }
+    // Lead-like entities can be unattributed to a code (anonymous web quotes/leads);
+    // include those so KPIs match the Solicitudes list semantics.
+    const codeOrNull = { OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }
 
-    // Producer-scoping shortcuts for each entity.
-    const cotizacionLead = { deletedAt: null, cotizacion: { producerId, deletedAt: null } }
-    const contactLead = { producerId, deletedAt: null }
-    const poliza = { producerId, deletedAt: null }
-    const cuota = { deletedAt: null, poliza: { producerId, deletedAt: null } }
-    const siniestro = { producerId, deletedAt: null }
+    // Producer- + code-scoping shortcuts for each entity.
+    const cotizacionLead = { deletedAt: null, cotizacion: { producerId, deletedAt: null, ...codeOrNull } }
+    const contactLead = { producerId, deletedAt: null, ...codeOrNull }
+    const poliza = { producerId, deletedAt: null, ...code }
+    const cuota = { deletedAt: null, poliza: { producerId, deletedAt: null, ...code } }
+    const siniestro = { producerId, deletedAt: null, ...code }
 
     const [
       asegurados,
@@ -63,7 +67,7 @@ export class DashboardService {
       siniestrosEnProceso,
       siniestrosResuelto,
     ] = await this.prisma.$transaction([
-      this.prisma.client.count({ where: { producerId, deletedAt: null } }),
+      this.prisma.client.count({ where: { producerId, deletedAt: null, ...code } }),
       this.prisma.solicitud.count({ where: { ...cotizacionLead, status: 'NEW' } }),
       this.prisma.contactLead.count({ where: { ...contactLead, status: 'NEW' } }),
       this.prisma.cuota.count({ where: { ...cuota, status: 'overdue' } }),
@@ -84,8 +88,8 @@ export class DashboardService {
       this.prisma.siniestro.count({ where: { ...siniestro, estado: 'resuelto' } }),
     ])
 
-    const montoDeudaTotal = await this.computeMontoDeuda(producerId)
-    const renovaciones = await this.buildRenovaciones(producerId, now)
+    const montoDeudaTotal = await this.computeMontoDeuda(producerId, codeIds)
+    const renovaciones = await this.buildRenovaciones(producerId, codeIds, now)
 
     return {
       kpis: {
@@ -113,11 +117,11 @@ export class DashboardService {
 
   // Total owed across pending/overdue/rejected cuotas. Negative amounts are insurer
   // credits/adjustments, not debt — excluded, mirroring the cobranzas stats logic.
-  private async computeMontoDeuda(producerId: number): Promise<string> {
+  private async computeMontoDeuda(producerId: number, codeIds: number[]): Promise<string> {
     const cuotas = await this.prisma.cuota.findMany({
       where: {
         deletedAt: null,
-        poliza: { producerId, deletedAt: null },
+        poliza: { producerId, deletedAt: null, producerCodeId: { in: codeIds } },
         status: { in: ['pending', 'overdue', 'rejected'] },
       },
       select: { amount: true },
@@ -130,13 +134,19 @@ export class DashboardService {
   // contact before the policy lapses. Buckets are built in JS so it stays DB-agnostic.
   private async buildRenovaciones(
     producerId: number,
+    codeIds: number[],
     now: Date,
   ): Promise<{ primaEnRiesgo: string; timeline: RenovacionPoint[] }> {
     const start = new Date(now.getFullYear(), now.getMonth(), 1)
     const end = new Date(now.getFullYear(), now.getMonth() + RENEWAL_MONTHS, 1)
 
     const polizas = await this.prisma.poliza.findMany({
-      where: { producerId, deletedAt: null, vigenciaHasta: { gte: start, lt: end } },
+      where: {
+        producerId,
+        deletedAt: null,
+        producerCodeId: { in: codeIds },
+        vigenciaHasta: { gte: start, lt: end },
+      },
       select: { vigenciaHasta: true, premio: true },
     })
 

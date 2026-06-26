@@ -135,6 +135,7 @@ export class CotizadorService {
     const quoteNumber = Number.parseInt(out.Presupuesto?.Numero ?? '', 10)
 
     if (quoteNumber) {
+      const resolvedProducerId = await this.resolveProducerId(producerId)
       await this.prisma.cotizacion.upsert({
         where: { quoteNumber },
         create: {
@@ -145,7 +146,9 @@ export class CotizadorService {
           manufactureYear: dto.manufactureYear,
           postalCode: dto.postalCode,
           result: result as Prisma.InputJsonValue,
-          producerId: await this.resolveProducerId(producerId),
+          producerId: resolvedProducerId,
+          // Anonymous/web quotes are credited to the org master code by default.
+          producerCodeId: await this.resolveDefaultProducerCodeId(resolvedProducerId),
           userId,
         },
         update: { result: result as Prisma.InputJsonValue },
@@ -258,6 +261,17 @@ export class CotizadorService {
 
     if (!producer) throw new InternalServerErrorException(`Default producer "${slug}" not found`)
     return producer.id
+  }
+
+  // Default code attribution for a quote: the organization's master code (or
+  // null if none is configured yet). Admin-initiated quotes could later pass a
+  // specific code via the userId's grants.
+  private async resolveDefaultProducerCodeId(producerId: number): Promise<number | null> {
+    const master = await this.prisma.producerCode.findFirst({
+      where: { producerId, isMaster: true, deletedAt: null },
+      select: { id: true },
+    })
+    return master?.id ?? null
   }
 
   private normalizeResult(result: TriunfoCotizadorRaw): QuoteAutoResult {

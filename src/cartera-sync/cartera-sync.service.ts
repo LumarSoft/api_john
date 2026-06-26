@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
+import { Cron, CronExpression } from '@nestjs/schedule'
 import * as bcrypt from 'bcrypt'
 import { ConfigService } from '@nestjs/config'
 import { RiskType } from 'generated/prisma/client'
@@ -105,44 +106,80 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     void this.syncCartera().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
   }
 
+  // Keeps policies/cuotas fresh in production. Runs every 6h, gated by the same
+  // flag as the bootstrap run. Guarded against overlap so a long sync (many
+  // codes) never stacks on top of the previous one.
+  private syncing = false
+
+  @Cron(CronExpression.EVERY_6_HOURS)
+  async scheduledSync(): Promise<void> {
+    if (this.config.get<string>('TRIUNFO_CARTERA_SYNC_ENABLED') !== 'true') return
+    if (this.syncing) {
+      this.logger.warn('Cartera sync already running — skipping this tick')
+      return
+    }
+    this.syncing = true
+    try {
+      await this.syncCartera()
+    } catch (err) {
+      this.logger.error(`Scheduled cartera sync failed: ${err instanceof Error ? err.message : err}`)
+    } finally {
+      this.syncing = false
+    }
+  }
+
   async syncCartera(): Promise<void> {
     const { fechaDesde, fechaHasta } = buildDateRange()
     this.logger.log(`Starting cartera sync (${fechaDesde} → ${fechaHasta})`)
 
-    const novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta)
-
-    if (!novedades.length) {
-      this.logger.log('No novedades returned from Triunfo')
-      return
-    }
-
-    this.logger.log(`Processing ${novedades.length} novedades`)
-
-    // Sync against every active producer — in practice just John for now
+    // Iterate every active producer code of every active org. Triunfo returns
+    // each code's own cartera when we pass its `code` (same master credential,
+    // varying only Codigo — confirmed in Postman). So each client/poliza is
+    // attributed to the producerCodeId of the query it came from.
     const producers = await this.prisma.producer.findMany({
       where: { isActive: true, deletedAt: null },
-      select: { id: true },
+      select: {
+        id: true,
+        producerCodes: {
+          where: { isActive: true, deletedAt: null },
+          select: { id: true, code: true },
+        },
+      },
     })
 
     let synced = 0
     let skipped = 0
+    let codesProcessed = 0
 
-    for (const novedad of novedades) {
-      for (const producer of producers) {
+    for (const producer of producers) {
+      for (const pc of producer.producerCodes) {
+        codesProcessed++
+        let novedades: TriunfoNovedad[] = []
         try {
-          await this.syncNovedad(novedad, producer.id)
-          synced++
+          novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, pc.code)
         } catch (err) {
-          skipped++
-          this.logger.warn(`Skipped certificado ${novedad.Certificado} — ${err instanceof Error ? err.message : err}`)
+          this.logger.warn(`Code ${pc.code}: NovedadesCartera failed — ${err instanceof Error ? err.message : err}`)
+          continue
+        }
+
+        for (const novedad of novedades) {
+          try {
+            await this.syncNovedad(novedad, producer.id, pc.id)
+            synced++
+          } catch (err) {
+            skipped++
+            this.logger.warn(
+              `Skipped certificado ${novedad.Certificado} (code ${pc.code}) — ${err instanceof Error ? err.message : err}`,
+            )
+          }
         }
       }
     }
 
-    this.logger.log(`Cartera sync complete — ${synced} upserted, ${skipped} skipped`)
+    this.logger.log(`Cartera sync complete — ${codesProcessed} codes, ${synced} upserted, ${skipped} skipped`)
   }
 
-  private async syncNovedad(novedad: TriunfoNovedad, producerId: number): Promise<void> {
+  private async syncNovedad(novedad: TriunfoNovedad, producerId: number, producerCodeId: number | null): Promise<void> {
     const dni = String(novedad.DocNumero).trim()
     const certificado = String(novedad.Certificado).trim()
 
@@ -197,6 +234,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
           phone,
           city,
           producerId,
+          producerCodeId,
         },
         select: { id: true, email: true, firstName: true },
       })
@@ -240,6 +278,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         rawData: novedad as object,
         clientId: client.id,
         producerId,
+        producerCodeId,
       },
       update: {
         suplemento,
@@ -248,6 +287,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         premio,
         paymentMethod,
         rawData: novedad as object,
+        producerCodeId,
       },
       select: { id: true },
     })

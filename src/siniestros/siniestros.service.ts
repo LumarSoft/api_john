@@ -68,7 +68,7 @@ export class SiniestrosService {
     // The policy must belong to the authenticated client in this tenant.
     const poliza = await this.prisma.poliza.findFirst({
       where: { id: dto.polizaId, clientId, producerId, deletedAt: null },
-      select: { id: true, certificado: true, company: true },
+      select: { id: true, certificado: true, company: true, producerCodeId: true },
     })
     if (!poliza) {
       throw new NotFoundException(`Policy ${dto.polizaId} not found`)
@@ -86,6 +86,8 @@ export class SiniestrosService {
         clientId,
         polizaId: poliza.id,
         producerId,
+        // Inherit the policy's producer code so admin scoping works.
+        producerCodeId: poliza.producerCodeId,
       },
       select: SINIESTRO_SELECT,
     })
@@ -101,6 +103,7 @@ export class SiniestrosService {
       clientId,
       clienteNombre: cliente ? `${cliente.firstName} ${cliente.lastName}`.trim() : `Cliente #${clientId}`,
       descripcion: siniestro.descripcion,
+      producerCodeId: poliza.producerCodeId,
     })
 
     return siniestro
@@ -127,10 +130,10 @@ export class SiniestrosService {
 
   // ─── Admin (panel web) ─────────────────────────────────
 
-  async findAllForAdmin(producerId: number, query: ListSiniestrosDto) {
+  async findAllForAdmin(producerId: number, codeIds: number[], query: ListSiniestrosDto) {
     const page = query.page && query.page > 0 ? query.page : 1
     const pageSize = query.pageSize && query.pageSize > 0 ? query.pageSize : DEFAULT_PAGE_SIZE
-    const where = this.buildAdminWhere(producerId, query)
+    const where = this.buildAdminWhere(producerId, codeIds, query)
 
     const [total, data] = await this.prisma.$transaction([
       this.prisma.siniestro.count({ where }),
@@ -152,23 +155,24 @@ export class SiniestrosService {
     }
   }
 
-  async getAdminStats(producerId: number) {
+  async getAdminStats(producerId: number, codeIds: number[]) {
+    const code = { producerCodeId: { in: codeIds } }
     const countByEstado = (estado: string) =>
-      this.prisma.siniestro.count({ where: { producerId, deletedAt: null, estado } })
+      this.prisma.siniestro.count({ where: { producerId, deletedAt: null, ...code, estado } })
 
     const [pendientes, enProceso, resueltos, sinNroCompania] = await this.prisma.$transaction([
       countByEstado('pendiente'),
       countByEstado('en_proceso'),
       countByEstado('resuelto'),
-      this.prisma.siniestro.count({ where: { producerId, deletedAt: null, nroSiniestroCompania: null } }),
+      this.prisma.siniestro.count({ where: { producerId, deletedAt: null, ...code, nroSiniestroCompania: null } }),
     ])
 
     return { pendientes, enProceso, resueltos, sinNroCompania }
   }
 
-  async findOneForAdmin(id: number, producerId: number) {
+  async findOneForAdmin(id: number, producerId: number, codeIds: number[]) {
     const siniestro = await this.prisma.siniestro.findFirst({
-      where: { id, producerId, deletedAt: null },
+      where: { id, producerId, deletedAt: null, producerCodeId: { in: codeIds } },
       select: ADMIN_SINIESTRO_SELECT,
     })
     if (!siniestro) {
@@ -178,12 +182,12 @@ export class SiniestrosService {
   }
 
   /** Admin progresses the claim and/or records the official Triunfo number after manual filing. */
-  async updateForAdmin(id: number, producerId: number, dto: UpdateSiniestroDto) {
+  async updateForAdmin(id: number, producerId: number, codeIds: number[], dto: UpdateSiniestroDto) {
     if (dto.estado === undefined && dto.nroSiniestroCompania === undefined) {
       throw new BadRequestException('Nothing to update — send estado and/or nroSiniestroCompania')
     }
 
-    await this.findOneForAdmin(id, producerId)
+    await this.findOneForAdmin(id, producerId, codeIds)
 
     return this.prisma.siniestro.update({
       where: { id },
@@ -197,8 +201,8 @@ export class SiniestrosService {
     })
   }
 
-  private buildAdminWhere(producerId: number, query: ListSiniestrosDto): Prisma.SiniestroWhereInput {
-    const where: Prisma.SiniestroWhereInput = { producerId, deletedAt: null }
+  private buildAdminWhere(producerId: number, codeIds: number[], query: ListSiniestrosDto): Prisma.SiniestroWhereInput {
+    const where: Prisma.SiniestroWhereInput = { producerId, deletedAt: null, producerCodeId: { in: codeIds } }
 
     if (query.estado) where.estado = query.estado
 

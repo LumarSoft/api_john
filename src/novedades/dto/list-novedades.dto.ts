@@ -34,6 +34,12 @@ export class ListNovedadesDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  producerCodeId?: number
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page?: number
 
   @IsOptional()
