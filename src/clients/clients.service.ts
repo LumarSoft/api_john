@@ -273,7 +273,7 @@ export class ClientsService {
     const activePoliza = { producerId, deletedAt: null, ...codeScope }
 
     const [totalClients, vigentes, porVencer, vencidas, cuotasVencidas] = await this.prisma.$transaction([
-      this.prisma.client.count({ where: { producerId, deletedAt: null, ...codeScope } }),
+      this.prisma.client.count({ where: { producerId, deletedAt: null, ...this.clientVisibility(codeIds) } }),
       this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { gte: now } } }),
       this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { gte: now, lte: expiringLimit } } }),
       this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { lt: now } } }),
@@ -285,9 +285,22 @@ export class ClientsService {
     return { totalClients, vigentes, porVencer, vencidas, cuotasVencidas }
   }
 
+  // A client is visible to an admin if it's attributed to an accessible code OR
+  // holds at least one policy under an accessible code. This matters because the
+  // same person (DNI) can have policies spread across several producer codes; we
+  // want them to show up for any admin who owns one of those policies.
+  private clientVisibility(codeIds: number[]): Prisma.ClientWhereInput {
+    return {
+      OR: [
+        { producerCodeId: { in: codeIds } },
+        { polizas: { some: { deletedAt: null, producerCodeId: { in: codeIds } } } },
+      ],
+    }
+  }
+
   private buildAdminWhere(producerId: number, codeIds: number[], query: ListClientsDto): Prisma.ClientWhereInput {
-    const where: Prisma.ClientWhereInput = { producerId, deletedAt: null, producerCodeId: { in: codeIds } }
-    const and: Prisma.ClientWhereInput[] = []
+    const where: Prisma.ClientWhereInput = { producerId, deletedAt: null }
+    const and: Prisma.ClientWhereInput[] = [this.clientVisibility(codeIds)]
 
     const search = query.search?.trim()
     if (search) {
@@ -356,7 +369,7 @@ export class ClientsService {
 
   async findOneForAdmin(id: number, producerId: number, codeIds: number[]) {
     const client = await this.prisma.client.findFirst({
-      where: { id, producerId, deletedAt: null, producerCodeId: { in: codeIds } },
+      where: { id, producerId, deletedAt: null, ...this.clientVisibility(codeIds) },
       select: ADMIN_CLIENT_DETAIL_SELECT,
     })
     if (!client) throw new NotFoundException(`Client ${id} not found`)
@@ -380,25 +393,28 @@ export class ClientsService {
     const pageSize = query.pageSize ?? 20
     const search = query.search?.trim()
 
+    const and: Prisma.ClientWhereInput[] = [this.clientVisibility(codeIds)]
     const where: Prisma.ClientWhereInput = {
       producerId,
       deletedAt: null,
-      producerCodeId: { in: codeIds },
       polizas: { some: { deletedAt: null, cuotas: { some: { deletedAt: null } } } },
+      AND: and,
     }
 
     if (search) {
       const words = search.split(/\s+/).filter(Boolean)
-      where.AND = words.map(word => ({
-        OR: [
-          { firstName: { contains: word } },
-          { lastName: { contains: word } },
-          { email: { contains: word } },
-          { dni: { contains: word } },
-          { phone: { contains: word } },
-          { polizas: { some: { deletedAt: null, vehiculo: { dominio: { contains: word } } } } },
-        ],
-      }))
+      for (const word of words) {
+        and.push({
+          OR: [
+            { firstName: { contains: word } },
+            { lastName: { contains: word } },
+            { email: { contains: word } },
+            { dni: { contains: word } },
+            { phone: { contains: word } },
+            { polizas: { some: { deletedAt: null, vehiculo: { dominio: { contains: word } } } } },
+          ],
+        })
+      }
     }
 
     const clients = await this.prisma.client.findMany({
@@ -500,11 +516,13 @@ export class ClientsService {
   async getCobranzasStats(producerId: number, codeIds: number[]) {
     const codeScope = { producerCodeId: { in: codeIds } }
     const baseCuota = { deletedAt: null, poliza: { producerId, deletedAt: null, ...codeScope } }
+    // Count clients who have a policy IN an accessible code with a cuota of the
+    // given status. Scoping by the policy's code (not the client's) naturally
+    // includes clients whose cartera spans several codes.
     const clientWithCuotaStatus = (status: 'pending' | 'overdue' | 'rejected'): Prisma.ClientWhereInput => ({
       producerId,
       deletedAt: null,
-      ...codeScope,
-      polizas: { some: { deletedAt: null, cuotas: { some: { deletedAt: null, status } } } },
+      polizas: { some: { deletedAt: null, ...codeScope, cuotas: { some: { deletedAt: null, status } } } },
     })
 
     const [
@@ -526,10 +544,10 @@ export class ClientsService {
         where: {
           producerId,
           deletedAt: null,
-          ...codeScope,
           polizas: {
             some: {
               deletedAt: null,
+              ...codeScope,
               cuotas: { some: { deletedAt: null, status: { in: ['pending', 'overdue', 'rejected'] } } },
             },
           },

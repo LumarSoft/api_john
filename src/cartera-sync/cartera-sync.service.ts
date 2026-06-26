@@ -65,6 +65,15 @@ function localISODate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
+// Human-readable elapsed time, e.g. "1m 23s" or "12.3s".
+function formatDuration(ms: number): string {
+  const totalSeconds = ms / 1000
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = Math.round(totalSeconds % 60)
+  return `${minutes}m ${seconds}s`
+}
+
 // Build date range: Triunfo limits to ~6 months lookback
 function buildDateRange(): { fechaDesde: string; fechaHasta: string } {
   const hasta = new Date()
@@ -87,6 +96,16 @@ function mapCuotaStatus(estado: string, dueDate: Date | null): string {
 
 // ─── Service ─────────────────────────────────────────────
 
+export interface CarteraSyncResult {
+  codesProcessed: number
+  synced: number
+  skipped: number
+  /** Total wall-clock time of the run in milliseconds. */
+  elapsedMs?: number
+  /** True when a run was skipped because another was already in flight. */
+  skippedRun?: boolean
+}
+
 @Injectable()
 export class CarteraSyncService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CarteraSyncService.name)
@@ -103,32 +122,36 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       this.logger.log('Cartera sync disabled (TRIUNFO_CARTERA_SYNC_ENABLED != true)')
       return
     }
-    void this.syncCartera().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
+    void this.runGuarded().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
   }
 
-  // Keeps policies/cuotas fresh in production. Runs every 6h, gated by the same
+  // Keeps policies/cuotas fresh in production. Runs every 12h, gated by the same
   // flag as the bootstrap run. Guarded against overlap so a long sync (many
-  // codes) never stacks on top of the previous one.
+  // codes, one Triunfo call each) never stacks on top of the previous one.
   private syncing = false
 
-  @Cron(CronExpression.EVERY_6_HOURS)
-  async scheduledSync(): Promise<void> {
+  @Cron(CronExpression.EVERY_12_HOURS)
+  async scheduledSync(): Promise<CarteraSyncResult | undefined> {
     if (this.config.get<string>('TRIUNFO_CARTERA_SYNC_ENABLED') !== 'true') return
+    return this.runGuarded()
+  }
+
+  /** Runs the sync unless one is already in flight (overlap guard). */
+  async runGuarded(): Promise<CarteraSyncResult> {
     if (this.syncing) {
-      this.logger.warn('Cartera sync already running — skipping this tick')
-      return
+      this.logger.warn('Cartera sync already running — skipping this run')
+      return { codesProcessed: 0, synced: 0, skipped: 0, skippedRun: true }
     }
     this.syncing = true
     try {
-      await this.syncCartera()
-    } catch (err) {
-      this.logger.error(`Scheduled cartera sync failed: ${err instanceof Error ? err.message : err}`)
+      return await this.syncCartera()
     } finally {
       this.syncing = false
     }
   }
 
-  async syncCartera(): Promise<void> {
+  async syncCartera(): Promise<CarteraSyncResult> {
+    const startedAt = Date.now()
     const { fechaDesde, fechaHasta } = buildDateRange()
     this.logger.log(`Starting cartera sync (${fechaDesde} → ${fechaHasta})`)
 
@@ -140,6 +163,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       where: { isActive: true, deletedAt: null },
       select: {
         id: true,
+        masterCode: true,
         producerCodes: {
           where: { isActive: true, deletedAt: null },
           select: { id: true, code: true },
@@ -152,42 +176,77 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     let codesProcessed = 0
 
     for (const producer of producers) {
-      for (const pc of producer.producerCodes) {
+      // Defensive fallback: if no ProducerCode rows are loaded yet (migration/seed
+      // not applied), fall back to a single query with the env master code so the
+      // sync isn't silently empty. Attributes to null (back-fill to master later).
+      const targets =
+        producer.producerCodes.length > 0
+          ? producer.producerCodes.map(pc => ({ id: pc.id as number | null, code: pc.code }))
+          : [{ id: null as number | null, code: producer.masterCode ?? undefined }]
+
+      if (producer.producerCodes.length === 0) {
+        this.logger.warn(
+          `Producer ${producer.id} has no ProducerCode rows — run the migration + seed. Using env/master code fallback.`,
+        )
+      }
+
+      for (const target of targets) {
         codesProcessed++
         let novedades: TriunfoNovedad[] = []
         try {
-          novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, pc.code)
+          // code undefined → TriunfoService defaults to TRIUNFO_PRODUCTOR (env master).
+          novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, target.code)
+          this.logger.log(`Code ${target.code ?? '(env master)'}: ${novedades.length} novedades`)
         } catch (err) {
-          this.logger.warn(`Code ${pc.code}: NovedadesCartera failed — ${err instanceof Error ? err.message : err}`)
+          this.logger.warn(
+            `Code ${target.code ?? '(env master)'}: NovedadesCartera failed — ${err instanceof Error ? err.message : err}`,
+          )
           continue
         }
 
         for (const novedad of novedades) {
           try {
-            await this.syncNovedad(novedad, producer.id, pc.id)
+            await this.syncNovedad(novedad, producer.id, target.id)
             synced++
           } catch (err) {
             skipped++
             this.logger.warn(
-              `Skipped certificado ${novedad.Certificado} (code ${pc.code}) — ${err instanceof Error ? err.message : err}`,
+              `Skipped certificado ${novedad.Certificado} (code ${target.code ?? 'env'}) — ${err instanceof Error ? err.message : err}`,
             )
           }
         }
       }
     }
 
-    this.logger.log(`Cartera sync complete — ${codesProcessed} codes, ${synced} upserted, ${skipped} skipped`)
+    const elapsedMs = Date.now() - startedAt
+    const elapsed = formatDuration(elapsedMs)
+    this.logger.log(
+      `Cartera sync complete — ${codesProcessed} codes, ${synced} upserted, ${skipped} skipped in ${elapsed} (${elapsedMs} ms)`,
+    )
+    return { codesProcessed, synced, skipped, elapsedMs }
   }
 
   private async syncNovedad(novedad: TriunfoNovedad, producerId: number, producerCodeId: number | null): Promise<void> {
-    const dni = String(novedad.DocNumero).trim()
+    // Triunfo sends DocNumero "0" for entities identified by CUIT (e.g. SRLs).
+    // Fall back to the CUIT so two different companies aren't merged into one
+    // client (and so their policies are never dropped). Skip only if neither
+    // a usable DNI nor CUIT is present.
+    const docNumero = String(novedad.DocNumero ?? '').trim()
+    const cuit = String(novedad.CUIT ?? '').trim()
+    const dni = docNumero && docNumero !== '0' ? docNumero : cuit && cuit !== '0' ? cuit : ''
     const certificado = String(novedad.Certificado).trim()
 
-    if (!dni || !certificado) return
+    if (!dni || !certificado) {
+      this.logger.warn(`Skipped certificado ${novedad.Certificado} — no usable DocNumero/CUIT`)
+      return
+    }
 
     // ── Extract fields with fallbacks ─────────────────────
-    const nombre = novedad.RazonSocial ?? novedad.Asegurado ?? ''
-    const { firstName, lastName } = parseName(nombre)
+    // A company (identified by CUIT, no real DocNumero) keeps its full razón
+    // social in firstName instead of being split into apellido/nombre.
+    const isCompany = !(docNumero && docNumero !== '0')
+    const nombre = (novedad.RazonSocial ?? novedad.Asegurado ?? '').trim()
+    const { firstName, lastName } = isCompany ? { firstName: nombre || '—', lastName: '' } : parseName(nombre)
 
     const realEmail = novedad.Email?.trim() || null
     const phone = novedad.Telefono?.trim() || null
@@ -220,7 +279,32 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     const isPlaceholderEmail = client?.email?.endsWith('@cliente.local')
 
     if (!client) {
-      const email = realEmail ?? `${dni}@cliente.local`
+      // Triunfo sometimes reuses the same email across different DNIs. Email is
+      // unique per producer, so if the real email is already taken by ANOTHER
+      // client, fall back to the per-DNI placeholder (always unique) instead of
+      // crashing the upsert and dropping the policy.
+      let email = realEmail ?? `${dni}@cliente.local`
+      let realEmailTaken = false
+      if (realEmail) {
+        const emailOwner = await this.prisma.client.findFirst({
+          where: { email: realEmail, producerId, deletedAt: null },
+          select: { id: true },
+        })
+        if (emailOwner) {
+          email = `${dni}@cliente.local`
+          realEmailTaken = true
+        }
+      }
+      // Same story for phone (unique per producer): drop it if already taken.
+      let safePhone = phone
+      if (phone) {
+        const phoneOwner = await this.prisma.client.findFirst({
+          where: { phone, producerId, deletedAt: null },
+          select: { id: true },
+        })
+        if (phoneOwner) safePhone = null
+      }
+
       const hashed = await bcrypt.hash(dni, 10)
 
       client = await this.prisma.client.create({
@@ -229,9 +313,11 @@ export class CarteraSyncService implements OnApplicationBootstrap {
           firstName,
           lastName,
           email,
+          // Force a password change only when the client has no usable real email
+          // of their own (no real email, or it was already taken by someone else).
+          requiresPasswordChange: !realEmail || realEmailTaken,
           password: hashed,
-          requiresPasswordChange: !realEmail, // force change only if no real email
-          phone,
+          phone: safePhone,
           city,
           producerId,
           producerCodeId,
@@ -239,7 +325,11 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         select: { id: true, email: true, firstName: true },
       })
 
-      this.logger.debug(`Created client DNI=${dni} email=${email}`)
+      if (realEmailTaken) {
+        this.logger.debug(`DNI=${dni}: email ${realEmail} already in use — created with placeholder`)
+      } else {
+        this.logger.debug(`Created client DNI=${dni} email=${email}`)
+      }
     } else if (isPlaceholderEmail && realEmail) {
       // Upgrade placeholder email to real one from Triunfo — try, ignore conflict
       try {

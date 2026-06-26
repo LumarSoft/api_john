@@ -36,6 +36,8 @@ export interface TriunfoNovedad {
   RazonSocial?: string // "APELLIDO NOMBRE" — primary name field
   Email?: string
   DocNumero: string | number
+  // CUIT/CUIL — used as the client identity when DocNumero is "0" (companies).
+  CUIT?: string | number
   DocTipo?: number
   Telefono?: string
   Domicilio?: string

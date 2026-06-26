@@ -44,7 +44,7 @@ export class PhoneNumbersService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { id: 'desc' },
     })
 
     return numbers.map(n => {
