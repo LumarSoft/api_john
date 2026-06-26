@@ -23,6 +23,9 @@ export class RolesGuard implements CanActivate {
     if (!required || required.length === 0) return true
 
     const { user } = context.switchToHttp().getRequest<RequestWithUser>()
+    // The platform OWNER is a super-superadmin: it satisfies every @Roles gate
+    // (including SUPERADMIN-only routes) without being listed explicitly.
+    if (user?.role === Role.OWNER) return true
     if (!user?.role || !required.includes(user.role)) {
       throw new ForbiddenException('Insufficient role')
     }

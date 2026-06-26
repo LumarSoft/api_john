@@ -25,6 +25,7 @@ import { BusinessHoursModule } from './business-hours/business-hours.module'
 import { DashboardModule } from './dashboard/dashboard.module'
 import { UsageModule } from './usage/usage.module'
 import { PhoneNumbersModule } from './phone-numbers/phone-numbers.module'
+import { OwnerModule } from './owner/owner.module'
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { PhoneNumbersModule } from './phone-numbers/phone-numbers.module'
     DashboardModule,
     UsageModule,
     PhoneNumbersModule,
+    OwnerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

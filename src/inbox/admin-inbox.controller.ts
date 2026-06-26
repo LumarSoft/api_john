@@ -17,7 +17,11 @@ export class AdminInboxController {
   @Get()
   async list(@Query() dto: ListInboxDto, @Request() req: AuthenticatedRequest) {
     const codeIds = await this.scope.resolveScopedCodeIds(req.user, dto.producerCodeId)
-    return this.inbox.listConversations(req.user.producerId, codeIds, dto)
+    // "Filter by número/sucursal": narrow to conversations that came through that
+    // exact Meta number (independent of the code dimension above).
+    const metaPhoneNumberId =
+      dto.phoneNumberId != null ? await this.scope.metaPhoneNumberId(req.user.producerId, dto.phoneNumberId) : null
+    return this.inbox.listConversations(req.user.producerId, codeIds, dto, metaPhoneNumberId)
   }
 
   @Get(':id/messages')

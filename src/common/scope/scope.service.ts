@@ -30,7 +30,9 @@ export class ScopeService {
   constructor(private readonly prisma: PrismaService) {}
 
   async resolveAccessibleProducerCodeIds(user: ScopeUser): Promise<number[]> {
-    if (user.role === Role.SUPERADMIN) {
+    // OWNER behaves like a SUPERADMIN for cartera scoping: it sees every code of
+    // the organization it is currently operating in (user.producerId).
+    if (user.role === Role.SUPERADMIN || user.role === Role.OWNER) {
       const codes = await this.prisma.producerCode.findMany({
         where: { producerId: user.producerId, deletedAt: null },
         select: { id: true },
@@ -54,6 +56,50 @@ export class ScopeService {
     const accessible = await this.resolveAccessibleProducerCodeIds(user)
     if (requestedCodeId == null) return accessible
     return accessible.includes(requestedCodeId) ? [requestedCodeId] : []
+  }
+
+  /**
+   * Unified section filter for the admin views. Narrows the accessible codes by
+   * EITHER a specific producer code OR a specific phone number (a number resolves
+   * to the codes it serves). Both inputs stay within what the user may access, so
+   * a SuperAdmin's "filter by número/productor" can never leak another org's data.
+   * `producerCodeId` wins if both are provided (the combobox only sends one).
+   */
+  async resolveScopedCodeIdsFor(
+    user: ScopeUser,
+    input: { producerCodeId?: number | null; phoneNumberId?: number | null },
+  ): Promise<number[]> {
+    const accessible = await this.resolveAccessibleProducerCodeIds(user)
+    if (input.producerCodeId != null) {
+      return accessible.includes(input.producerCodeId) ? [input.producerCodeId] : []
+    }
+    if (input.phoneNumberId != null) {
+      const codeIds = await this.codeIdsForPhoneNumber(user.producerId, input.phoneNumberId)
+      return accessible.filter(id => codeIds.includes(id))
+    }
+    return accessible
+  }
+
+  /** Producer codes a phone number serves (responsible + served), within an org. */
+  async codeIdsForPhoneNumber(producerId: number, phoneNumberId: number): Promise<number[]> {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { id: phoneNumberId, producerId, deletedAt: null },
+      select: { responsibleProducerCodeId: true, servedCodes: { select: { producerCodeId: true } } },
+    })
+    if (!phone) return []
+    const ids = new Set<number>()
+    if (phone.responsibleProducerCodeId != null) ids.add(phone.responsibleProducerCodeId)
+    for (const s of phone.servedCodes) ids.add(s.producerCodeId)
+    return [...ids]
+  }
+
+  /** Meta phone_number_id string of a PhoneNumber row (for conversation filtering). */
+  async metaPhoneNumberId(producerId: number, phoneNumberId: number): Promise<string | null> {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { id: phoneNumberId, producerId, deletedAt: null },
+      select: { phoneNumberId: true },
+    })
+    return phone?.phoneNumberId ?? null
   }
 
   /**

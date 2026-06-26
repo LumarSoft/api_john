@@ -39,7 +39,7 @@ export class InboxService {
     private readonly botNotifier: BotNotifierService,
   ) {}
 
-  async listConversations(producerId: number, codeIds: number[], dto: ListInboxDto) {
+  async listConversations(producerId: number, codeIds: number[], dto: ListInboxDto, metaPhoneNumberId?: string | null) {
     const statusFilter = dto.status ? [dto.status] : ['open', 'pending']
     const search = dto.search?.trim()
 
@@ -48,6 +48,7 @@ export class InboxService {
         producerId,
         deletedAt: null,
         status: { in: statusFilter },
+        ...(metaPhoneNumberId ? { phoneNumberId: metaPhoneNumberId } : {}),
         AND: [
           ...codeScopeOr(codeIds),
           ...(search

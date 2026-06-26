@@ -58,7 +58,9 @@ export class UsersService {
 
   findAll(producerId: number) {
     return this.prisma.user.findMany({
-      where: { producerId, deletedAt: null },
+      // The platform OWNER (Lumar) is not a tenant-managed account: hide it from
+      // the org's user list so a SuperAdmin can't see/edit/delete it.
+      where: { producerId, deletedAt: null, role: { not: Role.OWNER } },
       select: SAFE_SELECT,
       orderBy: { createdAt: 'desc' },
     })
@@ -155,7 +157,8 @@ export class UsersService {
 
   private async findOneOrThrow(id: number, producerId: number) {
     const user = await this.prisma.user.findFirst({
-      where: { id, producerId, deletedAt: null },
+      // Never let org user-management endpoints target the platform OWNER.
+      where: { id, producerId, deletedAt: null, role: { not: Role.OWNER } },
       select: SAFE_SELECT,
     })
     if (!user) throw new NotFoundException(`User with id ${id} not found`)

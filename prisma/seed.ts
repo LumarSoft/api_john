@@ -187,6 +187,21 @@ async function main() {
     }
   }
 
+  // ── Platform OWNER (Lumar) ──────────────────────────────────────────────
+  // Static super-superadmin that logs into the same admin panel and can both
+  // operate as a SuperAdmin AND provision new organizations from "Organizaciones".
+  // Homed at the John org for convenience (it is not bound by org-management).
+  await prisma.user.upsert({
+    where: { email: 'lumarsoftarg@gmail.com' },
+    update: { role: 'OWNER', producerId: producer.id },
+    create: {
+      email: 'lumarsoftarg@gmail.com',
+      password: await bcrypt.hash('LucasMarceRosario1!', 10),
+      role: 'OWNER',
+      producerId: producer.id,
+    },
+  })
+
   // ── Users: 1 SuperAdmin (sees all codes) + 1 Admin (1 code) ─────────────
   // SuperAdmin = the organization owner (master code 11425). Sees every code.
   await prisma.user.upsert({
@@ -462,6 +477,7 @@ async function main() {
   console.log('✅ Seed completed.')
   console.log(`   Producer: ${producer.slug} (id=${producer.id}) masterCode=${MASTER_CODE}`)
   console.log(`   ProducerCodes: ${PRODUCER_CODES.length} (1 master + ${PRODUCER_CODES.length - 1} dependientes)`)
+  console.log(`   Owner:      lumarsoftarg@gmail.com / LucasMarceRosario1! (Lumar — gestiona organizaciones)`)
   console.log(`   SuperAdmin: admin@johnpellegrini.com.ar / admin123 (ve todos los códigos)`)
   console.log(`   Admin:      test@gmail.com / test123 (solo código 14831 — CANARELLI)`)
   console.log(`   Client: ${client.email} — login: ${clientDni} / ${clientDni}`)

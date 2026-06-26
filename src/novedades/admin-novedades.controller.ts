@@ -15,7 +15,10 @@ export class AdminNovedadesController {
 
   @Get()
   async findAll(@Query() query: ListNovedadesDto, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveScopedCodeIds(req.user, query.producerCodeId)
+    const codeIds = await this.scope.resolveScopedCodeIdsFor(req.user, {
+      producerCodeId: query.producerCodeId,
+      phoneNumberId: query.phoneNumberId,
+    })
     return this.novedadesService.listForAdmin(req.user.producerId, codeIds, query)
   }
 

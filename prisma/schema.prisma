@@ -207,11 +207,16 @@ model PhoneNumberProducerCode {
 
 // ─── ADMINS / SUPERADMINS DE LA ORGANIZACIÓN ─────────────
 
-// Role within an organization (tenant). Above these sits the platform Owner
-// (Lumar), modelled at deployment level (provisions organizations), not as a row.
+// Platform/organization roles.
+//   OWNER      → the platform operator (Lumar). Logs into the same admin panel as
+//                a super-superadmin: behaves as SUPERADMIN everywhere PLUS can
+//                provision organizations (create Producer + its codes + its first
+//                SuperAdmin) from the owner-only "Organizaciones" screen. Homed at
+//                an organization for convenience but not bound by org-management.
 //   SUPERADMIN → sees ALL producer codes of its org; manages admins & grants.
 //   ADMIN      → sees only the producer codes granted via UserProducerCode.
 enum Role {
+  OWNER
   SUPERADMIN
   ADMIN
 }

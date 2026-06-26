@@ -18,4 +18,12 @@ export class ListInboxDto {
   @IsInt()
   @Min(1)
   producerCodeId?: number
+
+  // SuperAdmin "filter by número/sucursal" — a PhoneNumber id. For the inbox this
+  // filters conversations that came through that exact number.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  phoneNumberId?: number
 }
