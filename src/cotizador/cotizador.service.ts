@@ -161,7 +161,7 @@ export class CotizadorService {
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {
     const cotizacion = await this.prisma.cotizacion.findFirst({
       where: { quoteNumber, deletedAt: null },
-      select: { id: true, result: true },
+      select: { id: true, result: true, producerId: true },
     })
     if (!cotizacion) throw new NotFoundException(`Quote ${quoteNumber} not found`)
 
@@ -216,7 +216,44 @@ export class CotizadorService {
       update: { ...data, deletedAt: null },
     })
 
+    // Fire-and-forget: greet the client on WhatsApp so they get follow-up on
+    // their quote. Disabled until QUOTE_FOLLOWUP_TEMPLATE is configured (the
+    // approved Meta template name). Never blocks or breaks the coverage request.
+    void this.notifyClientWhatsApp(cotizacion.producerId, dto.phone, dto.firstName).catch(err =>
+      this.logger.warn(`No se pudo notificar al cliente por WhatsApp: ${(err as Error).message}`),
+    )
+
     return { quoteNumber: String(quoteNumber), coverage: dto.coverage, startDate: dto.startDate }
+  }
+
+  /**
+   * Sends the approved "seguimiento de cotización" template to the client via the
+   * bot. No-op until QUOTE_FOLLOWUP_TEMPLATE (the approved Meta template name) is
+   * set, so it can be enabled the moment Meta approves the template. Uses an
+   * active phone number of the organization as the sender.
+   */
+  private async notifyClientWhatsApp(producerId: number, phone: string, name: string): Promise<void> {
+    const template = this.configService.get<string>('QUOTE_FOLLOWUP_TEMPLATE')
+    if (!template) return // disabled until the template is approved & configured
+
+    const lang = this.configService.get<string>('QUOTE_FOLLOWUP_TEMPLATE_LANG') ?? 'es_AR'
+    const botUrl = this.configService.get<string>('BOT_URL')
+    const secret = this.configService.get<string>('BOT_SECRET')
+    if (!botUrl || !secret || !phone) return
+
+    const phoneNumber = await this.prisma.phoneNumber.findFirst({
+      where: { producerId, isActive: true, deletedAt: null },
+      select: { phoneNumberId: true },
+    })
+    if (!phoneNumber) return
+
+    await firstValueFrom(
+      this.httpService.post(
+        `${botUrl}/internal/send-template`,
+        { to: phone, phoneNumberId: phoneNumber.phoneNumberId, template, lang, params: [name] },
+        { headers: { 'x-bot-secret': secret } },
+      ),
+    )
   }
 
   // Dates arrive as YYYY-MM-DD; anchor them at UTC midnight to avoid timezone drift

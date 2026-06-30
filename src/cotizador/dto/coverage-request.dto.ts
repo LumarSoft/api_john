@@ -1,14 +1,4 @@
-import {
-  IsDateString,
-  IsEmail,
-  IsIn,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-  ValidateIf,
-} from 'class-validator'
+import { IsDateString, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator'
 
 export const PERSON_TYPES = ['FISICA', 'JURIDICA'] as const
 export const DOC_TYPES = ['DNI', 'CUIL', 'CUIT', 'PASAPORTE'] as const
@@ -65,25 +55,25 @@ export class CoverageRequestDto {
   @IsIn(PAYMENT_METHODS)
   paymentMethod: (typeof PAYMENT_METHODS)[number]
 
-  // Card fields are required for CREDIT/DEBIT; OTHER is handled offline by an agent
-  @ValidateIf(dto => dto.paymentMethod !== 'OTHER')
+  // Card data is NO LONGER requested at quote time — an agent finalizes payment
+  // offline. These stay optional (validated only if a value is sent) for
+  // backward compatibility; the web/bot flows no longer collect them.
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(30)
   cardCompany?: string
 
-  @ValidateIf(dto => dto.paymentMethod !== 'OTHER')
+  @IsOptional()
   @Matches(/^\d{13,19}$/)
   cardNumber?: string
 
   // YYYYMM — the format Triunfo expects in FormaPago.DebitoTarjeta.Vencimiento
-  @ValidateIf(dto => dto.paymentMethod !== 'OTHER')
+  @IsOptional()
   @Matches(/^\d{4}(0[1-9]|1[0-2])$/)
   cardExpiry?: string
 
-  @ValidateIf(dto => dto.paymentMethod !== 'OTHER')
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(80)
   cardHolder?: string
 }

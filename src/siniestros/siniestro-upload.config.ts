@@ -53,14 +53,18 @@ export interface AdjuntoMeta {
   url: string
   mimeType: string
   size: number
+  // Optional category of the photo, set by the bot's guided claim flow:
+  // 'tarjeta_verde' | 'carnet' | 'tarjeta_verde_tercero' | 'carnet_tercero' | 'otro'.
+  tipo?: string
 }
 
-export function toAdjuntoMeta(file: MulterFile): AdjuntoMeta {
+export function toAdjuntoMeta(file: MulterFile, tipo?: string): AdjuntoMeta {
   return {
     filename: file.filename,
     originalName: file.originalname,
     url: `${SINIESTROS_PUBLIC_PREFIX}/${file.filename}`,
     mimeType: file.mimetype,
     size: file.size,
+    ...(tipo ? { tipo } : {}),
   }
 }

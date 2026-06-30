@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -86,8 +87,9 @@ export class BotController {
   attachAdjuntos(
     @Param('conversationId', ParseIntPipe) conversationId: number,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
+    @Query('tipo') tipo?: string,
   ) {
-    return this.botService.attachAdjuntos(conversationId, files ?? [])
+    return this.botService.attachAdjuntos(conversationId, files ?? [], tipo)
   }
 
   // Declared last on purpose: this two-segment GET (:phoneNumberId/:waId) is

@@ -496,7 +496,7 @@ export class BotService {
    * latest non-resolved claim of the identified client. The total is capped at
    * MAX_FILES, keeping the most recent attachments.
    */
-  async attachAdjuntos(conversationId: number, files: Express.Multer.File[]) {
+  async attachAdjuntos(conversationId: number, files: Express.Multer.File[], tipo?: string) {
     if (!files.length) throw new BadRequestException('No files received')
 
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
@@ -511,7 +511,7 @@ export class BotService {
     }
 
     const existing = Array.isArray(siniestro.adjuntos) ? (siniestro.adjuntos as unknown as AdjuntoMeta[]) : []
-    const merged = [...existing, ...files.map(toAdjuntoMeta)].slice(-MAX_FILES)
+    const merged = [...existing, ...files.map(f => toAdjuntoMeta(f, tipo))].slice(-MAX_FILES)
 
     await this.prisma.siniestro.update({
       where: { id: siniestro.id },

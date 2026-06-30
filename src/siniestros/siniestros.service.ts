@@ -74,7 +74,7 @@ export class SiniestrosService {
       throw new NotFoundException(`Policy ${dto.polizaId} not found`)
     }
 
-    const adjuntos = files.map(toAdjuntoMeta)
+    const adjuntos = files.map(f => toAdjuntoMeta(f))
 
     const siniestro = await this.prisma.siniestro.create({
       data: {

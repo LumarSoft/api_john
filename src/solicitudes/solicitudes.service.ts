@@ -9,6 +9,51 @@ import type { LeadKind, SolicitudListItem } from './solicitudes.types'
 
 const DEFAULT_PAGE_SIZE = 20
 
+// ─── Quote coverage parsing (same shape the web/bot show) ─────────────
+interface RawPaymentOption {
+  FormaPagoNom?: string
+  Premio?: string
+  ValorCuota?: string
+  Cuotas?: number
+}
+interface RawCoverage {
+  Cobertura?: string
+  Cotizaciones?: RawPaymentOption | RawPaymentOption[]
+  Resultado?: { Estado?: string }
+}
+interface RawQuote {
+  SDTSrvCotizacionOut?: { Coberturas?: RawCoverage | RawCoverage[] }
+}
+
+export interface QuoteCoverageView {
+  code: string
+  paymentOptions: { name: string; premium: number; installmentValue: number; installments: number }[]
+}
+
+const toArr = <T>(v: T | T[] | undefined | null): T[] => (Array.isArray(v) ? v : v ? [v] : [])
+
+const minPremiumOf = (c: QuoteCoverageView): number => {
+  const ps = c.paymentOptions.map(p => p.premium).filter(p => p > 0)
+  return ps.length ? Math.min(...ps) : Number.MAX_SAFE_INTEGER
+}
+
+/** Normalizes the stored Triunfo quote into the coverages+prices shown to the client. */
+function parseQuoteCoverages(result: unknown): QuoteCoverageView[] {
+  const out = (result as RawQuote | null)?.SDTSrvCotizacionOut
+  return toArr(out?.Coberturas)
+    .filter(c => c.Resultado?.Estado === 'S' && toArr(c.Cotizaciones).length > 0)
+    .map(c => ({
+      code: c.Cobertura ?? '',
+      paymentOptions: toArr(c.Cotizaciones).map(q => ({
+        name: q.FormaPagoNom ?? '',
+        premium: Number.parseFloat(q.Premio ?? '0') || 0,
+        installmentValue: Number.parseFloat(q.ValorCuota ?? '0') || 0,
+        installments: q.Cuotas ?? 1,
+      })),
+    }))
+    .sort((a, b) => minPremiumOf(a) - minPremiumOf(b))
+}
+
 interface CreateLeadContext {
   channel: 'WEB' | 'WHATSAPP'
   producerId: number
@@ -251,12 +296,24 @@ export class SolicitudesService {
         paymentMethod: true,
         createdAt: true,
         cotizacion: {
-          select: { quoteNumber: true, vehicleType: true, manufactureYear: true, postalCode: true },
+          // `result` is the full raw Triunfo quote — same source the web/bot used,
+          // so the panel shows EXACTLY the same coverages and prices (consistency).
+          select: { quoteNumber: true, vehicleType: true, manufactureYear: true, postalCode: true, result: true },
         },
       },
     })
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} not found`)
-    return { kind, ...solicitud }
+
+    const { cotizacion, ...rest } = solicitud
+    const { result, ...cotizacionMeta } = cotizacion
+    return {
+      kind,
+      ...rest,
+      cotizacion: cotizacionMeta,
+      // All quoted coverages with their prices (cheapest first), so the admin sees
+      // the same figures presented to the client.
+      coverages: parseQuoteCoverages(result),
+    }
   }
 
   async updateStatus(producerId: number, codeIds: number[], kind: LeadKind, id: number, dto: UpdateSolicitudDto) {
