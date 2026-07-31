@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
-import { Cron, CronExpression } from '@nestjs/schedule'
+import { Cron } from '@nestjs/schedule'
 import * as bcrypt from 'bcrypt'
 import { ConfigService } from '@nestjs/config'
 import { RiskType } from 'generated/prisma/client'
@@ -74,15 +74,50 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${seconds}s`
 }
 
-// Build date range: Triunfo limits to ~6 months lookback
-function buildDateRange(): { fechaDesde: string; fechaHasta: string } {
+/**
+ * Lookback windows, in months. Overridable via env so they can be tuned without
+ * a code change — each extra month costs roughly 4 more Triunfo calls per code
+ * (the range is fetched in 7-day windows), times ~26 codes.
+ */
+const BACKFILL_MONTHS = Number(process.env.TRIUNFO_CARTERA_BACKFILL_MONTHS ?? 6)
+const INCREMENTAL_MONTHS = Number(process.env.TRIUNFO_CARTERA_INCREMENTAL_MONTHS ?? 3)
+
+/**
+ * Date range to ask Triunfo for a given code.
+ *
+ * A code that was never synced (`lastCarteraSyncAt` null) gets the full 6-month
+ * backfill; afterwards each run re-reads the last 3 months, which comfortably
+ * covers anything that changed between the 06:00 and 20:00 runs while still
+ * catching late-posted movements.
+ *
+ * Note this is the *logical* range: TriunfoService splits it into 7-day windows
+ * internally, because a single call wider than that does not come back.
+ */
+function buildDateRange(lastSyncAt: Date | null | undefined): {
+  fechaDesde: string
+  fechaHasta: string
+  months: number
+} {
+  const months = lastSyncAt ? INCREMENTAL_MONTHS : BACKFILL_MONTHS
   const hasta = new Date()
   const desde = new Date()
-  desde.setMonth(desde.getMonth() - 6)
+  desde.setMonth(desde.getMonth() - months)
   return {
     fechaDesde: localISODate(desde),
     fechaHasta: localISODate(hasta),
+    months,
   }
+}
+
+/**
+ * Triunfo returns several novedades for the same certificado out of order (we
+ * saw 13, 12, 14, 15, 11 for one policy, and an endoso before the "POLIZA NUEVA"
+ * that precedes it). Since each novedad upserts the same row, processing them in
+ * arrival order leaves the OLDEST suplemento persisted. Sorting ascending makes
+ * the newest one win.
+ */
+function sortBySuplemento(novedades: TriunfoNovedad[]): TriunfoNovedad[] {
+  return [...novedades].sort((a, b) => Number(a.Suplemento ?? 0) - Number(b.Suplemento ?? 0))
 }
 
 // Map Triunfo cuota Estado to our status values
@@ -125,12 +160,14 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     void this.runGuarded().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
   }
 
-  // Keeps policies/cuotas fresh in production. Runs every 12h, gated by the same
-  // flag as the bootstrap run. Guarded against overlap so a long sync (many
-  // codes, one Triunfo call each) never stacks on top of the previous one.
+  // Keeps policies/cuotas fresh in production. Runs at 06:00 and 20:00 Argentina
+  // time — pinned to that zone explicitly because the server may well run on UTC,
+  // in which case a bare "0 6,20 * * *" would fire at 03:00/17:00 local.
+  // Guarded against overlap so a long sync (many codes, several Triunfo calls
+  // each) never stacks on top of the previous one.
   private syncing = false
 
-  @Cron(CronExpression.EVERY_12_HOURS)
+  @Cron('0 6,20 * * *', { timeZone: 'America/Argentina/Buenos_Aires' })
   async scheduledSync(): Promise<CarteraSyncResult | undefined> {
     if (this.config.get<string>('TRIUNFO_CARTERA_SYNC_ENABLED') !== 'true') return
     return this.runGuarded()
@@ -152,8 +189,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
 
   async syncCartera(): Promise<CarteraSyncResult> {
     const startedAt = Date.now()
-    const { fechaDesde, fechaHasta } = buildDateRange()
-    this.logger.log(`Starting cartera sync (${fechaDesde} → ${fechaHasta})`)
+    this.logger.log('Starting cartera sync')
 
     // Iterate every active producer code of every active org. Triunfo returns
     // each code's own cartera when we pass its `code` (same master credential,
@@ -166,7 +202,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         masterCode: true,
         producerCodes: {
           where: { isActive: true, deletedAt: null },
-          select: { id: true, code: true },
+          select: { id: true, code: true, lastCarteraSyncAt: true },
         },
       },
     })
@@ -181,8 +217,12 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       // sync isn't silently empty. Attributes to null (back-fill to master later).
       const targets =
         producer.producerCodes.length > 0
-          ? producer.producerCodes.map(pc => ({ id: pc.id as number | null, code: pc.code }))
-          : [{ id: null as number | null, code: producer.masterCode ?? undefined }]
+          ? producer.producerCodes.map(pc => ({
+              id: pc.id as number | null,
+              code: pc.code,
+              lastSyncAt: pc.lastCarteraSyncAt,
+            }))
+          : [{ id: null as number | null, code: producer.masterCode ?? undefined, lastSyncAt: null as Date | null }]
 
       if (producer.producerCodes.length === 0) {
         this.logger.warn(
@@ -192,28 +232,60 @@ export class CarteraSyncService implements OnApplicationBootstrap {
 
       for (const target of targets) {
         codesProcessed++
+
+        // First sync of this code → 6-month backfill; afterwards → 3 months.
+        const { fechaDesde, fechaHasta, months } = buildDateRange(target.lastSyncAt)
+        const label = target.code ?? '(env master)'
+
         let novedades: TriunfoNovedad[] = []
         try {
           // code undefined → TriunfoService defaults to TRIUNFO_PRODUCTOR (env master).
           novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, target.code)
-          this.logger.log(`Code ${target.code ?? '(env master)'}: ${novedades.length} novedades`)
-        } catch (err) {
-          this.logger.warn(
-            `Code ${target.code ?? '(env master)'}: NovedadesCartera failed — ${err instanceof Error ? err.message : err}`,
+          this.logger.log(
+            `Code ${label}: ${novedades.length} novedades (${months}m: ${fechaDesde} → ${fechaHasta}${target.lastSyncAt ? '' : ', backfill inicial'})`,
           )
+        } catch (err) {
+          this.logger.warn(`Code ${label}: NovedadesCartera failed — ${err instanceof Error ? err.message : err}`)
+          // Deliberately NOT stamping lastCarteraSyncAt: a failed code must keep
+          // its backfill window on the next run instead of silently downgrading
+          // to the incremental one and leaving a permanent hole in the cartera.
           continue
         }
 
-        for (const novedad of novedades) {
+        // Oldest suplemento first, so the newest movement of a certificado is the
+        // last one written. Triunfo does not guarantee any order.
+        let codeFailures = 0
+        for (const novedad of sortBySuplemento(novedades)) {
           try {
             await this.syncNovedad(novedad, producer.id, target.id)
             synced++
           } catch (err) {
             skipped++
+            codeFailures++
             this.logger.warn(
-              `Skipped certificado ${novedad.Certificado} (code ${target.code ?? 'env'}) — ${err instanceof Error ? err.message : err}`,
+              `Skipped certificado ${novedad.Certificado} (code ${label}) — ${err instanceof Error ? err.message : err}`,
             )
           }
+        }
+
+        // Mark the code as synced so the next run uses the incremental window.
+        // Only when the Triunfo call itself succeeded (individual novedades that
+        // failed to persist are logged above and retried within the 3-month window).
+        if (target.id !== null) {
+          try {
+            await this.prisma.producerCode.update({
+              where: { id: target.id },
+              data: { lastCarteraSyncAt: new Date() },
+            })
+          } catch (err) {
+            this.logger.warn(
+              `Code ${label}: could not stamp lastCarteraSyncAt — ${err instanceof Error ? err.message : err}`,
+            )
+          }
+        }
+
+        if (codeFailures > 0) {
+          this.logger.warn(`Code ${label}: ${codeFailures} novedades could not be persisted`)
         }
       }
     }

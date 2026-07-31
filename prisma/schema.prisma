@@ -73,6 +73,10 @@ model ProducerCode {
   // org-level TRIUNFO_* env credentials (master code) are used. See cartera-sync.
   triunfoUsuario  String?
   triunfoPassword String?
+  // Last successful cartera sync for this code. Null = never synced, which makes
+  // the next run use the full backfill window (6 months) instead of the
+  // incremental one (3 months). See CarteraSyncService.buildDateRange.
+  lastCarteraSyncAt DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
@@ -593,4 +597,24 @@ model Message {
   // History is fetched as `where conversationId order by createdAt desc take 10`
   // on every inbound message, and the retention job prunes by createdAt.
   @@index([conversationId, createdAt])
+}
+// ─── INTEGRATION TOKENS ──────────────────────────────────
+// Persisted third-party auth tokens (currently Triunfo's JWT).
+//
+// Triunfo issues a JWT valid ~24 h and returns the SAME token while it is still
+// valid ("Token aún no vencido"). Caching it only in memory meant every API
+// restart — and every extra instance — hit `getTokenRest` again. Triunfo warned
+// that hammering that endpoint can get the IP blocked, so the token is stored
+// here and shared across restarts and instances.
+//
+// `key` identifies the credential set, e.g. "triunfo:10484:JHONPELL".
+model IntegrationToken {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique @db.VarChar(191)
+  token     String   @db.Text
+  // Absolute expiry taken from the JWT `exp` claim (no safety margin applied here;
+  // the service subtracts its own margin when deciding whether to reuse).
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
