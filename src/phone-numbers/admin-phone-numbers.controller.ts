@@ -16,7 +16,7 @@ export class AdminPhoneNumbersController {
 
   @Get()
   list(@Request() req: AuthenticatedRequest) {
-    return this.service.list(req.user.producerId)
+    return this.service.list(req.user.producerId, req.user.role)
   }
 
   @Post()

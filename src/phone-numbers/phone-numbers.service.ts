@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { UsageService } from '../usage/usage.service'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 
@@ -17,10 +19,25 @@ function currentPeriod(): string {
  */
 @Injectable()
 export class PhoneNumbersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly usage: UsageService,
+  ) {}
 
-  async list(producerId: number) {
+  /**
+   * Numbers of an organization with the running month's figures.
+   *
+   * What the caller sees depends on the role:
+   *   - SUPERADMIN/ADMIN (the client) get what they are being charged
+   *   - OWNER (Lumar) additionally gets the provider cost and the margin
+   *
+   * The provider cost is deliberately withheld from tenants: it is our cost
+   * structure, not part of their invoice.
+   */
+  async list(producerId: number, role?: Role) {
     const period = currentPeriod()
+    const isOwner = role === Role.OWNER
+    const elapsed = this.usage.elapsedFractionOf(period)
     const numbers = await this.prisma.phoneNumber.findMany({
       where: { producerId, deletedAt: null },
       select: {
@@ -30,6 +47,8 @@ export class PhoneNumbersService {
         isActive: true,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
+        monthlyBasePriceUsd: true,
+        monthlyMaxPriceUsd: true,
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true, holderName: true } } } },
         usageMonthly: {
@@ -49,6 +68,9 @@ export class PhoneNumbersService {
 
     return numbers.map(n => {
       const usage = n.usageMonthly[0]
+      const cost = Number(usage?.totalCostUsd ?? 0)
+      const billed = this.usage.priceFor(n, cost)
+
       return {
         id: n.id,
         phoneNumberId: n.phoneNumberId,
@@ -60,12 +82,22 @@ export class PhoneNumbersService {
         servedCodes: n.servedCodes.map(s => s.producerCode),
         usage: {
           period,
-          openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
-          metaCostUsd: Number(usage?.metaCostUsd ?? 0),
-          totalCostUsd: Number(usage?.totalCostUsd ?? 0),
+          // Activity is not sensitive: the client may see its own volume.
           inputTokens: usage?.openaiInputTokens ?? 0,
           outputTokens: usage?.openaiOutputTokens ?? 0,
           metaConversations: usage?.metaConversations ?? 0,
+          // Money the client is being charged.
+          billedUsd: billed,
+          accruedUsd: Math.round(billed * elapsed * 100) / 100,
+          // Our cost and margin: owner only.
+          ...(isOwner
+            ? {
+                openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
+                metaCostUsd: Number(usage?.metaCostUsd ?? 0),
+                totalCostUsd: cost,
+                marginUsd: Math.round((billed - cost) * 100) / 100,
+              }
+            : {}),
         },
       }
     })
