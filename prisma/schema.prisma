@@ -162,6 +162,20 @@ model PhoneNumber {
   monthlyBudgetUsd  Decimal?  @db.Decimal(10, 2)
   budgetExceededAt  DateTime?
 
+  // ── Billing (what the CLIENT pays, as opposed to what the number COSTS) ──
+  // Minimum monthly fee invoiced for this number. Null → DEFAULT_MONTHLY_PRICE_USD
+  // (50). The billed amount never drops below this, however little the number is
+  // used — this is the floor of the commercial plan, not a measurement.
+  monthlyBasePriceUsd Decimal? @db.Decimal(10, 2)
+  // Ceiling of the plan: the client is never invoiced above this, even if the
+  // number burns through far more than that in tokens and conversations.
+  // Null → DEFAULT_MONTHLY_MAX_PRICE_USD (70).
+  monthlyMaxPriceUsd  Decimal? @db.Decimal(10, 2)
+  // Multiplier applied to the real cost. Between the floor and the ceiling the
+  // invoice follows actual usage, so the amount moves month to month on its own.
+  // Null → DEFAULT_BILLING_MARKUP (3).
+  billingMarkup       Decimal? @db.Decimal(6, 2)
+
   usageMonthly      UsageMonthly[]
 
   @@index([responsibleProducerCodeId])
@@ -179,7 +193,13 @@ model UsageMonthly {
   openaiCostUsd      Decimal  @default(0) @db.Decimal(12, 6)
   metaConversations  Int      @default(0)
   metaCostUsd        Decimal  @default(0) @db.Decimal(12, 6)
+  // What the number COSTS us (OpenAI + Meta). Measured, never adjusted.
   totalCostUsd       Decimal  @default(0) @db.Decimal(12, 6)
+  // What the client is INVOICED for this number this month:
+  //   max(monthlyBasePriceUsd, totalCostUsd × billingMarkup)
+  // A business rule, not a measurement — kept in its own column precisely so the
+  // measured cost above stays truthful and the margin is visible.
+  billedUsd          Decimal  @default(0) @db.Decimal(12, 2)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
