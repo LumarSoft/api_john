@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
@@ -8,6 +8,7 @@ import { CreateOrganizationDto } from './dto/create-organization.dto'
 import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 import { UpdateProducerCodeDto } from './dto/update-producer-code.dto'
 import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
+import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
 
 /**
  * Platform OWNER (Lumar) endpoints. The owner uses the same admin login as any
@@ -57,5 +58,27 @@ export class OwnerController {
   @Post(':id/superadmins')
   addSuperAdmin(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateSuperAdminDto) {
     return this.owner.addSuperAdmin(id, dto)
+  }
+
+  // ── users of an organization ──────────────────────────
+  // /users/* is scoped to the caller's own org; these let the OWNER manage any.
+
+  @Post(':id/users')
+  addUser(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateOrgUserDto) {
+    return this.owner.addUser(id, dto)
+  }
+
+  @Patch(':id/users/:userId')
+  updateUser(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('userId', ParseIntPipe) userId: number,
+    @Body() dto: UpdateOrgUserDto,
+  ) {
+    return this.owner.updateUser(id, userId, dto)
+  }
+
+  @Delete(':id/users/:userId')
+  removeUser(@Param('id', ParseIntPipe) id: number, @Param('userId', ParseIntPipe) userId: number) {
+    return this.owner.removeUser(id, userId)
   }
 }

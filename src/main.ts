@@ -8,10 +8,18 @@ import { AppModule } from './app.module'
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule)
 
-  const corsOrigin = process.env.CORS_ORIGIN ?? 'http://localhost:3000'
+  // CORS_ORIGIN accepts a comma-separated list, e.g.
+  //   https://www.jpmanagementgroup.com.ar,https://jpmanagementgroup.com.ar
+  //
+  // Trailing slashes are stripped: the browser's `Origin` header never carries
+  // one, so "http://localhost:3000/" would silently fail every preflight.
+  const corsOrigin = (process.env.CORS_ORIGIN ?? 'http://localhost:3000')
+    .split(',')
+    .map(o => o.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
 
   app.enableCors({
-    origin: corsOrigin,
+    origin: corsOrigin.length === 1 ? corsOrigin[0] : corsOrigin,
     credentials: true,
   })
 

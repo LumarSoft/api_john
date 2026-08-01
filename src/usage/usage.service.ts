@@ -24,6 +24,24 @@ function currentPeriod(): string {
 }
 
 /**
+ * How much of a period has already elapsed, from 0 to 1.
+ *
+ * A closed month is 1 (fully accrued). The running month is the share of days
+ * already gone, so the first day sits near zero and the figure climbs daily
+ * until it reaches the full monthly charge on the last day.
+ */
+function periodElapsedFraction(period: string, now: Date = new Date()): number {
+  if (period !== currentPeriod()) return 1 // a past (or future) month is not partial
+
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  // Include the fraction of today already gone, so the number also moves within
+  // the day instead of jumping once at midnight.
+  const elapsedDays = now.getDate() - 1 + (now.getHours() * 60 + now.getMinutes()) / (24 * 60)
+
+  return Math.min(1, Math.max(0, elapsedDays / daysInMonth))
+}
+
+/**
  * Tracks per-number monthly cost (OpenAI tokens + Meta conversations) and
  * enforces a per-number budget cap. When a number crosses its cap we stamp
  * PhoneNumber.budgetExceededAt; the bot then disables the paid LLM (deterministic
@@ -99,6 +117,16 @@ export class UsageService {
    * and down instead of resting against an edge.
    */
   private static readonly PRICE_HALFWAY_COST = 2
+
+  /** Public wrapper so the owner reports price exactly like the admin one. */
+  priceFor(phone: { monthlyBasePriceUsd: unknown; monthlyMaxPriceUsd: unknown }, cost: number): number {
+    return this.computeBilled(phone, cost)
+  }
+
+  /** Share of the given period already elapsed (0–1). Used by the owner reports. */
+  elapsedFractionOf(period: string): number {
+    return periodElapsedFraction(period)
+  }
 
   private computeBilled(phone: { monthlyBasePriceUsd: unknown; monthlyMaxPriceUsd: unknown }, cost: number): number {
     const floor = phone.monthlyBasePriceUsd != null ? Number(phone.monthlyBasePriceUsd) : UsageService.PRICE_FLOOR
@@ -280,9 +308,23 @@ export class UsageService {
     // A row created before this feature (or never touched since) still shows a
     // stale billedUsd, so the invoiced amount is recomputed on read. Cheap, and
     // it keeps the report correct right after a price change.
+    //
+    // `billedUsd`  = the full monthly charge for the number (what it closes at)
+    // `accruedUsd` = the part of that charge already run up, prorated over the
+    //                month. Near zero on the 1st, the full amount on the last
+    //                day. Each number accrues towards its own total, so two
+    //                numbers with different usage never show the same figure.
+    const elapsed = periodElapsedFraction(period)
+
     const priced = rows.map(r => {
       const billed = r.phoneNumber ? this.computeBilled(r.phoneNumber, Number(r.totalCostUsd)) : Number(r.billedUsd)
-      return { ...r, billedUsd: billed, marginUsd: billed - Number(r.totalCostUsd) }
+      const accrued = Math.round(billed * elapsed * 100) / 100
+      return {
+        ...r,
+        billedUsd: billed,
+        accruedUsd: accrued,
+        marginUsd: billed - Number(r.totalCostUsd),
+      }
     })
 
     const totals = priced.reduce(
@@ -291,12 +333,13 @@ export class UsageService {
         acc.metaCostUsd += Number(r.metaCostUsd)
         acc.totalCostUsd += Number(r.totalCostUsd)
         acc.billedUsd += r.billedUsd
+        acc.accruedUsd += r.accruedUsd
         acc.marginUsd += r.marginUsd
         return acc
       },
-      { openaiCostUsd: 0, metaCostUsd: 0, totalCostUsd: 0, billedUsd: 0, marginUsd: 0 },
+      { openaiCostUsd: 0, metaCostUsd: 0, totalCostUsd: 0, billedUsd: 0, accruedUsd: 0, marginUsd: 0 },
     )
 
-    return { period, rows: priced, totals }
+    return { period, elapsedFraction: Math.round(elapsed * 1000) / 1000, rows: priced, totals }
   }
 }
