@@ -202,18 +202,30 @@ export class BotService {
   }
 
   /**
-   * Resets the conversation session (secret /reset dev command). Moves the
-   * session boundary to now so the chat history drops out of the context
-   * window; the identified client link is intentionally kept. Old messages stay
-   * in the DB until the retention job prunes them.
+   * Resets the conversation session. Moves the session boundary to now so the
+   * chat history drops out of the context window. Old messages stay in the DB
+   * until the retention job prunes them.
+   *
+   * `unlinkClient` separates the two callers. Ending the chat ("finalizar") is a
+   * normal goodbye and keeps the identified client, so the next visit still
+   * greets them by name. The `/reset` dev command means "start from zero" and
+   * clears the link too — keeping it left the bot greeting the previous person
+   * ("¡Hola de nuevo, Lucas!") to whoever wrote next, which is exactly what the
+   * command is meant to wipe.
    */
-  async resetSession(conversationId: number) {
+  async resetSession(conversationId: number, unlinkClient = false) {
     await this.findConversation(conversationId)
     await this.prisma.conversation.update({
       where: { id: conversationId },
       // lastMessageAt/warnedAt cleared so the sweep doesn't warn a just-reset chat;
       // flowState cleared so the next message starts the flow from scratch.
-      data: { sessionStartedAt: new Date(), lastMessageAt: null, warnedAt: null, flowState: null },
+      data: {
+        sessionStartedAt: new Date(),
+        lastMessageAt: null,
+        warnedAt: null,
+        flowState: null,
+        ...(unlinkClient ? { clientId: null, producerCodeId: null } : {}),
+      },
     })
     return { ok: true }
   }
@@ -224,10 +236,12 @@ export class BotService {
    * never warned twice. Returns what the bot needs to push the WhatsApp warning:
    * the user's waId and the Meta phone number the chat came through.
    *
-   * The chat is always finalized (claimed); the warning is only **returned**
-   * during office hours — outside them it is finalized silently. Conversations
-   * with no stored phone number (legacy rows) are skipped until the next inbound
-   * message backfills it.
+   * The goodbye goes out whatever the hour: the session really does end, and a
+   * user who is not told simply taps the buttons still on their screen and gets
+   * a confusing "¡Hola de nuevo!" instead of their answer. `isOpenNow` is
+   * carried so the notice can say we're closed rather than being suppressed.
+   * Conversations with no stored phone number (legacy rows) are skipped until
+   * the next inbound message backfills it.
    */
   async claimPendingWarnings(limit = 50) {
     const cutoff = new Date(Date.now() - this.sessionTimeoutMs)
@@ -271,16 +285,22 @@ export class BotService {
       closuresByProducer.set(r.producerId, list)
     }
 
-    const out: { conversationId: number; waId: string; phoneNumberId: string; attentionHours: string }[] = []
+    const out: {
+      conversationId: number
+      waId: string
+      phoneNumberId: string
+      attentionHours: string
+      isOpenNow: boolean
+    }[] = []
     for (const c of candidates) {
       const status = computeStatus(parseSchedule(c.producer.businessHours), closuresByProducer.get(c.producer.id) ?? [])
-      if (!status.isOpenNow) continue
       out.push({
         conversationId: c.id,
         waId: c.waId,
         phoneNumberId: String(c.phoneNumberId),
         // Carried so the bot's inactivity notice quotes the producer's own hours.
         attentionHours: status.formatted,
+        isOpenNow: status.isOpenNow,
       })
     }
     return out
@@ -369,14 +389,20 @@ export class BotService {
   }
 
   /**
-   * Account status across all the client's policies: unpaid installments
-   * (pending / overdue / rejected) plus a paid count per policy.
+   * Account status across the client's **in-force** policies: unpaid
+   * installments (pending / overdue / rejected) plus a paid count per policy.
+   *
+   * Only policies still in force are returned. `status` holds the Triunfo
+   * movement type ("REFACTURACION", "ANULA POR VENTA", …), not a validity flag,
+   * so in-force is decided by `vigenciaHasta >= now` — the same rule the admin
+   * dashboard and the client list use. Without it the bot listed years of closed
+   * policies with stale overdue installments next to the live ones.
    */
   async getEstadoCuenta(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
     const polizas = await this.prisma.poliza.findMany({
-      where: { clientId, producerId, deletedAt: null },
+      where: { clientId, producerId, deletedAt: null, vigenciaHasta: { gte: new Date() } },
       select: {
         id: true,
         certificado: true,

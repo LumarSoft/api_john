@@ -34,9 +34,10 @@ export class BotController {
     return this.botService.saveMessage(conversationId, dto)
   }
 
+  /** `?full=true` also unlinks the identified client (the /reset dev command). */
   @Post('conversation/:conversationId/reset')
-  resetSession(@Param('conversationId', ParseIntPipe) conversationId: number) {
-    return this.botService.resetSession(conversationId)
+  resetSession(@Param('conversationId', ParseIntPipe) conversationId: number, @Query('full') full?: string) {
+    return this.botService.resetSession(conversationId, full === 'true')
   }
 
   @Post('conversation/:conversationId/flow-state')
