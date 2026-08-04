@@ -345,6 +345,13 @@ model Vehiculo {
   modelo        String?
   subModelo     String?
   anio          Int?
+  // InfoAuto identity, as Triunfo reports it in SDTVehiculoDatos.
+  // codia = marcaIA * 10000 + modeloIA — verified against the whole InfoAuto
+  // catalog (13.082 models, no exceptions). Keeping it lets us go back to
+  // InfoAuto from a policy for the spec sheet, the photo or a value refresh.
+  marcaIA       Int?
+  modeloIA      Int?
+  codia         Int?
   tipo          String?  // "AUTOMOVIL" | "MOTO" etc.
   uso           String?  // "PARTICULAR" | "COMERCIAL" etc.
   cobertura     String?  // coverage code (e.g. "A", "B", "C")

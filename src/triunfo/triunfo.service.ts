@@ -12,6 +12,10 @@ export interface TriunfoVehiculoDato {
   Modelo: string
   SubModelo?: string
   Anio: number
+  // InfoAuto codes Triunfo used to price the vehicle.
+  // codia = MarcaIA * 10000 + ModeloIA
+  MarcaIA?: number
+  ModeloIA?: number
   Chasis?: string
   Motor?: string
   Cobertura: string

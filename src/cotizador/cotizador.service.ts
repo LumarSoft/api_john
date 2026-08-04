@@ -83,12 +83,14 @@ export class CotizadorService {
   ): Promise<QuoteAutoResult> {
     const auth = await this.triunfo.getAuth()
 
-    // Postman flow: vehicle value comes from InfoAuto (0km list price or used price by year).
-    // If unavailable, Valor "0" tells Triunfo to look up the market value automatically.
+    // Vehicle value comes from InfoAuto when valuation is contracted. It is not
+    // today (403), so this resolves to null and Valor "0" tells Triunfo to look
+    // up the market value itself — it returns it in DatosAdicionales.
     const vehicleValue = await this.infoAuto.getVehicleValue(vehicleType, Number(dto.model), dto.manufactureYear)
+    const origin = await this.infoAuto.getVehicleOrigin(vehicleType, Number(dto.model))
     const triunfoModel = this.toTriunfoModelCode(dto.brand, dto.model)
     this.logger.debug(
-      `Quoting ${vehicleType} codia ${dto.model} → Triunfo Marca ${dto.brand} Modelo ${triunfoModel} (${dto.manufactureYear}) — InfoAuto value: ${vehicleValue ?? 'N/A'}`,
+      `Quoting ${vehicleType} codia ${dto.model} → Triunfo Marca ${dto.brand} Modelo ${triunfoModel} (${dto.manufactureYear}) — origen ${origin}, InfoAuto value: ${vehicleValue ?? 'N/A'}`,
     )
 
     let result: TriunfoCotizadorRaw
@@ -106,7 +108,7 @@ export class CotizadorService {
               Cobertura: dto.coverage ?? '',
               Marca: dto.brand,
               Modelo: triunfoModel,
-              Origen: 'N',
+              Origen: origin,
               Uso: 1,
               Valor: vehicleValue ?? '0',
             },

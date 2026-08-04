@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE `Vehiculo` ADD COLUMN `codia` INTEGER NULL,
+    ADD COLUMN `marcaIA` INTEGER NULL,
+    ADD COLUMN `modeloIA` INTEGER NULL;

@@ -457,38 +457,33 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     // ── 3. Upsert Vehiculo (any policy with SDTVehiculoDatos) ─
     if (vehiculoDatos) {
       const v = vehiculoDatos
-      const patente = v.Dominio?.trim() || null
+      const marcaIA = Number.isInteger(v?.MarcaIA) ? (v.MarcaIA as number) : null
+      const modeloIA = Number.isInteger(v?.ModeloIA) ? (v.ModeloIA as number) : null
+
+      const vehiculoData = {
+        dominio: v.Dominio?.trim() || null,
+        marca: v?.Marca ?? null,
+        modelo: v?.Modelo ?? null,
+        subModelo: v?.SubModelo ?? null,
+        anio: v?.Anio ?? null,
+        marcaIA,
+        modeloIA,
+        // Rebuilding the codia here means a policy can be looked up in InfoAuto
+        // without re-deriving the rule at every call site.
+        codia: marcaIA !== null && modeloIA !== null ? marcaIA * 10000 + modeloIA : null,
+        tipo: v?.Tipo ?? null,
+        uso: v?.Uso ?? null,
+        cobertura: v?.Cobertura ?? novedad.Cobertura ?? null,
+        sumaAsegurada: v?.SumaAsegurada ?? null,
+        ceroKm: (v?.CeroKm ?? 0) === 1,
+        chasis: v?.Chasis ?? null,
+        motor: v?.Motor ?? null,
+      }
+
       await this.prisma.vehiculo.upsert({
         where: { polizaId: poliza.id },
-        create: {
-          polizaId: poliza.id,
-          dominio: patente,
-          marca: v?.Marca ?? null,
-          modelo: v?.Modelo ?? null,
-          subModelo: v?.SubModelo ?? null,
-          anio: v?.Anio ?? null,
-          tipo: v?.Tipo ?? null,
-          uso: v?.Uso ?? null,
-          cobertura: v?.Cobertura ?? novedad.Cobertura ?? null,
-          sumaAsegurada: v?.SumaAsegurada ?? null,
-          ceroKm: (v?.CeroKm ?? 0) === 1,
-          chasis: v?.Chasis ?? null,
-          motor: v?.Motor ?? null,
-        },
-        update: {
-          dominio: patente,
-          marca: v?.Marca ?? null,
-          modelo: v?.Modelo ?? null,
-          subModelo: v?.SubModelo ?? null,
-          anio: v?.Anio ?? null,
-          tipo: v?.Tipo ?? null,
-          uso: v?.Uso ?? null,
-          cobertura: v?.Cobertura ?? novedad.Cobertura ?? null,
-          sumaAsegurada: v?.SumaAsegurada ?? null,
-          ceroKm: (v?.CeroKm ?? 0) === 1,
-          chasis: v?.Chasis ?? null,
-          motor: v?.Motor ?? null,
-        },
+        create: { polizaId: poliza.id, ...vehiculoData },
+        update: vehiculoData,
       })
     }
 
