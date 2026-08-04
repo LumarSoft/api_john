@@ -83,12 +83,14 @@ export class CotizadorService {
   ): Promise<QuoteAutoResult> {
     const auth = await this.triunfo.getAuth()
 
-    // Postman flow: vehicle value comes from InfoAuto (0km list price or used price by year).
-    // If unavailable, Valor "0" tells Triunfo to look up the market value automatically.
+    // Vehicle value comes from InfoAuto when valuation is contracted. It is not
+    // today (403), so this resolves to null and Valor "0" tells Triunfo to look
+    // up the market value itself — it returns it in DatosAdicionales.
     const vehicleValue = await this.infoAuto.getVehicleValue(vehicleType, Number(dto.model), dto.manufactureYear)
+    const origin = await this.infoAuto.getVehicleOrigin(vehicleType, Number(dto.model))
     const triunfoModel = this.toTriunfoModelCode(dto.brand, dto.model)
     this.logger.debug(
-      `Quoting ${vehicleType} codia ${dto.model} → Triunfo Marca ${dto.brand} Modelo ${triunfoModel} (${dto.manufactureYear}) — InfoAuto value: ${vehicleValue ?? 'N/A'}`,
+      `Quoting ${vehicleType} codia ${dto.model} → Triunfo Marca ${dto.brand} Modelo ${triunfoModel} (${dto.manufactureYear}) — origen ${origin}, InfoAuto value: ${vehicleValue ?? 'N/A'}`,
     )
 
     let result: TriunfoCotizadorRaw
@@ -106,7 +108,7 @@ export class CotizadorService {
               Cobertura: dto.coverage ?? '',
               Marca: dto.brand,
               Modelo: triunfoModel,
-              Origen: 'N',
+              Origen: origin,
               Uso: 1,
               Valor: vehicleValue ?? '0',
             },
@@ -135,6 +137,7 @@ export class CotizadorService {
     const quoteNumber = Number.parseInt(out.Presupuesto?.Numero ?? '', 10)
 
     if (quoteNumber) {
+      const resolvedProducerId = await this.resolveProducerId(producerId)
       await this.prisma.cotizacion.upsert({
         where: { quoteNumber },
         create: {
@@ -145,7 +148,9 @@ export class CotizadorService {
           manufactureYear: dto.manufactureYear,
           postalCode: dto.postalCode,
           result: result as Prisma.InputJsonValue,
-          producerId: await this.resolveProducerId(producerId),
+          producerId: resolvedProducerId,
+          // Anonymous/web quotes are credited to the org master code by default.
+          producerCodeId: await this.resolveDefaultProducerCodeId(resolvedProducerId),
           userId,
         },
         update: { result: result as Prisma.InputJsonValue },
@@ -158,7 +163,7 @@ export class CotizadorService {
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {
     const cotizacion = await this.prisma.cotizacion.findFirst({
       where: { quoteNumber, deletedAt: null },
-      select: { id: true, result: true },
+      select: { id: true, result: true, producerId: true },
     })
     if (!cotizacion) throw new NotFoundException(`Quote ${quoteNumber} not found`)
 
@@ -213,7 +218,44 @@ export class CotizadorService {
       update: { ...data, deletedAt: null },
     })
 
+    // Fire-and-forget: greet the client on WhatsApp so they get follow-up on
+    // their quote. Disabled until QUOTE_FOLLOWUP_TEMPLATE is configured (the
+    // approved Meta template name). Never blocks or breaks the coverage request.
+    void this.notifyClientWhatsApp(cotizacion.producerId, dto.phone, dto.firstName).catch(err =>
+      this.logger.warn(`No se pudo notificar al cliente por WhatsApp: ${(err as Error).message}`),
+    )
+
     return { quoteNumber: String(quoteNumber), coverage: dto.coverage, startDate: dto.startDate }
+  }
+
+  /**
+   * Sends the approved "seguimiento de cotización" template to the client via the
+   * bot. No-op until QUOTE_FOLLOWUP_TEMPLATE (the approved Meta template name) is
+   * set, so it can be enabled the moment Meta approves the template. Uses an
+   * active phone number of the organization as the sender.
+   */
+  private async notifyClientWhatsApp(producerId: number, phone: string, name: string): Promise<void> {
+    const template = this.configService.get<string>('QUOTE_FOLLOWUP_TEMPLATE')
+    if (!template) return // disabled until the template is approved & configured
+
+    const lang = this.configService.get<string>('QUOTE_FOLLOWUP_TEMPLATE_LANG') ?? 'es_AR'
+    const botUrl = this.configService.get<string>('BOT_URL')
+    const secret = this.configService.get<string>('BOT_SECRET')
+    if (!botUrl || !secret || !phone) return
+
+    const phoneNumber = await this.prisma.phoneNumber.findFirst({
+      where: { producerId, isActive: true, deletedAt: null },
+      select: { phoneNumberId: true },
+    })
+    if (!phoneNumber) return
+
+    await firstValueFrom(
+      this.httpService.post(
+        `${botUrl}/internal/send-template`,
+        { to: phone, phoneNumberId: phoneNumber.phoneNumberId, template, lang, params: [name] },
+        { headers: { 'x-bot-secret': secret } },
+      ),
+    )
   }
 
   // Dates arrive as YYYY-MM-DD; anchor them at UTC midnight to avoid timezone drift
@@ -258,6 +300,17 @@ export class CotizadorService {
 
     if (!producer) throw new InternalServerErrorException(`Default producer "${slug}" not found`)
     return producer.id
+  }
+
+  // Default code attribution for a quote: the organization's master code (or
+  // null if none is configured yet). Admin-initiated quotes could later pass a
+  // specific code via the userId's grants.
+  private async resolveDefaultProducerCodeId(producerId: number): Promise<number | null> {
+    const master = await this.prisma.producerCode.findFirst({
+      where: { producerId, isMaster: true, deletedAt: null },
+      select: { id: true },
+    })
+    return master?.id ?? null
   }
 
   private normalizeResult(result: TriunfoCotizadorRaw): QuoteAutoResult {

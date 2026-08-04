@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
+import { UsageService } from '../usage/usage.service'
 import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
@@ -55,6 +56,7 @@ export class BotService {
     private readonly triunfo: TriunfoService,
     private readonly mail: MailService,
     private readonly novedades: NovedadesService,
+    private readonly usage: UsageService,
     config: ConfigService,
   ) {
     const minutes = Number(config.get<string>('SESSION_TIMEOUT_MINUTES'))
@@ -88,7 +90,10 @@ export class BotService {
     // The bot shows the formatted week as its general "horario" line; richer
     // open-now info comes from GET /public/hours when a user asks.
     const attentionHours = formatSchedule(parseSchedule(businessHours))
-    return { producerId: id, producerName: name, producerSlug: slug, botName, attentionHours, systemPrompt }
+    // When the number is over its monthly budget, the bot disables the paid LLM
+    // (deterministic flows keep working at zero token cost).
+    const llmEnabled = await this.usage.isLlmEnabled(phoneNumberId)
+    return { producerId: id, producerName: name, producerSlug: slug, botName, attentionHours, systemPrompt, llmEnabled }
   }
 
   /**
@@ -312,12 +317,12 @@ export class BotService {
       throw new BadRequestException('Either dni or plate is required')
     }
 
-    let client: { id: number } | null = null
+    let client: { id: number; producerCodeId: number | null } | null = null
 
     if (dto.dni) {
       client = await this.prisma.client.findFirst({
         where: { dni: dto.dni.trim(), producerId: conversation.producerId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, producerCodeId: true },
       })
     }
 
@@ -329,18 +334,20 @@ export class BotService {
           deletedAt: null,
           vehiculo: { dominio: plate, deletedAt: null },
         },
-        select: { clientId: true },
+        select: { clientId: true, producerCodeId: true },
       })
-      if (poliza) client = { id: poliza.clientId }
+      if (poliza) client = { id: poliza.clientId, producerCodeId: poliza.producerCodeId }
     }
 
     if (!client) {
       throw new NotFoundException('No client found for the given dni/plate')
     }
 
+    // Resolve the chat to the client's producer code so inbox/novedades scoping
+    // routes it to the right admin even when the number serves several codes.
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { clientId: client.id },
+      data: { clientId: client.id, producerCodeId: client.producerCodeId },
       select: { client: { select: CLIENT_SUMMARY_SELECT } },
     })
 
@@ -434,7 +441,7 @@ export class BotService {
 
     const poliza = await this.prisma.poliza.findFirst({
       where: this.polizaRefWhere(dto.polizaId, clientId, producerId),
-      select: { id: true, certificado: true, company: true },
+      select: { id: true, certificado: true, company: true, producerCodeId: true },
     })
     if (!poliza) throw new NotFoundException(`Policy ${dto.polizaId} not found`)
 
@@ -447,6 +454,7 @@ export class BotService {
         clientId,
         polizaId: poliza.id,
         producerId,
+        producerCodeId: poliza.producerCodeId,
       },
       select: {
         id: true,
@@ -476,6 +484,7 @@ export class BotService {
       clientId,
       clienteNombre: `${client.firstName} ${client.lastName}`.trim(),
       descripcion: siniestro.descripcion,
+      producerCodeId: poliza.producerCodeId,
     })
 
     return siniestro
@@ -487,7 +496,7 @@ export class BotService {
    * latest non-resolved claim of the identified client. The total is capped at
    * MAX_FILES, keeping the most recent attachments.
    */
-  async attachAdjuntos(conversationId: number, files: Express.Multer.File[]) {
+  async attachAdjuntos(conversationId: number, files: Express.Multer.File[], tipo?: string) {
     if (!files.length) throw new BadRequestException('No files received')
 
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
@@ -502,7 +511,7 @@ export class BotService {
     }
 
     const existing = Array.isArray(siniestro.adjuntos) ? (siniestro.adjuntos as unknown as AdjuntoMeta[]) : []
-    const merged = [...existing, ...files.map(toAdjuntoMeta)].slice(-MAX_FILES)
+    const merged = [...existing, ...files.map(f => toAdjuntoMeta(f, tipo))].slice(-MAX_FILES)
 
     await this.prisma.siniestro.update({
       where: { id: siniestro.id },
@@ -521,6 +530,7 @@ export class BotService {
         status: true,
         waId: true,
         producerId: true,
+        producerCodeId: true,
         clientId: true,
         client: { select: { firstName: true, lastName: true } },
       },
@@ -542,6 +552,7 @@ export class BotService {
       conversationId,
       clientId: conversation.clientId,
       clienteNombre,
+      producerCodeId: conversation.producerCodeId,
     })
 
     return { ok: true }

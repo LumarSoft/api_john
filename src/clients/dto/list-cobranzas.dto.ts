@@ -22,6 +22,20 @@ export class ListCobranzasDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  producerCodeId?: number
+
+  // SuperAdmin "filter by número/sucursal" — a PhoneNumber id; resolves to the
+  // producer codes that number serves.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  phoneNumberId?: number
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page?: number
 
   @IsOptional()

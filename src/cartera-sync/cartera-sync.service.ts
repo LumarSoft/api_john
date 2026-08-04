@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
+import { Cron } from '@nestjs/schedule'
 import * as bcrypt from 'bcrypt'
 import { ConfigService } from '@nestjs/config'
 import { RiskType } from 'generated/prisma/client'
@@ -64,15 +65,59 @@ function localISODate(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
-// Build date range: Triunfo limits to ~6 months lookback
-function buildDateRange(): { fechaDesde: string; fechaHasta: string } {
+// Human-readable elapsed time, e.g. "1m 23s" or "12.3s".
+function formatDuration(ms: number): string {
+  const totalSeconds = ms / 1000
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = Math.round(totalSeconds % 60)
+  return `${minutes}m ${seconds}s`
+}
+
+/**
+ * Lookback windows, in months. Overridable via env so they can be tuned without
+ * a code change — each extra month costs roughly 4 more Triunfo calls per code
+ * (the range is fetched in 7-day windows), times ~26 codes.
+ */
+const BACKFILL_MONTHS = Number(process.env.TRIUNFO_CARTERA_BACKFILL_MONTHS ?? 6)
+const INCREMENTAL_MONTHS = Number(process.env.TRIUNFO_CARTERA_INCREMENTAL_MONTHS ?? 3)
+
+/**
+ * Date range to ask Triunfo for a given code.
+ *
+ * A code that was never synced (`lastCarteraSyncAt` null) gets the full 6-month
+ * backfill; afterwards each run re-reads the last 3 months, which comfortably
+ * covers anything that changed between the 06:00 and 20:00 runs while still
+ * catching late-posted movements.
+ *
+ * Note this is the *logical* range: TriunfoService splits it into 7-day windows
+ * internally, because a single call wider than that does not come back.
+ */
+function buildDateRange(lastSyncAt: Date | null | undefined): {
+  fechaDesde: string
+  fechaHasta: string
+  months: number
+} {
+  const months = lastSyncAt ? INCREMENTAL_MONTHS : BACKFILL_MONTHS
   const hasta = new Date()
   const desde = new Date()
-  desde.setMonth(desde.getMonth() - 6)
+  desde.setMonth(desde.getMonth() - months)
   return {
     fechaDesde: localISODate(desde),
     fechaHasta: localISODate(hasta),
+    months,
   }
+}
+
+/**
+ * Triunfo returns several novedades for the same certificado out of order (we
+ * saw 13, 12, 14, 15, 11 for one policy, and an endoso before the "POLIZA NUEVA"
+ * that precedes it). Since each novedad upserts the same row, processing them in
+ * arrival order leaves the OLDEST suplemento persisted. Sorting ascending makes
+ * the newest one win.
+ */
+function sortBySuplemento(novedades: TriunfoNovedad[]): TriunfoNovedad[] {
+  return [...novedades].sort((a, b) => Number(a.Suplemento ?? 0) - Number(b.Suplemento ?? 0))
 }
 
 // Map Triunfo cuota Estado to our status values
@@ -85,6 +130,16 @@ function mapCuotaStatus(estado: string, dueDate: Date | null): string {
 }
 
 // ─── Service ─────────────────────────────────────────────
+
+export interface CarteraSyncResult {
+  codesProcessed: number
+  synced: number
+  skipped: number
+  /** Total wall-clock time of the run in milliseconds. */
+  elapsedMs?: number
+  /** True when a run was skipped because another was already in flight. */
+  skippedRun?: boolean
+}
 
 @Injectable()
 export class CarteraSyncService implements OnApplicationBootstrap {
@@ -102,55 +157,168 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       this.logger.log('Cartera sync disabled (TRIUNFO_CARTERA_SYNC_ENABLED != true)')
       return
     }
-    void this.syncCartera().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
+    void this.runGuarded().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
   }
 
-  async syncCartera(): Promise<void> {
-    const { fechaDesde, fechaHasta } = buildDateRange()
-    this.logger.log(`Starting cartera sync (${fechaDesde} → ${fechaHasta})`)
+  // Keeps policies/cuotas fresh in production. Runs at 06:00 and 20:00 Argentina
+  // time — pinned to that zone explicitly because the server may well run on UTC,
+  // in which case a bare "0 6,20 * * *" would fire at 03:00/17:00 local.
+  // Guarded against overlap so a long sync (many codes, several Triunfo calls
+  // each) never stacks on top of the previous one.
+  private syncing = false
 
-    const novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta)
+  @Cron('0 6,20 * * *', { timeZone: 'America/Argentina/Buenos_Aires' })
+  async scheduledSync(): Promise<CarteraSyncResult | undefined> {
+    if (this.config.get<string>('TRIUNFO_CARTERA_SYNC_ENABLED') !== 'true') return
+    return this.runGuarded()
+  }
 
-    if (!novedades.length) {
-      this.logger.log('No novedades returned from Triunfo')
-      return
+  /** Runs the sync unless one is already in flight (overlap guard). */
+  async runGuarded(): Promise<CarteraSyncResult> {
+    if (this.syncing) {
+      this.logger.warn('Cartera sync already running — skipping this run')
+      return { codesProcessed: 0, synced: 0, skipped: 0, skippedRun: true }
     }
+    this.syncing = true
+    try {
+      return await this.syncCartera()
+    } finally {
+      this.syncing = false
+    }
+  }
 
-    this.logger.log(`Processing ${novedades.length} novedades`)
+  async syncCartera(): Promise<CarteraSyncResult> {
+    const startedAt = Date.now()
+    this.logger.log('Starting cartera sync')
 
-    // Sync against every active producer — in practice just John for now
+    // Iterate every active producer code of every active org. Triunfo returns
+    // each code's own cartera when we pass its `code` (same master credential,
+    // varying only Codigo — confirmed in Postman). So each client/poliza is
+    // attributed to the producerCodeId of the query it came from.
     const producers = await this.prisma.producer.findMany({
       where: { isActive: true, deletedAt: null },
-      select: { id: true },
+      select: {
+        id: true,
+        masterCode: true,
+        producerCodes: {
+          where: { isActive: true, deletedAt: null },
+          select: { id: true, code: true, lastCarteraSyncAt: true },
+        },
+      },
     })
 
     let synced = 0
     let skipped = 0
+    let codesProcessed = 0
 
-    for (const novedad of novedades) {
-      for (const producer of producers) {
+    for (const producer of producers) {
+      // Defensive fallback: if no ProducerCode rows are loaded yet (migration/seed
+      // not applied), fall back to a single query with the env master code so the
+      // sync isn't silently empty. Attributes to null (back-fill to master later).
+      const targets =
+        producer.producerCodes.length > 0
+          ? producer.producerCodes.map(pc => ({
+              id: pc.id as number | null,
+              code: pc.code,
+              lastSyncAt: pc.lastCarteraSyncAt,
+            }))
+          : [{ id: null as number | null, code: producer.masterCode ?? undefined, lastSyncAt: null as Date | null }]
+
+      if (producer.producerCodes.length === 0) {
+        this.logger.warn(
+          `Producer ${producer.id} has no ProducerCode rows — run the migration + seed. Using env/master code fallback.`,
+        )
+      }
+
+      for (const target of targets) {
+        codesProcessed++
+
+        // First sync of this code → 6-month backfill; afterwards → 3 months.
+        const { fechaDesde, fechaHasta, months } = buildDateRange(target.lastSyncAt)
+        const label = target.code ?? '(env master)'
+
+        let novedades: TriunfoNovedad[] = []
         try {
-          await this.syncNovedad(novedad, producer.id)
-          synced++
+          // code undefined → TriunfoService defaults to TRIUNFO_PRODUCTOR (env master).
+          novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, target.code)
+          this.logger.log(
+            `Code ${label}: ${novedades.length} novedades (${months}m: ${fechaDesde} → ${fechaHasta}${target.lastSyncAt ? '' : ', backfill inicial'})`,
+          )
         } catch (err) {
-          skipped++
-          this.logger.warn(`Skipped certificado ${novedad.Certificado} — ${err instanceof Error ? err.message : err}`)
+          this.logger.warn(`Code ${label}: NovedadesCartera failed — ${err instanceof Error ? err.message : err}`)
+          // Deliberately NOT stamping lastCarteraSyncAt: a failed code must keep
+          // its backfill window on the next run instead of silently downgrading
+          // to the incremental one and leaving a permanent hole in the cartera.
+          continue
+        }
+
+        // Oldest suplemento first, so the newest movement of a certificado is the
+        // last one written. Triunfo does not guarantee any order.
+        let codeFailures = 0
+        for (const novedad of sortBySuplemento(novedades)) {
+          try {
+            await this.syncNovedad(novedad, producer.id, target.id)
+            synced++
+          } catch (err) {
+            skipped++
+            codeFailures++
+            this.logger.warn(
+              `Skipped certificado ${novedad.Certificado} (code ${label}) — ${err instanceof Error ? err.message : err}`,
+            )
+          }
+        }
+
+        // Mark the code as synced so the next run uses the incremental window.
+        // Only when the Triunfo call itself succeeded (individual novedades that
+        // failed to persist are logged above and retried within the 3-month window).
+        if (target.id !== null) {
+          try {
+            await this.prisma.producerCode.update({
+              where: { id: target.id },
+              data: { lastCarteraSyncAt: new Date() },
+            })
+          } catch (err) {
+            this.logger.warn(
+              `Code ${label}: could not stamp lastCarteraSyncAt — ${err instanceof Error ? err.message : err}`,
+            )
+          }
+        }
+
+        if (codeFailures > 0) {
+          this.logger.warn(`Code ${label}: ${codeFailures} novedades could not be persisted`)
         }
       }
     }
 
-    this.logger.log(`Cartera sync complete — ${synced} upserted, ${skipped} skipped`)
+    const elapsedMs = Date.now() - startedAt
+    const elapsed = formatDuration(elapsedMs)
+    this.logger.log(
+      `Cartera sync complete — ${codesProcessed} codes, ${synced} upserted, ${skipped} skipped in ${elapsed} (${elapsedMs} ms)`,
+    )
+    return { codesProcessed, synced, skipped, elapsedMs }
   }
 
-  private async syncNovedad(novedad: TriunfoNovedad, producerId: number): Promise<void> {
-    const dni = String(novedad.DocNumero).trim()
+  private async syncNovedad(novedad: TriunfoNovedad, producerId: number, producerCodeId: number | null): Promise<void> {
+    // Triunfo sends DocNumero "0" for entities identified by CUIT (e.g. SRLs).
+    // Fall back to the CUIT so two different companies aren't merged into one
+    // client (and so their policies are never dropped). Skip only if neither
+    // a usable DNI nor CUIT is present.
+    const docNumero = String(novedad.DocNumero ?? '').trim()
+    const cuit = String(novedad.CUIT ?? '').trim()
+    const dni = docNumero && docNumero !== '0' ? docNumero : cuit && cuit !== '0' ? cuit : ''
     const certificado = String(novedad.Certificado).trim()
 
-    if (!dni || !certificado) return
+    if (!dni || !certificado) {
+      this.logger.warn(`Skipped certificado ${novedad.Certificado} — no usable DocNumero/CUIT`)
+      return
+    }
 
     // ── Extract fields with fallbacks ─────────────────────
-    const nombre = novedad.RazonSocial ?? novedad.Asegurado ?? ''
-    const { firstName, lastName } = parseName(nombre)
+    // A company (identified by CUIT, no real DocNumero) keeps its full razón
+    // social in firstName instead of being split into apellido/nombre.
+    const isCompany = !(docNumero && docNumero !== '0')
+    const nombre = (novedad.RazonSocial ?? novedad.Asegurado ?? '').trim()
+    const { firstName, lastName } = isCompany ? { firstName: nombre || '—', lastName: '' } : parseName(nombre)
 
     const realEmail = novedad.Email?.trim() || null
     const phone = novedad.Telefono?.trim() || null
@@ -183,7 +351,32 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     const isPlaceholderEmail = client?.email?.endsWith('@cliente.local')
 
     if (!client) {
-      const email = realEmail ?? `${dni}@cliente.local`
+      // Triunfo sometimes reuses the same email across different DNIs. Email is
+      // unique per producer, so if the real email is already taken by ANOTHER
+      // client, fall back to the per-DNI placeholder (always unique) instead of
+      // crashing the upsert and dropping the policy.
+      let email = realEmail ?? `${dni}@cliente.local`
+      let realEmailTaken = false
+      if (realEmail) {
+        const emailOwner = await this.prisma.client.findFirst({
+          where: { email: realEmail, producerId, deletedAt: null },
+          select: { id: true },
+        })
+        if (emailOwner) {
+          email = `${dni}@cliente.local`
+          realEmailTaken = true
+        }
+      }
+      // Same story for phone (unique per producer): drop it if already taken.
+      let safePhone = phone
+      if (phone) {
+        const phoneOwner = await this.prisma.client.findFirst({
+          where: { phone, producerId, deletedAt: null },
+          select: { id: true },
+        })
+        if (phoneOwner) safePhone = null
+      }
+
       const hashed = await bcrypt.hash(dni, 10)
 
       client = await this.prisma.client.create({
@@ -192,16 +385,23 @@ export class CarteraSyncService implements OnApplicationBootstrap {
           firstName,
           lastName,
           email,
+          // Force a password change only when the client has no usable real email
+          // of their own (no real email, or it was already taken by someone else).
+          requiresPasswordChange: !realEmail || realEmailTaken,
           password: hashed,
-          requiresPasswordChange: !realEmail, // force change only if no real email
-          phone,
+          phone: safePhone,
           city,
           producerId,
+          producerCodeId,
         },
         select: { id: true, email: true, firstName: true },
       })
 
-      this.logger.debug(`Created client DNI=${dni} email=${email}`)
+      if (realEmailTaken) {
+        this.logger.debug(`DNI=${dni}: email ${realEmail} already in use — created with placeholder`)
+      } else {
+        this.logger.debug(`Created client DNI=${dni} email=${email}`)
+      }
     } else if (isPlaceholderEmail && realEmail) {
       // Upgrade placeholder email to real one from Triunfo — try, ignore conflict
       try {
@@ -240,6 +440,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         rawData: novedad as object,
         clientId: client.id,
         producerId,
+        producerCodeId,
       },
       update: {
         suplemento,
@@ -248,6 +449,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         premio,
         paymentMethod,
         rawData: novedad as object,
+        producerCodeId,
       },
       select: { id: true },
     })
@@ -255,38 +457,33 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     // ── 3. Upsert Vehiculo (any policy with SDTVehiculoDatos) ─
     if (vehiculoDatos) {
       const v = vehiculoDatos
-      const patente = v.Dominio?.trim() || null
+      const marcaIA = Number.isInteger(v?.MarcaIA) ? (v.MarcaIA as number) : null
+      const modeloIA = Number.isInteger(v?.ModeloIA) ? (v.ModeloIA as number) : null
+
+      const vehiculoData = {
+        dominio: v.Dominio?.trim() || null,
+        marca: v?.Marca ?? null,
+        modelo: v?.Modelo ?? null,
+        subModelo: v?.SubModelo ?? null,
+        anio: v?.Anio ?? null,
+        marcaIA,
+        modeloIA,
+        // Rebuilding the codia here means a policy can be looked up in InfoAuto
+        // without re-deriving the rule at every call site.
+        codia: marcaIA !== null && modeloIA !== null ? marcaIA * 10000 + modeloIA : null,
+        tipo: v?.Tipo ?? null,
+        uso: v?.Uso ?? null,
+        cobertura: v?.Cobertura ?? novedad.Cobertura ?? null,
+        sumaAsegurada: v?.SumaAsegurada ?? null,
+        ceroKm: (v?.CeroKm ?? 0) === 1,
+        chasis: v?.Chasis ?? null,
+        motor: v?.Motor ?? null,
+      }
+
       await this.prisma.vehiculo.upsert({
         where: { polizaId: poliza.id },
-        create: {
-          polizaId: poliza.id,
-          dominio: patente,
-          marca: v?.Marca ?? null,
-          modelo: v?.Modelo ?? null,
-          subModelo: v?.SubModelo ?? null,
-          anio: v?.Anio ?? null,
-          tipo: v?.Tipo ?? null,
-          uso: v?.Uso ?? null,
-          cobertura: v?.Cobertura ?? novedad.Cobertura ?? null,
-          sumaAsegurada: v?.SumaAsegurada ?? null,
-          ceroKm: (v?.CeroKm ?? 0) === 1,
-          chasis: v?.Chasis ?? null,
-          motor: v?.Motor ?? null,
-        },
-        update: {
-          dominio: patente,
-          marca: v?.Marca ?? null,
-          modelo: v?.Modelo ?? null,
-          subModelo: v?.SubModelo ?? null,
-          anio: v?.Anio ?? null,
-          tipo: v?.Tipo ?? null,
-          uso: v?.Uso ?? null,
-          cobertura: v?.Cobertura ?? novedad.Cobertura ?? null,
-          sumaAsegurada: v?.SumaAsegurada ?? null,
-          ceroKm: (v?.CeroKm ?? 0) === 1,
-          chasis: v?.Chasis ?? null,
-          motor: v?.Motor ?? null,
-        },
+        create: { polizaId: poliza.id, ...vehiculoData },
+        update: vehiculoData,
       })
     }
 

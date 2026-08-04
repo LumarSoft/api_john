@@ -24,19 +24,76 @@ async function main() {
     sat: [],
     sun: [],
   }
+  // Organization principal Triunfo code (the "intermediario" in the Excel).
+  const MASTER_CODE = '11425'
   const producer = await prisma.producer.upsert({
     where: { slug: 'john' },
     // Keep name/tone in sync on re-seed (this update used to be a no-op).
-    update: { botName: BOT_NAME, systemPrompt: PRODUCER_TONE, businessHours: BUSINESS_HOURS },
+    update: {
+      botName: BOT_NAME,
+      systemPrompt: PRODUCER_TONE,
+      businessHours: BUSINESS_HOURS,
+      masterCode: MASTER_CODE,
+    },
     create: {
       name: 'John',
       slug: 'john',
       botName: BOT_NAME,
       systemPrompt: PRODUCER_TONE,
       businessHours: BUSINESS_HOURS,
+      masterCode: MASTER_CODE,
       isActive: true,
     },
   })
+
+  // ── ProducerCodes (Triunfo agent codes under the organization) ──────────
+  // Source: "solicitudes MARTIN JPMG.xlsx" — the org master code (11425) plus
+  // every dependent code. Seeded idempotently by (producerId, code).
+  const PRODUCER_CODES: Array<{ code: string; holderName: string; isMaster?: boolean }> = [
+    { code: '11425', holderName: 'JOHN PELLEGRINI MANAGEMENT GROUP SRL', isMaster: true },
+    { code: '10484', holderName: 'JOHN PELLEGRINI M.G. SRL' },
+    { code: '11663', holderName: 'JOHN PELLEGRINI M.G. SRL' },
+    { code: '10856', holderName: 'JOHN PELLEGRINI M.G. SRL' },
+    { code: '11389', holderName: 'JOHN PELLEGRINI M.G. SRL' },
+    { code: '14831', holderName: 'CANARELLI ADRIANA' },
+    { code: '7310', holderName: 'CORIA IVAN MAXIMILIANO' },
+    { code: '7430', holderName: 'AGUILAR VANESA' },
+    { code: '7774', holderName: 'PELLEGRINI VALERIA' },
+    { code: '8074', holderName: 'PELLEGRINI JOHN' },
+    { code: '8709', holderName: 'VENERONI AGUSTIN' },
+    { code: '9377', holderName: 'MORA ROXANA BEATRIZ' },
+    { code: '10228', holderName: 'TORELLI ROLLAN MAURO' },
+    { code: '13462', holderName: 'PELLEGRINI AGUSTIN' },
+    { code: '13872', holderName: 'PELLEGRINI JOHN' },
+    { code: '12633', holderName: 'PELLEGRINI MARIA CLAUDIA' },
+    { code: '14832', holderName: 'GAETA LUCAS JOEL' },
+    { code: '11944', holderName: 'CORBASCIO GUSTAVO ADRIAN' },
+    { code: '15426', holderName: 'KAUFMANN CECILIA RAQUEL' },
+    { code: '16180', holderName: 'CORTES CARVAJAL EDUARDO' },
+    { code: '16301', holderName: 'TROVATO SEBASTIAN' },
+    { code: '14571', holderName: 'LEGUIZAMON FERNANDO ARIEL' },
+    { code: '6088', holderName: 'MONDINO ANA A' },
+    { code: '13909', holderName: 'BOTTO LISIA BARBARA' },
+    { code: '14652', holderName: 'CANTINI JUAN PABLO' },
+    { code: '14563', holderName: 'PANIAGUA MARCELA B' },
+  ]
+
+  const codeIdByCode = new Map<string, number>()
+  for (const pc of PRODUCER_CODES) {
+    const row = await prisma.producerCode.upsert({
+      where: { producerId_code: { producerId: producer.id, code: pc.code } },
+      update: { holderName: pc.holderName, isMaster: pc.isMaster ?? false },
+      create: {
+        code: pc.code,
+        holderName: pc.holderName,
+        isMaster: pc.isMaster ?? false,
+        producerId: producer.id,
+      },
+      select: { id: true },
+    })
+    codeIdByCode.set(pc.code, row.id)
+  }
+  const masterCodeId = codeIdByCode.get(MASTER_CODE)!
 
   // ── Fixed-price plans (bolso, hogar) ────────────────────
   // ProductPlan has no natural unique key, so seed idempotently by
@@ -130,43 +187,86 @@ async function main() {
     }
   }
 
-  // ── Admin users ─────────────────────────────────────────
+  // ── Platform OWNER (Lumar) ──────────────────────────────────────────────
+  // Static super-superadmin that logs into the same admin panel and can both
+  // operate as a SuperAdmin AND provision new organizations from "Organizaciones".
+  // Homed at the John org for convenience (it is not bound by org-management).
   await prisma.user.upsert({
-    where: { email: 'admin@johnpellegrini.com.ar' },
-    update: {},
+    where: { email: 'lumarsoftarg@gmail.com' },
+    update: { role: 'OWNER', producerId: producer.id },
     create: {
-      email: 'admin@johnpellegrini.com.ar',
-      password: await bcrypt.hash('admin123', 10),
-      role: 'admin',
+      email: 'lumarsoftarg@gmail.com',
+      password: await bcrypt.hash('LucasMarceRosario1!', 10),
+      role: 'OWNER',
       producerId: producer.id,
     },
   })
 
+  // ── Users: 1 SuperAdmin (sees all codes) + 1 Admin (1 code) ─────────────
+  // SuperAdmin = the organization owner (master code 11425). Sees every code.
   await prisma.user.upsert({
-    where: { email: 'test@gmail.com' },
-    update: {},
+    where: { email: 'admin@johnpellegrini.com.ar' },
+    update: { role: 'SUPERADMIN' },
     create: {
-      email: 'test@gmail.com',
-      password: await bcrypt.hash('test123', 10),
-      role: 'admin',
+      email: 'admin@johnpellegrini.com.ar',
+      password: await bcrypt.hash('admin123', 10),
+      role: 'SUPERADMIN',
       producerId: producer.id,
     },
   })
+
+  // Admin example = a single agent that should only see their own code's cartera.
+  const adminUser = await prisma.user.upsert({
+    where: { email: 'test@gmail.com' },
+    update: { role: 'ADMIN' },
+    create: {
+      email: 'test@gmail.com',
+      password: await bcrypt.hash('test123', 10),
+      role: 'ADMIN',
+      producerId: producer.id,
+    },
+    select: { id: true },
+  })
+
+  // Grant the example admin visibility over one code (14831 — CANARELLI ADRIANA).
+  const grantedCodeId = codeIdByCode.get('14831')!
+  const existingGrant = await prisma.userProducerCode.findUnique({
+    where: { userId_producerCodeId: { userId: adminUser.id, producerCodeId: grantedCodeId } },
+    select: { id: true },
+  })
+  if (!existingGrant) {
+    await prisma.userProducerCode.create({
+      data: { userId: adminUser.id, producerCodeId: grantedCodeId },
+    })
+  }
 
   // ── Phone number ────────────────────────────────────────
   // The Meta phone_number_id must match what arrives in the webhook, or the bot
   // can't resolve the producer. Set SEED_PHONE_NUMBER_ID to your dev number.
   const phoneNumberId = process.env.SEED_PHONE_NUMBER_ID ?? 'TEST_META_PHONE_ID'
-  await prisma.phoneNumber.upsert({
+  const phone = await prisma.phoneNumber.upsert({
     where: { phoneNumberId },
-    update: {},
+    update: { responsibleProducerCodeId: masterCodeId },
     create: {
       phoneNumberId,
       number: '+54 9 11 0000-0000',
       isActive: true,
       producerId: producer.id,
+      // Billing attribution: this number is invoiced to the master code.
+      responsibleProducerCodeId: masterCodeId,
     },
+    select: { id: true },
   })
+  // The number serves the master code (extend with more codes for shared lines).
+  const servedExists = await prisma.phoneNumberProducerCode.findUnique({
+    where: { phoneNumberId_producerCodeId: { phoneNumberId: phone.id, producerCodeId: masterCodeId } },
+    select: { id: true },
+  })
+  if (!servedExists) {
+    await prisma.phoneNumberProducerCode.create({
+      data: { phoneNumberId: phone.id, producerCodeId: masterCodeId },
+    })
+  }
 
   // ── Test client (Lucas) ─────────────────────────────────
   const clientDni = '44765283'
@@ -174,7 +274,7 @@ async function main() {
 
   const client = await prisma.client.upsert({
     where: { dni_producerId: { dni: clientDni, producerId: producer.id } },
-    update: {},
+    update: { producerCodeId: masterCodeId },
     create: {
       dni: clientDni,
       firstName: 'Lucas',
@@ -183,6 +283,7 @@ async function main() {
       password: clientPassword,
       requiresPasswordChange: false, // password already set to DNI for testing
       producerId: producer.id,
+      producerCodeId: masterCodeId,
     },
   })
 
@@ -223,6 +324,7 @@ async function main() {
       },
       clientId: client.id,
       producerId: producer.id,
+      producerCodeId: masterCodeId,
     },
   })
 
@@ -290,6 +392,7 @@ async function main() {
       },
       clientId: client.id,
       producerId: producer.id,
+      producerCodeId: masterCodeId,
     },
   })
 
@@ -337,6 +440,7 @@ async function main() {
       },
       clientId: client.id,
       producerId: producer.id,
+      producerCodeId: masterCodeId,
     },
   })
 
@@ -357,8 +461,25 @@ async function main() {
     },
   })
 
+  // ── Back-fill: existing rows with no producerCode → master code ─────────
+  // Any cartera created before this migration (or imported by an older cartera
+  // sync) is attributed to the master code so the SuperAdmin sees it and the
+  // data is never "orphaned" from scoping. Refined later per Triunfo code.
+  const backfill = { producerCodeId: masterCodeId }
+  await prisma.client.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.poliza.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.cotizacion.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.siniestro.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.contactLead.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.novedad.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.conversation.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+
   console.log('✅ Seed completed.')
-  console.log(`   Producer: ${producer.slug} (id=${producer.id})`)
+  console.log(`   Producer: ${producer.slug} (id=${producer.id}) masterCode=${MASTER_CODE}`)
+  console.log(`   ProducerCodes: ${PRODUCER_CODES.length} (1 master + ${PRODUCER_CODES.length - 1} dependientes)`)
+  console.log(`   Owner:      lumarsoftarg@gmail.com / LucasMarceRosario1! (Lumar — gestiona organizaciones)`)
+  console.log(`   SuperAdmin: admin@johnpellegrini.com.ar / admin123 (ve todos los códigos)`)
+  console.log(`   Admin:      test@gmail.com / test123 (solo código 14831 — CANARELLI)`)
   console.log(`   Client: ${client.email} — login: ${clientDni} / ${clientDni}`)
   console.log(`   Polizas: TEST-000 (vencida), TEST-001 (Ford Focus vigente), TEST-002 (VW Gol vigente)`)
   console.log(`   Dashboard should show 2 cards (TEST-001 hides TEST-000 by deduplication)`)
