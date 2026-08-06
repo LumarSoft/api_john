@@ -107,7 +107,14 @@ Requests a vehicle insurance quote from the Triunfo API. `vehicleType` is the pa
 |-------------|--------|-----------------|
 | vehicleType | string | `auto` or `moto` |
 
-The vehicle value is resolved from InfoAuto (0km list price, or used price by year) and sent to Triunfo. The raw Triunfo response is persisted as `Cotizacion` (with `vehicleType`); the endpoint returns a normalized result with one entry per valid coverage, sorted by premium ascending.
+The raw Triunfo response is persisted as `Cotizacion` (with `vehicleType`); the endpoint returns a normalized result with one entry per coverage that is meant to be shown.
+
+Two rules are applied on top of what Triunfo returns:
+
+- **Payment methods** — only `Débito Automático` (`1`) and `Plan de Pago` (`9`) are exposed. `Contado` (`6`) is quoted by Triunfo but never shown; see `src/common/payment-methods.ts`.
+- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see *Admin — Coberturas*). Codes with no row yet pass through with default wording and are registered so they show up in the admin screen.
+
+`Valor` is sent as `"0"` so Triunfo resolves the market value itself and returns it in `vehicleValue`; the InfoAuto valuation endpoints are not part of the current subscription.
 
 **Request body**
 
@@ -139,9 +146,13 @@ The vehicle value is resolved from InfoAuto (0km list price, or used price by ye
   "coverages": [
     {
       "code": "A",
+      "name": "Responsabilidad Civil",
+      "tagline": "La cobertura obligatoria para circular",
+      "benefits": ["Daños a terceros, personas y cosas", "Asistencia y defensa legal"],
+      "highlighted": false,
       "paymentOptions": [
-        { "code": "6", "name": "Contado", "premium": 59228, "installmentValue": 59228, "installments": 1 },
-        { "code": "1", "name": "Débito Automático", "premium": 60889, "installmentValue": 60889, "installments": 1 }
+        { "code": "1", "name": "Débito Automático", "premium": 67825, "installmentValue": 67825, "installments": 1 },
+        { "code": "9", "name": "Plan de Pago", "premium": 71713, "installmentValue": 71713, "installments": 1 }
       ]
     }
   ],
@@ -1680,3 +1691,102 @@ Live hours for the default producer: formatted week, open-now and ready copy.
   "closedNote": "_Ahora estamos fuera de horario; te respondemos al reabrir (hoy a las 17 hs)._"
 }
 ```
+
+## Admin — Coberturas
+
+How each Triunfo auto coverage is shown in the quote results.
+
+Rows are never created or deleted by hand: a coverage appears the first time Triunfo quotes its code, with `isConfigured: false` and default wording taken from its letter prefix. Which coverages Triunfo quotes for a given vehicle and year is Triunfo's decision and is not configurable — these settings only decide, among the ones it did quote, which are shown, in what order and with what wording.
+
+A code with no row yet is shown rather than hidden: hiding an unknown coverage would silently drop an offer nobody chose to drop.
+
+### GET /admin/coberturas
+
+Lists every coverage code ever seen for the authenticated user's producer, ordered by `sortOrder`.
+
+**Auth required:** Yes
+
+**Responses**
+
+`200 OK`
+```json
+[
+  {
+    "id": 1,
+    "code": "A",
+    "name": "Responsabilidad Civil",
+    "tagline": "La cobertura obligatoria para circular",
+    "benefits": ["Daños a terceros, personas y cosas", "Asistencia y defensa legal"],
+    "isActive": true,
+    "isConfigured": true,
+    "highlighted": false,
+    "sortOrder": 100,
+    "yearFrom": null,
+    "yearTo": null,
+    "firstSeenAt": "2026-08-04T02:41:00.000Z"
+  }
+]
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+### PATCH /admin/coberturas/:id
+
+Updates one coverage. Any edit sets `isConfigured` to `true`.
+
+**Auth required:** Yes
+
+**Request body**
+
+| Field       | Type     | Required | Constraints                                              |
+|-------------|----------|----------|----------------------------------------------------------|
+| name        | string   | No       | ≤ 80                                                     |
+| tagline     | string   | No       | ≤ 160                                                    |
+| benefits    | string[] | No       | ≤ 12 items, each ≤ 150 chars                             |
+| isActive    | boolean  | No       | `false` hides the coverage from every quote              |
+| highlighted | boolean  | No       | Renders the "La más elegida" badge                       |
+| sortOrder   | number   | No       | Integer ≥ 0                                              |
+| yearFrom    | number   | No       | Vehicle year 1900–2100, or `null` for no lower bound     |
+| yearTo      | number   | No       | Vehicle year 1900–2100, or `null` for no upper bound     |
+
+```json
+{ "name": "Todo Riesgo Premium", "isActive": true, "yearFrom": 2015 }
+```
+
+**Responses**
+
+`200 OK` — The updated coverage, same shape as the list entries.
+
+`400 Bad Request` — Validation error
+
+`401 Unauthorized` — Missing or invalid token
+
+`404 Not Found` — The coverage does not exist for this producer
+
+### PATCH /admin/coberturas/orden
+
+Persists a whole ordering in one call, for a drag-and-drop list.
+
+**Auth required:** Yes
+
+**Request body**
+
+| Field             | Type   | Required | Constraints              |
+|-------------------|--------|----------|--------------------------|
+| items             | array  | Yes      | 1–100 entries            |
+| items[].id        | number | Yes      | Coverage id              |
+| items[].sortOrder | number | Yes      | Integer ≥ 0              |
+
+```json
+{ "items": [{ "id": 1, "sortOrder": 100 }, { "id": 2, "sortOrder": 200 }] }
+```
+
+**Responses**
+
+`200 OK` — The full list in its new order.
+
+`400 Bad Request` — Validation error
+
+`401 Unauthorized` — Missing or invalid token
+
+`404 Not Found` — One of the ids does not belong to this producer

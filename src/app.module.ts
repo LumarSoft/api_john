@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module'
 import { UsersModule } from './users/users.module'
 import { TriunfoModule } from './triunfo/triunfo.module'
 import { CotizadorModule } from './cotizador/cotizador.module'
+import { CoverageSettingsModule } from './coverage-settings/coverage-settings.module'
 import { InfoAutoModule } from './infoauto/infoauto.module'
 import { ClientsModule } from './clients/clients.module'
 import { CarteraSyncModule } from './cartera-sync/cartera-sync.module'
@@ -37,6 +38,7 @@ import { OwnerModule } from './owner/owner.module'
     UsersModule,
     TriunfoModule,
     CotizadorModule,
+    CoverageSettingsModule,
     InfoAutoModule,
     ClientsModule,
     CarteraSyncModule,

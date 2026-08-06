@@ -6,11 +6,13 @@ import { CreateLeadDto } from './dto/create-lead.dto'
 import { ListSolicitudesDto } from './dto/list-solicitudes.dto'
 import { UpdateSolicitudDto } from './dto/update-solicitud.dto'
 import type { LeadKind, SolicitudListItem } from './solicitudes.types'
+import { isVisiblePaymentMethod } from '../common/payment-methods'
 
 const DEFAULT_PAGE_SIZE = 20
 
 // ─── Quote coverage parsing (same shape the web/bot show) ─────────────
 interface RawPaymentOption {
+  FormaPagoCod?: string
   FormaPagoNom?: string
   Premio?: string
   ValorCuota?: string
@@ -44,13 +46,16 @@ function parseQuoteCoverages(result: unknown): QuoteCoverageView[] {
     .filter(c => c.Resultado?.Estado === 'S' && toArr(c.Cotizaciones).length > 0)
     .map(c => ({
       code: c.Cobertura ?? '',
-      paymentOptions: toArr(c.Cotizaciones).map(q => ({
-        name: q.FormaPagoNom ?? '',
-        premium: Number.parseFloat(q.Premio ?? '0') || 0,
-        installmentValue: Number.parseFloat(q.ValorCuota ?? '0') || 0,
-        installments: q.Cuotas ?? 1,
-      })),
+      paymentOptions: toArr(c.Cotizaciones)
+        .filter(q => isVisiblePaymentMethod(q.FormaPagoCod))
+        .map(q => ({
+          name: q.FormaPagoNom ?? '',
+          premium: Number.parseFloat(q.Premio ?? '0') || 0,
+          installmentValue: Number.parseFloat(q.ValorCuota ?? '0') || 0,
+          installments: q.Cuotas ?? 1,
+        })),
     }))
+    .filter(c => c.paymentOptions.length > 0)
     .sort((a, b) => minPremiumOf(a) - minPremiumOf(b))
 }
 
