@@ -52,6 +52,43 @@ model Producer {
   productPlans  ProductPlan[]
   businessClosures BusinessClosure[]
   usageMonthly  UsageMonthly[]
+  coverageSettings CoverageSetting[]
+}
+
+/// How a Triunfo auto coverage is shown in the quote results — one row per
+/// coverage code, editable from the admin "Coberturas" screen.
+///
+/// Which coverages Triunfo quotes for a given vehicle/year is Triunfo's call and
+/// is not configurable. This model decides, among the ones it did quote, which
+/// are shown, in what order and with what commercial wording.
+///
+/// Rows are created by discovery: every code seen in a quote is registered with
+/// `isConfigured = false` so the admin screen lists real codes instead of asking
+/// someone to type them blind. A brand new code is visible by default — hiding it
+/// silently would lose sales without anyone noticing.
+model CoverageSetting {
+  id           Int       @id @default(autoincrement())
+  code         String    @db.VarChar(10) // Triunfo coverage code: "A", "B1", "C1"...
+  name         String    @db.VarChar(80) // commercial name shown to the client
+  tagline      String?   @db.VarChar(160)
+  benefits     Json // string[] — bullet list shown on the card
+  isActive     Boolean   @default(true) // shown in the quote results
+  isConfigured Boolean   @default(false) // false until someone edits it in admin
+  highlighted  Boolean   @default(false) // "La más elegida" badge
+  sortOrder    Int       @default(0)
+  // Optional vehicle-year window. Null on both ends = every year.
+  yearFrom     Int?
+  yearTo       Int?
+  firstSeenAt  DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
+
+  @@unique([producerId, code])
+  @@index([producerId, isActive])
 }
 
 // ─── PRODUCER CODE (Triunfo agent code) ──────────────────

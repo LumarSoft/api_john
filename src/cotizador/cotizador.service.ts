@@ -17,7 +17,9 @@ import { VehicleType } from '../infoauto/infoauto.types'
 import { QuoteVehicleDto } from './dto/quote-vehicle.dto'
 import { CoverageRequestDto } from './dto/coverage-request.dto'
 import { encryptCardNumber } from './card-crypto'
-import type { QuoteCoverage, QuoteAutoResult, CoverageRequestResult } from './cotizador.types'
+import { isVisiblePaymentMethod } from '../common/payment-methods'
+import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
+import type { QuoteCoverage, QuoteAutoResult, NormalizedQuote, CoverageRequestResult } from './cotizador.types'
 export type { QuoteCoverage, QuotePaymentOption, QuoteAutoResult } from './cotizador.types'
 
 // ─── Triunfo raw response types ──────────────────────────
@@ -72,6 +74,7 @@ export class CotizadorService {
     private readonly prisma: PrismaService,
     private readonly triunfo: TriunfoService,
     private readonly infoAuto: InfoAutoService,
+    private readonly coverageSettings: CoverageSettingsService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -135,9 +138,9 @@ export class CotizadorService {
     }
 
     const quoteNumber = Number.parseInt(out.Presupuesto?.Numero ?? '', 10)
+    const resolvedProducerId = await this.resolveProducerId(producerId)
 
     if (quoteNumber) {
-      const resolvedProducerId = await this.resolveProducerId(producerId)
       await this.prisma.cotizacion.upsert({
         where: { quoteNumber },
         create: {
@@ -157,7 +160,21 @@ export class CotizadorService {
       })
     }
 
-    return this.normalizeResult(result)
+    const quote = this.normalizeResult(result)
+
+    // Register any coverage code we had not seen before, so the admin screen
+    // lists real Triunfo codes. Never blocks or breaks a quote.
+    void this.coverageSettings
+      .registerDiscovered(
+        resolvedProducerId,
+        quote.coverages.map(c => c.code),
+      )
+      .catch(err => this.logger.warn(`No se pudieron registrar las coberturas: ${(err as Error).message}`))
+
+    return {
+      ...quote,
+      coverages: await this.coverageSettings.apply(resolvedProducerId, quote.coverages, dto.manufactureYear),
+    }
   }
 
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {
@@ -313,21 +330,25 @@ export class CotizadorService {
     return master?.id ?? null
   }
 
-  private normalizeResult(result: TriunfoCotizadorRaw): QuoteAutoResult {
+  private normalizeResult(result: TriunfoCotizadorRaw): NormalizedQuote {
     const out = result.SDTSrvCotizacionOut
 
     const coverages: QuoteCoverage[] = toArray(out?.Coberturas)
       .filter(c => c.Resultado?.Estado === 'S' && toArray(c.Cotizaciones).length > 0)
       .map(c => ({
         code: c.Cobertura ?? '',
-        paymentOptions: toArray(c.Cotizaciones).map(q => ({
-          code: q.FormaPagoCod ?? '',
-          name: q.FormaPagoNom ?? '',
-          premium: Number.parseFloat(q.Premio ?? '0') || 0,
-          installmentValue: Number.parseFloat(q.ValorCuota ?? '0') || 0,
-          installments: q.Cuotas ?? 1,
-        })),
+        paymentOptions: toArray(c.Cotizaciones)
+          .filter(q => isVisiblePaymentMethod(q.FormaPagoCod))
+          .map(q => ({
+            code: q.FormaPagoCod ?? '',
+            name: q.FormaPagoNom ?? '',
+            premium: Number.parseFloat(q.Premio ?? '0') || 0,
+            installmentValue: Number.parseFloat(q.ValorCuota ?? '0') || 0,
+            installments: q.Cuotas ?? 1,
+          })),
       }))
+      // A coverage whose only quote was a hidden method has no price to show
+      .filter(c => c.paymentOptions.length > 0)
       .sort((a, b) => this.minPremium(a) - this.minPremium(b))
 
     const vehicleValue = out?.DatosAdicionales?.find(d => d.Nombre === 'ValorVehiculo')?.Valor?.trim() ?? null

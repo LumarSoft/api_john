@@ -5,9 +5,10 @@ import { CotizadorController } from './cotizador.controller'
 import { TriunfoModule } from '../triunfo/triunfo.module'
 import { InfoAutoModule } from '../infoauto/infoauto.module'
 import { PrismaModule } from '../prisma/prisma.module'
+import { CoverageSettingsModule } from '../coverage-settings/coverage-settings.module'
 
 @Module({
-  imports: [HttpModule, TriunfoModule, InfoAutoModule, PrismaModule],
+  imports: [HttpModule, TriunfoModule, InfoAutoModule, PrismaModule, CoverageSettingsModule],
   controllers: [CotizadorController],
   providers: [CotizadorService],
 })
