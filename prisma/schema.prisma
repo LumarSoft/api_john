@@ -41,6 +41,7 @@ model Producer {
 
   producerCodes ProducerCode[]
   phoneNumbers  PhoneNumber[]
+  wabaAccounts  WabaAccount[]
   users         User[]
   clients       Client[]
   polizas       Poliza[]
@@ -183,6 +184,13 @@ model PhoneNumber {
   producerId    Int
   producer      Producer  @relation(fields: [producerId], references: [id])
 
+  // WABA this number belongs to. Holds the business token used to send messages,
+  // so the token is resolved PER NUMBER instead of coming from the environment —
+  // with two tenants a single WHATSAPP_TOKEN cannot work. Nullable while the
+  // legacy test number (registered by hand) is still around.
+  wabaAccountId Int?
+  wabaAccount   WabaAccount? @relation(fields: [wabaAccountId], references: [id])
+
   // Billing: the code this number is invoiced to. A number may serve several
   // codes (shared office line), but exactly one is the "responsible" for billing.
   // We bill per active PhoneNumber, attributed to this code. Nullable during
@@ -216,6 +224,7 @@ model PhoneNumber {
   usageMonthly      UsageMonthly[]
 
   @@index([responsibleProducerCodeId])
+  @@index([wabaAccountId])
 }
 
 // Monthly cost aggregate per phone number (one row per number per "YYYY-MM").
@@ -672,6 +681,38 @@ model Message {
 // here and shared across restarts and instances.
 //
 // `key` identifies the credential set, e.g. "triunfo:10484:JHONPELL".
+// One row per WhatsApp Business Account connected through Embedded Signup.
+// Each organization brings its OWN WABA and its own business token: the token is
+// customer-scoped, so it belongs in the database and not in the environment.
+model WabaAccount {
+  id               Int       @id @default(autoincrement())
+  wabaId           String    @unique @db.VarChar(64)
+  producerId       Int
+  producer         Producer  @relation(fields: [producerId], references: [id])
+  // Business token from the Embedded Signup code exchange, encrypted at rest with
+  // WABA_TOKEN_ENCRYPTION_KEY (AES-256-GCM). Never log it, never return it from an
+  // endpoint other than the bot context call.
+  accessToken      String    @db.Text
+  // Cuándo vence el business token. La plantilla estándar de Embedded Signup
+  // emite tokens de 60 DÍAS: si nadie lo renueva, el número deja de responder
+  // de un día para el otro y sin aviso. Null = la respuesta de Meta no informó
+  // vencimiento (token de larga duración).
+  tokenExpiresAt   DateTime?
+  // True when onboarded through Coexistence — the business keeps using the
+  // WhatsApp Business app on the same number.
+  isCoexistence    Boolean   @default(false)
+  // Stamped when Meta reports account_update -> PARTNER_REMOVED. Non-null means
+  // the number stopped delivering webhooks (usually: nobody opened the app in 13 days).
+  disconnectedAt   DateTime?
+  disconnectReason String?   @db.VarChar(64)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  phoneNumbers     PhoneNumber[]
+
+  @@index([producerId])
+}
+
 model IntegrationToken {
   id        Int      @id @default(autoincrement())
   key       String   @unique @db.VarChar(191)
