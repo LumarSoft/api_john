@@ -62,6 +62,61 @@ No iniciar el alta del número definitivo si falta cualquiera de estos puntos:
    sincronizan; mensajes temporales, ver-una-vez, ubicación en vivo y listas de
    difusión tienen limitaciones en Coexistence.
 
+## Deploy manual en el VPS
+
+Estado confirmado el 2026-08-18:
+
+- App Meta: `john-bot-suc-rosario`, ID completo `1185311790403482`.
+- Releases publicados: API `42582ac`, bot `d0c81f6`, frontend `83e75b6`.
+- La migración `20260818223000_waba_accounts_and_message_ids` fue aplicada a la
+  base configurada. Volver a ejecutar `migrate deploy` es idempotente, pero
+  comprobar primero que el proceso apunta a la base correcta.
+
+Los secretos viven únicamente en los `.env` locales/servidor y nunca se
+commitean. Antes de reiniciar, copiar de forma segura al VPS los valores nuevos
+de `JWT_SECRET`, `BOT_SECRET` y `WABA_TOKEN_ENCRYPTION_KEY`; `BOT_SECRET` debe
+ser exactamente el mismo en API y bot. El `WEBHOOK_VERIFY_TOKEN` del bot debe
+coincidir con el usado al guardar el callback en Meta.
+
+API:
+
+```bash
+cd /ruta/a/api_john
+git pull --ff-only origin master
+npm ci
+npx prisma generate
+npx prisma migrate status
+npx prisma migrate deploy
+npm run build
+pm2 restart john_api --update-env
+pm2 status
+```
+
+Bot, todavía sin respuestas automáticas:
+
+```bash
+cd /ruta/a/BOT_JPMG
+git pull --ff-only origin master
+npm ci
+npm run build
+# Confirmar BOT_AUTOREPLY_ENABLED=false en .env antes del restart.
+pm2 restart john_bot --update-env
+pm2 status
+```
+
+Verificación inmediata:
+
+```bash
+curl -I https://api.jpmanagementgroup.com.ar/
+curl -I https://bot.jpmanagementgroup.com.ar/webhook
+pm2 logs john_api --lines 100 --nostream
+pm2 logs john_bot --lines 100 --nostream
+```
+
+El webhook devuelve `403` sin los parámetros de verificación; eso confirma que
+el endpoint está protegido y no implica una falla. No habilitar
+`BOT_AUTOREPLY_ENABLED=true` hasta completar el smoke test de este documento.
+
 ## Alta en la oficina
 
 1. Mantener WhatsApp Business instalado, abierto y conectado. No borrar la
