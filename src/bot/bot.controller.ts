@@ -16,6 +16,7 @@ import { BotAuthGuard } from './bot-auth.guard'
 import { SaveMessageDto } from './dto/save-message.dto'
 import { SaveFlowStateDto } from './dto/save-flow-state.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
+import { AgentEchoDto } from './dto/agent-echo.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
 import { MAX_FILES, siniestroMulterOptions } from '../siniestros/siniestro-upload.config'
 
@@ -27,6 +28,24 @@ export class BotController {
   @Get('context/:phoneNumberId')
   getContext(@Param('phoneNumberId') phoneNumberId: string) {
     return this.botService.getContext(phoneNumberId)
+  }
+
+  /** Customer-scoped business token used by the bot for this Meta number. */
+  @Get('access-token/:phoneNumberId')
+  getAccessToken(@Param('phoneNumberId') phoneNumberId: string) {
+    return this.botService.getAccessToken(phoneNumberId)
+  }
+
+  // Coexistence: an employee replied from the WhatsApp Business app. Stores the
+  // message and pauses the bot so it stops answering over the human.
+  @Post('agent-echo')
+  recordAgentEcho(@Body() dto: AgentEchoDto) {
+    return this.botService.recordAgentEcho(dto)
+  }
+
+  @Post('waba/:wabaId/disconnected')
+  markWabaDisconnected(@Param('wabaId') wabaId: string, @Body() body: { reason?: string }) {
+    return this.botService.markWabaDisconnected(wabaId, body.reason)
   }
 
   @Post('conversation/:conversationId/message')

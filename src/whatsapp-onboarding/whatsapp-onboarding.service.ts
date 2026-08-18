@@ -43,16 +43,26 @@ export class WhatsappOnboardingService {
   }
 
   async onboard(producerId: number, dto: OnboardWhatsappDto) {
+    // 1 — code → business token. The code dies 30s after the popup closes.
+    const { accessToken, expiresAt } = await this.exchangeCode(dto.code)
+
+    // Coexistence's session event is allowed to omit phone_number_id. Resolve it
+    // server-side with the fresh customer token instead of making the browser
+    // fail after the number has already been connected in WhatsApp.
+    const phoneNumberId = await this.resolvePhoneNumberId(
+      dto.wabaId,
+      dto.phoneNumberId,
+      dto.isCoexistence ?? false,
+      accessToken,
+    )
+
     const existing = await this.prisma.phoneNumber.findUnique({
-      where: { phoneNumberId: dto.phoneNumberId },
+      where: { phoneNumberId },
       select: { id: true, producerId: true, deletedAt: true },
     })
     if (existing && !existing.deletedAt) {
-      throw new ConflictException(`El número ${dto.phoneNumberId} ya está conectado`)
+      throw new ConflictException(`El número ${phoneNumberId} ya está conectado`)
     }
-
-    // 1 — code → business token. The code dies 30s after the popup closes.
-    const { accessToken, expiresAt } = await this.exchangeCode(dto.code)
 
     // 2 — subscribe THIS app to the customer's WABA. Without it: no webhooks.
     await this.subscribeApp(dto.wabaId, accessToken)
@@ -61,7 +71,7 @@ export class WhatsappOnboardingService {
     // Meta rejects /register, so a failure here must not undo the onboarding.
     let pinSet = false
     if (dto.pin) {
-      pinSet = await this.trySetPin(dto.phoneNumberId, dto.pin, accessToken)
+      pinSet = await this.trySetPin(phoneNumberId, dto.pin, accessToken)
     }
 
     // 4 — persist. The token lives in the DB precisely because it is per-WABA:
@@ -91,7 +101,7 @@ export class WhatsappOnboardingService {
           data: {
             producerId,
             wabaAccountId: waba.id,
-            number: dto.number ?? dto.phoneNumberId,
+            number: dto.number ?? phoneNumberId,
             isActive: true,
             deletedAt: null,
             responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
@@ -100,8 +110,8 @@ export class WhatsappOnboardingService {
         })
       : await this.prisma.phoneNumber.create({
           data: {
-            phoneNumberId: dto.phoneNumberId,
-            number: dto.number ?? dto.phoneNumberId,
+            phoneNumberId,
+            number: dto.number ?? phoneNumberId,
             producerId,
             wabaAccountId: waba.id,
             responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
@@ -119,18 +129,30 @@ export class WhatsappOnboardingService {
       })
     }
 
+    // These are one-shot calls and Meta gives us only 24 hours after onboarding.
+    // Request history first (the user-visible data), then contacts. Failures are
+    // surfaced in the response without undoing an otherwise valid connection.
+    const historySyncRequested = dto.isCoexistence
+      ? await this.requestAppDataSync(phoneNumberId, 'history', accessToken)
+      : false
+    const contactsSyncRequested = dto.isCoexistence
+      ? await this.requestAppDataSync(phoneNumberId, 'smb_app_state_sync', accessToken)
+      : false
+
     this.logger.log(
-      `WABA ${dto.wabaId} conectada al productor ${producerId} · número ${dto.phoneNumberId} · ` +
+      `WABA ${dto.wabaId} conectada al productor ${producerId} · número ${phoneNumberId} · ` +
         `coexistence=${dto.isCoexistence ?? false} · pin=${pinSet ? 'ok' : 'omitido'}`,
     )
 
     return {
       phoneNumberId: phoneNumber.id,
       wabaAccountId: waba.id,
-      metaPhoneNumberId: dto.phoneNumberId,
+      metaPhoneNumberId: phoneNumberId,
       wabaId: dto.wabaId,
       subscribed: true,
       pinSet,
+      historySyncRequested,
+      contactsSyncRequested,
       tokenExpiresAt: expiresAt,
     }
   }
@@ -157,6 +179,17 @@ export class WhatsappOnboardingService {
     return decryptSecret(row.wabaAccount.accessToken, this.encryptionKey)
   }
 
+  async retryAppDataSync(metaPhoneNumberId: string) {
+    const accessToken = await this.getAccessTokenForPhoneNumber(metaPhoneNumberId)
+    if (!accessToken) {
+      throw new BadRequestException(`El número ${metaPhoneNumberId} no tiene un WABA activo`)
+    }
+    return {
+      historySyncRequested: await this.requestAppDataSync(metaPhoneNumberId, 'history', accessToken),
+      contactsSyncRequested: await this.requestAppDataSync(metaPhoneNumberId, 'smb_app_state_sync', accessToken),
+    }
+  }
+
   /** Called from the webhook when Meta reports account_update → PARTNER_REMOVED. */
   async markDisconnected(wabaId: string, reason?: string) {
     await this.prisma.wabaAccount.updateMany({
@@ -167,6 +200,57 @@ export class WhatsappOnboardingService {
   }
 
   // ── Graph API ──────────────────────────────────────────
+
+  private async resolvePhoneNumberId(
+    wabaId: string,
+    requestedId: string | undefined,
+    isCoexistence: boolean,
+    accessToken: string,
+  ): Promise<string> {
+    if (!isCoexistence) {
+      if (!requestedId) throw new BadRequestException('Meta no devolvió phone_number_id')
+      return requestedId
+    }
+
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get<{
+          data?: Array<{
+            id: string
+            display_phone_number?: string
+            is_on_biz_app?: boolean
+            platform_type?: string
+          }>
+        }>(`${this.graphBase}/${wabaId}/phone_numbers`, {
+          params: { fields: 'id,display_phone_number,is_on_biz_app,platform_type' },
+          headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 15_000,
+        }),
+      )
+
+      const numbers = data?.data ?? []
+      if (requestedId && numbers.some(number => number.id === requestedId)) return requestedId
+
+      const coexistenceNumbers = numbers.filter(
+        number => number.is_on_biz_app === true && number.platform_type === 'CLOUD_API',
+      )
+      if (coexistenceNumbers.length === 1) return coexistenceNumbers[0].id
+      if (numbers.length === 1) return numbers[0].id
+
+      throw new Error(
+        numbers.length === 0
+          ? 'la WABA no contiene números'
+          : 'la WABA contiene más de un número y Meta no indicó cuál se conectó',
+      )
+    } catch (error) {
+      // Older session payloads include the id directly. If it was supplied, it
+      // remains the best source even if the optional discovery query is denied.
+      if (requestedId) return requestedId
+      throw new BadRequestException(
+        `No se pudo resolver el número conectado dentro de la WABA ${wabaId}: ${describeGraphError(error)}`,
+      )
+    }
+  }
 
   private async exchangeCode(code: string): Promise<{ accessToken: string; expiresAt: Date | null }> {
     const appId = this.config.getOrThrow<string>('META_APP_ID')
@@ -206,6 +290,26 @@ export class WhatsappOnboardingService {
         `El número quedó conectado en Meta pero la app no pudo suscribirse a la WABA ${wabaId}: ` +
           `${describeGraphError(error)}. Sin esto no llega ningún mensaje al webhook.`,
       )
+    }
+  }
+
+  private async requestAppDataSync(
+    phoneNumberId: string,
+    syncType: 'history' | 'smb_app_state_sync',
+    accessToken: string,
+  ): Promise<boolean> {
+    try {
+      await firstValueFrom(
+        this.http.post(
+          `${this.graphBase}/${phoneNumberId}/smb_app_data`,
+          { messaging_product: 'whatsapp', sync_type: syncType },
+          { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 15_000 },
+        ),
+      )
+      return true
+    } catch (error) {
+      this.logger.error(`No se pudo solicitar sync ${syncType} para ${phoneNumberId}: ${describeGraphError(error)}`)
+      return false
     }
   }
 

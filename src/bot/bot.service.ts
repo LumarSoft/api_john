@@ -8,9 +8,11 @@ import { NovedadesService } from '../novedades/novedades.service'
 import { UsageService } from '../usage/usage.service'
 import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
+import { AgentEchoDto } from './dto/agent-echo.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
 import { AdjuntoMeta, MAX_FILES, toAdjuntoMeta } from '../siniestros/siniestro-upload.config'
 import { type ActiveClosure, computeStatus, formatSchedule, parseSchedule } from '../business-hours/schedule'
+import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 
 // Inactivity window after which a chat is considered finished (see getOrCreateConversation).
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
@@ -50,6 +52,7 @@ const POLIZA_SUMMARY_SELECT = {
 @Injectable()
 export class BotService {
   private readonly sessionTimeoutMs: number
+  private readonly wabaTokenEncryptionKey: string | undefined
 
   constructor(
     private readonly prisma: PrismaService,
@@ -62,6 +65,7 @@ export class BotService {
     const minutes = Number(config.get<string>('SESSION_TIMEOUT_MINUTES'))
     const valid = Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_SESSION_TIMEOUT_MINUTES
     this.sessionTimeoutMs = valid * 60_000
+    this.wabaTokenEncryptionKey = config.get<string>('WABA_TOKEN_ENCRYPTION_KEY')
   }
 
   /** Resolves the producer (tenant) behind a Meta phone number ID. */
@@ -94,6 +98,103 @@ export class BotService {
     // (deterministic flows keep working at zero token cost).
     const llmEnabled = await this.usage.isLlmEnabled(phoneNumberId)
     return { producerId: id, producerName: name, producerSlug: slug, botName, attentionHours, systemPrompt, llmEnabled }
+  }
+
+  /**
+   * Resolves the customer-scoped business token for a Meta number. Legacy test
+   * numbers have no WABA relation and deliberately return null so the bot can
+   * keep using its temporary WHATSAPP_TOKEN fallback during the transition.
+   */
+  async getAccessToken(phoneNumberId: string) {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { phoneNumberId, isActive: true, deletedAt: null },
+      select: {
+        wabaAccount: {
+          select: { accessToken: true, disconnectedAt: true },
+        },
+      },
+    })
+
+    if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
+    if (!phone.wabaAccount || phone.wabaAccount.disconnectedAt) return { accessToken: null }
+
+    const key = resolveKey(this.wabaTokenEncryptionKey, 'WABA_TOKEN_ENCRYPTION_KEY')
+    return { accessToken: decryptSecret(phone.wabaAccount.accessToken, key) }
+  }
+
+  /**
+   * Records a message an employee sent from the WhatsApp Business app and
+   * PAUSES THE BOT in that conversation.
+   *
+   * This is the whole point of wiring up Coexistence echoes: without it the bot
+   * and the office staff answer the same customer at the same time, in front of
+   * the customer. The pause reuses the same `botPaused` flag as the manual
+   * takeover from the inbox, so releasing works exactly as it already does.
+   *
+   * The message is stored with role "assistant" rather than a new "agent" role:
+   * from the transcript's point of view it is the business speaking, and it
+   * keeps the LLM history mapping valid if the conversation is later released
+   * back to the bot. The inbox can still tell them apart by `handedOverAt`.
+   */
+  async recordAgentEcho(dto: AgentEchoDto) {
+    const { producerId } = await this.getContext(dto.phoneNumberId)
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { waId: dto.waId, producerId, deletedAt: null },
+      select: { id: true, botPaused: true },
+    })
+
+    // No conversation yet means the employee wrote first, before the customer
+    // ever reached the bot. Nothing to pause and no transcript to append to.
+    if (!conversation) {
+      return { conversationId: null, botPaused: false, created: false }
+    }
+
+    const created = await this.prisma.$transaction(async tx => {
+      const inserted = await tx.message.createMany({
+        data: [
+          {
+            conversationId: conversation.id,
+            role: 'assistant',
+            content: dto.content,
+            waMessageId: dto.waMessageId ?? null,
+          },
+        ],
+        skipDuplicates: true,
+      })
+
+      // Meta retries webhooks. The unique wamid turns a retry into a no-op
+      // instead of a second transcript bubble and a second handover event.
+      if (inserted.count === 0) return false
+
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: new Date(),
+          warnedAt: null,
+          botPaused: true,
+          status: 'open',
+          // Only stamp the first handover of this stretch so the inbox can show
+          // "since when" a human has been on it.
+          ...(conversation.botPaused ? {} : { handedOverAt: new Date() }),
+        },
+      })
+
+      return true
+    })
+
+    return { conversationId: conversation.id, botPaused: true, created }
+  }
+
+  async markWabaDisconnected(wabaId: string, reason?: string) {
+    const result = await this.prisma.wabaAccount.updateMany({
+      where: { wabaId },
+      data: {
+        disconnectedAt: new Date(),
+        disconnectReason: reason?.slice(0, 64) ?? 'UNKNOWN',
+      },
+    })
+    return { updated: result.count }
   }
 
   /**

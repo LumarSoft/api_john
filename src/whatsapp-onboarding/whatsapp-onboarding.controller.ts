@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Request, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Post, Request, UseGuards } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Role } from 'generated/prisma/client'
 import { UserAuthGuard } from '../auth/user-auth.guard'
@@ -34,5 +34,11 @@ export class WhatsappOnboardingController {
   @Post('onboard')
   onboard(@Request() req: AuthenticatedRequest, @Body() dto: OnboardWhatsappDto) {
     return this.service.onboard(req.user.producerId, dto)
+  }
+
+  /** Manual recovery while Meta's one-shot 24 h sync window is still open. */
+  @Post(':phoneNumberId/sync')
+  retrySync(@Param('phoneNumberId') phoneNumberId: string) {
+    return this.service.retryAppDataSync(phoneNumberId)
   }
 }

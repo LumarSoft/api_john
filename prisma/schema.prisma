@@ -661,6 +661,9 @@ model Message {
   id             Int          @id @default(autoincrement())
   role           String       // "user" | "assistant"
   content        String       @db.Text
+  // Meta webhook id. Nullable for legacy/manual messages; unique when present so
+  // webhook retries cannot duplicate an echo in the transcript.
+  waMessageId    String?      @unique @db.VarChar(191)
   createdAt      DateTime     @default(now())
   deletedAt      DateTime?
 

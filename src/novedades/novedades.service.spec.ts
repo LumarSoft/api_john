@@ -44,6 +44,7 @@ describe('NovedadesService', () => {
           type: 'siniestro',
           refId: 6,
           clientId: 3,
+          producerCodeId: null,
           title: 'Nuevo siniestro · Ana Gómez',
           body: 'choque',
         },
@@ -61,6 +62,7 @@ describe('NovedadesService', () => {
           type: 'handoff',
           refId: 1,
           clientId: null,
+          producerCodeId: null,
           title: 'Pedido de asesor · Ana Gómez',
           body: null,
         },
@@ -81,11 +83,15 @@ describe('NovedadesService', () => {
       prisma.novedad.count.mockResolvedValue(1)
       prisma.novedad.findMany.mockResolvedValue([{ id: 8 }])
 
-      const result = await service.listForAdmin(5, {})
+      const result = await service.listForAdmin(5, [10], {})
 
       expect(prisma.novedad.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { producerId: 5, deletedAt: null },
+          where: {
+            producerId: 5,
+            deletedAt: null,
+            OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
+          },
           orderBy: [{ readAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'desc' }],
           skip: 0,
           take: 20,
@@ -98,10 +104,16 @@ describe('NovedadesService', () => {
       prisma.novedad.count.mockResolvedValue(0)
       prisma.novedad.findMany.mockResolvedValue([])
 
-      await service.listForAdmin(5, { type: NovedadType.HANDOFF, unread: true })
+      await service.listForAdmin(5, [10], { type: NovedadType.HANDOFF, unread: true })
 
       expect(prisma.novedad.count).toHaveBeenCalledWith({
-        where: { producerId: 5, deletedAt: null, type: 'handoff', readAt: null },
+        where: {
+          producerId: 5,
+          deletedAt: null,
+          OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
+          type: 'handoff',
+          readAt: null,
+        },
       })
     })
 
@@ -109,12 +121,13 @@ describe('NovedadesService', () => {
       prisma.novedad.count.mockResolvedValue(0)
       prisma.novedad.findMany.mockResolvedValue([])
 
-      await service.listForAdmin(5, { clientId: 3, search: '30123' })
+      await service.listForAdmin(5, [10], { clientId: 3, search: '30123' })
 
       expect(prisma.novedad.count).toHaveBeenCalledWith({
         where: {
           producerId: 5,
           deletedAt: null,
+          OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
           clientId: 3,
           client: {
             OR: [
@@ -132,7 +145,7 @@ describe('NovedadesService', () => {
     it('returns unread counters by category', async () => {
       prisma.novedad.count.mockResolvedValueOnce(3).mockResolvedValueOnce(2).mockResolvedValueOnce(1)
 
-      const stats = await service.getStats(5)
+      const stats = await service.getStats(5, [10])
 
       expect(stats).toEqual({ unreadTotal: 3, unreadSiniestros: 2, unreadHandoff: 1 })
     })
@@ -142,7 +155,7 @@ describe('NovedadesService', () => {
     it('throws 404 when the novedad is not in this tenant', async () => {
       prisma.novedad.findFirst.mockResolvedValue(null)
 
-      await expect(service.markRead(8, 5)).rejects.toBeInstanceOf(NotFoundException)
+      await expect(service.markRead(8, 5, [10])).rejects.toBeInstanceOf(NotFoundException)
       expect(prisma.novedad.update).not.toHaveBeenCalled()
     })
 
@@ -150,7 +163,7 @@ describe('NovedadesService', () => {
       prisma.novedad.findFirst.mockResolvedValue({ id: 8, readAt: null })
       prisma.novedad.update.mockResolvedValue({ id: 8, readAt: new Date() })
 
-      await service.markRead(8, 5)
+      await service.markRead(8, 5, [10])
 
       expect(prisma.novedad.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 8 }, data: { readAt: expect.any(Date) } }),
@@ -161,7 +174,7 @@ describe('NovedadesService', () => {
       prisma.novedad.findFirst.mockResolvedValue({ id: 8, readAt: new Date() })
       prisma.novedad.findFirstOrThrow.mockResolvedValue({ id: 8 })
 
-      await service.markRead(8, 5)
+      await service.markRead(8, 5, [10])
 
       expect(prisma.novedad.update).not.toHaveBeenCalled()
       expect(prisma.novedad.findFirstOrThrow).toHaveBeenCalled()
@@ -172,10 +185,16 @@ describe('NovedadesService', () => {
     it('marks all unread, optionally scoped to a type', async () => {
       prisma.novedad.updateMany.mockResolvedValue({ count: 4 })
 
-      const result = await service.markAllRead(5, NovedadType.SINIESTRO)
+      const result = await service.markAllRead(5, [10], NovedadType.SINIESTRO)
 
       expect(prisma.novedad.updateMany).toHaveBeenCalledWith({
-        where: { producerId: 5, deletedAt: null, readAt: null, type: 'siniestro' },
+        where: {
+          producerId: 5,
+          deletedAt: null,
+          readAt: null,
+          OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
+          type: 'siniestro',
+        },
         data: { readAt: expect.any(Date) },
       })
       expect(result).toEqual({ updated: 4 })

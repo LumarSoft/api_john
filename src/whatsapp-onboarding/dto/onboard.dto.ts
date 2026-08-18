@@ -1,5 +1,16 @@
 import { Type } from 'class-transformer'
-import { ArrayUnique, IsArray, IsBoolean, IsInt, IsOptional, IsString, Matches, Min, MinLength } from 'class-validator'
+import {
+  ArrayUnique,
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Min,
+  MinLength,
+  ValidateIf,
+} from 'class-validator'
 
 /**
  * Payload the admin panel sends right after Embedded Signup finishes.
@@ -19,9 +30,12 @@ export class OnboardWhatsappDto {
   wabaId: string
 
   // The number Meta provisioned/connected inside that WABA.
+  // Coexistence's FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING event may only carry
+  // the WABA id. In that case the server resolves the number from the WABA.
+  @ValidateIf(dto => !dto.isCoexistence || dto.phoneNumberId != null)
   @IsString()
   @MinLength(3)
-  phoneNumberId: string
+  phoneNumberId?: string
 
   // Display number for the panel, e.g. "+54 9 341 275-7294". Cosmetic only:
   // routing always happens on phoneNumberId.

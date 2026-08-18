@@ -118,6 +118,59 @@ describe('BotService', () => {
     })
   })
 
+  describe('recordAgentEcho', () => {
+    beforeEach(() => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({
+        producer: { id: 1, name: 'John', slug: 'john', systemPrompt: 'x', isActive: true },
+      })
+      prisma.conversation.findFirst.mockResolvedValue({ id: 7, botPaused: false })
+    })
+
+    it('stores an app echo idempotently and pauses the conversation', async () => {
+      const tx = {
+        message: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        conversation: { update: jest.fn().mockResolvedValue({}) },
+      }
+      prisma.$transaction.mockImplementation(async (cb: any) => cb(tx))
+
+      const result = await service.recordAgentEcho({
+        phoneNumberId: 'P1',
+        waId: 'wa1',
+        content: 'Te atiendo yo',
+        waMessageId: 'wamid.1',
+      })
+
+      expect(tx.message.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: [expect.objectContaining({ waMessageId: 'wamid.1' })],
+          skipDuplicates: true,
+        }),
+      )
+      expect(tx.conversation.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ botPaused: true }) }),
+      )
+      expect(result.created).toBe(true)
+    })
+
+    it('turns a retried wamid into a no-op', async () => {
+      const tx = {
+        message: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+        conversation: { update: jest.fn() },
+      }
+      prisma.$transaction.mockImplementation(async (cb: any) => cb(tx))
+
+      const result = await service.recordAgentEcho({
+        phoneNumberId: 'P1',
+        waId: 'wa1',
+        content: 'Te atiendo yo',
+        waMessageId: 'wamid.1',
+      })
+
+      expect(tx.conversation.update).not.toHaveBeenCalled()
+      expect(result.created).toBe(false)
+    })
+  })
+
   describe('claimPendingWarnings', () => {
     /** An always-open week, so the schedule is not what the assertion turns on. */
     const alwaysOpen = Object.fromEntries(
