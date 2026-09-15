@@ -207,6 +207,10 @@ export class InfoAutoService {
     return this.get(type, `/brands/${brandId}/groups/`, { ...query })
   }
 
+  getBrandModels(type: VehicleType, brandId: number, query: InfoAutoQueryDto) {
+    return this.get(type, `/brands/${brandId}/models/`, { ...query })
+  }
+
   getModels(type: VehicleType, brandId: number, groupId: number, query: InfoAutoQueryDto) {
     return this.get(type, `/brands/${brandId}/groups/${groupId}/models/`, { ...query })
   }

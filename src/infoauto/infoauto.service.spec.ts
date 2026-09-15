@@ -62,6 +62,21 @@ describe('InfoAutoService', () => {
     await expect(service.getBrands(VehicleType.MOTO, {} as any)).rejects.toBeInstanceOf(ServiceUnavailableException)
   })
 
+  it('loads motorcycle models directly by brand without exposing technical groups', async () => {
+    const http = {
+      post: jest.fn().mockReturnValue(of({ data: { access_token: 'opaque-moto-token' }, headers: {} })),
+      get: jest.fn().mockReturnValue(of({ data: [{ codia: 8810215, description: 'NAVI 110' }], headers: {} })),
+    }
+    const service = new InfoAutoService(http as any, config as any)
+
+    await service.getBrandModels(VehicleType.MOTO, 881, { query_string: 'NAVI' })
+
+    expect(http.get).toHaveBeenCalledWith(
+      'https://info.test/motorcycles/pub/brands/881/models/',
+      expect.objectContaining({ params: { query_string: 'NAVI' } }),
+    )
+  })
+
   it('maps the motorcycle Importado feature to Triunfo origin', async () => {
     const http = {
       post: jest.fn().mockReturnValue(of({ data: { access_token: 'opaque-moto-token' }, headers: {} })),

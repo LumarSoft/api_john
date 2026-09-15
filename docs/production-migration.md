@@ -295,6 +295,15 @@ como la productiva durante el smoke del 14/09/2026. También falta confirmar que
 `Catalogo: "IA"` acepta el esquema `Marca`/`Modelo` para el artículo 481. No se
 comprobó una prima real de moto.
 
+El formulario de motos no expone los grupos internos de InfoAuto (`CUB/BUSINESS`,
+`CALLE`, rangos de cilindrada, etc.). Después de elegir la marca consulta
+`/brands/{brandId}/models/` y permite buscar directamente el nombre conocido por
+el cliente, por ejemplo `HONDA → NAVI 110`. Cuando InfoAuto entrega
+`photo_url`, el selector muestra una miniatura del modelo. Como
+103 de las 104 marcas no traen `logo_url`, el selector usa una inicial visual
+en esos casos para no dejar espacios vacíos o imágenes rotas. No se muestra una
+preview grande fuera del selector.
+
 ---
 
 ## 5. Estado de la migración
@@ -323,8 +332,7 @@ Pendiente antes de desplegar al servidor:
    correr el backfill y medir antes de subir `BACKFILL_MONTHS`.
 
 Puede esperar: exponer `CeroKM` en el DTO de cotización (hoy va fijo en 0, no se
-pueden cotizar 0km) y agregar `/pub/search/` y `/brands/{id}/models/` al
-servicio de InfoAuto, que hoy obliga a pasar por grupo.
+pueden cotizar 0km) y agregar `/pub/search/` al servicio de InfoAuto.
 
 ### 5.1 Por qué la sync de cartera queda en `false` en local
 

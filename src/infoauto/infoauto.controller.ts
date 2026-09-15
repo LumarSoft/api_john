@@ -20,6 +20,11 @@ export class InfoAutoController {
     return this.infoAutoService.getGroups(vehicleTypeFromParam(params.vehicleType), params.brandId, query)
   }
 
+  @Get('brands/:brandId/models')
+  getBrandModels(@Param() params: BrandIdParamDto, @Query() query: InfoAutoQueryDto) {
+    return this.infoAutoService.getBrandModels(vehicleTypeFromParam(params.vehicleType), params.brandId, query)
+  }
+
   @Get('brands/:brandId/groups/:groupId/models')
   getModels(@Param() params: GroupParamsDto, @Query() query: InfoAutoQueryDto) {
     return this.infoAutoService.getModels(

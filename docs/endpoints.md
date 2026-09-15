@@ -310,6 +310,28 @@ Returns the groups (model families, e.g. "Corolla", "Hilux") for a given brand.
 
 ---
 
+### GET /infoauto/:vehicleType/brands/:brandId/models
+
+Returns every model/version for a brand without requiring an InfoAuto group.
+The motorcycle form and bot use this route so customers can search familiar
+names such as `NAVI 110` without knowing technical classifications such as
+`CUB/BUSINESS DESDE 1 A 300 CC`.
+
+**Auth required:** No
+
+**Path params**
+
+| Param       | Type    | Required | Constraints      |
+|-------------|---------|----------|------------------|
+| vehicleType | string  | Yes      | `auto` or `moto` |
+| brandId     | integer | Yes      |                  |
+
+**Query params** — same as `/infoauto/:vehicleType/brands`
+
+The response has the same shape as the grouped models endpoint below.
+
+---
+
 ### GET /infoauto/:vehicleType/brands/:brandId/groups/:groupId/models
 
 Returns the specific versions (with their `codia`) for a given brand + group.
