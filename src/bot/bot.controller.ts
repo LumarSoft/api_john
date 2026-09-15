@@ -17,13 +17,18 @@ import { SaveMessageDto } from './dto/save-message.dto'
 import { SaveFlowStateDto } from './dto/save-flow-state.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { AgentEchoDto } from './dto/agent-echo.dto'
+import { CoexistenceContactsDto, CoexistenceHistoryDto } from './dto/coexistence-sync.dto'
+import { CoexistenceSyncService } from './coexistence-sync.service'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
 import { MAX_FILES, siniestroMulterOptions } from '../siniestros/siniestro-upload.config'
 
 @UseGuards(BotAuthGuard)
 @Controller('bot')
 export class BotController {
-  constructor(private readonly botService: BotService) {}
+  constructor(
+    private readonly botService: BotService,
+    private readonly coexistenceSync: CoexistenceSyncService,
+  ) {}
 
   @Get('context/:phoneNumberId')
   getContext(@Param('phoneNumberId') phoneNumberId: string) {
@@ -41,6 +46,16 @@ export class BotController {
   @Post('agent-echo')
   recordAgentEcho(@Body() dto: AgentEchoDto) {
     return this.botService.recordAgentEcho(dto)
+  }
+
+  @Post('coexistence/history')
+  persistCoexistenceHistory(@Body() dto: CoexistenceHistoryDto) {
+    return this.coexistenceSync.persistHistory(dto)
+  }
+
+  @Post('coexistence/contacts')
+  persistCoexistenceContacts(@Body() dto: CoexistenceContactsDto) {
+    return this.coexistenceSync.persistContacts(dto)
   }
 
   @Post('waba/:wabaId/disconnected')

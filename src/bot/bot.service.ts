@@ -158,6 +158,7 @@ export class BotService {
             role: 'assistant',
             content: dto.content,
             waMessageId: dto.waMessageId ?? null,
+            source: 'app_echo',
           },
         ],
         skipDuplicates: true,
@@ -217,6 +218,7 @@ export class BotService {
       lastMessageAt: true,
       phoneNumberId: true,
       botPaused: true,
+      status: true,
       flowState: true,
       client: { select: CLIENT_SUMMARY_SELECT },
     } as const
@@ -250,7 +252,9 @@ export class BotService {
     // the bot greets the returning user from scratch instead of resuming a stale step.
     const flowState = newSession ? null : conversation.flowState
 
-    if (newSession || phoneChanged) {
+    const shouldReopen = conversation.status === 'closed'
+
+    if (newSession || phoneChanged || shouldReopen) {
       // warnedAt is left as-is here; saveMessage clears it when the user's new
       // message lands, which avoids a race with the inactivity sweep.
       await this.prisma.conversation.update({
@@ -258,6 +262,7 @@ export class BotService {
         data: {
           ...(newSession ? { sessionStartedAt, flowState: null } : {}),
           ...(phoneChanged ? { phoneNumberId } : {}),
+          ...(shouldReopen ? { status: 'open' } : {}),
         },
       })
     }

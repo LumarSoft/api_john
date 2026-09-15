@@ -206,7 +206,27 @@ export class WhatsappOnboardingService {
     if (!accessToken) {
       throw new BadRequestException(`El número ${metaPhoneNumberId} no tiene un WABA activo`)
     }
-    return this.inspectCoexistenceStatus(metaPhoneNumberId, accessToken)
+    const [meta, local, persistedHistoryMessages, persistedContacts] = await Promise.all([
+      this.inspectCoexistenceStatus(metaPhoneNumberId, accessToken),
+      this.prisma.phoneNumber.findUnique({
+        where: { phoneNumberId: metaPhoneNumberId },
+        select: { historyLastSyncedAt: true, contactsLastSyncedAt: true },
+      }),
+      this.prisma.message.count({
+        where: { source: 'history', conversation: { phoneNumberId: metaPhoneNumberId, deletedAt: null } },
+      }),
+      this.prisma.whatsAppContact.count({
+        where: { phoneNumber: { phoneNumberId: metaPhoneNumberId }, deletedAt: null },
+      }),
+    ])
+
+    return {
+      ...meta,
+      historyLastSyncedAt: local?.historyLastSyncedAt ?? null,
+      contactsLastSyncedAt: local?.contactsLastSyncedAt ?? null,
+      persistedHistoryMessages,
+      persistedContacts,
+    }
   }
 
   /** Called from the webhook when Meta reports account_update → PARTNER_REMOVED. */

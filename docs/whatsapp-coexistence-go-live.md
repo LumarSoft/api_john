@@ -18,7 +18,8 @@ No iniciar el alta del número definitivo si falta cualquiera de estos puntos:
   `config_id` correcto.
 - Webhook HTTPS verificado y suscripto a `messages`, `account_update`, `history`,
   `smb_app_state_sync` y `smb_message_echoes`.
-- Migración `20260818223000_waba_accounts_and_message_ids` aplicada con
+- Migraciones `20260818223000_waba_accounts_and_message_ids` y
+  `20260914120000_persist_coexistence_sync` aplicadas con
   `npx prisma migrate deploy`. Nunca usar `migrate dev` contra producción.
 - API, bot y frontend desplegados desde el mismo release y builds verdes.
 - Variables de la API: `META_APP_ID`, `META_APP_SECRET`, `META_ES_CONFIG_ID`,
@@ -138,13 +139,15 @@ el endpoint está protegido y no implica una falla. No habilitar
    - `WABA ... conectada ... coexistence=true`;
    - `historySyncRequested=true` y `contactsSyncRequested=true` en la respuesta;
    - webhooks `history` avanzando hasta 100%;
-   - recepción de `smb_message_echoes`.
+   - recepción de `smb_message_echoes`;
+   - filas nuevas de `Message.source=history` y `WhatsAppContact`.
 8. Si Meta no aceptó el sync y todavía estamos dentro de las 24 horas, usar el
    endpoint autenticado `POST /admin/whatsapp/{phone_number_id}/sync`. No
    repetirlo si el primer pedido fue aceptado: la sincronización es one-shot.
 9. Confirmar con `GET /admin/whatsapp/{phone_number_id}/status` que
-   `verified=true`, `isOnBizApp=true` y `platformType=CLOUD_API`. El alta
-   también devuelve `coexistenceVerified`; si es `false`, no habilitar el bot.
+   `verified=true`, `isOnBizApp=true`, `platformType=CLOUD_API`,
+   `persistedHistoryMessages > 0` y `persistedContacts > 0`. El alta también
+   devuelve `coexistenceVerified`; si es `false`, no habilitar el bot.
 
 ## Auditoría del 14/09/2026
 
@@ -153,10 +156,10 @@ el endpoint está protegido y no implica una falla. No habilitar
 - Faltan `history`, `smb_app_state_sync` y `smb_message_echoes`. Sin esos tres
   campos no hay sincronización ni pausa automática al responder desde el
   teléfono.
-- El intento de agregarlos por Graph fue rechazado porque el callback productivo
-  devolvió 403 durante la reverificación. Antes de reintentar, alinear
-  `WEBHOOK_VERIFY_TOKEN` entre el proceso desplegado y la configuración segura
-  usada para actualizar la app. No reemplazar el callback actual.
+- El callback productivo fue reverificado correctamente el 14/09/2026: con el
+  token vigente responde HTTP 200 y devuelve exactamente el challenge. El
+  `.env` local del bot todavía debe alinearse con ese valor para no reintroducir
+  el token anterior en un despliegue futuro.
 
 ## Smoke test obligatorio antes de habilitar el bot
 
@@ -185,11 +188,14 @@ Sólo después de los ocho puntos se declara el número operativo.
   API fallan, el mensaje debe seguir visible en el teléfono.
 - El código recorre todos los `entry[]/changes[]`, deduplica reintentos de echoes
   y usa el token correspondiente al WABA del cliente.
-- El historial de hasta 180 días se solicita y se absorbe sin generar respuestas
-  antiguas. Actualmente se registra el progreso, pero no se importa ese backlog
-  al inbox de John; los chats históricos continúan en WhatsApp Business. Con
-  `MESSAGE_RETENTION_DAYS=30`, importar seis meses tampoco tendría sentido sin
-  cambiar antes la política de retención.
+- El historial de hasta 180 días se persiste con su `wamid`, fecha original,
+  dirección y payload crudo. Los chats creados sólo por el backfill quedan
+  cerrados y fuera de la sesión activa, por lo que nunca generan respuestas a
+  mensajes antiguos. Los contactos se guardan por número empresarial y las
+  eliminaciones se reflejan como soft-delete.
+- `MESSAGE_RETENTION_DAYS` sigue gobernando los mensajes normales. El historial
+  de Coexistence usa `COEXISTENCE_HISTORY_RETENTION_DAYS=180`, para que el job
+  diario no borre inmediatamente el backlog recién importado.
 - No existe garantía absoluta: grupos y ciertos dispositivos/formatos no generan
   los mismos webhooks. Durante el corte debe haber una persona mirando el
   teléfono comercial y otra los logs del bot.

@@ -19,40 +19,40 @@ datasource db {
 // (Kept the name `Producer` to avoid a destabilizing rename — see CONTEXT.md.)
 
 model Producer {
-  id            Int            @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   name          String
-  slug          String         @unique
+  slug          String    @unique
   // The organization's principal Triunfo code (e.g. "11425"). The cartera of every
   // dependent code rolls up to this org. Informational/anchor for the master code.
-  masterCode    String?        @db.VarChar(20)
+  masterCode    String?   @db.VarChar(20)
   // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
   // Null/empty → the bot falls back to "el asistente de JPMG".
-  botName       String?        @db.VarChar(60)
+  botName       String?   @db.VarChar(60)
   // Weekly business hours (Mon–Sun) shown across every channel (WhatsApp bot and
   // the public web) and used to compute "open now". Single source of truth edited
   // from the admin "Horarios" screen. JSON shape: { mon: [{from,to}], ..., sun: [] }
   // where each day holds zero or more HH:mm ranges ([] = closed). Null → app default.
   businessHours Json?
-  systemPrompt  String         @db.Text
-  isActive      Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  systemPrompt  String    @db.Text
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  producerCodes ProducerCode[]
-  phoneNumbers  PhoneNumber[]
-  wabaAccounts  WabaAccount[]
-  users         User[]
-  clients       Client[]
-  polizas       Poliza[]
-  cotizaciones  Cotizacion[]
-  conversations Conversation[]
-  siniestros    Siniestro[]
-  novedades     Novedad[]
-  contactLeads  ContactLead[]
-  productPlans  ProductPlan[]
+  producerCodes    ProducerCode[]
+  phoneNumbers     PhoneNumber[]
+  wabaAccounts     WabaAccount[]
+  users            User[]
+  clients          Client[]
+  polizas          Poliza[]
+  cotizaciones     Cotizacion[]
+  conversations    Conversation[]
+  siniestros       Siniestro[]
+  novedades        Novedad[]
+  contactLeads     ContactLead[]
+  productPlans     ProductPlan[]
   businessClosures BusinessClosure[]
-  usageMonthly  UsageMonthly[]
+  usageMonthly     UsageMonthly[]
   coverageSettings CoverageSetting[]
 }
 
@@ -98,43 +98,43 @@ model CoverageSetting {
 // first-class scoping unit. Admin users are granted visibility over one or more
 // of these via UserProducerCode; a SuperAdmin implicitly sees all codes of its org.
 model ProducerCode {
-  id         Int       @id @default(autoincrement())
+  id                Int       @id @default(autoincrement())
   // Triunfo agent code, e.g. "8074". Unique within an organization.
-  code       String    @db.VarChar(20)
+  code              String    @db.VarChar(20)
   // Human-readable holder, e.g. "PELLEGRINI JOHN" / "CANARELLI ADRIANA".
-  holderName String?
+  holderName        String?
   // True for the organization's principal code (mirrors Producer.masterCode).
-  isMaster   Boolean   @default(false)
-  isActive   Boolean   @default(true)
+  isMaster          Boolean   @default(false)
+  isActive          Boolean   @default(true)
   // OPTIONAL per-code Triunfo credentials. Only needed if Triunfo requires a
   // separate login per agent code to pull that code's cartera. If null, the
   // org-level TRIUNFO_* env credentials (master code) are used. See cartera-sync.
-  triunfoUsuario  String?
-  triunfoPassword String?
+  triunfoUsuario    String?
+  triunfoPassword   String?
   // Last successful cartera sync for this code. Null = never synced, which makes
   // the next run use the full backfill window (6 months) instead of the
   // incremental one (3 months). See CarteraSyncService.buildDateRange.
   lastCarteraSyncAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
 
   producerId Int
-  producer   Producer  @relation(fields: [producerId], references: [id])
+  producer   Producer @relation(fields: [producerId], references: [id])
 
-  users         UserProducerCode[]
-  clients       Client[]
-  polizas       Poliza[]
-  cotizaciones  Cotizacion[]
-  siniestros    Siniestro[]
-  contactLeads  ContactLead[]
-  conversations Conversation[]
-  novedades     Novedad[]
+  users                UserProducerCode[]
+  clients              Client[]
+  polizas              Poliza[]
+  cotizaciones         Cotizacion[]
+  siniestros           Siniestro[]
+  contactLeads         ContactLead[]
+  conversations        Conversation[]
+  novedades            Novedad[]
   // Phone numbers whose billing is attributed to this code.
-  responsibleForPhones PhoneNumber[] @relation("phone_responsible_code")
+  responsibleForPhones PhoneNumber[]             @relation("phone_responsible_code")
   // Phone numbers this code is served by (many-to-many, e.g. shared office line).
-  servedByPhones PhoneNumberProducerCode[]
-  usageMonthly   UsageMonthly[]
+  servedByPhones       PhoneNumberProducerCode[]
+  usageMonthly         UsageMonthly[]
 
   @@unique([producerId, code])
   @@index([producerId, isActive])
@@ -160,25 +160,25 @@ model UserProducerCode {
 // for a date or date range. The bot surfaces the `reason` to anyone asking about
 // hours while the closure is active. Single-day closures use startDate == endDate.
 model BusinessClosure {
-  id         Int       @id @default(autoincrement())
-  startDate  DateTime  @db.Date
-  endDate    DateTime  @db.Date
+  id        Int       @id @default(autoincrement())
+  startDate DateTime  @db.Date
+  endDate   DateTime  @db.Date
   // Why the office is closed (required) — quoted back to users by the bot.
-  reason     String    @db.VarChar(160)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
+  reason    String    @db.VarChar(160)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   producerId Int
-  producer   Producer  @relation(fields: [producerId], references: [id])
+  producer   Producer @relation(fields: [producerId], references: [id])
 
   @@index([producerId, startDate, endDate])
 }
 
 model PhoneNumber {
   id            Int       @id @default(autoincrement())
-  phoneNumberId String    @unique   // ID de Meta
-  number        String              // display: "+1 555 151 7253"
+  phoneNumberId String    @unique // ID de Meta
+  number        String // display: "+1 555 151 7253"
   isActive      Boolean   @default(true)
   deletedAt     DateTime?
   producerId    Int
@@ -196,7 +196,7 @@ model PhoneNumber {
   // We bill per active PhoneNumber, attributed to this code. Nullable during
   // migration; should be set for every production number.
   responsibleProducerCodeId Int?
-  responsibleProducerCode   ProducerCode? @relation("phone_responsible_code", fields: [responsibleProducerCodeId], references: [id])
+  responsibleProducerCode   ProducerCode?             @relation("phone_responsible_code", fields: [responsibleProducerCodeId], references: [id])
   // All codes this number routes/serves (many-to-many).
   servedCodes               PhoneNumberProducerCode[]
 
@@ -204,8 +204,8 @@ model PhoneNumber {
   // default (DEFAULT_MONTHLY_BUDGET_USD env). When the running month total
   // crosses the cap, budgetExceededAt is stamped and the bot disables the (paid)
   // LLM while the deterministic flows keep working at zero token cost.
-  monthlyBudgetUsd  Decimal?  @db.Decimal(10, 2)
-  budgetExceededAt  DateTime?
+  monthlyBudgetUsd Decimal?  @db.Decimal(10, 2)
+  budgetExceededAt DateTime?
 
   // ── Billing (what the CLIENT pays, as opposed to what the number COSTS) ──
   // Minimum monthly fee invoiced for this number. Null → DEFAULT_MONTHLY_PRICE_USD
@@ -221,7 +221,14 @@ model PhoneNumber {
   // Null → DEFAULT_BILLING_MARKUP (3).
   billingMarkup       Decimal? @db.Decimal(6, 2)
 
-  usageMonthly      UsageMonthly[]
+  usageMonthly     UsageMonthly[]
+  whatsappContacts WhatsAppContact[]
+
+  // Last Coexistence payload successfully persisted for this number. These
+  // timestamps make the post-onboarding production check observable instead of
+  // relying on transient application logs.
+  historyLastSyncedAt  DateTime?
+  contactsLastSyncedAt DateTime?
 
   @@index([responsibleProducerCodeId])
   @@index([wabaAccountId])
@@ -292,20 +299,20 @@ enum Role {
 }
 
 model User {
-  id           Int          @id @default(autoincrement())
-  email        String       @unique
-  password     String
-  role         Role         @default(ADMIN)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  deletedAt    DateTime?
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String
+  role      Role      @default(ADMIN)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   producerId            Int
-  producer              Producer       @relation(fields: [producerId], references: [id])
+  producer              Producer           @relation(fields: [producerId], references: [id])
   // Producer codes this admin may access (ignored for SUPERADMIN = all codes).
   producerCodes         UserProducerCode[]
   cotizaciones          Cotizacion[]
-  assignedConversations Conversation[] @relation("assigned_conversations")
+  assignedConversations Conversation[]     @relation("assigned_conversations")
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
@@ -324,16 +331,16 @@ model Client {
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
-  producerId    Int
-  producer      Producer       @relation(fields: [producerId], references: [id])
+  producerId     Int
+  producer       Producer       @relation(fields: [producerId], references: [id])
   // Triunfo agent code that owns this client's cartera. Nullable during migration;
   // back-filled to the org master code, then refined per Triunfo cartera.
   producerCodeId Int?
-  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
-  conversations Conversation[]
-  polizas       Poliza[]
-  siniestros    Siniestro[]
-  novedades     Novedad[]
+  producerCode   ProducerCode?  @relation(fields: [producerCodeId], references: [id])
+  conversations  Conversation[]
+  polizas        Poliza[]
+  siniestros     Siniestro[]
+  novedades      Novedad[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
@@ -354,24 +361,24 @@ enum RiskType {
 
 model Poliza {
   id            Int       @id @default(autoincrement())
-  certificado   String    // certificate number from Triunfo
-  suplemento    Int       @default(0)    // policy version / supplement
-  company       String    // "triunfo" — expandable for future companies
+  certificado   String // certificate number from Triunfo
+  suplemento    Int       @default(0) // policy version / supplement
+  company       String // "triunfo" — expandable for future companies
   riskType      RiskType  @default(other)
-  status        String    // "VIGENTE" | "VENCIDA" | "REFACTURACION" etc.
+  status        String // "VIGENTE" | "VENCIDA" | "REFACTURACION" etc.
   vigenciaDesde DateTime?
   vigenciaHasta DateTime?
   premio        Decimal?  @db.Decimal(12, 2)
   paymentMethod String?
-  rawData       Json      // full provider response for this policy
+  rawData       Json // full provider response for this policy
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  clientId   Int
-  client     Client   @relation(fields: [clientId], references: [id])
-  producerId Int
-  producer   Producer @relation(fields: [producerId], references: [id])
+  clientId       Int
+  client         Client        @relation(fields: [clientId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
   // Triunfo agent code that owns this policy (cartera is keyed by code in Triunfo).
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
@@ -385,8 +392,8 @@ model Poliza {
 }
 
 model Vehiculo {
-  id            Int      @id @default(autoincrement())
-  dominio       String?  // license plate
+  id            Int       @id @default(autoincrement())
+  dominio       String? // license plate
   marca         String?
   modelo        String?
   subModelo     String?
@@ -398,11 +405,11 @@ model Vehiculo {
   marcaIA       Int?
   modeloIA      Int?
   codia         Int?
-  tipo          String?  // "AUTOMOVIL" | "MOTO" etc.
-  uso           String?  // "PARTICULAR" | "COMERCIAL" etc.
-  cobertura     String?  // coverage code (e.g. "A", "B", "C")
-  sumaAsegurada Decimal? @db.Decimal(14, 2)
-  ceroKm        Boolean  @default(false)
+  tipo          String? // "AUTOMOVIL" | "MOTO" etc.
+  uso           String? // "PARTICULAR" | "COMERCIAL" etc.
+  cobertura     String? // coverage code (e.g. "A", "B", "C")
+  sumaAsegurada Decimal?  @db.Decimal(14, 2)
+  ceroKm        Boolean   @default(false)
   chasis        String?
   motor         String?
   deletedAt     DateTime?
@@ -436,17 +443,17 @@ model Siniestro {
   // Official claim number, set by the admin after manually filing the claim in
   // Triunfo's web (their API has no claims endpoint yet).
   nroSiniestroCompania String?
-  adjuntos    Json? // array of { filename, originalName, url, mimeType, size }
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  adjuntos             Json? // array of { filename, originalName, url, mimeType, size }
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
 
-  clientId   Int
-  client     Client   @relation(fields: [clientId], references: [id])
-  polizaId   Int
-  poliza     Poliza   @relation(fields: [polizaId], references: [id])
-  producerId Int
-  producer   Producer @relation(fields: [producerId], references: [id])
+  clientId       Int
+  client         Client        @relation(fields: [clientId], references: [id])
+  polizaId       Int
+  poliza         Poliza        @relation(fields: [polizaId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
   // Triunfo agent code that owns the underlying policy/client (for admin scoping).
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
@@ -470,16 +477,16 @@ model Novedad {
   createdAt DateTime  @default(now())
   deletedAt DateTime?
 
-  producerId Int
-  producer   Producer @relation(fields: [producerId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
   // Triunfo agent code this novedad belongs to, so an admin only sees novedades
   // of the codes it can access. Nullable for handoffs not yet attributed to a code.
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   // Denormalized so the admin can filter/search novedades by client (DNI/name).
   // Nullable: a handoff from an unidentified WhatsApp number has no client yet.
-  clientId   Int?
-  client     Client?  @relation(fields: [clientId], references: [id])
+  clientId       Int?
+  client         Client?       @relation(fields: [clientId], references: [id])
 
   @@index([producerId, readAt])
   @@index([producerId, type, createdAt])
@@ -502,14 +509,14 @@ model Cotizacion {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  producerId      Int
-  producer        Producer  @relation(fields: [producerId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
   // Triunfo agent code credited with this quote (defaults to the quoting user's code).
-  producerCodeId  Int?
-  producerCode    ProducerCode? @relation(fields: [producerCodeId], references: [id])
-  userId          Int?
-  user            User?     @relation(fields: [userId], references: [id])
-  solicitud       Solicitud?
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
+  userId         Int?
+  user           User?         @relation(fields: [userId], references: [id])
+  solicitud      Solicitud?
 
   @@index([producerCodeId])
 }
@@ -570,12 +577,12 @@ model ContactLead {
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  producerId   Int
-  producer     Producer     @relation(fields: [producerId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
   // Triunfo agent code credited with this lead (for admin scoping). Nullable.
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
-  selectedPlan ProductPlan? @relation(fields: [selectedPlanId], references: [id])
+  selectedPlan   ProductPlan?  @relation(fields: [selectedPlanId], references: [id])
 
   @@index([producerId, status, createdAt])
   @@index([producerCodeId])
@@ -608,11 +615,11 @@ model ProductPlan {
 // ─── CONVERSACIONES WHATSAPP ─────────────────────────────
 
 model Conversation {
-  id         Int       @id @default(autoincrement())
-  waId       String
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  deletedAt  DateTime?
+  id        Int       @id @default(autoincrement())
+  waId      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   // Start of the current chat session. Messages older than this stay in the DB
   // (until the retention job prunes them) but are excluded from the context
@@ -642,30 +649,37 @@ model Conversation {
   assignedTo       User?     @relation("assigned_conversations", fields: [assignedToUserId], references: [id])
   handedOverAt     DateTime?
 
-  producerId Int
-  producer   Producer  @relation(fields: [producerId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
   // Triunfo agent code this chat resolves to. Set when the client identifies
   // (DNI/patente) — a number shared by several codes routes to the right code by
   // identification, not by the number. Drives inbox scoping for admins.
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
-  clientId   Int?      // se vincula cuando el cliente se identifica por DNI
-  client     Client?   @relation(fields: [clientId], references: [id])
-  messages   Message[]
+  clientId       Int? // se vincula cuando el cliente se identifica por DNI
+  client         Client?       @relation(fields: [clientId], references: [id])
+  messages       Message[]
 
   @@unique([waId, producerId])
   @@index([producerCodeId])
 }
 
 model Message {
-  id             Int          @id @default(autoincrement())
-  role           String       // "user" | "assistant"
-  content        String       @db.Text
+  id          Int       @id @default(autoincrement())
+  role        String // "user" | "assistant"
+  content     String    @db.Text
   // Meta webhook id. Nullable for legacy/manual messages; unique when present so
   // webhook retries cannot duplicate an echo in the transcript.
-  waMessageId    String?      @unique @db.VarChar(191)
-  createdAt      DateTime     @default(now())
-  deletedAt      DateTime?
+  waMessageId String?   @unique @db.VarChar(191)
+  // "live" (normal bot traffic), "app_echo" (sent from WhatsApp Business) or
+  // "history" (one-time Coexistence backfill). Historical payloads never enter
+  // the active bot session, but remain available for audit/import purposes.
+  source      String    @default("live") @db.VarChar(20)
+  // Preserves media metadata and any fields Meta adds without forcing a schema
+  // migration for every WhatsApp message type.
+  rawData     Json?
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
 
   conversationId Int
   conversation   Conversation @relation(fields: [conversationId], references: [id])
@@ -673,7 +687,32 @@ model Message {
   // History is fetched as `where conversationId order by createdAt desc take 10`
   // on every inbound message, and the retention job prunes by createdAt.
   @@index([conversationId, createdAt])
+  @@index([source, createdAt])
 }
+
+// Contacts mirrored from the WhatsApp Business app through
+// `smb_app_state_sync`. They are scoped to the Meta business phone number: the
+// same customer can be saved under different names by different organizations.
+model WhatsAppContact {
+  id              Int       @id @default(autoincrement())
+  phone           String    @db.VarChar(32)
+  waId            String?   @db.VarChar(32)
+  fullName        String?   @db.VarChar(191)
+  firstName       String?   @db.VarChar(120)
+  lastAction      String?   @db.VarChar(20)
+  sourceUpdatedAt DateTime?
+  rawData         Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  phoneNumberId Int
+  phoneNumber   PhoneNumber @relation(fields: [phoneNumberId], references: [id])
+
+  @@unique([phoneNumberId, phone])
+  @@index([phoneNumberId, deletedAt])
+}
+
 // ─── INTEGRATION TOKENS ──────────────────────────────────
 // Persisted third-party auth tokens (currently Triunfo's JWT).
 //
@@ -711,7 +750,7 @@ model WabaAccount {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  phoneNumbers     PhoneNumber[]
+  phoneNumbers PhoneNumber[]
 
   @@index([producerId])
 }

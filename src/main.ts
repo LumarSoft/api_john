@@ -8,6 +8,11 @@ import { AppModule } from './app.module'
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule)
 
+  // Coexistence history arrives in chunks containing many messages and raw
+  // media metadata. Express' 100 KB default can reject a valid Meta webhook
+  // after the bot forwards it to this API.
+  app.useBodyParser('json', { limit: '10mb' })
+
   // CORS_ORIGIN accepts a comma-separated list, e.g.
   //   https://www.jpmanagementgroup.com.ar,https://jpmanagementgroup.com.ar
   //
