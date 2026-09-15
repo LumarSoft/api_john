@@ -239,6 +239,8 @@ With `paymentMethod: "OTHER"` no card data is taken — an agent contacts the ap
 
 Proxies the InfoAuto API to expose vehicle data for the quotation form. The `vehicleType` path segment (`auto` or `moto`) selects the catalog: cars (`INFOAUTO_BASE_URL`) or motorcycles (`INFOAUTO_MOTO_BASE_URL`). All endpoints are public. Responses include a `pagination` object parsed from the `X-Pagination` header.
 
+The motorcycle catalog uses separate `INFOAUTO_MOTO_EMAIL` and `INFOAUTO_MOTO_PASSWORD` credentials. If it is not configured, motorcycle catalog and quote requests return `503 Service Unavailable`.
+
 ### GET /infoauto/:vehicleType/brands
 
 Returns a paginated list of vehicle brands for the brand selector.

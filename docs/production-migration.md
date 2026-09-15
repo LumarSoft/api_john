@@ -4,6 +4,12 @@ Estado al **03/08/2026**: **aplicado**. El entorno local apunta a InfoAuto y
 Triunfo productivos. Todo lo que dice "verificado" fue probado contra los
 servicios reales, no contra documentación.
 
+**Actualización 14/09/2026 — motos:** se obtuvo una suscripción separada de
+InfoAuto para `/motorcycles`, con otra contraseña. El catálogo y sus endpoints
+de marcas, grupos, modelos y features respondieron 200 en producción. Los
+precios de motos siguen respondiendo 403. La validación de cotización con
+Triunfo desde este equipo quedó pendiente: `getTokenRest` respondió 403.
+
 Colección Postman de referencia:
 `../../documentacion/John_Seguros_PRODUCCION.postman_collection.json`
 
@@ -60,8 +66,10 @@ Dos trampas que costaron tiempo:
 |---|---|---|
 | `INFOAUTO_BASE_URL` | `https://demo.api.infoauto.com.ar/cars/pub` | `https://api.infoauto.com.ar/cars/pub` |
 | `INFOAUTO_AUTH_URL` | `https://demo.api.infoauto.com.ar/cars/auth` | `https://api.infoauto.com.ar/cars/auth` |
-| `INFOAUTO_MOTO_BASE_URL` | `.../motorcycles/pub` | **no disponible** — ver sección 4 |
-| `INFOAUTO_MOTO_AUTH_URL` | `.../motorcycles/auth` | **no disponible** |
+| `INFOAUTO_MOTO_BASE_URL` | — | `https://api.infoauto.com.ar/motorcycles/pub` |
+| `INFOAUTO_MOTO_AUTH_URL` | — | `https://api.infoauto.com.ar/motorcycles/auth` |
+| `INFOAUTO_MOTO_EMAIL` | — | usuario de la suscripción de motos |
+| `INFOAUTO_MOTO_PASSWORD` | — | contraseña de la suscripción de motos, distinta de autos |
 | `INFOAUTO_PRICES_ENABLED` | — | `false` — la valuación no está contratada |
 | `INFOAUTO_EMAIL` | `lumarsoftarg@gmail.com` | mismo — verificado, devuelve 200 |
 | `INFOAUTO_PASSWORD` | clave de demo | clave de producción, **distinta**. Rotar: se compartió en texto plano el 03/08 |
@@ -127,7 +135,7 @@ refrescar sumas aseguradas de la cartera por cuenta propia.
 
 ### 2.3 El campo `Origen`
 
-Sale del **feature 21 ("Importado")** de InfoAuto:
+Para autos sale del **feature 21 ("Importado")** de InfoAuto:
 
 | feature 21 | Significado | Triunfo `Origen` |
 |---|---|---|
@@ -138,6 +146,11 @@ Sale del **feature 21 ("Importado")** de InfoAuto:
 
 Contrastado: el Corsa 120053 tiene el feature 21 en `NO` y su póliza en Triunfo
 dice `Origen: "N"`.
+
+En motos, el catálogo tiene otro esquema: **feature 15 ("Importado")** de tipo
+booleano. `false` corresponde a `"N"` y `true` a `"I"`. Se verificó el
+feature 15 en el CODIA 9800005 (APPIA 125 BERAKA); la correspondencia con
+Triunfo aún requiere una cotización real.
 
 ### 2.4 Límites y cachés
 
@@ -258,21 +271,24 @@ probablemente rebote. Depende de que Triunfo mande el contrato correcto.
 
 ## 4. Motos
 
-No hay catálogo de motos disponible:
+Desde el 14/09/2026 hay una suscripción separada de InfoAuto. El spec de motos
+declara `https://api.infoauto.com.ar/motorcycles/pub`; el login se hace en
+`/motorcycles/auth/login` con `INFOAUTO_MOTO_EMAIL` y
+`INFOAUTO_MOTO_PASSWORD`. Las credenciales de autos no sirven para motos, ni
+viceversa. Los secretos se guardan solo en el entorno, no en el repositorio.
 
-- La cuenta da **401 "Username not found"** en `/motorcycles/auth/login` de
-  producción.
-- En el portal de InfoAuto la suscripción figura como **AUTOS**.
-- El spec productivo declara un solo servidor: `https://api.infoauto.com.ar/cars/pub`.
+Verificado contra producción: marcas, grupos, modelos y features responden 200.
+El CODIA 9800005 es la APPIA 125 BERAKA, marca 980 y modelo 5, por lo que
+respeta `codia = marca * 10000 + modelo` en esta muestra. Los endpoints de
+`list_price` y `prices/` responden 403, por lo que el cotizador sigue enviando
+`Valor: "0"`. Hay 104 marcas de motos; la web y el bot recorren todas las
+páginas para no omitir las que quedan después de la primera página de 100.
 
-Triunfo sí tiene el artículo **481 = moto**, así que el circuito existe del lado
-de la aseguradora — lo que falta es de dónde sacar los códigos.
-
-Para habilitarlo hay que contratar el catálogo de motos con InfoAuto y después
-confirmar con Triunfo que con `Catalogo: "IA"` y artículo 481 espera el mismo
-esquema `Marca`/`Modelo` que los autos.
-
-Mientras tanto, `VehicleType.MOTO` no debería quedar expuesto en el front.
+El backend implementa el artículo **481** de Triunfo y el catálogo ya se puede
+consultar desde la web y el bot. Falta verificar una cotización de moto contra
+Triunfo: desde este equipo `getTokenRest` respondió 403 el 14/09/2026. También
+falta confirmar que `Catalogo: "IA"` acepta el mismo esquema `Marca`/`Modelo`
+para el artículo 481. No se comprobó una prima real de moto.
 
 ---
 

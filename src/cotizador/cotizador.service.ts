@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
@@ -84,6 +85,9 @@ export class CotizadorService {
     producerId: number | null,
     userId: number | null,
   ): Promise<QuoteAutoResult> {
+    if (!this.infoAuto.isAvailable(vehicleType)) {
+      throw new ServiceUnavailableException(`El catálogo de InfoAuto para ${vehicleType} no está disponible`)
+    }
     const auth = await this.triunfo.getAuth()
 
     // Vehicle value comes from InfoAuto when valuation is contracted. It is not

@@ -20,21 +20,23 @@ interface InfoAutoFeature {
 interface CatalogConfig {
   baseUrl: string
   authUrl: string
+  email: string
+  password: string
   cachedToken: string | null
   tokenExpiresAt: number | null
 }
 
-// InfoAuto feature that carries the vehicle origin. Values: NO = Nacional /
-// Mercosur, SI = Internacional, MX = Mexico, CH = China. Triunfo only accepts
-// N or I, so anything other than NO maps to "I".
-const ORIGIN_FEATURE_ID = 21
+// The two InfoAuto products use different feature catalogs. Cars encode
+// "Importado" as a choice; motorcycles encode it as a boolean.
+const ORIGIN_FEATURE_ID: Record<VehicleType, number> = {
+  [VehicleType.AUTO]: 21,
+  [VehicleType.MOTO]: 15,
+}
 
 @Injectable()
 export class InfoAutoService {
   private readonly logger = new Logger(InfoAutoService.name)
 
-  private readonly email: string
-  private readonly password: string
   private readonly pricesEnabled: boolean
   private readonly catalogs: Partial<Record<VehicleType, CatalogConfig>>
 
@@ -46,9 +48,6 @@ export class InfoAutoService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
-    this.email = this.configService.getOrThrow<string>('INFOAUTO_EMAIL')
-    this.password = this.configService.getOrThrow<string>('INFOAUTO_PASSWORD')
-
     // The subscription covers the catalog but not the valuation: list_price,
     // prices, photos, batch and archives all return 403 in production.
     this.pricesEnabled = this.configService.get<string>('INFOAUTO_PRICES_ENABLED') === 'true'
@@ -57,21 +56,23 @@ export class InfoAutoService {
       [VehicleType.AUTO]: {
         baseUrl: this.configService.getOrThrow<string>('INFOAUTO_BASE_URL'),
         authUrl: this.configService.getOrThrow<string>('INFOAUTO_AUTH_URL'),
+        email: this.configService.getOrThrow<string>('INFOAUTO_EMAIL'),
+        password: this.configService.getOrThrow<string>('INFOAUTO_PASSWORD'),
         cachedToken: null,
         tokenExpiresAt: null,
       },
     }
 
-    // Motorcycles are a separate InfoAuto product and are not contracted:
-    // production answers 401 "Username not found" on /motorcycles/auth/login.
-    // The catalog is only wired up if both URLs are present, so a MOTO request
-    // fails with a clear 503 instead of a confusing upstream 401.
+    // Motorcycles have a separate subscription and credentials. Keep this
+    // catalog optional so deployments without it return 503 for moto requests.
     const motoBaseUrl = this.configService.get<string>('INFOAUTO_MOTO_BASE_URL')
     const motoAuthUrl = this.configService.get<string>('INFOAUTO_MOTO_AUTH_URL')
     if (motoBaseUrl && motoAuthUrl) {
       this.catalogs[VehicleType.MOTO] = {
         baseUrl: motoBaseUrl,
         authUrl: motoAuthUrl,
+        email: this.configService.getOrThrow<string>('INFOAUTO_MOTO_EMAIL'),
+        password: this.configService.getOrThrow<string>('INFOAUTO_MOTO_PASSWORD'),
         cachedToken: null,
         tokenExpiresAt: null,
       }
@@ -104,7 +105,7 @@ export class InfoAutoService {
       this.httpService.post<{ access_token: string }>(
         `${catalog.authUrl}/login`,
         {},
-        { auth: { username: this.email, password: this.password } },
+        { auth: { username: catalog.email, password: catalog.password } },
       ),
     )
 
@@ -137,7 +138,7 @@ export class InfoAutoService {
       token = await this.getToken(type)
     } catch (error) {
       const status = error instanceof AxiosError ? (error.response?.status ?? error.code) : 'unknown'
-      this.logger.error(`InfoAuto ${type} login failed → ${status} (check INFOAUTO_EMAIL / INFOAUTO_PASSWORD)`)
+      this.logger.error(`InfoAuto ${type} login failed → ${status} (check catalog credentials)`)
       throw new BadGatewayException('InfoAuto API error')
     }
 
@@ -174,9 +175,8 @@ export class InfoAutoService {
   }
 
   /**
-   * Vehicle origin for Triunfo's `Origen` field, read from InfoAuto feature 21
-   * ("Importado"). Verified against the cartera: codia 120053 has feature 21 =
-   * NO and its Triunfo policy carries Origen "N".
+   * Vehicle origin for Triunfo's `Origen` field. Cars use feature 21 (NO/SI);
+   * motorcycles use feature 15 (false/true).
    *
    * Defaults to "N" when the feature is missing or the lookup fails — the vast
    * majority of the insured fleet is national, and a failed catalog read must
@@ -189,14 +189,22 @@ export class InfoAutoService {
 
     try {
       const { data } = await this.get<InfoAutoFeature[]>(type, `/models/${codia}/features/`)
-      const feature = Array.isArray(data) ? data.find(f => Number(f.id) === ORIGIN_FEATURE_ID) : undefined
+      const featureId = ORIGIN_FEATURE_ID[type]
+      const feature = Array.isArray(data) ? data.find(f => Number(f.id) === featureId) : undefined
 
       if (!feature) {
-        this.logger.debug(`Codia ${codia} has no feature ${ORIGIN_FEATURE_ID} — assuming Origen "N"`)
+        this.logger.debug(`Codia ${codia} has no feature ${featureId} — assuming Origen "N"`)
         return 'N'
       }
 
-      const origin = String(feature.value).toUpperCase() === 'NO' ? 'N' : 'I'
+      const origin =
+        type === VehicleType.MOTO
+          ? feature.value === true || String(feature.value).toLowerCase() === 'true'
+            ? 'I'
+            : 'N'
+          : String(feature.value).toUpperCase() === 'NO'
+            ? 'N'
+            : 'I'
       this.originCache.set(key, origin)
       return origin
     } catch {
