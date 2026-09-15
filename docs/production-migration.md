@@ -42,7 +42,7 @@ necesita ofrecerla.
 | `TRIUNFO_BASE_URL_SIP` | `https://siptest.triunfonet.com.ar/wsv1/rest` | `https://www.triunfonet.com.ar/sipv1/rest` |
 | `TRIUNFO_PRODUCTOR` | `10484` | `10484` — sin cambios |
 | `TRIUNFO_USUARIO` | `JHONPELL` | `JHONPELL` — sin cambios |
-| `TRIUNFO_PASSWORD` | MD5 de la clave de **test** | MD5 de la clave de **producción** — son distintas |
+| `TRIUNFO_PASSWORD` | MD5 de la clave de **test** | MD5 de la clave de **producción** — la cargada hoy fue rechazada en la revalidación del 14/09/2026 |
 
 Dos trampas que costaron tiempo:
 
@@ -60,8 +60,10 @@ Dos trampas que costaron tiempo:
 |---|---|---|
 | `INFOAUTO_BASE_URL` | `https://demo.api.infoauto.com.ar/cars/pub` | `https://api.infoauto.com.ar/cars/pub` |
 | `INFOAUTO_AUTH_URL` | `https://demo.api.infoauto.com.ar/cars/auth` | `https://api.infoauto.com.ar/cars/auth` |
-| `INFOAUTO_MOTO_BASE_URL` | `.../motorcycles/pub` | **no disponible** — ver sección 4 |
-| `INFOAUTO_MOTO_AUTH_URL` | `.../motorcycles/auth` | **no disponible** |
+| `INFOAUTO_MOTO_BASE_URL` | `.../motorcycles/pub` | `https://api.infoauto.com.ar/motorcycles/pub` — verificado |
+| `INFOAUTO_MOTO_AUTH_URL` | `.../motorcycles/auth` | `https://api.infoauto.com.ar/motorcycles/auth` — verificado |
+| `INFOAUTO_MOTO_EMAIL` | — | credencial separada de motos; configurada en el secreto del entorno |
+| `INFOAUTO_MOTO_PASSWORD` | — | credencial separada de motos; nunca versionar |
 | `INFOAUTO_PRICES_ENABLED` | — | `false` — la valuación no está contratada |
 | `INFOAUTO_EMAIL` | `lumarsoftarg@gmail.com` | mismo — verificado, devuelve 200 |
 | `INFOAUTO_PASSWORD` | clave de demo | clave de producción, **distinta**. Rotar: se compartió en texto plano el 03/08 |
@@ -194,20 +196,21 @@ Triunfo.
 (`INFOAUTO_PRICES_ENABLED=false`) y devolver `null` sin salir a la red. Cuando
 se contrate la valuación, se prende y se corrigen los dos bugs de arriba.
 
-**Catálogo de motos** (`src/infoauto/infoauto.service.ts:42`)
-`VehicleType.MOTO` apunta a `/motorcycles`. En producción el login devuelve
-**401 "Username not found"**: la cuenta no existe en ese catálogo.
+**Catálogo de motos** (`src/infoauto/infoauto.service.ts`)
+`VehicleType.MOTO` apunta a `/motorcycles` y usa credenciales separadas. El
+smoke productivo del 14/09/2026 verificó login, refresh, marcas, grupos,
+modelos, detalle, features y búsqueda global con HTTP 200. La valuación de
+motos no está incluida: `list_price` y `prices` responden 403, igual que autos.
 
-El constructor usa `getOrThrow` sobre `INFOAUTO_MOTO_*`, así que si se borran
-esas variables **la app no arranca**. Hay que dejarlas apuntando a algo o
-hacerlas opcionales, y que cualquier request de motos falle con un error claro
-en vez de un 401 de InfoAuto.
+Las URLs de motos son opcionales: si no están configuradas la API arranca, pero
+los requests de motos devuelven 503 con un mensaje explícito.
 
 ### ⚠️ Funciona pero pierde información
 
-**`Origen: 'N'` hardcodeado** (`cotizador.service.ts:109`)
-Todos los vehículos se cotizan como nacionales. Un importado va a cotizar mal.
-Se resuelve leyendo el feature 21 (sección 2.3).
+**Origen del vehículo — resuelto**
+Ya no está hardcodeado: autos leen el feature 21 y motos el feature booleano 15
+de InfoAuto, con caché en memoria por CODIA y fallback nacional si falla el
+proveedor.
 
 **`CeroKM: 0` hardcodeado** (`cotizador.service.ts:105`)
 No hay forma de cotizar un 0km. El DTO no expone el campo.
@@ -243,7 +246,7 @@ Sin relación con el código, pero condicionan qué se puede construir:
 
 | Endpoint | Estado |
 |---|---|
-| `RESTCotizadorAutV2` | OK — genera presupuesto con primas reales |
+| `RESTCotizadorAutV2` | contrato previamente verificado; revalidación de moto bloqueada por credencial de Triunfo rechazada |
 | `RESTNovedadesCartera` | OK — 225 novedades en 7 días |
 | `RESTConsultaInspV2` | responde, pero no encuentra ninguna operación de la cartera |
 | `RESTInspeccionPFV2` | **500** — `Unrecognized field "Autenticacion"`, contrato desconocido |
@@ -258,21 +261,20 @@ probablemente rebote. Depende de que Triunfo mande el contrato correcto.
 
 ## 4. Motos
 
-No hay catálogo de motos disponible:
+Actualización 14/09/2026: el código y el frontend soportan el catálogo de motos,
+incluidas credenciales separadas `INFOAUTO_MOTO_EMAIL` y
+`INFOAUTO_MOTO_PASSWORD` con fallback a las de autos. Las credenciales
+productivas fueron cargadas fuera de Git y el smoke confirmó HTTP 200 para
+login, refresh y todo el catálogo necesario para cotizar.
 
-- La cuenta da **401 "Username not found"** en `/motorcycles/auth/login` de
-  producción.
-- En el portal de InfoAuto la suscripción figura como **AUTOS**.
-- El spec productivo declara un solo servidor: `https://api.infoauto.com.ar/cars/pub`.
-
-Triunfo sí tiene el artículo **481 = moto**, así que el circuito existe del lado
-de la aseguradora — lo que falta es de dónde sacar los códigos.
-
-Para habilitarlo hay que contratar el catálogo de motos con InfoAuto y después
-confirmar con Triunfo que con `Catalogo: "IA"` y artículo 481 espera el mismo
-esquema `Marca`/`Modelo` que los autos.
-
-Mientras tanto, `VehicleType.MOTO` no debería quedar expuesto en el front.
+La valuación (`list_price` y `prices`) responde 403 porque no está contratada.
+Esto no bloquea el cotizador: `INFOAUTO_PRICES_ENABLED=false` evita esas llamadas
+y Triunfo recibe `Valor: "0"` para resolver el valor de mercado. Para motos la
+integración envía `Articulo: 481` y el mismo esquema de marca/modelo InfoAuto
+que en autos. El origen se obtiene del feature booleano 15 (`Importado`) del
+catálogo de motos. Falta revalidar la respuesta final de Triunfo: su
+`getTokenRest` rechazó tanto la credencial del entorno local como la credencial
+productiva documentada durante el smoke del 14/09/2026.
 
 ---
 
@@ -281,11 +283,11 @@ Mientras tanto, `VehicleType.MOTO` no debería quedar expuesto en el front.
 Hecho el 03/08/2026:
 
 - [x] URLs productivas de Triunfo e InfoAuto en `.env`
-- [x] Contraseñas de producción de los dos proveedores
+- [x] Credenciales productivas de InfoAuto autos y motos
+- [ ] Renovar/verificar credencial productiva de Triunfo: `getTokenRest` la rechaza
 - [x] `INFOAUTO_PRICES_ENABLED=false` — `getVehicleValue()` ya no sale a la red
-- [x] Catálogo MOTO desregistrado: un request de motos devuelve 503 con mensaje
-      claro en vez de un 401 de InfoAuto
-- [x] `Origen` leído del feature 21, con caché en memoria por codia
+- [x] Catálogo MOTO habilitado con credenciales separadas y smoke productivo
+- [x] `Origen` leído del feature 21 (autos) o 15 (motos), con caché por codia
 - [x] `marcaIA` / `modeloIA` / `codia` en `Vehiculo` + migración aplicada
 - [x] `cartera-sync` persiste esos códigos
 - [x] Verificación end-to-end (ver arriba)

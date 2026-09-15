@@ -142,8 +142,21 @@ el endpoint está protegido y no implica una falla. No habilitar
 8. Si Meta no aceptó el sync y todavía estamos dentro de las 24 horas, usar el
    endpoint autenticado `POST /admin/whatsapp/{phone_number_id}/sync`. No
    repetirlo si el primer pedido fue aceptado: la sincronización es one-shot.
-9. Confirmar con Graph API que `is_on_biz_app=true` y
-   `platform_type=CLOUD_API`.
+9. Confirmar con `GET /admin/whatsapp/{phone_number_id}/status` que
+   `verified=true`, `isOnBizApp=true` y `platformType=CLOUD_API`. El alta
+   también devuelve `coexistenceVerified`; si es `false`, no habilitar el bot.
+
+## Auditoría del 14/09/2026
+
+- La suscripción de la app en Graph está activa y conserva los webhooks
+  estándar, incluido `messages` y `account_update`.
+- Faltan `history`, `smb_app_state_sync` y `smb_message_echoes`. Sin esos tres
+  campos no hay sincronización ni pausa automática al responder desde el
+  teléfono.
+- El intento de agregarlos por Graph fue rechazado porque el callback productivo
+  devolvió 403 durante la reverificación. Antes de reintentar, alinear
+  `WEBHOOK_VERIFY_TOKEN` entre el proceso desplegado y la configuración segura
+  usada para actualizar la app. No reemplazar el callback actual.
 
 ## Smoke test obligatorio antes de habilitar el bot
 

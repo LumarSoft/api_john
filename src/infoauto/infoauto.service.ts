@@ -20,14 +20,20 @@ interface InfoAutoFeature {
 interface CatalogConfig {
   baseUrl: string
   authUrl: string
+  email: string
+  password: string
   cachedToken: string | null
   tokenExpiresAt: number | null
+  tokenInFlight: Promise<string> | null
 }
 
-// InfoAuto feature that carries the vehicle origin. Values: NO = Nacional /
-// Mercosur, SI = Internacional, MX = Mexico, CH = China. Triunfo only accepts
-// N or I, so anything other than NO maps to "I".
-const ORIGIN_FEATURE_ID = 21
+// InfoAuto exposes origin differently in each catalog. Cars use feature 21
+// (NO = Nacional/Mercosur; every other value = imported), while motorcycles
+// use boolean feature 15 ("Importado"). Triunfo accepts only N or I.
+const ORIGIN_FEATURE_ID: Record<VehicleType, number> = {
+  [VehicleType.AUTO]: 21,
+  [VehicleType.MOTO]: 15,
+}
 
 @Injectable()
 export class InfoAutoService {
@@ -57,23 +63,30 @@ export class InfoAutoService {
       [VehicleType.AUTO]: {
         baseUrl: this.configService.getOrThrow<string>('INFOAUTO_BASE_URL'),
         authUrl: this.configService.getOrThrow<string>('INFOAUTO_AUTH_URL'),
+        email: this.email,
+        password: this.password,
         cachedToken: null,
         tokenExpiresAt: null,
+        tokenInFlight: null,
       },
     }
 
-    // Motorcycles are a separate InfoAuto product and are not contracted:
-    // production answers 401 "Username not found" on /motorcycles/auth/login.
-    // The catalog is only wired up if both URLs are present, so a MOTO request
-    // fails with a clear 503 instead of a confusing upstream 401.
+    // Motorcycles are a separate InfoAuto product and can use their own
+    // credentials. The catalog is only wired up if both URLs are present, so a
+    // MOTO request fails with a clear 503 when the product is not configured.
     const motoBaseUrl = this.configService.get<string>('INFOAUTO_MOTO_BASE_URL')
     const motoAuthUrl = this.configService.get<string>('INFOAUTO_MOTO_AUTH_URL')
     if (motoBaseUrl && motoAuthUrl) {
       this.catalogs[VehicleType.MOTO] = {
         baseUrl: motoBaseUrl,
         authUrl: motoAuthUrl,
+        // InfoAuto can issue a separate motorcycle account. When it does not,
+        // the shared catalog credentials remain the backwards-compatible path.
+        email: this.configService.get<string>('INFOAUTO_MOTO_EMAIL') || this.email,
+        password: this.configService.get<string>('INFOAUTO_MOTO_PASSWORD') || this.password,
         cachedToken: null,
         tokenExpiresAt: null,
+        tokenInFlight: null,
       }
     } else {
       this.logger.warn('InfoAuto MOTO catalog is not configured — motorcycle quotes are unavailable')
@@ -98,24 +111,49 @@ export class InfoAutoService {
       return catalog.cachedToken
     }
 
+    if (catalog.tokenInFlight) return catalog.tokenInFlight
+
+    catalog.tokenInFlight = this.login(type, catalog).finally(() => {
+      catalog.tokenInFlight = null
+    })
+    return catalog.tokenInFlight
+  }
+
+  private async login(type: VehicleType, catalog: CatalogConfig): Promise<string> {
     this.logger.log(`Refreshing InfoAuto ${type} token...`)
 
     const response = await firstValueFrom(
       this.httpService.post<{ access_token: string }>(
         `${catalog.authUrl}/login`,
         {},
-        { auth: { username: this.email, password: this.password } },
+        {
+          auth: { username: catalog.email, password: catalog.password },
+          timeout: 15_000,
+        },
       ),
     )
 
-    const token = response.data?.access_token
+    // Depending on the InfoAuto product/version, login returns the access
+    // token in the JSON body or in X-Access-Token. Support both contracts.
+    const headerToken = response.headers?.['x-access-token']
+    const token = (Array.isArray(headerToken) ? headerToken[0] : headerToken) || response.data?.access_token
     if (!token) throw new BadGatewayException('InfoAuto API error')
 
-    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString())
-    catalog.tokenExpiresAt = (payload.exp - 300) * 1000
+    catalog.tokenExpiresAt = this.readTokenExpiry(token) ?? Date.now() + 55 * 60 * 1000
     catalog.cachedToken = token
 
     return token
+  }
+
+  private readTokenExpiry(token: string): number | null {
+    try {
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as { exp?: number }
+      return typeof payload.exp === 'number' ? (payload.exp - 300) * 1000 : null
+    } catch {
+      // Some InfoAuto environments return an opaque token. Cache it for less
+      // than the documented hour rather than failing an otherwise valid login.
+      return null
+    }
   }
 
   private parsePagination(raw: string | undefined) {
@@ -174,9 +212,9 @@ export class InfoAutoService {
   }
 
   /**
-   * Vehicle origin for Triunfo's `Origen` field, read from InfoAuto feature 21
-   * ("Importado"). Verified against the cartera: codia 120053 has feature 21 =
-   * NO and its Triunfo policy carries Origen "N".
+   * Vehicle origin for Triunfo's `Origen` field. Cars use InfoAuto feature 21;
+   * motorcycles use boolean feature 15. Verified against the production
+   * contracts of both catalogs.
    *
    * Defaults to "N" when the feature is missing or the lookup fails — the vast
    * majority of the insured fleet is national, and a failed catalog read must
@@ -189,14 +227,23 @@ export class InfoAutoService {
 
     try {
       const { data } = await this.get<InfoAutoFeature[]>(type, `/models/${codia}/features/`)
-      const feature = Array.isArray(data) ? data.find(f => Number(f.id) === ORIGIN_FEATURE_ID) : undefined
+      const featureId = ORIGIN_FEATURE_ID[type]
+      const feature = Array.isArray(data) ? data.find(f => Number(f.id) === featureId) : undefined
 
       if (!feature) {
-        this.logger.debug(`Codia ${codia} has no feature ${ORIGIN_FEATURE_ID} — assuming Origen "N"`)
+        this.logger.debug(`Codia ${codia} has no feature ${featureId} — assuming Origen "N"`)
         return 'N'
       }
 
-      const origin = String(feature.value).toUpperCase() === 'NO' ? 'N' : 'I'
+      const raw = String(feature.value).toUpperCase()
+      const origin =
+        type === VehicleType.MOTO
+          ? feature.value === true || raw === 'TRUE' || raw === 'SI' || raw === '1'
+            ? 'I'
+            : 'N'
+          : raw === 'NO'
+            ? 'N'
+            : 'I'
       this.originCache.set(key, origin)
       return origin
     } catch {

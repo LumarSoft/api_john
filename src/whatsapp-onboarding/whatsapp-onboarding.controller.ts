@@ -41,4 +41,10 @@ export class WhatsappOnboardingController {
   retrySync(@Param('phoneNumberId') phoneNumberId: string) {
     return this.service.retryAppDataSync(phoneNumberId)
   }
+
+  /** Confirms that Meta kept the number on the Business app + Cloud API. */
+  @Get(':phoneNumberId/status')
+  connectionStatus(@Param('phoneNumberId') phoneNumberId: string) {
+    return this.service.getConnectionStatus(phoneNumberId)
+  }
 }
