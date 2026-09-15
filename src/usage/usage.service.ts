@@ -51,7 +51,7 @@ function periodElapsedFraction(period: string, now: Date = new Date()): number {
 export class UsageService {
   private readonly logger = new Logger(UsageService.name)
 
-  // gpt-4o-mini default pricing (USD per 1M tokens). Override via env.
+  // GPT-5.6 Luna default pricing (USD per 1M tokens). Override via env.
   private readonly priceInPer1M: number
   private readonly priceOutPer1M: number
   private readonly metaPerConversation: number
@@ -61,8 +61,8 @@ export class UsageService {
     private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
-    this.priceInPer1M = Number(config.get('OPENAI_PRICE_IN_PER_1M') ?? 0.15)
-    this.priceOutPer1M = Number(config.get('OPENAI_PRICE_OUT_PER_1M') ?? 0.6)
+    this.priceInPer1M = Number(config.get('OPENAI_PRICE_IN_PER_1M') ?? 0.2)
+    this.priceOutPer1M = Number(config.get('OPENAI_PRICE_OUT_PER_1M') ?? 1.2)
     this.metaPerConversation = Number(config.get('META_COST_PER_CONVERSATION_USD') ?? 0.05)
     this.defaultBudget = Number(config.get('DEFAULT_MONTHLY_BUDGET_USD') ?? 20)
   }

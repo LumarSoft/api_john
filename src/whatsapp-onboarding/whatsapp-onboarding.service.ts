@@ -7,6 +7,12 @@ import { PrismaService } from '../prisma/prisma.service'
 import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 
+interface MetaPhoneNumberStatus {
+  id?: string
+  is_on_biz_app?: boolean
+  platform_type?: string
+}
+
 /**
  * Turns the result of an Embedded Signup session into a working number.
  *
@@ -55,6 +61,7 @@ export class WhatsappOnboardingService {
       dto.isCoexistence ?? false,
       accessToken,
     )
+    const coexistenceStatus = dto.isCoexistence ? await this.inspectCoexistenceStatus(phoneNumberId, accessToken) : null
 
     const existing = await this.prisma.phoneNumber.findUnique({
       where: { phoneNumberId },
@@ -153,6 +160,9 @@ export class WhatsappOnboardingService {
       pinSet,
       historySyncRequested,
       contactsSyncRequested,
+      coexistenceVerified: coexistenceStatus?.verified ?? null,
+      isOnBizApp: coexistenceStatus?.isOnBizApp ?? null,
+      platformType: coexistenceStatus?.platformType ?? null,
       tokenExpiresAt: expiresAt,
     }
   }
@@ -188,6 +198,15 @@ export class WhatsappOnboardingService {
       historySyncRequested: await this.requestAppDataSync(metaPhoneNumberId, 'history', accessToken),
       contactsSyncRequested: await this.requestAppDataSync(metaPhoneNumberId, 'smb_app_state_sync', accessToken),
     }
+  }
+
+  /** Read-only production check used after Embedded Signup and during cutover. */
+  async getConnectionStatus(metaPhoneNumberId: string) {
+    const accessToken = await this.getAccessTokenForPhoneNumber(metaPhoneNumberId)
+    if (!accessToken) {
+      throw new BadRequestException(`El número ${metaPhoneNumberId} no tiene un WABA activo`)
+    }
+    return this.inspectCoexistenceStatus(metaPhoneNumberId, accessToken)
   }
 
   /** Called from the webhook when Meta reports account_update → PARTNER_REMOVED. */
@@ -310,6 +329,34 @@ export class WhatsappOnboardingService {
     } catch (error) {
       this.logger.error(`No se pudo solicitar sync ${syncType} para ${phoneNumberId}: ${describeGraphError(error)}`)
       return false
+    }
+  }
+
+  private async inspectCoexistenceStatus(phoneNumberId: string, accessToken: string) {
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get<MetaPhoneNumberStatus>(`${this.graphBase}/${phoneNumberId}`, {
+          params: { fields: 'id,is_on_biz_app,platform_type' },
+          headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 15_000,
+        }),
+      )
+      const isOnBizApp = data?.is_on_biz_app === true
+      const platformType = data?.platform_type ?? null
+      return {
+        metaPhoneNumberId: phoneNumberId,
+        verified: isOnBizApp && platformType === 'CLOUD_API',
+        isOnBizApp,
+        platformType,
+      }
+    } catch (error) {
+      this.logger.error(`No se pudo verificar Coexistence para ${phoneNumberId}: ${describeGraphError(error)}`)
+      return {
+        metaPhoneNumberId: phoneNumberId,
+        verified: false,
+        isOnBizApp: null,
+        platformType: null,
+      }
     }
   }
 

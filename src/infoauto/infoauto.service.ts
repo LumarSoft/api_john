@@ -24,10 +24,12 @@ interface CatalogConfig {
   password: string
   cachedToken: string | null
   tokenExpiresAt: number | null
+  tokenInFlight: Promise<string> | null
 }
 
-// The two InfoAuto products use different feature catalogs. Cars encode
-// "Importado" as a choice; motorcycles encode it as a boolean.
+// InfoAuto exposes origin differently in each catalog. Cars use feature 21
+// (NO = Nacional/Mercosur; every other value = imported), while motorcycles
+// use boolean feature 15 ("Importado"). Triunfo accepts only N or I.
 const ORIGIN_FEATURE_ID: Record<VehicleType, number> = {
   [VehicleType.AUTO]: 21,
   [VehicleType.MOTO]: 15,
@@ -37,6 +39,8 @@ const ORIGIN_FEATURE_ID: Record<VehicleType, number> = {
 export class InfoAutoService {
   private readonly logger = new Logger(InfoAutoService.name)
 
+  private readonly email: string
+  private readonly password: string
   private readonly pricesEnabled: boolean
   private readonly catalogs: Partial<Record<VehicleType, CatalogConfig>>
 
@@ -48,6 +52,9 @@ export class InfoAutoService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
+    this.email = this.configService.getOrThrow<string>('INFOAUTO_EMAIL')
+    this.password = this.configService.getOrThrow<string>('INFOAUTO_PASSWORD')
+
     // The subscription covers the catalog but not the valuation: list_price,
     // prices, photos, batch and archives all return 403 in production.
     this.pricesEnabled = this.configService.get<string>('INFOAUTO_PRICES_ENABLED') === 'true'
@@ -56,25 +63,30 @@ export class InfoAutoService {
       [VehicleType.AUTO]: {
         baseUrl: this.configService.getOrThrow<string>('INFOAUTO_BASE_URL'),
         authUrl: this.configService.getOrThrow<string>('INFOAUTO_AUTH_URL'),
-        email: this.configService.getOrThrow<string>('INFOAUTO_EMAIL'),
-        password: this.configService.getOrThrow<string>('INFOAUTO_PASSWORD'),
+        email: this.email,
+        password: this.password,
         cachedToken: null,
         tokenExpiresAt: null,
+        tokenInFlight: null,
       },
     }
 
-    // Motorcycles have a separate subscription and credentials. Keep this
-    // catalog optional so deployments without it return 503 for moto requests.
+    // Motorcycles are a separate InfoAuto product and can use their own
+    // credentials. The catalog is only wired up if both URLs are present, so a
+    // MOTO request fails with a clear 503 when the product is not configured.
     const motoBaseUrl = this.configService.get<string>('INFOAUTO_MOTO_BASE_URL')
     const motoAuthUrl = this.configService.get<string>('INFOAUTO_MOTO_AUTH_URL')
     if (motoBaseUrl && motoAuthUrl) {
       this.catalogs[VehicleType.MOTO] = {
         baseUrl: motoBaseUrl,
         authUrl: motoAuthUrl,
-        email: this.configService.getOrThrow<string>('INFOAUTO_MOTO_EMAIL'),
-        password: this.configService.getOrThrow<string>('INFOAUTO_MOTO_PASSWORD'),
+        // InfoAuto can issue a separate motorcycle account. When it does not,
+        // the shared catalog credentials remain the backwards-compatible path.
+        email: this.configService.get<string>('INFOAUTO_MOTO_EMAIL') || this.email,
+        password: this.configService.get<string>('INFOAUTO_MOTO_PASSWORD') || this.password,
         cachedToken: null,
         tokenExpiresAt: null,
+        tokenInFlight: null,
       }
     } else {
       this.logger.warn('InfoAuto MOTO catalog is not configured — motorcycle quotes are unavailable')
@@ -99,24 +111,49 @@ export class InfoAutoService {
       return catalog.cachedToken
     }
 
+    if (catalog.tokenInFlight) return catalog.tokenInFlight
+
+    catalog.tokenInFlight = this.login(type, catalog).finally(() => {
+      catalog.tokenInFlight = null
+    })
+    return catalog.tokenInFlight
+  }
+
+  private async login(type: VehicleType, catalog: CatalogConfig): Promise<string> {
     this.logger.log(`Refreshing InfoAuto ${type} token...`)
 
     const response = await firstValueFrom(
       this.httpService.post<{ access_token: string }>(
         `${catalog.authUrl}/login`,
         {},
-        { auth: { username: catalog.email, password: catalog.password } },
+        {
+          auth: { username: catalog.email, password: catalog.password },
+          timeout: 15_000,
+        },
       ),
     )
 
-    const token = response.data?.access_token
+    // Depending on the InfoAuto product/version, login returns the access
+    // token in the JSON body or in X-Access-Token. Support both contracts.
+    const headerToken = response.headers?.['x-access-token']
+    const token = (Array.isArray(headerToken) ? headerToken[0] : headerToken) || response.data?.access_token
     if (!token) throw new BadGatewayException('InfoAuto API error')
 
-    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString())
-    catalog.tokenExpiresAt = (payload.exp - 300) * 1000
+    catalog.tokenExpiresAt = this.readTokenExpiry(token) ?? Date.now() + 55 * 60 * 1000
     catalog.cachedToken = token
 
     return token
+  }
+
+  private readTokenExpiry(token: string): number | null {
+    try {
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()) as { exp?: number }
+      return typeof payload.exp === 'number' ? (payload.exp - 300) * 1000 : null
+    } catch {
+      // Some InfoAuto environments return an opaque token. Cache it for less
+      // than the documented hour rather than failing an otherwise valid login.
+      return null
+    }
   }
 
   private parsePagination(raw: string | undefined) {
@@ -138,7 +175,7 @@ export class InfoAutoService {
       token = await this.getToken(type)
     } catch (error) {
       const status = error instanceof AxiosError ? (error.response?.status ?? error.code) : 'unknown'
-      this.logger.error(`InfoAuto ${type} login failed → ${status} (check catalog credentials)`)
+      this.logger.error(`InfoAuto ${type} login failed → ${status} (check INFOAUTO_EMAIL / INFOAUTO_PASSWORD)`)
       throw new BadGatewayException('InfoAuto API error')
     }
 
@@ -175,8 +212,9 @@ export class InfoAutoService {
   }
 
   /**
-   * Vehicle origin for Triunfo's `Origen` field. Cars use feature 21 (NO/SI);
-   * motorcycles use feature 15 (false/true).
+   * Vehicle origin for Triunfo's `Origen` field. Cars use InfoAuto feature 21;
+   * motorcycles use boolean feature 15. Verified against the production
+   * contracts of both catalogs.
    *
    * Defaults to "N" when the feature is missing or the lookup fails — the vast
    * majority of the insured fleet is national, and a failed catalog read must
@@ -197,12 +235,13 @@ export class InfoAutoService {
         return 'N'
       }
 
+      const raw = String(feature.value).toUpperCase()
       const origin =
         type === VehicleType.MOTO
-          ? feature.value === true || String(feature.value).toLowerCase() === 'true'
+          ? feature.value === true || raw === 'TRUE' || raw === 'SI' || raw === '1'
             ? 'I'
             : 'N'
-          : String(feature.value).toUpperCase() === 'NO'
+          : raw === 'NO'
             ? 'N'
             : 'I'
       this.originCache.set(key, origin)
