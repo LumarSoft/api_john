@@ -13,6 +13,9 @@ interface MetaPhoneNumberStatus {
   platform_type?: string
 }
 
+const COEXISTENCE_STATUS_ATTEMPTS = 4
+const COEXISTENCE_STATUS_RETRY_MS = 750
+
 /**
  * Turns the result of an Embedded Signup session into a working number.
  *
@@ -61,7 +64,20 @@ export class WhatsappOnboardingService {
       dto.isCoexistence ?? false,
       accessToken,
     )
-    const coexistenceStatus = dto.isCoexistence ? await this.inspectCoexistenceStatus(phoneNumberId, accessToken) : null
+    const coexistenceStatus = dto.isCoexistence
+      ? await this.waitForCoexistenceConfirmation(phoneNumberId, accessToken)
+      : null
+
+    // `featureType=whatsapp_business_app_onboarding` is a request, not a
+    // guarantee: Meta can still finish the standard Cloud API flow. Graph is
+    // authoritative. Do not subscribe or persist a false Coexistence result.
+    if (dto.isCoexistence && !coexistenceStatus?.verified) {
+      throw new BadRequestException(
+        'Meta registró el número únicamente en Cloud API y no confirmó Coexistence ' +
+          '(is_on_biz_app=false). El número no fue guardado. Usá un número activo en WhatsApp Business, ' +
+          'elegí conectar la aplicación existente y completá la confirmación desde el teléfono.',
+      )
+    }
 
     const existing = await this.prisma.phoneNumber.findUnique({
       where: { phoneNumberId },
@@ -378,6 +394,16 @@ export class WhatsappOnboardingService {
         platformType: null,
       }
     }
+  }
+
+  /** Graph may take a few seconds to expose the Business-app flag after signup. */
+  private async waitForCoexistenceConfirmation(phoneNumberId: string, accessToken: string) {
+    let status = await this.inspectCoexistenceStatus(phoneNumberId, accessToken)
+    for (let attempt = 1; !status.verified && attempt < COEXISTENCE_STATUS_ATTEMPTS; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, COEXISTENCE_STATUS_RETRY_MS))
+      status = await this.inspectCoexistenceStatus(phoneNumberId, accessToken)
+    }
+    return status
   }
 
   private async trySetPin(phoneNumberId: string, pin: string, accessToken: string): Promise<boolean> {

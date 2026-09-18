@@ -135,6 +135,9 @@ el endpoint está protegido y no implica una falla. No habilitar
    y copiar el código de verificación.
 6. Completar Embedded Signup y esperar la confirmación del panel. No cerrar el
    teléfono durante la sincronización.
+   El panel debe rechazar el alta si Meta devuelve el evento estándar `FINISH`
+   o si Graph informa `is_on_biz_app=false`; esos resultados corresponden a
+   Cloud API convencional y no deben persistirse como Coexistence.
 7. Verificar en logs:
    - `WABA ... conectada ... coexistence=true`;
    - `historySyncRequested=true` y `contactsSyncRequested=true` en la respuesta;
