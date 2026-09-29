@@ -10,7 +10,7 @@ import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { AgentEchoDto } from './dto/agent-echo.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
-import { AdjuntoMeta, MAX_FILES, toAdjuntoMeta } from '../siniestros/siniestro-upload.config'
+import { AdjuntoMeta, MAX_FILES, toStoredAdjuntos } from '../siniestros/siniestro-upload.config'
 import { type ActiveClosure, computeStatus, formatSchedule, parseSchedule } from '../business-hours/schedule'
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 
@@ -643,7 +643,7 @@ export class BotService {
     }
 
     const existing = Array.isArray(siniestro.adjuntos) ? (siniestro.adjuntos as unknown as AdjuntoMeta[]) : []
-    const merged = [...existing, ...files.map(f => toAdjuntoMeta(f, tipo))].slice(-MAX_FILES)
+    const merged = [...existing, ...(await toStoredAdjuntos(files, tipo))].slice(-MAX_FILES)
 
     await this.prisma.siniestro.update({
       where: { id: siniestro.id },

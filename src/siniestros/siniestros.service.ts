@@ -6,7 +6,8 @@ import { NovedadesService } from '../novedades/novedades.service'
 import { CreateSiniestroDto } from './dto/create-siniestro.dto'
 import { ListSiniestrosDto } from './dto/list-siniestros.dto'
 import { UpdateSiniestroDto } from './dto/update-siniestro.dto'
-import { toAdjuntoMeta } from './siniestro-upload.config'
+import { toStoredAdjuntos } from './siniestro-upload.config'
+import { withSignedAdjuntos } from './adjunto-url'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -74,7 +75,7 @@ export class SiniestrosService {
       throw new NotFoundException(`Policy ${dto.polizaId} not found`)
     }
 
-    const adjuntos = files.map(f => toAdjuntoMeta(f))
+    const adjuntos = await toStoredAdjuntos(files)
 
     const siniestro = await this.prisma.siniestro.create({
       data: {
@@ -106,15 +107,16 @@ export class SiniestrosService {
       producerCodeId: poliza.producerCodeId,
     })
 
-    return siniestro
+    return withSignedAdjuntos(siniestro)
   }
 
-  findAll(clientId: number, producerId: number) {
-    return this.prisma.siniestro.findMany({
+  async findAll(clientId: number, producerId: number) {
+    const siniestros = await this.prisma.siniestro.findMany({
       where: { clientId, producerId, deletedAt: null },
       select: SINIESTRO_SELECT,
       orderBy: { createdAt: 'desc' },
     })
+    return siniestros.map(withSignedAdjuntos)
   }
 
   async findOne(id: number, clientId: number, producerId: number) {
@@ -125,7 +127,7 @@ export class SiniestrosService {
     if (!siniestro) {
       throw new NotFoundException(`Siniestro ${id} not found`)
     }
-    return siniestro
+    return withSignedAdjuntos(siniestro)
   }
 
   // ─── Admin (panel web) ─────────────────────────────────
@@ -147,7 +149,7 @@ export class SiniestrosService {
     ])
 
     return {
-      data,
+      data: data.map(withSignedAdjuntos),
       total,
       page,
       pageSize,
@@ -178,7 +180,7 @@ export class SiniestrosService {
     if (!siniestro) {
       throw new NotFoundException(`Siniestro ${id} not found`)
     }
-    return siniestro
+    return withSignedAdjuntos(siniestro)
   }
 
   /** Admin progresses the claim and/or records the official Triunfo number after manual filing. */
@@ -189,7 +191,7 @@ export class SiniestrosService {
 
     await this.findOneForAdmin(id, producerId, codeIds)
 
-    return this.prisma.siniestro.update({
+    const updated = await this.prisma.siniestro.update({
       where: { id },
       data: {
         ...(dto.estado !== undefined && { estado: dto.estado }),
@@ -199,6 +201,7 @@ export class SiniestrosService {
       },
       select: ADMIN_SINIESTRO_SELECT,
     })
+    return withSignedAdjuntos(updated)
   }
 
   private buildAdminWhere(producerId: number, codeIds: number[], query: ListSiniestrosDto): Prisma.SiniestroWhereInput {

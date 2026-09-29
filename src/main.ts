@@ -4,6 +4,8 @@ import { NestExpressApplication } from '@nestjs/platform-express'
 import { join } from 'path'
 import type { ServerResponse } from 'http'
 import { AppModule } from './app.module'
+import { requireSignedAdjunto } from './siniestros/adjunto-url'
+import { SINIESTROS_PUBLIC_PREFIX } from './siniestros/siniestro-upload.config'
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule)
@@ -27,6 +29,10 @@ async function bootstrap() {
     origin: corsOrigin.length === 1 ? corsOrigin[0] : corsOrigin,
     credentials: true,
   })
+
+  // Claim photos are personal documents: only URLs signed by the API (see
+  // adjunto-url.ts) get through. Must be registered before the static handler.
+  app.use(SINIESTROS_PUBLIC_PREFIX, requireSignedAdjunto)
 
   // Serve uploaded files (siniestro attachments, etc.) with CORS headers so the
   // front can fetch/render them without being blocked by the browser.

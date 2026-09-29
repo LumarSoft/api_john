@@ -1,7 +1,9 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, Logger } from '@nestjs/common'
 import { existsSync, mkdirSync } from 'fs'
-import { extname, join } from 'path'
+import { rename, unlink } from 'fs/promises'
+import { basename, dirname, extname, join } from 'path'
 import { diskStorage } from 'multer'
+import sharp from 'sharp'
 import type { Request } from 'express'
 
 export const SINIESTROS_UPLOAD_DIR = join(process.cwd(), 'uploads', 'siniestros')
@@ -56,6 +58,57 @@ export interface AdjuntoMeta {
   // Optional category of the photo, set by the bot's guided claim flow:
   // 'tarjeta_verde' | 'carnet' | 'tarjeta_verde_tercero' | 'carnet_tercero' | 'otro'.
   tipo?: string
+}
+
+/** Longest side of a stored photo: enough to read a license or a vehicle card. */
+const MAX_IMAGE_SIDE = 1280
+const WEBP_QUALITY = 70
+const CONVERTIBLE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic'])
+
+const logger = new Logger('SiniestroUpload')
+
+/**
+ * Re-encodes an uploaded photo as WebP, at most MAX_IMAGE_SIDE px: about half
+ * the size of a WhatsApp JPEG and a fraction of a camera original. `rotate()`
+ * applies the EXIF orientation, and the output carries no EXIF at all — the
+ * GPS location of the photo is dropped too. PDFs pass through untouched; a
+ * photo sharp can't decode (e.g. HEIC without libheif) is kept as uploaded.
+ */
+export async function optimizeImage(file: MulterFile): Promise<MulterFile> {
+  if (!CONVERTIBLE_MIME.has(file.mimetype)) return file
+
+  const name = `${basename(file.filename, extname(file.filename))}.webp`
+  const target = join(dirname(file.path), name)
+  // Writing straight onto the source (a .webp upload) would clobber the input.
+  const output = target === file.path ? `${target}.tmp` : target
+  try {
+    const info = await sharp(file.path)
+      .rotate()
+      .resize({ width: MAX_IMAGE_SIDE, height: MAX_IMAGE_SIDE, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: WEBP_QUALITY })
+      .toFile(output)
+    if (output === target) await unlink(file.path)
+    else await rename(output, target)
+    return {
+      ...file,
+      filename: name,
+      path: target,
+      mimetype: 'image/webp',
+      size: info.size,
+      originalname: `${basename(file.originalname, extname(file.originalname))}.webp`,
+    }
+  } catch (error) {
+    await unlink(output).catch(() => undefined)
+    logger.warn(`Could not convert ${file.filename} to WebP, keeping the original: ${(error as Error).message}`)
+    return file
+  }
+}
+
+/** Optimizes each upload (one at a time, to bound memory) and builds its metadata. */
+export async function toStoredAdjuntos(files: MulterFile[], tipo?: string): Promise<AdjuntoMeta[]> {
+  const stored: AdjuntoMeta[] = []
+  for (const file of files) stored.push(toAdjuntoMeta(await optimizeImage(file), tipo))
+  return stored
 }
 
 export function toAdjuntoMeta(file: MulterFile, tipo?: string): AdjuntoMeta {
