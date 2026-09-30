@@ -5,6 +5,7 @@ function setup() {
   const phone = { id: 4, producerId: 2, responsibleProducerCodeId: 8, monthlyBudgetUsd: 200, budgetExceededAt: null }
   const events = new Set<string>()
   let total = 0
+  const counters = { openaiInputTokens: 0, openaiOutputTokens: 0, openaiCalls: 0, metaMessages: 0 }
   const prisma = {
     phoneNumber: { findFirst: jest.fn().mockResolvedValue(phone), update: jest.fn() },
     usageEvent: {
@@ -16,7 +17,8 @@ function setup() {
     usageMonthly: {
       upsert: jest.fn().mockImplementation(async ({ create }) => {
         total += create.totalCostUsd
-        return { id: 9, totalCostUsd: total }
+        for (const key of Object.keys(counters)) counters[key] += create[key] ?? 0
+        return { id: 9, totalCostUsd: total, ...counters }
       }),
       update: jest.fn().mockResolvedValue({}),
       findMany: jest.fn(),
@@ -29,12 +31,32 @@ function setup() {
 }
 
 describe('monthly usage billing', () => {
-  it('uses cost times three regardless of old plan floors and ceilings', () => {
+  it('charges nothing without use and enforces the full-month commercial range', () => {
     const { service } = setup()
-    const phone = { monthlyBasePriceUsd: 50, monthlyMaxPriceUsd: 70 }
-    expect(service.priceFor(phone, 0)).toBe(0)
-    expect(service.priceFor(phone, 2)).toBe(6)
-    expect(service.priceFor(phone, 100)).toBe(300)
+    expect(service.priceFor({}, undefined, '2026-08')).toBe(0)
+    expect(service.priceFor({}, { openaiInputTokens: 0, metaMessages: 0 }, '2026-08')).toBe(0)
+    expect(service.priceFor({}, { openaiInputTokens: 1000 }, '2026-08')).toBe(50)
+    expect(service.priceFor({}, { openaiInputTokens: 10_000_000 }, '2026-08')).toBe(100)
+  })
+
+  it('prices 62,218 tokens daily for 30 days at approximately USD 70', () => {
+    const { service } = setup()
+    expect(service.priceFor({}, { openaiInputTokens: 62_218 * 30 }, '2026-08')).toBe(70)
+    expect(service.priceFor({}, { openaiInputTokens: 60_000 * 30 }, '2026-08')).toBe(67.5)
+    expect(service.priceFor({}, { openaiInputTokens: 62_218 * 30, metaMessages: 100 }, '2026-08')).toBe(77.8)
+  })
+
+  it('prorates only the minimum during the running month, never the consumed amount', () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-02T03:00:00Z'))
+    try {
+      const { service } = setup()
+      expect(service.priceFor({}, { openaiInputTokens: 62_218 }, '2026-10')).toBe(2.33)
+      expect(service.priceFor({}, { openaiInputTokens: 1_000 }, '2026-10')).toBe(1.61)
+      expect(service.priceFor({}, { metaMessages: 1_000 }, '2026-10')).toBe(78)
+      expect(service.priceFor({}, {}, '2026-10')).toBe(0)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('uses Argentina local time at the month boundary', () => {
@@ -42,7 +64,7 @@ describe('monthly usage billing', () => {
     expect(currentPeriod(new Date('2026-10-01T03:00:00Z'))).toBe('2026-10')
   })
 
-  it('charges only billable Meta messages and counts free messages at zero cost', async () => {
+  it('preserves provider-free Meta cost while charging all messages commercially', async () => {
     const { service, prisma } = setup()
     const data = {
       metaPhoneNumberId: 'PN',
@@ -63,7 +85,7 @@ describe('monthly usage billing', () => {
       metaBillableMessages: 1,
       totalCostUsd: 0.026,
     })
-    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 0.08 } })
+    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 50 } })
   })
 
   it('deduplicates status retries durably by phone/message id', async () => {
@@ -111,9 +133,16 @@ describe('monthly usage billing', () => {
   it('does not prorate monthly recorded consumption by elapsed days', async () => {
     const { service, prisma } = setup()
     prisma.usageMonthly.findMany.mockResolvedValue([
-      { totalCostUsd: 10, openaiCostUsd: 2, metaCostUsd: 8, billedUsd: 50, phoneNumber: {} },
+      {
+        totalCostUsd: 10,
+        openaiCostUsd: 2,
+        metaCostUsd: 8,
+        billedUsd: 50,
+        openaiInputTokens: 62_218 * 30,
+        phoneNumber: {},
+      },
     ])
     const report = await service.getSummary(2, [8], '2026-09')
-    expect(report.rows[0]).toMatchObject({ billedUsd: 30, accruedUsd: 30, marginUsd: 20 })
+    expect(report.rows[0]).toMatchObject({ billedUsd: 70, accruedUsd: 70, marginUsd: 60 })
   })
 })

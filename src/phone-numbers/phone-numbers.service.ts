@@ -67,7 +67,7 @@ export class PhoneNumbersService {
     return numbers.map(n => {
       const usage = n.usageMonthly[0]
       const cost = Number(usage?.totalCostUsd ?? 0)
-      const billed = this.usage.priceFor(n, cost)
+      const billed = this.usage.priceFor(n, usage, period)
 
       return {
         id: n.id,
@@ -80,10 +80,10 @@ export class PhoneNumbersService {
         servedCodes: n.servedCodes.map(s => s.producerCode),
         usage: {
           period,
+          pricing: this.usage.commercialPricing,
           // Activity is not sensitive: the client may see its own volume.
           openaiCalls: usage?.openaiCalls ?? 0,
           metaMessages: usage?.metaMessages ?? 0,
-          metaBillableMessages: usage?.metaBillableMessages ?? 0,
           inputTokens: usage?.openaiInputTokens ?? 0,
           outputTokens: usage?.openaiOutputTokens ?? 0,
           metaConversations: usage?.metaConversations ?? 0,
@@ -93,6 +93,7 @@ export class PhoneNumbersService {
           // Our cost and margin: owner only.
           ...(isOwner
             ? {
+                metaBillableMessages: usage?.metaBillableMessages ?? 0,
                 openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
                 metaCostUsd: Number(usage?.metaCostUsd ?? 0),
                 totalCostUsd: cost,

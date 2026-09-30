@@ -181,7 +181,7 @@ export class OwnerService {
     return phones.map(p => {
       const u = p.usageMonthly[0]
       const cost = Number(u?.totalCostUsd ?? 0)
-      const billed = this.usage.priceFor(p, cost)
+      const billed = this.usage.priceFor(p, u, period)
 
       return {
         id: p.id,

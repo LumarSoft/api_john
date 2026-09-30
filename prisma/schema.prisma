@@ -212,7 +212,7 @@ model PhoneNumber {
 
   // ── Billing (what the CLIENT pays, as opposed to what the number COSTS) ──
   // Legacy plan settings retained for schema compatibility. Billing now always
-  // uses the actual accumulated provider cost × 3, without floor or ceiling.
+  // uses the configured commercial token/message tariff, with USD 50–100 defaults.
   monthlyBasePriceUsd Decimal? @db.Decimal(10, 2)
   monthlyMaxPriceUsd  Decimal? @db.Decimal(10, 2)
   billingMarkup      Decimal? @db.Decimal(6, 2)
@@ -250,7 +250,7 @@ model UsageMonthly {
   // What the number COSTS us (OpenAI + Meta). Measured, never adjusted.
   totalCostUsd       Decimal  @default(0) @db.Decimal(12, 6)
   // What the client is INVOICED for this number this month:
-  //   totalCostUsd × 3 (no floor, ceiling or calendar proration)
+  //   commercial token/message tariff, prorated monthly minimum and full-month cap
   // A business rule, not a measurement — kept in its own column precisely so the
   // measured cost above stays truthful and the margin is visible.
   billedUsd          Decimal  @default(0) @db.Decimal(12, 2)

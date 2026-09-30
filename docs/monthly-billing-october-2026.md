@@ -1,9 +1,34 @@
 # Consumo mensual por número desde octubre de 2026
 
-El importe estimado al cliente es `(costo Meta + costo OpenAI) × 3`, redondeado
-a centavos al final del cálculo mensual. La ganancia estimada es el importe
-menos ambos costos. No hay piso, techo ni prorrateo por días transcurridos.
-El mes se determina en `America/Argentina/Cordoba`, según la fecha del evento.
+## Tarifa comercial del servicio
+
+El importe al cliente se calcula con todos los mensajes Meta entregados y la
+suma de tokens de entrada y salida, incluidos los tokens en caché:
+
+- USD 0,0375 por cada 1.000 tokens.
+- USD 0,078 por cada mensaje Meta, sin excluir mensajes gratuitos del proveedor.
+- Mes completo con uso: mínimo USD 50, máximo USD 100 por número.
+- Sin tokens, llamadas ni mensajes: USD 0, aun cuando el número esté activo.
+- Durante el mes corriente, solo se prorratea el mínimo por el tiempo
+  transcurrido en Argentina. El consumo se acumula completo; no se multiplica
+  por la fracción del calendario. El máximo siempre es USD 100.
+
+Fórmula: `min(100, max(50 × fracción del mes, tokens / 1000 × 0,0375 + mensajes × 0,078))`.
+Los meses cerrados tienen fracción 1. El redondeo a centavos ocurre al final.
+
+Ejemplo: 62.218 tokens diarios durante 30 días suman 1.866.540 tokens,
+importe comercial de USD 70,00 sin mensajes Meta. Con 100 mensajes adicionales,
+el importe es USD 77,80. Un consumo mayor queda limitado a USD 100.
+
+Las variables `COMMERCIAL_MONTHLY_MIN_USD`, `COMMERCIAL_MONTHLY_MAX_USD`,
+`COMMERCIAL_TOKEN_PRICE_PER_1000` y `COMMERCIAL_META_MESSAGE_PRICE_USD`
+configuran estos valores. Las antiguas columnas de planes por número no se usan.
+
+El costo estimado de los proveedores se registra por separado y se muestra
+únicamente al propietario, junto con la ganancia: importe comercial menos costo.
+El panel del cliente muestra la tarifa del servicio y el total de mensajes,
+sin detalles de bonificaciones del proveedor. El presupuesto que controla el
+acceso al LLM sigue limitando el gasto del proveedor, no el precio comercial.
 
 ## Tarifas verificadas el 30 de septiembre
 
@@ -32,11 +57,6 @@ La cantidad de llamadas OpenAI se muestra como actividad. Su costo depende de
 los tokens de cada llamada, incluidos los tokens en caché. Una respuesta del
 bot puede requerir varias llamadas por consultas a herramientas.
 
-Ejemplo: 3.000 mensajes de servicio en Argentina, con 1.000 gratuitos,
-1 millón de tokens de entrada sin caché y 100.000 de salida:
-Meta USD 52,00 + OpenAI USD 0,32 = costo USD 52,32;
-importe al cliente USD 156,96; ganancia USD 104,64.
-
 ## Registro y actualización
 
 Aplicar la migración `20260930140000_monthly_message_billing` antes de iniciar
@@ -48,6 +68,9 @@ por número y mensaje. El webhook falla si la API no logra persistirlos para que
 Meta reintente. Cada llamada OpenAI se registra por ID de completion; el bot
 reintenta tres veces y deja un error en el log si falla el registro.
 
-Los meses previos conservan el costo registrado. No se pueden reconstruir sus
+Los meses previos conservan el costo del proveedor registrado; la tarifa comercial se calcula con los contadores disponibles. No se pueden reconstruir sus
 conteos exactos de mensajes y llamadas desde los antiguos totales agregados.
 Este cambio no aplica migraciones ni despliega servicios en producción.
+
+Este ajuste comercial no agrega tablas ni columnas: no requiere una migración
+nueva. La migración anterior de consumo mensual debe estar aplicada.

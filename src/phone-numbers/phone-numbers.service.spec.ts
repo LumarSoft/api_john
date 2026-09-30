@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config'
 import { Role } from 'generated/prisma/client'
 import { PhoneNumbersService } from './phone-numbers.service'
 import { UsageService } from '../usage/usage.service'
@@ -30,7 +31,7 @@ describe('monthly phone number report', () => {
         ]),
       },
     }
-    const usage = { priceFor: UsageService.prototype.priceFor }
+    const usage = new UsageService(prisma as any, { get: () => undefined } as unknown as ConfigService)
     return { prisma, service: new PhoneNumbersService(prisma as any, usage as any) }
   }
 
@@ -43,20 +44,21 @@ describe('monthly phone number report', () => {
     })
     expect(rows[0].usage).toMatchObject({
       period: '2026-09',
-      billedUsd: 15.63,
+      billedUsd: 94.01,
       openaiCalls: 80,
       metaMessages: 1200,
-      metaBillableMessages: 200,
     })
     expect(rows[0].usage).not.toHaveProperty('totalCostUsd')
     expect(rows[0].usage).not.toHaveProperty('marginUsd')
+    expect(rows[0].usage).not.toHaveProperty('metaBillableMessages')
   })
 
   it('exposes provider cost and profit only to the owner', async () => {
     const { service } = setup()
     expect((await service.list(2, Role.OWNER, '2026-09'))[0].usage).toMatchObject({
       totalCostUsd: 5.21,
-      marginUsd: 10.42,
+      marginUsd: 88.8,
+      metaBillableMessages: 200,
     })
   })
 

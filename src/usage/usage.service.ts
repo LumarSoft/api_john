@@ -23,6 +23,13 @@ export interface RecordMetaInput {
   timestamp: number
 }
 
+export interface MonthlyBillableUsage {
+  openaiInputTokens?: number
+  openaiOutputTokens?: number
+  openaiCalls?: number
+  metaMessages?: number
+}
+
 /** Current month key in local time, e.g. "2026-06". */
 export function currentPeriod(date = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -41,13 +48,18 @@ export function currentPeriod(date = new Date()): string {
  * until it reaches the full monthly charge on the last day.
  */
 function periodElapsedFraction(period: string, now: Date = new Date()): number {
-  if (period !== currentPeriod()) return 1 // a past (or future) month is not partial
-
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-  // Include the fraction of today already gone, so the number also moves within
-  // the day instead of jumping once at midnight.
-  const elapsedDays = now.getDate() - 1 + (now.getHours() * 60 + now.getMinutes()) / (24 * 60)
-
+  if (period !== currentPeriod(now)) return 1
+  const [year, month] = period.split('-').map(Number)
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Cordoba',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(now)
+  const part = (type: string) => Number(parts.find(p => p.type === type)!.value)
+  const elapsedDays = part('day') - 1 + (part('hour') * 60 + part('minute')) / (24 * 60)
   return Math.min(1, Math.max(0, elapsedDays / daysInMonth))
 }
 
@@ -67,6 +79,12 @@ export class UsageService {
   private readonly priceCachedPer1M: number
   private readonly metaMarket: string
   private readonly defaultBudget: number
+  readonly commercialPricing: {
+    minimumUsd: number
+    maximumUsd: number
+    tokenRatePer1000: number
+    metaMessageRateUsd: number
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -77,6 +95,17 @@ export class UsageService {
     this.priceCachedPer1M = Number(config.get('OPENAI_PRICE_CACHED_PER_1M') ?? 0.02)
     this.metaMarket = config.get('META_DEFAULT_MARKET') ?? 'Argentina'
     this.defaultBudget = Number(config.get('DEFAULT_MONTHLY_BUDGET_USD') ?? 20)
+    this.commercialPricing = {
+      minimumUsd: Number(config.get('COMMERCIAL_MONTHLY_MIN_USD') ?? 50),
+      maximumUsd: Number(config.get('COMMERCIAL_MONTHLY_MAX_USD') ?? 100),
+      tokenRatePer1000: Number(config.get('COMMERCIAL_TOKEN_PRICE_PER_1000') ?? 0.0375),
+      metaMessageRateUsd: Number(config.get('COMMERCIAL_META_MESSAGE_PRICE_USD') ?? 0.078),
+    }
+    if (
+      Object.values(this.commercialPricing).some(value => !Number.isFinite(value) || value <= 0) ||
+      this.commercialPricing.minimumUsd > this.commercialPricing.maximumUsd
+    )
+      throw new Error('Invalid commercial billing configuration')
   }
 
   private async resolvePhone(metaPhoneNumberId: string) {
@@ -94,9 +123,15 @@ export class UsageService {
     })
   }
 
-  /** All reports use actual accumulated monthly usage × 3. */
-  priceFor(_phone: unknown, cost: number): number {
-    return Math.round((Number.isFinite(cost) && cost > 0 ? cost : 0) * 3 * 100) / 100
+  /** Commercial service tariff; provider costs remain separate for margin/budgets. */
+  priceFor(_phone: unknown, usage: MonthlyBillableUsage | undefined, period = currentPeriod()): number {
+    const tokens = (usage?.openaiInputTokens ?? 0) + (usage?.openaiOutputTokens ?? 0)
+    const messages = usage?.metaMessages ?? 0
+    if (tokens === 0 && messages === 0 && !usage?.openaiCalls) return 0
+    const pricing = this.commercialPricing
+    const consumed = (tokens / 1000) * pricing.tokenRatePer1000 + messages * pricing.metaMessageRateUsd
+    const minimum = pricing.minimumUsd * periodElapsedFraction(period)
+    return Math.round(Math.min(pricing.maximumUsd, Math.max(minimum, consumed)) * 100) / 100
   }
 
   elapsedFractionOf(period: string): number {
@@ -127,7 +162,7 @@ export class UsageService {
     const deliveredAt = input.timestamp != null ? new Date(input.timestamp * 1000) : new Date()
     const period = currentPeriod(deliveredAt)
 
-    let row: { id: number; totalCostUsd: unknown }
+    let row: MonthlyBillableUsage & { id: number; totalCostUsd: unknown }
     try {
       row = await this.prisma.$transaction(async tx => {
         if (input.requestId)
@@ -165,7 +200,14 @@ export class UsageService {
             openaiCostUsd: { increment: cost },
             totalCostUsd: { increment: cost },
           },
-          select: { id: true, totalCostUsd: true },
+          select: {
+            id: true,
+            totalCostUsd: true,
+            openaiInputTokens: true,
+            openaiOutputTokens: true,
+            openaiCalls: true,
+            metaMessages: true,
+          },
         })
       })
     } catch (error) {
@@ -173,7 +215,7 @@ export class UsageService {
       throw error
     }
 
-    await this.refreshBilled(phone, row.id, Number(row.totalCostUsd))
+    await this.refreshBilled(phone, row.id, row, period)
     return period === currentPeriod() ? this.applyBudget(phone, Number(row.totalCostUsd)) : { overBudget: false }
   }
 
@@ -196,8 +238,8 @@ export class UsageService {
       }
     }
     // Meta's billable flag accounts for the 1,000 free service messages and
-    // free entry-point windows. Do not charge those again locally.
-    let row: { id: number; totalCostUsd: unknown }
+    // free entry-point windows for provider cost only. Commercial pricing counts all messages.
+    let row: MonthlyBillableUsage & { id: number; totalCostUsd: unknown }
     try {
       row = await this.prisma.$transaction(async tx => {
         await tx.usageEvent.create({
@@ -230,14 +272,21 @@ export class UsageService {
             metaCostUsd: { increment: cost },
             totalCostUsd: { increment: cost },
           },
-          select: { id: true, totalCostUsd: true },
+          select: {
+            id: true,
+            totalCostUsd: true,
+            openaiInputTokens: true,
+            openaiOutputTokens: true,
+            openaiCalls: true,
+            metaMessages: true,
+          },
         })
       })
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') return { overBudget: false }
       throw error
     }
-    await this.refreshBilled(phone, row.id, Number(row.totalCostUsd))
+    await this.refreshBilled(phone, row.id, row, period)
     return period === currentPeriod() ? this.applyBudget(phone, Number(row.totalCostUsd)) : { overBudget: false }
   }
 
@@ -245,9 +294,10 @@ export class UsageService {
   private async refreshBilled(
     phone: { id: number; monthlyBasePriceUsd: unknown; monthlyMaxPriceUsd: unknown },
     rowId: number,
-    cost: number,
+    usage: MonthlyBillableUsage,
+    period: string,
   ): Promise<void> {
-    const billed = this.priceFor(phone, cost)
+    const billed = this.priceFor(phone, usage, period)
 
     try {
       await this.prisma.usageMonthly.update({
@@ -325,12 +375,11 @@ export class UsageService {
       orderBy: { totalCostUsd: 'desc' },
     })
 
-    // Recompute from stored provider cost so old floor/ceiling prices are never
-    // returned. accruedUsd stays as a compatibility alias for monthly usage.
+    // Recompute commercial pricing from activity. accruedUsd is a compatibility alias.
     const elapsed = periodElapsedFraction(period)
 
     const priced = rows.map(r => {
-      const billed = r.phoneNumber ? this.priceFor(r.phoneNumber, Number(r.totalCostUsd)) : Number(r.billedUsd)
+      const billed = this.priceFor(r.phoneNumber, r, period)
       const accrued = billed
       return {
         ...r,
