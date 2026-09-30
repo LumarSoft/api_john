@@ -73,4 +73,26 @@ describe('CotizadorService vehicle code validation', () => {
     ).rejects.toMatchObject({ status: 400 })
     expect(triunfo.getAuth).not.toHaveBeenCalled()
   })
+
+  it('accepts the verified Chevrolet Onix brand/CODIA combination', async () => {
+    const getAuth = jest.fn()
+    const service = new CotizadorService(
+      {} as HttpService,
+      {} as PrismaService,
+      { getAuth } as unknown as TriunfoService,
+      { isAvailable: jest.fn().mockReturnValue(false) } as unknown as InfoAutoService,
+      {} as CoverageSettingsService,
+      {} as ConfigService,
+    )
+
+    await expect(
+      service.quoteVehicle(
+        VehicleType.AUTO,
+        { brand: '12', model: '120632', manufactureYear: 2024, postalCode: 2000 },
+        null,
+        null,
+      ),
+    ).rejects.toMatchObject({ status: 503 })
+    expect(getAuth).not.toHaveBeenCalled()
+  })
 })
