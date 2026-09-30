@@ -141,6 +141,25 @@ export class InboxService {
     return { ok: true }
   }
 
+  /**
+   * Automatic counterpart of `release`, used when the operator stopped
+   * answering (see BotTakeoverTimeoutService). Conditional on the conversation
+   * still being paused, so it never races a manual release or undoes anything.
+   * Returns whether it actually handed the conversation back.
+   */
+  async autoReleaseToBot(conversation: { id: number; phoneNumberId: string | null; waId: string }): Promise<boolean> {
+    const { count } = await this.prisma.conversation.updateMany({
+      where: { id: conversation.id, botPaused: true },
+      data: { botPaused: false, assignedToUserId: null, handedOverAt: null, status: 'open' },
+    })
+    if (count === 0) return false
+
+    if (conversation.phoneNumberId) {
+      await this.botNotifier.resetFlow(conversation.phoneNumberId, conversation.waId)
+    }
+    return true
+  }
+
   async sendMessage(conversationId: number, producerId: number, codeIds: number[], userId: number, text: string) {
     // Fix #2: producerId in DB query, not post-fetch check.
     const conversation = await this.findAndVerify(conversationId, producerId, codeIds)
