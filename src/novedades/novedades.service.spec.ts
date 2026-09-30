@@ -92,7 +92,7 @@ describe('NovedadesService', () => {
             deletedAt: null,
             OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
           },
-          orderBy: [{ readAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'desc' }],
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           skip: 0,
           take: 20,
         }),

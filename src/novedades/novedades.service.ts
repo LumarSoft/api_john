@@ -132,8 +132,8 @@ export class NovedadesService {
       this.prisma.novedad.findMany({
         where,
         select: NOVEDAD_SELECT,
-        // Unread first, then newest.
-        orderBy: [{ readAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'desc' }],
+        // Strictly newest first; read state doesn't reorder the list.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
