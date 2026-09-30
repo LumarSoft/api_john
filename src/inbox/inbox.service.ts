@@ -32,6 +32,16 @@ const CONVERSATION_SUMMARY_SELECT = {
   client: { select: { id: true, firstName: true, lastName: true, dni: true } },
 } as const
 
+const CONVERSATION_LIST_SELECT = {
+  ...CONVERSATION_SUMMARY_SELECT,
+  messages: {
+    where: { role: 'user', deletedAt: null },
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+    select: { createdAt: true },
+  },
+} as const
+
 @Injectable()
 export class InboxService {
   constructor(
@@ -43,7 +53,7 @@ export class InboxService {
     const statusFilter = dto.status ? [dto.status] : ['open', 'pending']
     const search = dto.search?.trim()
 
-    return this.prisma.conversation.findMany({
+    const conversations = await this.prisma.conversation.findMany({
       where: {
         producerId,
         deletedAt: null,
@@ -70,8 +80,15 @@ export class InboxService {
         { status: 'desc' },
         { lastMessageAt: { sort: 'desc', nulls: 'last' } },
       ],
-      select: CONVERSATION_SUMMARY_SELECT,
+      select: CONVERSATION_LIST_SELECT,
     })
+
+    return conversations.map(({ messages, ...conversation }) => ({
+      ...conversation,
+      // `lastMessageAt` can point at a bot/agent reply. The dedicated inbound
+      // timestamp lets the web panel notify only when the customer wrote.
+      lastInboundMessageAt: messages[0]?.createdAt ?? null,
+    }))
   }
 
   async getMessages(conversationId: number, producerId: number, codeIds: number[]) {
