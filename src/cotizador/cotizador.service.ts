@@ -85,6 +85,17 @@ export class CotizadorService {
     producerId: number | null,
     userId: number | null,
   ): Promise<QuoteAutoResult> {
+    const brandNumber = Number(dto.brand)
+    const codiaNumber = Number(dto.model)
+    if (
+      !Number.isSafeInteger(brandNumber) ||
+      brandNumber <= 0 ||
+      !Number.isSafeInteger(codiaNumber) ||
+      codiaNumber <= 10_000 ||
+      Math.floor(codiaNumber / 10_000) !== brandNumber
+    ) {
+      throw new BadRequestException('Invalid vehicle brand/CODIA combination')
+    }
     if (!this.infoAuto.isAvailable(vehicleType)) {
       throw new ServiceUnavailableException(`El catálogo de InfoAuto para ${vehicleType} no está disponible`)
     }
