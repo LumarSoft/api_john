@@ -431,13 +431,34 @@ export class BotService {
     // never drift from the actual last message (and warnedAt is cleared with it).
     return this.prisma.$transaction(async tx => {
       const message = await tx.message.create({
-        data: { conversationId, role: dto.role, content: dto.content },
+        data: {
+          conversationId,
+          role: dto.role,
+          content: dto.content,
+          ...(dto.media
+            ? {
+                rawData: {
+                  media: {
+                    url: dto.media.url,
+                    originalName: dto.media.originalName,
+                    mimeType: dto.media.mimeType,
+                    size: dto.media.size,
+                    ...(dto.media.tipo ? { tipo: dto.media.tipo } : {}),
+                  },
+                } as Prisma.InputJsonValue,
+              }
+            : {}),
+        },
         select: { id: true, role: true, content: true, createdAt: true },
       })
 
       await tx.conversation.update({
         where: { id: conversationId },
-        data: { lastMessageAt: message.createdAt, warnedAt: null },
+        data: {
+          lastMessageAt: message.createdAt,
+          warnedAt: null,
+          ...(dto.role === 'user' ? { unreadCount: { increment: 1 } } : {}),
+        },
       })
 
       return message
@@ -647,7 +668,14 @@ export class BotService {
   async attachAdjuntos(conversationId: number, files: Express.Multer.File[], tipo?: string) {
     if (!files.length) throw new BadRequestException('No files received')
 
-    const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
+    // Multer has already persisted the upload. Build its durable metadata first
+    // so a photo sent before a claim exists can still appear in the inbox.
+    const attachments = await toStoredAdjuntos(files, tipo)
+    const { clientId, producerId } = await this.findConversation(conversationId)
+
+    if (!clientId) {
+      return { siniestroId: null, adjuntosCount: 0, attached: false, attachments }
+    }
 
     const siniestro = await this.prisma.siniestro.findFirst({
       where: { clientId, producerId, deletedAt: null, estado: { not: 'resuelto' } },
@@ -655,18 +683,18 @@ export class BotService {
       select: { id: true, adjuntos: true },
     })
     if (!siniestro) {
-      throw new NotFoundException('No open siniestro to attach photos to')
+      return { siniestroId: null, adjuntosCount: 0, attached: false, attachments }
     }
 
     const existing = Array.isArray(siniestro.adjuntos) ? (siniestro.adjuntos as unknown as AdjuntoMeta[]) : []
-    const merged = [...existing, ...(await toStoredAdjuntos(files, tipo))].slice(-MAX_FILES)
+    const merged = [...existing, ...attachments].slice(-MAX_FILES)
 
     await this.prisma.siniestro.update({
       where: { id: siniestro.id },
       data: { adjuntos: merged as unknown as Prisma.InputJsonValue },
     })
 
-    return { siniestroId: siniestro.id, adjuntosCount: merged.length }
+    return { siniestroId: siniestro.id, adjuntosCount: merged.length, attached: true, attachments }
   }
 
   /** Marks the conversation as pending human attention (called by the bot when the user requests an advisor). */

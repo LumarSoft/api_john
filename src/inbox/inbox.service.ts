@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { signAdjuntoUrl } from '../siniestros/adjunto-url'
 import { BotNotifierService } from './bot-notifier.service'
 import { ListInboxDto } from './dto/list-inbox.dto'
 
@@ -27,6 +28,8 @@ const CONVERSATION_SUMMARY_SELECT = {
   assignedTo: { select: { id: true, email: true } },
   handedOverAt: true,
   lastMessageAt: true,
+  unreadCount: true,
+  lastReadAt: true,
   sessionStartedAt: true,
   phoneNumberId: true,
   client: { select: { id: true, firstName: true, lastName: true, dni: true } },
@@ -41,7 +44,25 @@ const CONVERSATION_LIST_SELECT = {
     take: 1,
     select: { createdAt: true },
   },
+  _count: {
+    select: { messages: { where: { role: 'user', deletedAt: null } } },
+  },
 } as const
+
+function messageMedia(rawData: Prisma.JsonValue | null) {
+  if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return null
+  const media = (rawData as Prisma.JsonObject).media
+  if (!media || typeof media !== 'object' || Array.isArray(media)) return null
+  const value = media as Prisma.JsonObject
+  if (typeof value.url !== 'string' || typeof value.mimeType !== 'string') return null
+  return {
+    url: signAdjuntoUrl(value.url),
+    mimeType: value.mimeType,
+    originalName: typeof value.originalName === 'string' ? value.originalName : 'imagen',
+    size: typeof value.size === 'number' ? value.size : null,
+    tipo: typeof value.tipo === 'string' ? value.tipo : null,
+  }
+}
 
 @Injectable()
 export class InboxService {
@@ -76,17 +97,14 @@ export class InboxService {
             : []),
         ],
       },
-      orderBy: [
-        // "pending" (user requested agent) sorts before "open" alphabetically.
-        { status: 'desc' },
-        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
-      ],
+      orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       select: CONVERSATION_LIST_SELECT,
     })
 
-    return conversations.map(({ messages, producer, ...conversation }) => ({
+    return conversations.map(({ messages, producer, _count, ...conversation }) => ({
       ...conversation,
       globalBotDisabled: !producer.botEnabled,
+      customerMessageCount: _count.messages,
       // `lastMessageAt` can point at a bot/agent reply. The dedicated inbound
       // timestamp lets the web panel notify only when the customer wrote.
       lastInboundMessageAt: messages[0]?.createdAt ?? null,
@@ -95,16 +113,26 @@ export class InboxService {
 
   async getMessages(conversationId: number, producerId: number, codeIds: number[]) {
     const conversation = await this.findAndVerify(conversationId, producerId, codeIds)
+    const readAt = new Date()
 
-    return this.prisma.message.findMany({
+    const messages = await this.prisma.message.findMany({
       where: {
         conversationId,
         deletedAt: null,
-        ...(conversation.sessionStartedAt ? { createdAt: { gte: conversation.sessionStartedAt } } : {}),
+        createdAt: { lte: readAt, ...(conversation.sessionStartedAt ? { gte: conversation.sessionStartedAt } : {}) },
       },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, role: true, content: true, createdAt: true },
+      select: { id: true, role: true, content: true, rawData: true, createdAt: true },
     })
+
+    // Do not clear a message that arrived after this fetch began. The
+    // lastMessageAt guard makes opening a busy chat race-safe.
+    await this.prisma.conversation.updateMany({
+      where: { id: conversationId, OR: [{ lastMessageAt: null }, { lastMessageAt: { lte: readAt } }] },
+      data: { unreadCount: 0, lastReadAt: readAt },
+    })
+
+    return messages.map(({ rawData, ...message }) => ({ ...message, media: messageMedia(rawData) }))
   }
 
   async takeover(conversationId: number, producerId: number, codeIds: number[], userId: number) {

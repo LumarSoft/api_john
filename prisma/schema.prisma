@@ -635,6 +635,9 @@ model Conversation {
   // Set when the proactive inactivity warning was pushed for the current idle
   // period; cleared on new activity. Prevents re-warning the same silence.
   warnedAt         DateTime?
+  // Number of inbound customer messages not yet opened in the web inbox.
+  unreadCount      Int       @default(0)
+  lastReadAt       DateTime?
   // Meta phone_number_id this chat came through. Stored so a proactive warning
   // is sent FROM the same number the user wrote to (a producer may own several).
   phoneNumberId    String?
@@ -665,6 +668,7 @@ model Conversation {
 
   @@unique([waId, producerId])
   @@index([producerCodeId])
+  @@index([producerId, lastMessageAt])
 }
 
 model Message {

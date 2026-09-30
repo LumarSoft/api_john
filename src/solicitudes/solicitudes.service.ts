@@ -137,7 +137,7 @@ export class SolicitudesService {
       where: { id: lead.id },
       data: { payload: { ...payload, adjuntos } as Prisma.InputJsonValue },
     })
-    return { leadId: lead.id, adjuntosCount: adjuntos.length }
+    return { leadId: lead.id, adjuntosCount: adjuntos.length, attached: true, attachments: stored }
   }
 
   private async createLead(dto: CreateLeadDto | CreateBotLeadDto, ctx: CreateLeadContext): Promise<{ id: number }> {

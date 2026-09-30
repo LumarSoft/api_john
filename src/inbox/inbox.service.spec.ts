@@ -13,6 +13,7 @@ describe('InboxService.listConversations', () => {
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
         producer: { botEnabled: false },
         messages: [{ createdAt: lastInboundMessageAt }],
+        _count: { messages: 4 },
       },
     ])
     const prisma = { conversation: { findMany } }
@@ -25,6 +26,7 @@ describe('InboxService.listConversations', () => {
         waId: '549341',
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
         globalBotDisabled: true,
+        customerMessageCount: 4,
         lastInboundMessageAt,
       },
     ])
@@ -32,10 +34,60 @@ describe('InboxService.listConversations', () => {
       expect.objectContaining({
         select: expect.objectContaining({
           messages: expect.objectContaining({ where: { role: 'user', deletedAt: null }, take: 1 }),
+          _count: { select: { messages: { where: { role: 'user', deletedAt: null } } } },
           producer: { select: { botEnabled: true } },
         }),
+        orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       }),
     )
+  })
+})
+
+describe('InboxService.getMessages', () => {
+  it('signs media URLs and clears unread state without racing a newer message', async () => {
+    process.env.JWT_SECRET = 'test-secret'
+    const createdAt = new Date('2026-09-30T12:00:00.000Z')
+    const prisma = {
+      conversation: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 7,
+          waId: '549341',
+          producerId: 1,
+          botPaused: false,
+          producer: { botEnabled: true },
+          phoneNumberId: 'P1',
+          sessionStartedAt: null,
+        }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      message: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 9,
+            role: 'user',
+            content: '[foto]',
+            rawData: {
+              media: {
+                url: '/uploads/siniestros/a.webp',
+                originalName: 'a.webp',
+                mimeType: 'image/webp',
+                size: 42,
+              },
+            },
+            createdAt,
+          },
+        ]),
+      },
+    }
+    const service = new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService)
+
+    const result = await service.getMessages(7, 1, [2])
+
+    expect(result[0].media?.url).toMatch(/^\/uploads\/siniestros\/a\.webp\?exp=\d+&sig=/)
+    expect(prisma.conversation.updateMany).toHaveBeenCalledWith({
+      where: { id: 7, OR: [{ lastMessageAt: null }, { lastMessageAt: { lte: expect.any(Date) } }] },
+      data: { unreadCount: 0, lastReadAt: expect.any(Date) },
+    })
   })
 })
 

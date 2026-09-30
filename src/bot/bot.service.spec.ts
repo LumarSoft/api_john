@@ -265,9 +265,31 @@ describe('BotService', () => {
       expect(tx.message.create).toHaveBeenCalled()
       expect(tx.conversation.update).toHaveBeenCalledWith({
         where: { id: 7 },
-        data: { lastMessageAt: created.createdAt, warnedAt: null },
+        data: { lastMessageAt: created.createdAt, warnedAt: null, unreadCount: { increment: 1 } },
       })
       expect(result).toBe(created)
+    })
+
+    it('stores media metadata with the inbound message', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 7, producerId: 1, clientId: null })
+      const created = { id: 100, role: 'user', content: '[foto]', createdAt: new Date() }
+      const tx = {
+        message: { create: jest.fn().mockResolvedValue(created) },
+        conversation: { update: jest.fn().mockResolvedValue({}) },
+      }
+      prisma.$transaction.mockImplementation(async (cb: any) => cb(tx))
+      const media = {
+        url: '/uploads/siniestros/a.webp',
+        originalName: 'a.webp',
+        mimeType: 'image/webp',
+        size: 42,
+      }
+
+      await service.saveMessage(7, { role: 'user', content: '[foto]', media } as any)
+
+      expect(tx.message.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ rawData: { media } }) }),
+      )
     })
   })
 })
