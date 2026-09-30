@@ -1,4 +1,10 @@
-import { BadGatewayException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { AxiosError } from 'axios'
@@ -213,6 +219,42 @@ export class InfoAutoService {
 
   getModels(type: VehicleType, brandId: number, groupId: number, query: InfoAutoQueryDto) {
     return this.get(type, `/brands/${brandId}/groups/${groupId}/models/`, { ...query })
+  }
+
+  /** Check the catalog before Triunfo: it can price nonexistent model years. */
+  async validateVehicleYear(type: VehicleType, brandId: number, codia: number, year: number): Promise<void> {
+    if (!Number.isInteger(year) || year < 1900 || year > new Date().getFullYear() + 1) {
+      throw new BadRequestException('Año del vehículo inválido')
+    }
+    for (let page = 1; ; page++) {
+      const { data } = await this.get<Array<{ codia: number; prices_from?: number | null; prices_to?: number | null }>>(
+        type,
+        `/brands/${brandId}/models/`,
+        { page, page_size: 100 },
+      )
+      if (!Array.isArray(data)) throw new BadGatewayException('No se pudo validar el vehículo en InfoAuto')
+      const model = data.find(m => Number(m.codia) === codia)
+      if (model) {
+        const from = model.prices_from
+        const to = model.prices_to
+        // A recent motorcycle can still be sold as the current model year
+        // while InfoAuto's annual publication catches up.
+        const recentMoto = type === VehicleType.MOTO && typeof to === 'number' && to >= new Date().getFullYear() - 1
+        if (typeof from !== 'number' || typeof to !== 'number') {
+          throw new BadRequestException(
+            'El catálogo no permite verificar el año de esta versión. Consultá con un asesor.',
+          )
+        }
+        if (year < from || (year > to && !recentMoto)) {
+          throw new BadRequestException(
+            `El catálogo no lista esta versión para ${year}. Revisá el modelo y el año de la documentación.`,
+          )
+        }
+        return
+      }
+      if (data.length < 100) break
+    }
+    throw new BadRequestException('No se encontró la versión del vehículo en el catálogo')
   }
 
   /**

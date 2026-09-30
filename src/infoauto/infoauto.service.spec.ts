@@ -95,4 +95,28 @@ describe('InfoAutoService', () => {
       expect.any(Object),
     )
   })
+  it.each([
+    [VehicleType.AUTO, 2024, 2018, false],
+    [VehicleType.AUTO, 2018, 2018, true],
+    [VehicleType.AUTO, 2009, 2018, false],
+    [VehicleType.AUTO, 2026, 2025, false],
+    [VehicleType.MOTO, 2026, 2025, true],
+    [VehicleType.MOTO, 2030, 2025, false],
+  ])('validates %s year %i with catalog ending %i', async (type, year, to, valid) => {
+    jest.useFakeTimers({ now: new Date('2026-09-30T12:00:00Z') })
+    try {
+      const http = {
+        post: jest.fn().mockReturnValue(of({ data: { access_token: 'token' }, headers: {} })),
+        get: jest
+          .fn()
+          .mockReturnValue(of({ data: [{ codia: 170001, prices_from: 2010, prices_to: to }], headers: {} })),
+      }
+      const service = new InfoAutoService(http as any, config as any)
+      const result = service.validateVehicleYear(type, 17, 170001, year)
+      if (valid) await expect(result).resolves.toBeUndefined()
+      else await expect(result).rejects.toMatchObject({ status: 400 })
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })

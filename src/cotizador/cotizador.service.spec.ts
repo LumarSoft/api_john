@@ -1,3 +1,4 @@
+import { of } from 'rxjs'
 import { CotizadorService } from './cotizador.service'
 import { VehicleType } from '../infoauto/infoauto.types'
 import type { HttpService } from '@nestjs/axios'
@@ -94,5 +95,79 @@ describe('CotizadorService vehicle code validation', () => {
       ),
     ).rejects.toMatchObject({ status: 503 })
     expect(getAuth).not.toHaveBeenCalled()
+  })
+})
+
+describe('CotizadorService model year guard', () => {
+  it('stops an invalid Palio year before contacting Triunfo', async () => {
+    const getAuth = jest.fn()
+    const validateVehicleYear = jest.fn().mockRejectedValue(new Error('Modelo y año inválidos'))
+    const service = new CotizadorService(
+      {} as HttpService,
+      {} as PrismaService,
+      { getAuth } as unknown as TriunfoService,
+      { isAvailable: () => true, validateVehicleYear } as unknown as InfoAutoService,
+      {} as CoverageSettingsService,
+      {} as ConfigService,
+    )
+    await expect(
+      service.quoteVehicle(
+        VehicleType.AUTO,
+        { brand: '17', model: '170001', manufactureYear: 2024, postalCode: 2000 },
+        null,
+        null,
+      ),
+    ).rejects.toThrow('Modelo y año inválidos')
+    expect(validateVehicleYear).toHaveBeenCalledWith(VehicleType.AUTO, 17, 170001, 2024)
+    expect(getAuth).not.toHaveBeenCalled()
+  })
+})
+
+describe('CotizadorService motorcycle offers', () => {
+  it.each([
+    ['A', 'B', 'B1', 'B4'],
+    ['A', 'B1'],
+  ])('offers required codes and reports absent prices: %j', async (...codes: string[]) => {
+    const http = {
+      post: jest.fn().mockReturnValue(
+        of({
+          data: {
+            SDTSrvCotizacionOut: {
+              Coberturas: codes.map(code => ({
+                Cobertura: code,
+                Resultado: { Estado: 'S' },
+                Cotizaciones: [{ FormaPagoCod: '1', Premio: '1000', ValorCuota: '1000', Cuotas: 1 }],
+              })),
+            },
+          },
+        }),
+      ),
+    }
+    const settings = {
+      registerDiscovered: jest.fn().mockResolvedValue(undefined),
+      apply: jest.fn().mockImplementation(async (_producer, coverages) => coverages),
+    }
+    const service = new CotizadorService(
+      http as unknown as HttpService,
+      {} as PrismaService,
+      { getAuth: jest.fn().mockResolvedValue({}) } as unknown as TriunfoService,
+      {
+        isAvailable: () => true,
+        validateVehicleYear: jest.fn().mockResolvedValue(undefined),
+        getVehicleValue: jest.fn().mockResolvedValue(null),
+        getVehicleOrigin: jest.fn().mockResolvedValue('N'),
+      } as unknown as InfoAutoService,
+      settings as unknown as CoverageSettingsService,
+      { getOrThrow: () => 'https://triunfo.test' } as unknown as ConfigService,
+    )
+    const result = await service.quoteVehicle(
+      VehicleType.MOTO,
+      { brand: '881', model: '8810215', manufactureYear: 2025, postalCode: 2000 },
+      1,
+      null,
+    )
+    expect(result.coverages.map(c => c.code)).toEqual(codes.filter(c => ['A', 'B', 'B1'].includes(c)))
+    expect(settings.apply).toHaveBeenCalledWith(1, expect.any(Array), 2025, ['A', 'B', 'B1'])
+    expect(result.messages.some(message => message.includes('cobertura B.'))).toBe(!codes.includes('B'))
   })
 })

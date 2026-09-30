@@ -99,6 +99,7 @@ export class CotizadorService {
     if (!this.infoAuto.isAvailable(vehicleType)) {
       throw new ServiceUnavailableException(`El catálogo de InfoAuto para ${vehicleType} no está disponible`)
     }
+    await this.infoAuto.validateVehicleYear(vehicleType, brandNumber, codiaNumber, dto.manufactureYear)
     const auth = await this.triunfo.getAuth()
 
     // Vehicle value comes from InfoAuto when valuation is contracted. It is not
@@ -186,9 +187,20 @@ export class CotizadorService {
       )
       .catch(err => this.logger.warn(`No se pudieron registrar las coberturas: ${(err as Error).message}`))
 
+    const requiredCodes = vehicleType === VehicleType.MOTO ? ['A', 'B', 'B1'] : []
+    const offered =
+      vehicleType === VehicleType.MOTO ? quote.coverages.filter(c => requiredCodes.includes(c.code)) : quote.coverages
+    const coverages = await this.coverageSettings.apply(resolvedProducerId, offered, dto.manufactureYear, requiredCodes)
+    const missing = requiredCodes.filter(code => !coverages.some(c => c.code === code))
     return {
       ...quote,
-      coverages: await this.coverageSettings.apply(resolvedProducerId, quote.coverages, dto.manufactureYear),
+      coverages,
+      messages: [
+        ...quote.messages,
+        ...missing.map(
+          code => `No se obtuvo precio para la cobertura ${code}. Consultá con un asesor para revisar esa opción.`,
+        ),
+      ],
     }
   }
 

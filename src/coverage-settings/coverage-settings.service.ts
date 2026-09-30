@@ -108,6 +108,7 @@ export class CoverageSettingsService {
     producerId: number,
     coverages: T[],
     vehicleYear: number,
+    requiredCodes: readonly string[] = [],
   ): Promise<Array<T & CoverageDisplay>> {
     if (coverages.length === 0) return []
 
@@ -119,6 +120,7 @@ export class CoverageSettingsService {
 
     return coverages
       .filter(c => {
+        if (requiredCodes.includes(c.code)) return true
         const setting = byCode.get(c.code)
         if (!setting) return true // unknown code — show it
         if (!setting.isActive) return false
