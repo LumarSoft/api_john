@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
+import { expiringPolizaWhere, inForcePolizaWhere } from '../common/poliza-vigencia'
 
 const EXPIRING_WINDOW_DAYS = 30
 const RENEWAL_MONTHS = 6
@@ -72,8 +73,8 @@ export class DashboardService {
       this.prisma.contactLead.count({ where: { ...contactLead, status: 'NEW' } }),
       this.prisma.cuota.count({ where: { ...cuota, status: 'overdue' } }),
       this.prisma.siniestro.count({ where: { ...siniestro, estado: { in: ['pendiente', 'en_proceso'] } } }),
-      this.prisma.poliza.count({ where: { ...poliza, vigenciaHasta: { gte: now } } }),
-      this.prisma.poliza.count({ where: { ...poliza, vigenciaHasta: { gte: now, lte: expiringLimit } } }),
+      this.prisma.poliza.count({ where: { AND: [poliza, inForcePolizaWhere(now)] } }),
+      this.prisma.poliza.count({ where: { AND: [poliza, expiringPolizaWhere(expiringLimit, now)] } }),
       this.prisma.poliza.count({ where: { ...poliza, vigenciaHasta: { lt: now } } }),
       this.prisma.solicitud.count({ where: { ...cotizacionLead, status: 'NEW' } }),
       this.prisma.solicitud.count({ where: { ...cotizacionLead, status: 'CONTACTED' } }),

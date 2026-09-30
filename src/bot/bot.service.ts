@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { inForcePolizaWhere } from '../common/poliza-vigencia'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
@@ -484,11 +485,17 @@ export class BotService {
     return { client: updated.client, polizasCount }
   }
 
+  /**
+   * The client's policies **in force today** — the only ones the bot offers for
+   * a claim, documents or account status. Cancelled policies, expired ones and
+   * renewals that haven't started yet stay out (see inForcePolizaWhere); the web
+   * portal and panel still show them, labelled.
+   */
   async getPolizas(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
     return this.prisma.poliza.findMany({
-      where: { clientId, producerId, deletedAt: null },
+      where: { clientId, producerId, ...inForcePolizaWhere() },
       orderBy: { vigenciaHasta: 'desc' },
       select: POLIZA_SUMMARY_SELECT,
     })
@@ -498,17 +505,15 @@ export class BotService {
    * Account status across the client's **in-force** policies: unpaid
    * installments (pending / overdue / rejected) plus a paid count per policy.
    *
-   * Only policies still in force are returned. `status` holds the Triunfo
-   * movement type ("REFACTURACION", "ANULA POR VENTA", …), not a validity flag,
-   * so in-force is decided by `vigenciaHasta >= now` — the same rule the admin
-   * dashboard and the client list use. Without it the bot listed years of closed
-   * policies with stale overdue installments next to the live ones.
+   * Only policies in force today are returned (see inForcePolizaWhere). Without
+   * it the bot listed years of closed or cancelled policies with stale overdue
+   * installments next to the live ones.
    */
   async getEstadoCuenta(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
     const polizas = await this.prisma.poliza.findMany({
-      where: { clientId, producerId, deletedAt: null, vigenciaHasta: { gte: new Date() } },
+      where: { clientId, producerId, ...inForcePolizaWhere() },
       select: {
         id: true,
         certificado: true,

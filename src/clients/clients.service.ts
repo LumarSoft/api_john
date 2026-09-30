@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { estadoVigencia, expiringPolizaWhere, inForcePolizaWhere } from '../common/poliza-vigencia'
 import { ClientEstadoFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
 import { CobranzaEstadoFilter, ListCobranzasDto } from './dto/list-cobranzas.dto'
 
@@ -213,15 +214,28 @@ export class ClientsService {
       orderBy: { vigenciaDesde: 'desc' },
     })
 
-    // For vehicle policies: keep only the most recent per dominio (dedup by plate).
-    const seenDominio = new Set<string>()
+    const now = new Date()
+    const withEstado = polizas.map(p => ({ ...p, estadoVigencia: estadoVigencia(p, now) }))
 
-    return polizas
+    // One vehicle accumulates a policy per renewal/replacement. Per plate show
+    // what matters today — the policy in force and its upcoming renewal, each
+    // labelled — or, when neither exists, only the most recent one (expired or
+    // cancelled). Rows are ordered by vigenciaDesde desc, so the first one seen
+    // for a plate is its most recent.
+    const activePlates = new Set(
+      withEstado
+        .filter(p => p.vehiculo?.dominio && (p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'))
+        .map(p => p.vehiculo!.dominio),
+    )
+    const seenInactivePlate = new Set<string>()
+
+    return withEstado
       .filter(p => {
         const dominio = p.vehiculo?.dominio
         if (!dominio) return true
-        if (seenDominio.has(dominio)) return false
-        seenDominio.add(dominio)
+        if (activePlates.has(dominio)) return p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'
+        if (seenInactivePlate.has(dominio)) return false
+        seenInactivePlate.add(dominio)
         return true
       })
       .map(({ rawData, ...rest }) => ({ ...rest, bien: extractBien(rawData) }))
@@ -247,7 +261,7 @@ export class ClientsService {
       const allCuotas = client.polizas.flatMap(p => p.cuotas)
       return {
         ...client,
-        polizas: client.polizas.map(({ cuotas: _, ...p }) => p),
+        polizas: client.polizas.map(({ cuotas: _, ...p }) => ({ ...p, estadoVigencia: estadoVigencia(p) })),
         cuotaStats: {
           pending: allCuotas.filter(c => c.status === 'pending').length,
           overdue: allCuotas.filter(c => c.status === 'overdue').length,
@@ -274,8 +288,8 @@ export class ClientsService {
 
     const [totalClients, vigentes, porVencer, vencidas, cuotasVencidas] = await this.prisma.$transaction([
       this.prisma.client.count({ where: { producerId, deletedAt: null, ...this.clientVisibility(codeIds) } }),
-      this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { gte: now } } }),
-      this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { gte: now, lte: expiringLimit } } }),
+      this.prisma.poliza.count({ where: { AND: [activePoliza, inForcePolizaWhere(now)] } }),
+      this.prisma.poliza.count({ where: { AND: [activePoliza, expiringPolizaWhere(expiringLimit, now)] } }),
       this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { lt: now } } }),
       this.prisma.cuota.count({
         where: { deletedAt: null, status: 'overdue', poliza: { producerId, deletedAt: null, ...codeScope } },
@@ -337,16 +351,13 @@ export class ClientsService {
 
     switch (estado) {
       case ClientEstadoFilter.VIGENTE:
-        return { polizas: { some: { deletedAt: null, vigenciaHasta: { gte: now } } } }
+        return { polizas: { some: inForcePolizaWhere(now) } }
       case ClientEstadoFilter.POR_VENCER:
-        return { polizas: { some: { deletedAt: null, vigenciaHasta: { gte: now, lte: expiringLimit } } } }
+        return { polizas: { some: expiringPolizaWhere(expiringLimit, now) } }
       case ClientEstadoFilter.VENCIDA:
         // Has policies, but none currently in force.
         return {
-          AND: [
-            { polizas: { some: { deletedAt: null } } },
-            { polizas: { none: { deletedAt: null, vigenciaHasta: { gte: now } } } },
-          ],
+          AND: [{ polizas: { some: { deletedAt: null } } }, { polizas: { none: inForcePolizaWhere(now) } }],
         }
       case ClientEstadoFilter.SIN_POLIZAS:
         return { polizas: { none: { deletedAt: null } } }
@@ -373,7 +384,7 @@ export class ClientsService {
       select: ADMIN_CLIENT_DETAIL_SELECT,
     })
     if (!client) throw new NotFoundException(`Client ${id} not found`)
-    return client
+    return { ...client, polizas: client.polizas.map(p => ({ ...p, estadoVigencia: estadoVigencia(p) })) }
   }
 
   async findPolizaById(id: number, clientId: number, producerId: number) {
@@ -385,7 +396,7 @@ export class ClientsService {
     if (!poliza) throw new NotFoundException(`Policy ${id} not found`)
 
     const { rawData, ...rest } = poliza
-    return { ...rest, bien: extractBien(rawData) }
+    return { ...rest, estadoVigencia: estadoVigencia(poliza), bien: extractBien(rawData) }
   }
 
   async findCobranzasForAdmin(producerId: number, codeIds: number[], query: ListCobranzasDto) {
