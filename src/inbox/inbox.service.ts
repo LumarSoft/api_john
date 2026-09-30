@@ -131,7 +131,10 @@ export class InboxService {
 
     await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { botPaused: false, assignedToUserId: null, handedOverAt: null, status: 'open' },
+      // flowState: null — the bot greets the customer from the menu instead of
+      // resuming whatever step it was on before the human took over (the bot's
+      // own reset-flow only clears an in-memory cache, not this snapshot).
+      data: { botPaused: false, assignedToUserId: null, handedOverAt: null, status: 'open', flowState: null },
     })
 
     if (conversation.phoneNumberId) {
@@ -150,7 +153,10 @@ export class InboxService {
   async autoReleaseToBot(conversation: { id: number; phoneNumberId: string | null; waId: string }): Promise<boolean> {
     const { count } = await this.prisma.conversation.updateMany({
       where: { id: conversation.id, botPaused: true },
-      data: { botPaused: false, assignedToUserId: null, handedOverAt: null, status: 'open' },
+      // flowState: null — the bot greets the customer from the menu instead of
+      // resuming whatever step it was on before the human took over (the bot's
+      // own reset-flow only clears an in-memory cache, not this snapshot).
+      data: { botPaused: false, assignedToUserId: null, handedOverAt: null, status: 'open', flowState: null },
     })
     if (count === 0) return false
 
