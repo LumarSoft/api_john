@@ -80,6 +80,7 @@ export class BotService {
             name: true,
             slug: true,
             botName: true,
+            botEnabled: true,
             businessHours: true,
             systemPrompt: true,
             isActive: true,
@@ -91,14 +92,23 @@ export class BotService {
       throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
     }
 
-    const { id, name, slug, botName, businessHours, systemPrompt } = phoneNumber.producer
+    const { id, name, slug, botName, botEnabled, businessHours, systemPrompt } = phoneNumber.producer
     // The bot shows the formatted week as its general "horario" line; richer
     // open-now info comes from GET /public/hours when a user asks.
     const attentionHours = formatSchedule(parseSchedule(businessHours))
     // When the number is over its monthly budget, the bot disables the paid LLM
     // (deterministic flows keep working at zero token cost).
     const llmEnabled = await this.usage.isLlmEnabled(phoneNumberId)
-    return { producerId: id, producerName: name, producerSlug: slug, botName, attentionHours, systemPrompt, llmEnabled }
+    return {
+      producerId: id,
+      producerName: name,
+      producerSlug: slug,
+      botName,
+      botEnabled,
+      attentionHours,
+      systemPrompt,
+      llmEnabled,
+    }
   }
 
   /**
@@ -356,6 +366,7 @@ export class BotService {
     const candidates = await this.prisma.conversation.findMany({
       where: {
         deletedAt: null,
+        producer: { botEnabled: true },
         warnedAt: null,
         phoneNumberId: { not: null },
         lastMessageAt: { not: null, lte: cutoff },

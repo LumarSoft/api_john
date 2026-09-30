@@ -11,6 +11,7 @@ describe('InboxService.listConversations', () => {
         id: 7,
         waId: '549341',
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
+        producer: { botEnabled: false },
         messages: [{ createdAt: lastInboundMessageAt }],
       },
     ])
@@ -23,6 +24,7 @@ describe('InboxService.listConversations', () => {
         id: 7,
         waId: '549341',
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
+        globalBotDisabled: true,
         lastInboundMessageAt,
       },
     ])
@@ -30,9 +32,40 @@ describe('InboxService.listConversations', () => {
       expect.objectContaining({
         select: expect.objectContaining({
           messages: expect.objectContaining({ where: { role: 'user', deletedAt: null }, take: 1 }),
+          producer: { select: { botEnabled: true } },
         }),
       }),
     )
+  })
+})
+
+describe('InboxService.sendMessage with global human attention', () => {
+  it('allows an advisor reply without taking the chat individually', async () => {
+    const now = new Date()
+    const conversation = {
+      id: 7,
+      waId: '549341',
+      producerId: 1,
+      botPaused: false,
+      producer: { botEnabled: false },
+      phoneNumberId: 'P1',
+      sessionStartedAt: now,
+    }
+    const created = { id: 3, role: 'agent', content: 'Te atiendo', createdAt: now }
+    const tx = {
+      message: { create: jest.fn().mockResolvedValue(created) },
+      conversation: { update: jest.fn().mockResolvedValue({}) },
+    }
+    const prisma = {
+      conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
+      message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
+      $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    }
+    const notifier = { sendMessage: jest.fn().mockResolvedValue(undefined) }
+    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+
+    await expect(service.sendMessage(7, 1, [2], 9, 'Te atiendo')).resolves.toEqual(created)
+    expect(notifier.sendMessage).toHaveBeenCalledWith('549341', 'Te atiendo', 'P1')
   })
 })
 

@@ -30,6 +30,27 @@ describe('BotService', () => {
     service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, config)
   })
 
+  describe('getContext', () => {
+    it('exposes the organization-wide bot switch', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({
+        producer: {
+          id: 1,
+          name: 'John',
+          slug: 'john',
+          botName: 'Nico',
+          botEnabled: false,
+          businessHours: null,
+          systemPrompt: 'x',
+          isActive: true,
+        },
+      })
+
+      await expect(service.getContext('P1')).resolves.toEqual(
+        expect.objectContaining({ producerId: 1, botEnabled: false }),
+      )
+    })
+  })
+
   describe('getOrCreateConversation', () => {
     beforeEach(() => {
       prisma.phoneNumber.findFirst.mockResolvedValue({
@@ -194,6 +215,11 @@ describe('BotService', () => {
         expect.objectContaining({
           where: { id: { in: [7] } },
           data: { warnedAt: expect.any(Date) },
+        }),
+      )
+      expect(prisma.conversation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ producer: { botEnabled: true } }),
         }),
       )
       expect(result).toHaveLength(1)

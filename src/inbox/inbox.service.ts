@@ -34,6 +34,7 @@ const CONVERSATION_SUMMARY_SELECT = {
 
 const CONVERSATION_LIST_SELECT = {
   ...CONVERSATION_SUMMARY_SELECT,
+  producer: { select: { botEnabled: true } },
   messages: {
     where: { role: 'user', deletedAt: null },
     orderBy: { createdAt: 'desc' as const },
@@ -83,8 +84,9 @@ export class InboxService {
       select: CONVERSATION_LIST_SELECT,
     })
 
-    return conversations.map(({ messages, ...conversation }) => ({
+    return conversations.map(({ messages, producer, ...conversation }) => ({
       ...conversation,
+      globalBotDisabled: !producer.botEnabled,
       // `lastMessageAt` can point at a bot/agent reply. The dedicated inbound
       // timestamp lets the web panel notify only when the customer wrote.
       lastInboundMessageAt: messages[0]?.createdAt ?? null,
@@ -187,7 +189,7 @@ export class InboxService {
     // Fix #2: producerId in DB query, not post-fetch check.
     const conversation = await this.findAndVerify(conversationId, producerId, codeIds)
 
-    if (!conversation.botPaused) {
+    if (!conversation.botPaused && conversation.producer.botEnabled) {
       throw new ForbiddenException('Take over the conversation before sending messages')
     }
     if (!conversation.phoneNumberId) {
@@ -238,6 +240,7 @@ export class InboxService {
         waId: true,
         producerId: true,
         botPaused: true,
+        producer: { select: { botEnabled: true } },
         phoneNumberId: true,
         sessionStartedAt: true,
       },

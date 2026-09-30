@@ -33,10 +33,10 @@ export class UsersService {
   async getProducerConfig(producerId: number) {
     const producer = await this.prisma.producer.findFirst({
       where: { id: producerId, deletedAt: null },
-      select: { botName: true },
+      select: { botName: true, botEnabled: true },
     })
     if (!producer) throw new NotFoundException('Producer not found')
-    return { botName: producer.botName }
+    return { botName: producer.botName, botEnabled: producer.botEnabled }
   }
 
   /** Updates the producer config. An empty botName clears it (bot uses fallback). */
@@ -51,9 +51,24 @@ export class UsersService {
     const updated = await this.prisma.producer.update({
       where: { id: producerId },
       data: { botName: botName ? botName : null },
-      select: { botName: true },
+      select: { botName: true, botEnabled: true },
     })
-    return { botName: updated.botName }
+    return { botName: updated.botName, botEnabled: updated.botEnabled }
+  }
+
+  /** Enables/disables every automated bot response for this organization. */
+  async setBotEnabled(producerId: number, botEnabled: boolean) {
+    const producer = await this.prisma.producer.findFirst({
+      where: { id: producerId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!producer) throw new NotFoundException('Producer not found')
+
+    return this.prisma.producer.update({
+      where: { id: producerId },
+      data: { botEnabled },
+      select: { botName: true, botEnabled: true },
+    })
   }
 
   findAll(producerId: number) {

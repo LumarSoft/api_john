@@ -28,6 +28,9 @@ model Producer {
   // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
   // Null/empty → the bot falls back to "el asistente de JPMG".
   botName       String?   @db.VarChar(60)
+  // Organization-wide emergency switch. False stops every automated WhatsApp
+  // response while inbound messages continue to be stored in the inbox.
+  botEnabled    Boolean   @default(true)
   // Weekly business hours (Mon–Sun) shown across every channel (WhatsApp bot and
   // the public web) and used to compute "open now". Single source of truth edited
   // from the admin "Horarios" screen. JSON shape: { mon: [{from,to}], ..., sun: [] }
