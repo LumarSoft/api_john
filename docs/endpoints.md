@@ -1444,12 +1444,51 @@ Crea un lead desde el cotizador web público (productor por defecto).
 ### POST /bot/conversation/:conversationId/leads
 
 Igual que `POST /leads` pero desde el bot: scope al productor de la conversación,
-`channel = WHATSAPP`. Mismo body (sin `channel`).
+`channel = WHATSAPP`. Mismo body (sin `channel`). A diferencia de la web, acepta
+también `productType` `auto` y `moto`: es el pedido de contratación que el cliente
+hace en el chat después de una cotización online (cobertura elegida en `payload`).
 
 **Auth required:** Yes (`x-bot-secret`)
 
+```json
+{
+  "productType": "moto",
+  "contactName": "Lucas Pérez",
+  "phone": "5493416956364",
+  "payload": { "cobertura": "B1 — Todo Total 1", "vehiculo": "HONDA NAVI 110", "anio": 2025, "codigoPostal": 2000 }
+}
+```
+
 `201 Created` → `{ "id": 12 }`
 `404 Not Found` — Conversation no encontrada
+
+### POST /bot/conversation/:conversationId/leads/:leadId/adjuntos
+
+Adjunta las fotos que el cliente manda por WhatsApp para contratar una cotización
+(DNI frente y dorso, tarjeta azul) al lead que creó el bot. Se guardan como WebP en
+`uploads/leads` (solo accesibles con URL firmada) y se listan en `payload.adjuntos`
+(máximo 10, se conservan las más recientes). `multipart/form-data`.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body** (`multipart/form-data`)
+
+| Field    | Type   | Required | Constraints                                        |
+|----------|--------|----------|----------------------------------------------------|
+| adjuntos | file[] | Yes      | 1–5 files, ≤5 MB each, jpeg/png/webp/heic/pdf only |
+
+**Query:** `tipo` (opcional) — `dni_frente` \| `dni_dorso` \| `tarjeta_azul`
+
+**Responses**
+
+`201 Created`
+```json
+{ "leadId": 12, "adjuntosCount": 3 }
+```
+
+`400 Bad Request` — No files received
+
+`404 Not Found` — El lead no existe o no pertenece a la conversación
 
 ## Pricing — Planes de precio fijo
 

@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import type { NextFunction, Request, Response } from 'express'
-import { SINIESTROS_PUBLIC_PREFIX } from './siniestro-upload.config'
+import { PROTECTED_UPLOAD_PREFIXES } from './siniestro-upload.config'
 
 /**
  * Claim photos are driver's licenses and vehicle cards, served as static files.
@@ -26,10 +26,14 @@ function signature(path: string, exp: number): string {
   return createHmac('sha256', signingKey()).update(`${path}\n${exp}`).digest('base64url')
 }
 
-/** Returns the URL with `?exp=…&sig=…`. URLs outside the claims folder are left as they are. */
+function isProtected(path: string): boolean {
+  return PROTECTED_UPLOAD_PREFIXES.some(prefix => path.startsWith(`${prefix}/`))
+}
+
+/** Returns the URL with `?exp=…&sig=…`. URLs outside the protected folders are left as they are. */
 export function signAdjuntoUrl(url: string, now = Date.now()): string {
   const path = url.split('?')[0]
-  if (!path.startsWith(`${SINIESTROS_PUBLIC_PREFIX}/`)) return url
+  if (!isProtected(path)) return url
   const exp = Math.ceil(now / 1000 / EXPIRY_STEP_SECONDS) * EXPIRY_STEP_SECONDS + TTL_SECONDS
   return `${path}?exp=${exp}&sig=${signature(path, exp)}`
 }
@@ -42,20 +46,25 @@ export function isValidAdjuntoSignature(path: string, exp: unknown, sig: unknown
   return expected.length === given.length && timingSafeEqual(expected, given)
 }
 
-/** Signs the `url` of every attachment in a siniestro row returned to a client. */
-export function withSignedAdjuntos<T extends { adjuntos: unknown }>(row: T): T {
-  if (!Array.isArray(row.adjuntos)) return row
-  const adjuntos: unknown[] = row.adjuntos.map((adjunto: unknown) => {
+/** Signs the `url` of each attachment in a list; anything else passes through. */
+export function signAdjuntoList(adjuntos: unknown): unknown {
+  if (!Array.isArray(adjuntos)) return adjuntos
+  return adjuntos.map((adjunto: unknown) => {
     if (!adjunto || typeof adjunto !== 'object') return adjunto
     const { url } = adjunto as { url?: unknown }
     return typeof url === 'string' ? { ...adjunto, url: signAdjuntoUrl(url) } : adjunto
   })
-  return { ...row, adjuntos }
 }
 
-/** Express middleware mounted on the claims folder: no valid signature, no file. */
+/** Signs the `url` of every attachment in a siniestro row returned to a client. */
+export function withSignedAdjuntos<T extends { adjuntos: unknown }>(row: T): T {
+  if (!Array.isArray(row.adjuntos)) return row
+  return { ...row, adjuntos: signAdjuntoList(row.adjuntos) }
+}
+
+/** Express middleware mounted on each protected folder: no valid signature, no file. */
 export function requireSignedAdjunto(req: Request, res: Response, next: NextFunction): void {
-  const path = `${SINIESTROS_PUBLIC_PREFIX}${req.path}`
+  const path = `${req.baseUrl}${req.path}`
   if (isValidAdjuntoSignature(path, req.query.exp, req.query.sig)) {
     next()
     return

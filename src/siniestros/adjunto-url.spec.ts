@@ -82,8 +82,10 @@ describe('signed attachment URLs', () => {
   describe('requireSignedAdjunto middleware', () => {
     function run(url: string) {
       const [p, query] = url.split('?')
+      const base = p.startsWith('/uploads/leads') ? '/uploads/leads' : '/uploads/siniestros'
       const req = {
-        path: p.replace('/uploads/siniestros', ''),
+        baseUrl: base,
+        path: p.replace(base, ''),
         query: Object.fromEntries(new URLSearchParams(query ?? '')),
       } as unknown as Request
       const end = jest.fn()
@@ -98,6 +100,12 @@ describe('signed attachment URLs', () => {
 
       expect(next).toHaveBeenCalled()
       expect(status).not.toHaveBeenCalled()
+    })
+
+    it('protects the take-out documents folder too', () => {
+      const lead = '/uploads/leads/1-1.webp'
+      expect(run(lead).status).toHaveBeenCalledWith(403)
+      expect(run(signAdjuntoUrl(lead)).next).toHaveBeenCalled()
     })
 
     it('answers 403 to a bare URL', () => {

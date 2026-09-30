@@ -9,6 +9,13 @@ import type { Request } from 'express'
 export const SINIESTROS_UPLOAD_DIR = join(process.cwd(), 'uploads', 'siniestros')
 export const SINIESTROS_PUBLIC_PREFIX = '/uploads/siniestros'
 
+// Documents a customer sends to take out a quoted policy (DNI, tarjeta azul).
+export const LEADS_UPLOAD_DIR = join(process.cwd(), 'uploads', 'leads')
+export const LEADS_PUBLIC_PREFIX = '/uploads/leads'
+
+/** Folders holding personal documents: served only through signed URLs. */
+export const PROTECTED_UPLOAD_PREFIXES = [SINIESTROS_PUBLIC_PREFIX, LEADS_PUBLIC_PREFIX] as const
+
 export const MAX_FILES = 5
 export const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
 
@@ -24,30 +31,38 @@ function buildFilename(file: MulterFile): string {
 }
 
 /**
- * Multer options for siniestro attachments: disk storage under uploads/siniestros,
- * unique filenames, images + PDF only, capped size and count.
+ * Multer options for attachments stored in `dir`: disk storage, unique
+ * filenames, images + PDF only, capped size and count.
  */
-export const siniestroMulterOptions = {
-  storage: diskStorage({
-    destination: (_req: Request, _file: MulterFile, cb: (error: Error | null, destination: string) => void) => {
-      if (!existsSync(SINIESTROS_UPLOAD_DIR)) {
-        mkdirSync(SINIESTROS_UPLOAD_DIR, { recursive: true })
+function attachmentMulterOptions(dir: string) {
+  return {
+    storage: diskStorage({
+      destination: (_req: Request, _file: MulterFile, cb: (error: Error | null, destination: string) => void) => {
+        if (!existsSync(dir)) {
+          mkdirSync(dir, { recursive: true })
+        }
+        cb(null, dir)
+      },
+      filename: (_req: Request, file: MulterFile, cb: FilenameCallback) => {
+        cb(null, buildFilename(file))
+      },
+    }),
+    fileFilter: (_req: Request, file: MulterFile, cb: FileFilterCallback) => {
+      if (!ALLOWED_MIME.has(file.mimetype)) {
+        cb(new BadRequestException(`Tipo de archivo no permitido: ${file.mimetype}`), false)
+        return
       }
-      cb(null, SINIESTROS_UPLOAD_DIR)
+      cb(null, true)
     },
-    filename: (_req: Request, file: MulterFile, cb: FilenameCallback) => {
-      cb(null, buildFilename(file))
-    },
-  }),
-  fileFilter: (_req: Request, file: MulterFile, cb: FileFilterCallback) => {
-    if (!ALLOWED_MIME.has(file.mimetype)) {
-      cb(new BadRequestException(`Tipo de archivo no permitido: ${file.mimetype}`), false)
-      return
-    }
-    cb(null, true)
-  },
-  limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
+    limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
+  }
 }
+
+/** Claim photos: uploads/siniestros. */
+export const siniestroMulterOptions = attachmentMulterOptions(SINIESTROS_UPLOAD_DIR)
+
+/** Documents for a quote a customer wants to take out: uploads/leads. */
+export const leadMulterOptions = attachmentMulterOptions(LEADS_UPLOAD_DIR)
 
 export interface AdjuntoMeta {
   filename: string
@@ -105,17 +120,25 @@ export async function optimizeImage(file: MulterFile): Promise<MulterFile> {
 }
 
 /** Optimizes each upload (one at a time, to bound memory) and builds its metadata. */
-export async function toStoredAdjuntos(files: MulterFile[], tipo?: string): Promise<AdjuntoMeta[]> {
+export async function toStoredAdjuntos(
+  files: MulterFile[],
+  tipo?: string,
+  publicPrefix: string = SINIESTROS_PUBLIC_PREFIX,
+): Promise<AdjuntoMeta[]> {
   const stored: AdjuntoMeta[] = []
-  for (const file of files) stored.push(toAdjuntoMeta(await optimizeImage(file), tipo))
+  for (const file of files) stored.push(toAdjuntoMeta(await optimizeImage(file), tipo, publicPrefix))
   return stored
 }
 
-export function toAdjuntoMeta(file: MulterFile, tipo?: string): AdjuntoMeta {
+export function toAdjuntoMeta(
+  file: MulterFile,
+  tipo?: string,
+  publicPrefix: string = SINIESTROS_PUBLIC_PREFIX,
+): AdjuntoMeta {
   return {
     filename: file.filename,
     originalName: file.originalname,
-    url: `${SINIESTROS_PUBLIC_PREFIX}/${file.filename}`,
+    url: `${publicPrefix}/${file.filename}`,
     mimeType: file.mimetype,
     size: file.size,
     ...(tipo ? { tipo } : {}),

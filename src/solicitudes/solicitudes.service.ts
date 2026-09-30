@@ -3,10 +3,29 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
+import { CreateBotLeadDto } from './dto/create-bot-lead.dto'
+import { signAdjuntoList } from '../siniestros/adjunto-url'
+import { LEADS_PUBLIC_PREFIX, toStoredAdjuntos } from '../siniestros/siniestro-upload.config'
 import { ListSolicitudesDto } from './dto/list-solicitudes.dto'
 import { UpdateSolicitudDto } from './dto/update-solicitud.dto'
 import type { LeadKind, SolicitudListItem } from './solicitudes.types'
 import { isVisiblePaymentMethod } from '../common/payment-methods'
+
+/** Take-out documents kept per lead (DNI front/back, tarjeta azul, retries). */
+const MAX_LEAD_ADJUNTOS = 10
+
+/** "Cobertura B1 — Todo Total 1" for a bot quote lead, shown in the list. */
+function leadCoverageSummary(payload: unknown): string | null {
+  const cobertura = (payload as { cobertura?: unknown } | null)?.cobertura
+  return typeof cobertura === 'string' && cobertura ? `Cobertura ${cobertura}` : null
+}
+
+/** Signs the document URLs of a lead payload before handing it to the panel. */
+function withSignedLeadAdjuntos(payload: Prisma.JsonValue): Prisma.JsonValue {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  const adjuntos = (payload as { adjuntos?: unknown }).adjuntos
+  return Array.isArray(adjuntos) ? ({ ...payload, adjuntos: signAdjuntoList(adjuntos) } as Prisma.JsonValue) : payload
+}
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -81,7 +100,7 @@ export class SolicitudesService {
   }
 
   /** Creates a lead from the WhatsApp bot, scoped to the conversation's producer + code. */
-  async createBotLead(conversationId: number, dto: CreateLeadDto): Promise<{ id: number }> {
+  async createBotLead(conversationId: number, dto: CreateBotLeadDto): Promise<{ id: number }> {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
       select: { producerId: true, producerCodeId: true },
@@ -95,7 +114,33 @@ export class SolicitudesService {
     })
   }
 
-  private async createLead(dto: CreateLeadDto, ctx: CreateLeadContext): Promise<{ id: number }> {
+  /**
+   * Attaches the documents a customer sends in WhatsApp to take out a quoted
+   * policy (DNI front/back, tarjeta azul) to the lead the bot created. Stored as
+   * WebP under uploads/leads (signed URLs only) and listed in `payload.adjuntos`.
+   */
+  async attachBotLeadAdjuntos(conversationId: number, leadId: number, files: Express.Multer.File[], tipo?: string) {
+    if (!files.length) throw new BadRequestException('No files received')
+
+    const lead = await this.prisma.contactLead.findFirst({
+      where: { id: leadId, conversationId, deletedAt: null },
+      select: { id: true, payload: true },
+    })
+    if (!lead) throw new NotFoundException(`Lead ${leadId} not found for conversation ${conversationId}`)
+
+    const payload = (lead.payload ?? {}) as Record<string, unknown>
+    const existing = Array.isArray(payload.adjuntos) ? payload.adjuntos : []
+    const stored = await toStoredAdjuntos(files, tipo, LEADS_PUBLIC_PREFIX)
+    const adjuntos = [...existing, ...stored].slice(-MAX_LEAD_ADJUNTOS)
+
+    await this.prisma.contactLead.update({
+      where: { id: lead.id },
+      data: { payload: { ...payload, adjuntos } as Prisma.InputJsonValue },
+    })
+    return { leadId: lead.id, adjuntosCount: adjuntos.length }
+  }
+
+  private async createLead(dto: CreateLeadDto | CreateBotLeadDto, ctx: CreateLeadContext): Promise<{ id: number }> {
     // A chosen plan must belong to this producer and match the lead's product.
     if (dto.selectedPlanId !== undefined) {
       const plan = await this.prisma.productPlan.findFirst({
@@ -185,6 +230,7 @@ export class SolicitudesService {
         phone: true,
         email: true,
         createdAt: true,
+        payload: true,
         selectedPlan: { select: { name: true } },
       },
     })
@@ -196,7 +242,7 @@ export class SolicitudesService {
       contactName: l.contactName,
       phone: l.phone,
       email: l.email,
-      summary: l.selectedPlan ? `Plan ${l.selectedPlan.name}` : null,
+      summary: l.selectedPlan ? `Plan ${l.selectedPlan.name}` : leadCoverageSummary(l.payload),
       channel: l.channel,
       status: l.status,
       createdAt: l.createdAt,
@@ -275,6 +321,7 @@ export class SolicitudesService {
       return {
         kind,
         ...lead,
+        payload: withSignedLeadAdjuntos(lead.payload),
         selectedPlan: lead.selectedPlan
           ? { ...lead.selectedPlan, monthlyPrice: Number(lead.selectedPlan.monthlyPrice) }
           : null,
