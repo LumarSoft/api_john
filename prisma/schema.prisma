@@ -211,19 +211,13 @@ model PhoneNumber {
   budgetExceededAt DateTime?
 
   // ── Billing (what the CLIENT pays, as opposed to what the number COSTS) ──
-  // Minimum monthly fee invoiced for this number. Null → DEFAULT_MONTHLY_PRICE_USD
-  // (50). The billed amount never drops below this, however little the number is
-  // used — this is the floor of the commercial plan, not a measurement.
+  // Legacy plan settings retained for schema compatibility. Billing now always
+  // uses the actual accumulated provider cost × 3, without floor or ceiling.
   monthlyBasePriceUsd Decimal? @db.Decimal(10, 2)
-  // Ceiling of the plan: the client is never invoiced above this, even if the
-  // number burns through far more than that in tokens and conversations.
-  // Null → DEFAULT_MONTHLY_MAX_PRICE_USD (70).
   monthlyMaxPriceUsd  Decimal? @db.Decimal(10, 2)
-  // Multiplier applied to the real cost. Between the floor and the ceiling the
-  // invoice follows actual usage, so the amount moves month to month on its own.
-  // Null → DEFAULT_BILLING_MARKUP (3).
-  billingMarkup       Decimal? @db.Decimal(6, 2)
+  billingMarkup      Decimal? @db.Decimal(6, 2)
 
+  usageEvents UsageEvent[]
   usageMonthly     UsageMonthly[]
   whatsappContacts WhatsAppContact[]
 
@@ -244,6 +238,10 @@ model PhoneNumber {
 model UsageMonthly {
   id                 Int      @id @default(autoincrement())
   period             String   @db.VarChar(7) // "YYYY-MM"
+  openaiCalls        Int      @default(0)
+  openaiCachedInputTokens Int @default(0)
+  metaMessages       Int      @default(0)
+  metaBillableMessages Int    @default(0)
   openaiInputTokens  Int      @default(0)
   openaiOutputTokens Int      @default(0)
   openaiCostUsd      Decimal  @default(0) @db.Decimal(12, 6)
@@ -252,7 +250,7 @@ model UsageMonthly {
   // What the number COSTS us (OpenAI + Meta). Measured, never adjusted.
   totalCostUsd       Decimal  @default(0) @db.Decimal(12, 6)
   // What the client is INVOICED for this number this month:
-  //   max(monthlyBasePriceUsd, totalCostUsd × billingMarkup)
+  //   totalCostUsd × 3 (no floor, ceiling or calendar proration)
   // A business rule, not a measurement — kept in its own column precisely so the
   // measured cost above stays truthful and the margin is visible.
   billedUsd          Decimal  @default(0) @db.Decimal(12, 2)
@@ -269,6 +267,22 @@ model UsageMonthly {
   @@unique([period, phoneNumberId])
   @@index([producerId, period])
   @@index([producerCodeId, period])
+}
+
+// Durable deduplication: retries and delivered/read callbacks bill only once.
+model UsageEvent {
+  id Int @id @default(autoincrement())
+  eventId String @db.VarChar(191)
+  provider String @db.VarChar(20)
+  phoneNumberId Int
+  phoneNumber PhoneNumber @relation(fields: [phoneNumberId], references: [id])
+  period String @db.VarChar(7)
+  category String @db.VarChar(40)
+  billable Boolean
+  costUsd Decimal @db.Decimal(12, 6)
+  deliveredAt DateTime
+  @@unique([phoneNumberId, eventId])
+  @@index([phoneNumberId, period])
 }
 
 // Join: which producer codes a single WhatsApp number serves. Lets several codes
@@ -472,8 +486,8 @@ model Siniestro {
 // source entity via `refId` when the admin opens it.
 model Novedad {
   id        Int       @id @default(autoincrement())
-  type      String // "siniestro" | "handoff"
-  refId     Int // Siniestro.id when type="siniestro"; Conversation.id when "handoff"
+  type      String // "siniestro" | "handoff" | "baja_poliza"
+  refId     Int // Siniestro.id when type="siniestro"; Conversation.id for "handoff" and "baja_poliza"
   title     String
   body      String?   @db.Text
   readAt    DateTime? // null = unread; set when the admin marks it read

@@ -1,15 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { UsageService } from '../usage/usage.service'
+import { UsageService, currentPeriod } from '../usage/usage.service'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
-
-/** Current month key, e.g. "2026-06". */
-function currentPeriod(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
 
 /**
  * SuperAdmin management of the organization's WhatsApp numbers. Billing is per
@@ -34,10 +28,10 @@ export class PhoneNumbersService {
    * The provider cost is deliberately withheld from tenants: it is our cost
    * structure, not part of their invoice.
    */
-  async list(producerId: number, role?: Role) {
-    const period = currentPeriod()
+  async list(producerId: number, role?: Role, period = currentPeriod()) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || period > currentPeriod())
+      throw new BadRequestException('Mes inválido')
     const isOwner = role === Role.OWNER
-    const elapsed = this.usage.elapsedFractionOf(period)
     const numbers = await this.prisma.phoneNumber.findMany({
       where: { producerId, deletedAt: null },
       select: {
@@ -54,6 +48,10 @@ export class PhoneNumbersService {
         usageMonthly: {
           where: { period },
           select: {
+            openaiCalls: true,
+            metaMessages: true,
+            metaBillableMessages: true,
+            openaiCachedInputTokens: true,
             openaiCostUsd: true,
             metaCostUsd: true,
             totalCostUsd: true,
@@ -83,12 +81,15 @@ export class PhoneNumbersService {
         usage: {
           period,
           // Activity is not sensitive: the client may see its own volume.
+          openaiCalls: usage?.openaiCalls ?? 0,
+          metaMessages: usage?.metaMessages ?? 0,
+          metaBillableMessages: usage?.metaBillableMessages ?? 0,
           inputTokens: usage?.openaiInputTokens ?? 0,
           outputTokens: usage?.openaiOutputTokens ?? 0,
           metaConversations: usage?.metaConversations ?? 0,
           // Money the client is being charged.
           billedUsd: billed,
-          accruedUsd: Math.round(billed * elapsed * 100) / 100,
+          accruedUsd: billed,
           // Our cost and margin: owner only.
           ...(isOwner
             ? {

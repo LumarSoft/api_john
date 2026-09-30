@@ -151,13 +151,14 @@ export class NovedadesService {
   async getStats(producerId: number, codeIds: number[]) {
     const base = { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds) }
 
-    const [unreadTotal, unreadSiniestros, unreadHandoff] = await this.prisma.$transaction([
+    const [unreadTotal, unreadSiniestros, unreadHandoff, unreadBajas] = await this.prisma.$transaction([
       this.prisma.novedad.count({ where: base }),
       this.prisma.novedad.count({ where: { ...base, type: NovedadType.SINIESTRO } }),
       this.prisma.novedad.count({ where: { ...base, type: NovedadType.HANDOFF } }),
+      this.prisma.novedad.count({ where: { ...base, type: NovedadType.BAJA_POLIZA } }),
     ])
 
-    return { unreadTotal, unreadSiniestros, unreadHandoff }
+    return { unreadTotal, unreadSiniestros, unreadHandoff, unreadBajas }
   }
 
   async markRead(id: number, producerId: number, codeIds: number[]) {

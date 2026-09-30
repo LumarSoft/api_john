@@ -1,4 +1,4 @@
-import { IsInt, IsNumberString, IsOptional, IsString, Min } from 'class-validator'
+import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
 
 export class RecordOpenAiUsageDto {
   @IsString()
@@ -6,11 +6,27 @@ export class RecordOpenAiUsageDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(180)
+  requestId?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  timestamp?: number
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
   model?: string
 
   @IsInt()
   @Min(0)
   inputTokens: number
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  cachedInputTokens?: number
 
   @IsInt()
   @Min(0)
@@ -20,14 +36,17 @@ export class RecordOpenAiUsageDto {
 export class RecordMetaUsageDto {
   @IsString()
   phoneNumberId: string
-
-  @IsOptional()
+  @IsString()
+  @MaxLength(180)
+  messageId: string
+  @IsString()
+  @MaxLength(40)
+  category: string
+  @IsBoolean()
+  billable: boolean
+  @IsString()
+  recipient: string
   @IsInt()
   @Min(0)
-  conversations?: number
-
-  // Decimal as string to avoid float drift (e.g. "0.0512").
-  @IsOptional()
-  @IsNumberString()
-  costUsd?: string
+  timestamp: number
 }

@@ -4,6 +4,7 @@ import { IsBoolean, IsEnum, IsInt, IsOptional, Max, MaxLength, Min, IsString } f
 export enum NovedadType {
   SINIESTRO = 'siniestro',
   HANDOFF = 'handoff',
+  BAJA_POLIZA = 'baja_poliza',
 }
 
 export class ListNovedadesDto {

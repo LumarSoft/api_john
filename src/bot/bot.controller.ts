@@ -1,3 +1,4 @@
+import { RequestPolicyCancellationDto } from './dto/request-policy-cancellation.dto'
 import {
   Body,
   Controller,
@@ -134,6 +135,14 @@ export class BotController {
   @Get('conversation/:phoneNumberId/:waId')
   getOrCreateConversation(@Param('phoneNumberId') phoneNumberId: string, @Param('waId') waId: string) {
     return this.botService.getOrCreateConversation(phoneNumberId, waId)
+  }
+
+  @Post('conversation/:conversationId/request-policy-cancellation')
+  requestPolicyCancellation(
+    @Param('conversationId', ParseIntPipe) id: number,
+    @Body() dto: RequestPolicyCancellationDto,
+  ) {
+    return this.botService.requestPolicyCancellation(id, dto.polizaId)
   }
 
   @Post('conversation/:conversationId/request-handoff')

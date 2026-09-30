@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { metaMessageRate } from './meta-rates'
+import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '../prisma/prisma.service'
 
@@ -8,19 +9,28 @@ export interface RecordOpenAiInput {
   model?: string
   inputTokens: number
   outputTokens: number
+  cachedInputTokens?: number
+  requestId?: string
+  timestamp?: number
 }
 
 export interface RecordMetaInput {
   metaPhoneNumberId: string
-  conversations?: number
-  /** Exact cost from Meta's webhook pricing, if known. Falls back to the env rate. */
-  costUsd?: number
+  messageId: string
+  category: string
+  billable: boolean
+  recipient: string
+  timestamp: number
 }
 
 /** Current month key in local time, e.g. "2026-06". */
-function currentPeriod(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+export function currentPeriod(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Cordoba',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(date)
+  return `${parts.find(p => p.type === 'year')!.value}-${parts.find(p => p.type === 'month')!.value}`
 }
 
 /**
@@ -42,7 +52,7 @@ function periodElapsedFraction(period: string, now: Date = new Date()): number {
 }
 
 /**
- * Tracks per-number monthly cost (OpenAI tokens + Meta conversations) and
+ * Tracks per-number monthly cost (OpenAI requests/tokens + delivered Meta messages) and
  * enforces a per-number budget cap. When a number crosses its cap we stamp
  * PhoneNumber.budgetExceededAt; the bot then disables the paid LLM (deterministic
  * flows keep working at zero token cost) until the next month resets the total.
@@ -54,7 +64,8 @@ export class UsageService {
   // GPT-5.6 Luna default pricing (USD per 1M tokens). Override via env.
   private readonly priceInPer1M: number
   private readonly priceOutPer1M: number
-  private readonly metaPerConversation: number
+  private readonly priceCachedPer1M: number
+  private readonly metaMarket: string
   private readonly defaultBudget: number
 
   constructor(
@@ -63,7 +74,8 @@ export class UsageService {
   ) {
     this.priceInPer1M = Number(config.get('OPENAI_PRICE_IN_PER_1M') ?? 0.2)
     this.priceOutPer1M = Number(config.get('OPENAI_PRICE_OUT_PER_1M') ?? 1.2)
-    this.metaPerConversation = Number(config.get('META_COST_PER_CONVERSATION_USD') ?? 0.05)
+    this.priceCachedPer1M = Number(config.get('OPENAI_PRICE_CACHED_PER_1M') ?? 0.02)
+    this.metaMarket = config.get('META_DEFAULT_MARKET') ?? 'Argentina'
     this.defaultBudget = Number(config.get('DEFAULT_MONTHLY_BUDGET_USD') ?? 20)
   }
 
@@ -82,72 +94,13 @@ export class UsageService {
     })
   }
 
-  /**
-   * Amount invoiced to the client for a number in a month.
-   *
-   *   billed = LO + (HI − LO) · min(1, (cost / REF) ^ EXP)
-   *
-   * A price curve, not a measurement. It maps the measured cost onto the
-   * commercial band [LO, HI]:
-   *
-   *   - it is monotonic, so a heavier month always invoices more than a lighter one
-   *   - the exponent keeps small months near the floor and only lets the price
-   *     climb as consumption approaches REF
-   *   - being continuous over a 6-decimal cost, consecutive months land on
-   *     different amounts on their own, without any synthetic variation
-   *
-   * Reference points with the defaults below:
-   *
-   *   cost  2 USD → 51.20      cost 20 USD → 57.36
-   *   cost  5 USD → 51.80      cost 30 USD → 62.69
-   *   cost 10 USD → 53.25      cost 40 USD → 69.00 (ceiling)
-   *
-   * Constants live here rather than in env because they are product decisions,
-   * not deployment configuration. A number can still override the band through
-   * PhoneNumber.monthlyBasePriceUsd / monthlyMaxPriceUsd.
-   */
-  /** Floor of the commercial band, in USD. */
-  private static readonly PRICE_FLOOR = 51
-  /** Ceiling of the commercial band, in USD. */
-  private static readonly PRICE_CEILING = 69
-  /**
-   * Monthly cost at which the price sits at the middle of the band (60 USD).
-   * Set it to the number's typical monthly cost — that centres the curve on the
-   * range where the number actually lives, so the price has room to move both up
-   * and down instead of resting against an edge.
-   */
-  private static readonly PRICE_HALFWAY_COST = 2
-
-  /** Public wrapper so the owner reports price exactly like the admin one. */
-  priceFor(phone: { monthlyBasePriceUsd: unknown; monthlyMaxPriceUsd: unknown }, cost: number): number {
-    return this.computeBilled(phone, cost)
+  /** All reports use actual accumulated monthly usage × 3. */
+  priceFor(_phone: unknown, cost: number): number {
+    return Math.round((Number.isFinite(cost) && cost > 0 ? cost : 0) * 3 * 100) / 100
   }
 
-  /** Share of the given period already elapsed (0–1). Used by the owner reports. */
   elapsedFractionOf(period: string): number {
     return periodElapsedFraction(period)
-  }
-
-  private computeBilled(phone: { monthlyBasePriceUsd: unknown; monthlyMaxPriceUsd: unknown }, cost: number): number {
-    const floor = phone.monthlyBasePriceUsd != null ? Number(phone.monthlyBasePriceUsd) : UsageService.PRICE_FLOOR
-    const rawCeiling = phone.monthlyMaxPriceUsd != null ? Number(phone.monthlyMaxPriceUsd) : UsageService.PRICE_CEILING
-    // A ceiling configured below the floor must not produce a price under the minimum.
-    const ceiling = Math.max(floor, rawCeiling)
-
-    const safeCost = Number.isFinite(cost) && cost > 0 ? cost : 0
-
-    // Saturating curve: price = floor + (ceiling − floor) · (1 − 2^(−cost/HALF)).
-    //
-    // Chosen over a clamped multiplier because it never rests on either edge:
-    // it approaches the ceiling asymptotically instead of hitting it, so a heavy
-    // month still produces a distinct figure (68.44, 68.71, …) rather than the
-    // same 69.00 every time. It is monotonic — a costlier month always invoices
-    // more — and continuous over a 6-decimal cost, so two months only coincide
-    // if their token and conversation counts coincide exactly.
-    const progress = 1 - Math.pow(2, -safeCost / UsageService.PRICE_HALFWAY_COST)
-    const price = floor + (ceiling - floor) * progress
-
-    return Math.round(price * 100) / 100
   }
 
   async recordOpenAI(input: RecordOpenAiInput): Promise<{ overBudget: boolean }> {
@@ -157,32 +110,71 @@ export class UsageService {
       return { overBudget: false }
     }
 
+    const cached = Math.min(input.inputTokens, Math.max(0, input.cachedInputTokens ?? 0))
+    const model = input.model ?? 'gpt-5.6-luna'
+    const rates = model.startsWith('gpt-6-luna')
+      ? { input: 0.1, cached: 0.01, output: 0.5 }
+      : model.startsWith('gpt-5.6-luna')
+        ? { input: this.priceInPer1M, cached: this.priceCachedPer1M, output: this.priceOutPer1M }
+        : null
+    if (!rates) throw new BadRequestException(`Tarifa no configurada para el modelo ${model}`)
+    const longContext = input.inputTokens > 272_000
     const cost =
-      (input.inputTokens / 1_000_000) * this.priceInPer1M + (input.outputTokens / 1_000_000) * this.priceOutPer1M
+      ((input.inputTokens - cached) * rates.input * (longContext ? 2 : 1) +
+        cached * rates.cached * (longContext ? 2 : 1) +
+        input.outputTokens * rates.output * (longContext ? 1.5 : 1)) /
+      1_000_000
+    const deliveredAt = input.timestamp != null ? new Date(input.timestamp * 1000) : new Date()
+    const period = currentPeriod(deliveredAt)
 
-    const row = await this.prisma.usageMonthly.upsert({
-      where: { period_phoneNumberId: { period: currentPeriod(), phoneNumberId: phone.id } },
-      create: {
-        period: currentPeriod(),
-        phoneNumberId: phone.id,
-        producerId: phone.producerId,
-        producerCodeId: phone.responsibleProducerCodeId,
-        openaiInputTokens: input.inputTokens,
-        openaiOutputTokens: input.outputTokens,
-        openaiCostUsd: cost,
-        totalCostUsd: cost,
-      },
-      update: {
-        openaiInputTokens: { increment: input.inputTokens },
-        openaiOutputTokens: { increment: input.outputTokens },
-        openaiCostUsd: { increment: cost },
-        totalCostUsd: { increment: cost },
-      },
-      select: { id: true, totalCostUsd: true },
-    })
+    let row: { id: number; totalCostUsd: unknown }
+    try {
+      row = await this.prisma.$transaction(async tx => {
+        if (input.requestId)
+          await tx.usageEvent.create({
+            data: {
+              eventId: `openai:${input.requestId}`,
+              provider: 'openai',
+              phoneNumberId: phone.id,
+              period,
+              category: model,
+              billable: true,
+              costUsd: cost,
+              deliveredAt,
+            },
+          })
+        return tx.usageMonthly.upsert({
+          where: { period_phoneNumberId: { period, phoneNumberId: phone.id } },
+          create: {
+            period,
+            phoneNumberId: phone.id,
+            producerId: phone.producerId,
+            producerCodeId: phone.responsibleProducerCodeId,
+            openaiCalls: 1,
+            openaiCachedInputTokens: cached,
+            openaiInputTokens: input.inputTokens,
+            openaiOutputTokens: input.outputTokens,
+            openaiCostUsd: cost,
+            totalCostUsd: cost,
+          },
+          update: {
+            openaiCalls: { increment: 1 },
+            openaiCachedInputTokens: { increment: cached },
+            openaiInputTokens: { increment: input.inputTokens },
+            openaiOutputTokens: { increment: input.outputTokens },
+            openaiCostUsd: { increment: cost },
+            totalCostUsd: { increment: cost },
+          },
+          select: { id: true, totalCostUsd: true },
+        })
+      })
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') return { overBudget: false }
+      throw error
+    }
 
     await this.refreshBilled(phone, row.id, Number(row.totalCostUsd))
-    return this.applyBudget(phone, Number(row.totalCostUsd))
+    return period === currentPeriod() ? this.applyBudget(phone, Number(row.totalCostUsd)) : { overBudget: false }
   }
 
   async recordMeta(input: RecordMetaInput): Promise<{ overBudget: boolean }> {
@@ -192,30 +184,61 @@ export class UsageService {
       return { overBudget: false }
     }
 
-    const conversations = input.conversations ?? 1
-    const cost = input.costUsd ?? conversations * this.metaPerConversation
-
-    const row = await this.prisma.usageMonthly.upsert({
-      where: { period_phoneNumberId: { period: currentPeriod(), phoneNumberId: phone.id } },
-      create: {
-        period: currentPeriod(),
-        phoneNumberId: phone.id,
-        producerId: phone.producerId,
-        producerCodeId: phone.responsibleProducerCodeId,
-        metaConversations: conversations,
-        metaCostUsd: cost,
-        totalCostUsd: cost,
-      },
-      update: {
-        metaConversations: { increment: conversations },
-        metaCostUsd: { increment: cost },
-        totalCostUsd: { increment: cost },
-      },
-      select: { id: true, totalCostUsd: true },
-    })
-
+    const deliveredAt = new Date(input.timestamp * 1000)
+    if (!Number.isFinite(deliveredAt.getTime())) throw new BadRequestException('Timestamp inválido')
+    const period = currentPeriod(deliveredAt)
+    let cost = 0
+    if (input.billable) {
+      try {
+        cost = metaMessageRate(input.category, input.recipient, this.metaMarket)
+      } catch (error) {
+        throw new BadRequestException((error as Error).message)
+      }
+    }
+    // Meta's billable flag accounts for the 1,000 free service messages and
+    // free entry-point windows. Do not charge those again locally.
+    let row: { id: number; totalCostUsd: unknown }
+    try {
+      row = await this.prisma.$transaction(async tx => {
+        await tx.usageEvent.create({
+          data: {
+            provider: 'meta',
+            phoneNumberId: phone.id,
+            eventId: `meta:${input.messageId}`,
+            period,
+            category: input.category,
+            billable: input.billable,
+            costUsd: cost,
+            deliveredAt,
+          },
+        })
+        return tx.usageMonthly.upsert({
+          where: { period_phoneNumberId: { period, phoneNumberId: phone.id } },
+          create: {
+            period,
+            phoneNumberId: phone.id,
+            producerId: phone.producerId,
+            producerCodeId: phone.responsibleProducerCodeId,
+            metaMessages: 1,
+            metaBillableMessages: input.billable ? 1 : 0,
+            metaCostUsd: cost,
+            totalCostUsd: cost,
+          },
+          update: {
+            metaMessages: { increment: 1 },
+            metaBillableMessages: { increment: input.billable ? 1 : 0 },
+            metaCostUsd: { increment: cost },
+            totalCostUsd: { increment: cost },
+          },
+          select: { id: true, totalCostUsd: true },
+        })
+      })
+    } catch (error) {
+      if ((error as { code?: string }).code === 'P2002') return { overBudget: false }
+      throw error
+    }
     await this.refreshBilled(phone, row.id, Number(row.totalCostUsd))
-    return this.applyBudget(phone, Number(row.totalCostUsd))
+    return period === currentPeriod() ? this.applyBudget(phone, Number(row.totalCostUsd)) : { overBudget: false }
   }
 
   /** Recomputes the invoiced amount for a period row after the cost changed. */
@@ -224,16 +247,7 @@ export class UsageService {
     rowId: number,
     cost: number,
   ): Promise<void> {
-    const billed = this.computeBilled(phone, cost)
-
-    // The ceiling caps the invoice but not the cost: past a point the number is
-    // served at a loss and nothing else would surface it.
-    if (billed < cost) {
-      this.logger.error(
-        `PhoneNumber ${phone.id}: cost USD ${cost.toFixed(2)} exceeds the invoiced ` +
-          `USD ${billed.toFixed(2)} — this number is losing money this month`,
-      )
-    }
+    const billed = this.priceFor(phone, cost)
 
     try {
       await this.prisma.usageMonthly.update({
@@ -274,6 +288,8 @@ export class UsageService {
 
   /** Admin cost report, scoped to the codes the user can access. */
   async getSummary(producerId: number, codeIds: number[], period: string = currentPeriod()) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || period > currentPeriod())
+      throw new BadRequestException('Mes inválido')
     const rows = await this.prisma.usageMonthly.findMany({
       where: {
         producerId,
@@ -282,6 +298,10 @@ export class UsageService {
       },
       select: {
         period: true,
+        openaiCalls: true,
+        metaMessages: true,
+        metaBillableMessages: true,
+        openaiCachedInputTokens: true,
         openaiInputTokens: true,
         openaiOutputTokens: true,
         openaiCostUsd: true,
@@ -305,20 +325,13 @@ export class UsageService {
       orderBy: { totalCostUsd: 'desc' },
     })
 
-    // A row created before this feature (or never touched since) still shows a
-    // stale billedUsd, so the invoiced amount is recomputed on read. Cheap, and
-    // it keeps the report correct right after a price change.
-    //
-    // `billedUsd`  = the full monthly charge for the number (what it closes at)
-    // `accruedUsd` = the part of that charge already run up, prorated over the
-    //                month. Near zero on the 1st, the full amount on the last
-    //                day. Each number accrues towards its own total, so two
-    //                numbers with different usage never show the same figure.
+    // Recompute from stored provider cost so old floor/ceiling prices are never
+    // returned. accruedUsd stays as a compatibility alias for monthly usage.
     const elapsed = periodElapsedFraction(period)
 
     const priced = rows.map(r => {
-      const billed = r.phoneNumber ? this.computeBilled(r.phoneNumber, Number(r.totalCostUsd)) : Number(r.billedUsd)
-      const accrued = Math.round(billed * elapsed * 100) / 100
+      const billed = r.phoneNumber ? this.priceFor(r.phoneNumber, Number(r.totalCostUsd)) : Number(r.billedUsd)
+      const accrued = billed
       return {
         ...r,
         billedUsd: billed,

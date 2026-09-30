@@ -7,13 +7,7 @@ import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 import { UpdateProducerCodeDto } from './dto/update-producer-code.dto'
 import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
 import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
-import { UsageService } from '../usage/usage.service'
-
-/** Current month key, e.g. "2026-08". Mirrors UsageService's period format. */
-function currentPeriod(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
+import { UsageService, currentPeriod } from '../usage/usage.service'
 
 const round2 = <T extends Record<string, number>>(o: T): T =>
   Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 100) / 100])) as T
@@ -152,7 +146,6 @@ export class OwnerService {
    */
   private async phoneNumberDetail(producerId: number) {
     const period = currentPeriod()
-    const elapsed = this.usage.elapsedFractionOf(period)
 
     const phones = await this.prisma.phoneNumber.findMany({
       where: { producerId, deletedAt: null },
@@ -171,6 +164,9 @@ export class OwnerService {
         usageMonthly: {
           where: { period },
           select: {
+            openaiCalls: true,
+            metaMessages: true,
+            metaBillableMessages: true,
             openaiInputTokens: true,
             openaiOutputTokens: true,
             openaiCostUsd: true,
@@ -200,6 +196,9 @@ export class OwnerService {
         },
         usage: {
           period,
+          openaiCalls: u?.openaiCalls ?? 0,
+          metaMessages: u?.metaMessages ?? 0,
+          metaBillableMessages: u?.metaBillableMessages ?? 0,
           openaiInputTokens: u?.openaiInputTokens ?? 0,
           openaiOutputTokens: u?.openaiOutputTokens ?? 0,
           openaiCostUsd: Number(u?.openaiCostUsd ?? 0),
@@ -207,7 +206,7 @@ export class OwnerService {
           metaCostUsd: Number(u?.metaCostUsd ?? 0),
           totalCostUsd: cost,
           billedUsd: billed,
-          accruedUsd: Math.round(billed * elapsed * 100) / 100,
+          accruedUsd: billed,
           marginUsd: Math.round((billed - cost) * 100) / 100,
         },
       }

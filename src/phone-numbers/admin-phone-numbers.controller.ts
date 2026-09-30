@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Request, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
@@ -15,8 +27,8 @@ export class AdminPhoneNumbersController {
   constructor(private readonly service: PhoneNumbersService) {}
 
   @Get()
-  list(@Request() req: AuthenticatedRequest) {
-    return this.service.list(req.user.producerId, req.user.role)
+  list(@Request() req: AuthenticatedRequest, @Query('period') period?: string) {
+    return this.service.list(req.user.producerId, req.user.role, period)
   }
 
   @Post()

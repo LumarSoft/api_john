@@ -4,6 +4,8 @@ import { BotService } from './bot.service'
 function createPrismaMock() {
   return {
     phoneNumber: { findFirst: jest.fn() },
+    poliza: { findFirst: jest.fn(), update: jest.fn() },
+    novedad: { findFirst: jest.fn(), create: jest.fn() },
     conversation: {
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -28,6 +30,62 @@ describe('BotService', () => {
     // consulted for the LLM budget flag, which these tests don't exercise.
     const usage = { isLlmEnabled: jest.fn().mockResolvedValue(true) }
     service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, config)
+  })
+
+  describe('requestPolicyCancellation', () => {
+    beforeEach(() => {
+      prisma.conversation.findFirst.mockResolvedValue({
+        producerId: 2,
+        client: { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', deletedAt: null },
+      })
+      prisma.poliza.findFirst.mockResolvedValue({
+        id: 9,
+        certificado: 'ABC',
+        producerCodeId: 8,
+        vehiculo: { dominio: 'AA123BB' },
+      })
+      prisma.novedad.findFirst.mockResolvedValue(null)
+      prisma.novedad.create.mockResolvedValue({ id: 17 })
+      prisma.$transaction.mockImplementation(fn => fn(prisma))
+    })
+
+    it('creates a scoped request, leaves the policy unchanged and flags the conversation for the office', async () => {
+      await expect(service.requestPolicyCancellation(3, 9)).resolves.toEqual({ id: 17 })
+      expect(prisma.poliza.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 9, clientId: 5, producerId: 2, deletedAt: null } }),
+      )
+      expect(prisma.novedad.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'baja_poliza',
+            producerId: 2,
+            clientId: 5,
+            refId: 3,
+            body: expect.stringContaining('AA123BB'),
+          }),
+        }),
+      )
+      expect(prisma.conversation.update).toHaveBeenCalledWith({ where: { id: 3 }, data: { status: 'pending' } })
+      expect(prisma.poliza.update).not.toHaveBeenCalled()
+    })
+
+    it('rejects an unidentified client before looking up any policy', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ producerId: 2, client: null })
+      await expect(service.requestPolicyCancellation(3, 9)).rejects.toThrow('identified client')
+      expect(prisma.poliza.findFirst).not.toHaveBeenCalled()
+    })
+
+    it('rejects a policy outside the identified client and organization', async () => {
+      prisma.poliza.findFirst.mockResolvedValue(null)
+      await expect(service.requestPolicyCancellation(3, 9)).rejects.toThrow('not found')
+      expect(prisma.novedad.create).not.toHaveBeenCalled()
+    })
+
+    it('reuses a pending notification on a retry', async () => {
+      prisma.novedad.findFirst.mockResolvedValue({ id: 17 })
+      await expect(service.requestPolicyCancellation(3, 9)).resolves.toEqual({ id: 17 })
+      expect(prisma.novedad.create).not.toHaveBeenCalled()
+    })
   })
 
   describe('getContext', () => {

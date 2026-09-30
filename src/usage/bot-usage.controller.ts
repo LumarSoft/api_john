@@ -4,7 +4,7 @@ import { UsageService } from './usage.service'
 import { RecordMetaUsageDto, RecordOpenAiUsageDto } from './dto/record-usage.dto'
 
 /** Bot-only cost reporting (x-bot-secret). The bot calls these after each LLM
- *  completion and when Meta reports a billable conversation. */
+ *  completion and when Meta reports a delivered message. */
 @UseGuards(BotAuthGuard)
 @Controller('bot/usage')
 export class BotUsageController {
@@ -15,8 +15,11 @@ export class BotUsageController {
     return this.usage.recordOpenAI({
       metaPhoneNumberId: dto.phoneNumberId,
       model: dto.model,
+      requestId: dto.requestId,
+      timestamp: dto.timestamp,
       inputTokens: dto.inputTokens,
       outputTokens: dto.outputTokens,
+      cachedInputTokens: dto.cachedInputTokens,
     })
   }
 
@@ -24,8 +27,11 @@ export class BotUsageController {
   recordMeta(@Body() dto: RecordMetaUsageDto) {
     return this.usage.recordMeta({
       metaPhoneNumberId: dto.phoneNumberId,
-      conversations: dto.conversations,
-      costUsd: dto.costUsd != null ? Number(dto.costUsd) : undefined,
+      messageId: dto.messageId,
+      category: dto.category,
+      billable: dto.billable,
+      recipient: dto.recipient,
+      timestamp: dto.timestamp,
     })
   }
 }
