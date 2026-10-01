@@ -14,5 +14,9 @@ describe('classifyMatter', () => {
     ['Quiero cancelar una cuota', 'pagos'],
     ['Quiero bajarme del seguro', 'baja'],
     ['No quiero dar de baja el seguro', 'other'],
+    ['Solicito la cancelación póliza de la moto por venta', 'baja'],
+    ['Necesito asegurar esa', 'cotizacion'],
+    ['Me podés bajar el seguro para pagar el mínimo', 'other'],
+    ['Quiero reducir la cobertura de mi póliza', 'other'],
   ])('classifies %s as %s', (reason, expected) => expect(classifyMatter(reason)).toBe(expected))
 })

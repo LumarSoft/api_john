@@ -31,6 +31,10 @@ function setup() {
 }
 
 describe('monthly usage billing', () => {
+  // The October event fixtures must be billed as a completed month regardless
+  // of the actual day on which the suite runs.
+  beforeEach(() => jest.useFakeTimers().setSystemTime(new Date('2026-11-01T12:00:00Z')))
+  afterEach(() => jest.useRealTimers())
   it('charges nothing without use and enforces the full-month commercial range', () => {
     const { service } = setup()
     expect(service.priceFor({}, undefined, '2026-08')).toBe(0)

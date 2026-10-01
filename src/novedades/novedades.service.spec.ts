@@ -103,7 +103,13 @@ describe('NovedadesService', () => {
           take: 20,
         }),
       )
-      expect(result).toEqual({ data: [{ id: 8 }], total: 1, page: 1, pageSize: 20, totalPages: 1 })
+      expect(result).toMatchObject({
+        data: [{ id: 8, summary: expect.any(String), nextAction: expect.any(String) }],
+        total: 1,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+      })
     })
 
     it('filters by type and unread when requested', async () => {

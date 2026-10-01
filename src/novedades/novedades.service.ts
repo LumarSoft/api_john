@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { ListNovedadesDto, NovedadType, MatterCategory, MatterStatus, UpdateMatterDto } from './dto/list-novedades.dto'
 
 import { classifyMatter } from './classify-matter'
+import { matterBrief } from './matter-brief'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -179,7 +180,7 @@ export class NovedadesService {
     ])
 
     return {
-      data,
+      data: data.map(matter => ({ ...matter, ...matterBrief(matter) })),
       total,
       page,
       pageSize,
