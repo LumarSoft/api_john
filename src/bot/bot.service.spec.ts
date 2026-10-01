@@ -58,6 +58,7 @@ describe('BotService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             type: 'baja_poliza',
+            category: 'baja',
             producerId: 2,
             clientId: 5,
             refId: 3,
@@ -67,6 +68,10 @@ describe('BotService', () => {
       )
       expect(prisma.conversation.update).toHaveBeenCalledWith({ where: { id: 3 }, data: { status: 'pending' } })
       expect(prisma.poliza.update).not.toHaveBeenCalled()
+      expect(prisma.novedad.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ status: { not: 'resolved' } }) }),
+      )
+      expect(prisma.novedad.findFirst.mock.calls[0][0].where).not.toHaveProperty('readAt')
     })
 
     it('rejects an unidentified client before looking up any policy', async () => {

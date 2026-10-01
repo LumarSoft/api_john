@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import { FilesInterceptor } from '@nestjs/platform-express'
+import { HandoffReasonDto } from '../novedades/dto/list-novedades.dto'
 import { BotService } from './bot.service'
 import { BotAuthGuard } from './bot-auth.guard'
 import { SaveMessageDto } from './dto/save-message.dto'
@@ -146,7 +147,7 @@ export class BotController {
   }
 
   @Post('conversation/:conversationId/request-handoff')
-  requestHandoff(@Param('conversationId', ParseIntPipe) conversationId: number) {
-    return this.botService.requestHandoff(conversationId)
+  requestHandoff(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: HandoffReasonDto) {
+    return this.botService.requestHandoff(conversationId, dto?.reason)
   }
 }

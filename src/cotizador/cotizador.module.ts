@@ -1,3 +1,4 @@
+import { NovedadesModule } from '../novedades/novedades.module'
 import { Module } from '@nestjs/common'
 import { HttpModule } from '@nestjs/axios'
 import { CotizadorService } from './cotizador.service'
@@ -8,7 +9,7 @@ import { PrismaModule } from '../prisma/prisma.module'
 import { CoverageSettingsModule } from '../coverage-settings/coverage-settings.module'
 
 @Module({
-  imports: [HttpModule, TriunfoModule, InfoAutoModule, PrismaModule, CoverageSettingsModule],
+  imports: [NovedadesModule, HttpModule, TriunfoModule, InfoAutoModule, PrismaModule, CoverageSettingsModule],
   controllers: [CotizadorController],
   providers: [CotizadorService],
 })

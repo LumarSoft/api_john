@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common'
 import { NovedadesService } from './novedades.service'
-import { NovedadType } from './dto/list-novedades.dto'
+import { NovedadType, MatterCategory, MatterStatus } from './dto/list-novedades.dto'
 
 function createPrismaMock() {
   return {
@@ -8,13 +8,16 @@ function createPrismaMock() {
       create: jest.fn(),
       count: jest.fn(),
       findMany: jest.fn(),
-      findFirst: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
       findFirstOrThrow: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
     },
     // Resolves the array form used by listForAdmin / getStats.
-    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    $transaction: jest.fn(),
+    user: { findUniqueOrThrow: jest.fn(), update: jest.fn() },
+    contactLead: { updateMany: jest.fn() },
+    solicitud: { updateMany: jest.fn() },
   }
 }
 
@@ -24,6 +27,7 @@ describe('NovedadesService', () => {
 
   beforeEach(() => {
     prisma = createPrismaMock()
+    prisma.$transaction.mockImplementation(ops => (typeof ops === 'function' ? ops(prisma) : Promise.all(ops)))
     service = new NovedadesService(prisma as never)
   })
 
@@ -42,6 +46,7 @@ describe('NovedadesService', () => {
         data: {
           producerId: 5,
           type: 'siniestro',
+          category: 'siniestro',
           refId: 6,
           clientId: 3,
           producerCodeId: null,
@@ -60,6 +65,7 @@ describe('NovedadesService', () => {
         data: {
           producerId: 5,
           type: 'handoff',
+          category: 'other',
           refId: 1,
           clientId: null,
           producerCodeId: null,
@@ -129,13 +135,23 @@ describe('NovedadesService', () => {
           deletedAt: null,
           OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
           clientId: 3,
-          client: {
-            OR: [
-              { firstName: { contains: '30123' } },
-              { lastName: { contains: '30123' } },
-              { dni: { contains: '30123' } },
-            ],
-          },
+          AND: [
+            {
+              OR: [
+                { title: { contains: '30123' } },
+                { body: { contains: '30123' } },
+                {
+                  client: {
+                    OR: [
+                      { firstName: { contains: '30123' } },
+                      { lastName: { contains: '30123' } },
+                      { dni: { contains: '30123' } },
+                    ],
+                  },
+                },
+              ],
+            },
+          ],
         },
       })
     })
@@ -143,11 +159,132 @@ describe('NovedadesService', () => {
 
   describe('getStats', () => {
     it('returns unread counters by category', async () => {
-      prisma.novedad.count.mockResolvedValueOnce(3).mockResolvedValueOnce(2).mockResolvedValueOnce(1)
+      prisma.novedad.count
+        .mockResolvedValueOnce(3)
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(0)
+        .mockResolvedValue(2)
 
       const stats = await service.getStats(5, [10])
 
-      expect(stats).toEqual({ unreadTotal: 3, unreadSiniestros: 2, unreadHandoff: 1 })
+      expect(stats).toEqual({
+        unreadTotal: 3,
+        unreadSiniestros: 2,
+        unreadHandoff: 1,
+        unreadBajas: 0,
+        actionableTotal: 12,
+        actionableByCategory: { baja: 2, pagos: 2, cotizacion: 2, siniestro: 2, documentos: 2, other: 2 },
+      })
+    })
+  })
+
+  describe('matter queue', () => {
+    it('keeps actionable filtering independent of read state and preserves code scope with search', async () => {
+      prisma.novedad.count.mockResolvedValue(0)
+      prisma.novedad.findMany.mockResolvedValue([])
+      await service.listForAdmin(5, [10], {
+        actionable: true,
+        category: MatterCategory.BAJA,
+        since: '2026-09-30T20:00:00Z',
+        search: 'cancelar',
+      })
+      const where = prisma.novedad.count.mock.calls[0][0].where
+      expect(where).toMatchObject({
+        producerId: 5,
+        category: 'baja',
+        status: { not: 'resolved' },
+        OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
+        createdAt: { gt: new Date('2026-09-30T20:00:00Z') },
+      })
+      expect(where).not.toHaveProperty('readAt')
+      expect(where.AND).toHaveLength(1)
+    })
+
+    it('rejects changes outside the tenant/scope', async () => {
+      await expect(service.updateMatter(8, 5, [10], { status: MatterStatus.RESOLVED })).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+      expect(prisma.novedad.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: 8,
+            producerId: 5,
+            deletedAt: null,
+            OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
+          },
+        }),
+      )
+      expect(prisma.novedad.update).not.toHaveBeenCalled()
+    })
+
+    it('resolves and reopens without altering read state', async () => {
+      prisma.novedad.findFirst.mockResolvedValue({ type: 'handoff', refId: 1 })
+      await service.updateMatter(8, 5, [10], { status: MatterStatus.RESOLVED })
+      expect(prisma.novedad.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ data: { status: 'resolved', resolvedAt: expect.any(Date) } }),
+      )
+      await service.updateMatter(8, 5, [10], { status: MatterStatus.PENDING })
+      expect(prisma.novedad.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ data: { status: 'pending', resolvedAt: null } }),
+      )
+    })
+
+    it('updates the quote request in the same transaction', async () => {
+      prisma.novedad.findFirst.mockResolvedValue({ type: 'lead', refId: 21 })
+      await service.updateMatter(8, 5, [10], { status: MatterStatus.IN_PROGRESS })
+      expect(prisma.contactLead.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: 21, producerId: 5 }),
+          data: { status: 'CONTACTED' },
+        }),
+      )
+    })
+
+    it('stores and classifies the handoff reason', async () => {
+      await service.recordHandoff(5, {
+        conversationId: 1,
+        clientId: null,
+        clienteNombre: 'Ana',
+        reason: 'Quiero dar de baja mi póliza',
+      })
+      expect(prisma.novedad.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ category: 'baja', body: 'Quiero dar de baja mi póliza' }),
+        }),
+      )
+    })
+
+    it('avoids exact repeats but preserves a different matter in the same chat', async () => {
+      prisma.novedad.findFirst.mockResolvedValueOnce({ id: 8 }).mockResolvedValueOnce(null)
+      const input = { conversationId: 1, clientId: null, clienteNombre: 'Ana' }
+      await service.recordHandoff(5, { ...input, reason: 'ya pagué' })
+      expect(prisma.novedad.create).not.toHaveBeenCalled()
+      await service.recordHandoff(5, { ...input, reason: 'quiero dar de baja mi póliza' })
+      expect(prisma.novedad.create).toHaveBeenCalledTimes(1)
+    })
+
+    it('refreshes a resubmitted quote instead of duplicating its matter', async () => {
+      prisma.novedad.findFirst.mockResolvedValue({ id: 8 })
+      await service.recordQuote(5, { type: NovedadType.SOLICITUD, refId: 21, name: 'Ana', summary: 'Eligió B1' })
+      expect(prisma.novedad.create).not.toHaveBeenCalled()
+      expect(prisma.novedad.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 8 },
+          data: expect.objectContaining({ status: 'pending', readAt: null, resolvedAt: null }),
+        }),
+      )
+    })
+
+    it('returns the previous visit before advancing its timestamp', async () => {
+      const previous = new Date('2026-09-29T12:00:00Z')
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ lastNovedadesVisitAt: previous })
+      const result = await service.registerVisit(3)
+      expect(result.previousVisitAt).toEqual(previous)
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 3 },
+        data: { lastNovedadesVisitAt: result.visitedAt },
+      })
     })
   })
 

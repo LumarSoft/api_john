@@ -1,3 +1,4 @@
+import type { NovedadesService } from '../novedades/novedades.service'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import { SolicitudesService } from './solicitudes.service'
@@ -21,7 +22,11 @@ describe('SolicitudesService — bot take-out documents', () => {
         update: jest.fn().mockResolvedValue({}),
       },
     }
-    const service = new SolicitudesService(prisma as unknown as PrismaService, {} as ConfigService)
+    const service = new SolicitudesService(
+      prisma as unknown as PrismaService,
+      {} as ConfigService,
+      {} as NovedadesService,
+    )
     return { service, prisma }
   }
 
@@ -80,7 +85,11 @@ describe('SolicitudesService — bot take-out documents', () => {
         }),
       },
     }
-    const service = new SolicitudesService(prisma as unknown as PrismaService, {} as ConfigService)
+    const service = new SolicitudesService(
+      prisma as unknown as PrismaService,
+      {} as ConfigService,
+      {} as NovedadesService,
+    )
 
     const detail = (await service.getDetail(1, [1], 'lead', 9)) as unknown as {
       payload: { adjuntos: { url: string }[] }

@@ -316,6 +316,7 @@ enum Role {
 }
 
 model User {
+  lastNovedadesVisitAt DateTime?
   id        Int       @id @default(autoincrement())
   email     String    @unique
   password  String
@@ -485,8 +486,11 @@ model Siniestro {
 // creation so the list needs no joins; the full detail is fetched from the
 // source entity via `refId` when the admin opens it.
 model Novedad {
+  category String @default("other") // baja | pagos | cotizacion | siniestro | documentos | other
+  status String @default("pending") // pending | in_progress | resolved
+  resolvedAt DateTime?
   id        Int       @id @default(autoincrement())
-  type      String // "siniestro" | "handoff" | "baja_poliza"
+  type      String // "siniestro" | "handoff" | "baja_poliza" | "lead" | "solicitud"
   refId     Int // Siniestro.id when type="siniestro"; Conversation.id for "handoff" and "baja_poliza"
   title     String
   body      String?   @db.Text
@@ -505,6 +509,7 @@ model Novedad {
   clientId       Int?
   client         Client?       @relation(fields: [clientId], references: [id])
 
+  @@index([producerId, status, category, createdAt])
   @@index([producerId, readAt])
   @@index([producerId, type, createdAt])
   @@index([clientId])

@@ -1,9 +1,9 @@
-import { Controller, Get, Param, ParseIntPipe, Patch, Query, Request, UseGuards } from '@nestjs/common'
+import { Body, Controller, Post, Get, Param, ParseIntPipe, Patch, Query, Request, UseGuards } from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { ScopeService } from '../common/scope/scope.service'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
 import { NovedadesService } from './novedades.service'
-import { ListNovedadesDto, MarkAllReadDto } from './dto/list-novedades.dto'
+import { ListNovedadesDto, MarkAllReadDto, UpdateMatterDto } from './dto/list-novedades.dto'
 
 @UseGuards(UserAuthGuard)
 @Controller('admin/novedades')
@@ -23,9 +23,27 @@ export class AdminNovedadesController {
   }
 
   @Get('stats')
-  async getStats(@Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+  async getStats(@Query() query: ListNovedadesDto, @Request() req: AuthenticatedRequest) {
+    const codeIds = await this.scope.resolveScopedCodeIdsFor(req.user, {
+      producerCodeId: query.producerCodeId,
+      phoneNumberId: query.phoneNumberId,
+    })
     return this.novedadesService.getStats(req.user.producerId, codeIds)
+  }
+
+  @Post('visit')
+  visit(@Request() req: AuthenticatedRequest) {
+    return this.novedadesService.registerVisit(req.user.id)
+  }
+
+  @Patch(':id/matter')
+  async updateMatter(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateMatterDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.novedadesService.updateMatter(id, req.user.producerId, codeIds, dto)
   }
 
   @Patch('read-all')

@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
+import { NovedadesService } from '../novedades/novedades.service'
+import { NovedadType } from '../novedades/dto/list-novedades.dto'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { CreateBotLeadDto } from './dto/create-bot-lead.dto'
@@ -90,6 +92,7 @@ export class SolicitudesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly novedades: NovedadesService,
   ) {}
 
   // ─── Lead creation (web + bot) ─────────────────────────────
@@ -167,6 +170,13 @@ export class SolicitudesService {
         conversationId: ctx.conversationId ?? null,
       },
       select: { id: true },
+    })
+    await this.novedades.recordQuote(ctx.producerId, {
+      type: NovedadType.LEAD,
+      refId: lead.id,
+      name: dto.contactName,
+      producerCodeId: ctx.producerCodeId,
+      summary: `Solicita propuesta de ${dto.productType}. Contacto: ${dto.phone}. Pendiente de seguimiento por un asesor.`,
     })
     return lead
   }
@@ -384,7 +394,10 @@ export class SolicitudesService {
         select: { id: true },
       })
       if (!lead) throw new NotFoundException(`Lead ${id} not found`)
-      await this.prisma.contactLead.update({ where: { id }, data })
+      await this.prisma.$transaction([
+        this.prisma.contactLead.update({ where: { id }, data }),
+        ...this.matterStatusUpdates(producerId, NovedadType.LEAD, id, dto.status),
+      ])
       return { ok: true }
     }
 
@@ -393,8 +406,22 @@ export class SolicitudesService {
       select: { id: true },
     })
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} not found`)
-    await this.prisma.solicitud.update({ where: { id }, data })
+    await this.prisma.$transaction([
+      this.prisma.solicitud.update({ where: { id }, data }),
+      ...this.matterStatusUpdates(producerId, NovedadType.SOLICITUD, id, dto.status),
+    ])
     return { ok: true }
+  }
+
+  private matterStatusUpdates(producerId: number, type: NovedadType, refId: number, sourceStatus?: string) {
+    if (!sourceStatus) return []
+    const status = sourceStatus === 'CLOSED' ? 'resolved' : sourceStatus === 'CONTACTED' ? 'in_progress' : 'pending'
+    return [
+      this.prisma.novedad.updateMany({
+        where: { producerId, type, refId, deletedAt: null },
+        data: { status, resolvedAt: status === 'resolved' ? new Date() : null },
+      }),
+    ]
   }
 
   // Anonymous web leads belong to the default producer (John), mirroring CotizadorService.

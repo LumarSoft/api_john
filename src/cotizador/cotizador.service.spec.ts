@@ -2,6 +2,7 @@ import { of } from 'rxjs'
 import { CotizadorService } from './cotizador.service'
 import { VehicleType } from '../infoauto/infoauto.types'
 import type { HttpService } from '@nestjs/axios'
+import type { NovedadesService } from '../novedades/novedades.service'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { TriunfoService } from '../triunfo/triunfo.service'
@@ -18,6 +19,7 @@ describe('CotizadorService motorcycle availability', () => {
       { isAvailable: jest.fn().mockReturnValue(false) } as unknown as InfoAutoService,
       {} as CoverageSettingsService,
       {} as ConfigService,
+      {} as NovedadesService,
     )
 
     await expect(
@@ -43,6 +45,7 @@ describe('CotizadorService vehicle code validation', () => {
       infoAuto as unknown as InfoAutoService,
       {} as CoverageSettingsService,
       {} as ConfigService,
+      {} as NovedadesService,
     )
     return { service, triunfo }
   }
@@ -84,6 +87,7 @@ describe('CotizadorService vehicle code validation', () => {
       { isAvailable: jest.fn().mockReturnValue(false) } as unknown as InfoAutoService,
       {} as CoverageSettingsService,
       {} as ConfigService,
+      {} as NovedadesService,
     )
 
     await expect(

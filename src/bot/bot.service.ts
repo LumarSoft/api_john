@@ -698,7 +698,7 @@ export class BotService {
   }
 
   /** Marks the conversation as pending human attention (called by the bot when the user requests an advisor). */
-  async requestHandoff(conversationId: number) {
+  async requestHandoff(conversationId: number, reason?: string) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
       select: {
@@ -714,7 +714,7 @@ export class BotService {
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
 
     // Already waiting for an agent — don't bump again or emit a duplicate novedad.
-    if (conversation.status === 'pending') return { ok: true }
+    if (conversation.status === 'pending' && !reason?.trim()) return { ok: true }
 
     await this.prisma.conversation.update({
       where: { id: conversationId },
@@ -726,6 +726,7 @@ export class BotService {
       : conversation.waId
     await this.novedades.recordHandoff(conversation.producerId, {
       conversationId,
+      reason,
       clientId: conversation.clientId,
       clienteNombre,
       producerCodeId: conversation.producerCodeId,
@@ -745,7 +746,14 @@ export class BotService {
     const body = `Póliza ${poliza.id}: ${poliza.certificado}${poliza.vehiculo?.dominio ? ` · Patente ${poliza.vehiculo.dominio}` : ''}. DNI ${client.dni}. El cliente solicita gestionar la baja; pendiente de confirmación de la oficina.`
     return this.prisma.$transaction(async tx => {
       const existing = await tx.novedad.findFirst({
-        where: { producerId, type: 'baja_poliza', refId: conversationId, body, readAt: null, deletedAt: null },
+        where: {
+          producerId,
+          type: 'baja_poliza',
+          refId: conversationId,
+          body,
+          status: { not: 'resolved' },
+          deletedAt: null,
+        },
         select: { id: true },
       })
       const notification =
@@ -756,6 +764,7 @@ export class BotService {
             producerCodeId: poliza.producerCodeId,
             clientId,
             type: 'baja_poliza',
+            category: 'baja',
             refId: conversationId,
             title: `Solicitud de baja · ${client.firstName} ${client.lastName} · Póliza ${poliza.certificado}`,
             body,

@@ -11,6 +11,8 @@ import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { firstValueFrom } from 'rxjs'
 import { Prisma } from 'generated/prisma/client'
+import { NovedadesService } from '../novedades/novedades.service'
+import { NovedadType } from '../novedades/dto/list-novedades.dto'
 import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { InfoAutoService } from '../infoauto/infoauto.service'
@@ -77,6 +79,7 @@ export class CotizadorService {
     private readonly infoAuto: InfoAutoService,
     private readonly coverageSettings: CoverageSettingsService,
     private readonly configService: ConfigService,
+    private readonly novedades: NovedadesService,
   ) {}
 
   async quoteVehicle(
@@ -207,7 +210,7 @@ export class CotizadorService {
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {
     const cotizacion = await this.prisma.cotizacion.findFirst({
       where: { quoteNumber, deletedAt: null },
-      select: { id: true, result: true, producerId: true },
+      select: { id: true, result: true, producerId: true, producerCodeId: true },
     })
     if (!cotizacion) throw new NotFoundException(`Quote ${quoteNumber} not found`)
 
@@ -256,10 +259,19 @@ export class CotizadorService {
     }
 
     // 1:1 with the quote — re-submitting the same quote overwrites the previous lead
-    await this.prisma.solicitud.upsert({
+    const solicitud = await this.prisma.solicitud.upsert({
       where: { cotizacionId: cotizacion.id },
       create: { cotizacionId: cotizacion.id, ...data },
-      update: { ...data, deletedAt: null },
+      update: { ...data, deletedAt: null, status: 'NEW' },
+    })
+
+    // Re-submissions refresh the same matter rather than adding another task.
+    await this.novedades.recordQuote(cotizacion.producerId, {
+      type: NovedadType.SOLICITUD,
+      refId: solicitud.id,
+      name: `${dto.firstName} ${dto.lastName ?? ''}`.trim(),
+      producerCodeId: cotizacion.producerCodeId,
+      summary: `Eligió cobertura ${dto.coverage}. Contacto: ${dto.phone}. Pendiente de gestionar contratación.`,
     })
 
     // Fire-and-forget: greet the client on WhatsApp so they get follow-up on
