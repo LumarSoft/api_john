@@ -13,8 +13,12 @@ export const SINIESTROS_PUBLIC_PREFIX = '/uploads/siniestros'
 export const LEADS_UPLOAD_DIR = join(process.cwd(), 'uploads', 'leads')
 export const LEADS_PUBLIC_PREFIX = '/uploads/leads'
 
+// WhatsApp voice notes, kept AUDIO_RETENTION_DAYS (see MessageRetentionService).
+export const AUDIOS_UPLOAD_DIR = join(process.cwd(), 'uploads', 'audios')
+export const AUDIOS_PUBLIC_PREFIX = '/uploads/audios'
+
 /** Folders holding personal documents: served only through signed URLs. */
-export const PROTECTED_UPLOAD_PREFIXES = [SINIESTROS_PUBLIC_PREFIX, LEADS_PUBLIC_PREFIX] as const
+export const PROTECTED_UPLOAD_PREFIXES = [SINIESTROS_PUBLIC_PREFIX, LEADS_PUBLIC_PREFIX, AUDIOS_PUBLIC_PREFIX] as const
 
 export const MAX_FILES = 5
 export const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
@@ -34,7 +38,11 @@ function buildFilename(file: MulterFile): string {
  * Multer options for attachments stored in `dir`: disk storage, unique
  * filenames, images + PDF only, capped size and count.
  */
-function attachmentMulterOptions(dir: string) {
+function attachmentMulterOptions(
+  dir: string,
+  allowed: ReadonlySet<string> = ALLOWED_MIME,
+  limits: { fileSize: number; files: number } = { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
+) {
   return {
     storage: diskStorage({
       destination: (_req: Request, _file: MulterFile, cb: (error: Error | null, destination: string) => void) => {
@@ -48,13 +56,13 @@ function attachmentMulterOptions(dir: string) {
       },
     }),
     fileFilter: (_req: Request, file: MulterFile, cb: FileFilterCallback) => {
-      if (!ALLOWED_MIME.has(file.mimetype)) {
+      if (!allowed.has(file.mimetype)) {
         cb(new BadRequestException(`Tipo de archivo no permitido: ${file.mimetype}`), false)
         return
       }
       cb(null, true)
     },
-    limits: { fileSize: MAX_FILE_SIZE, files: MAX_FILES },
+    limits,
   }
 }
 
@@ -63,6 +71,17 @@ export const siniestroMulterOptions = attachmentMulterOptions(SINIESTROS_UPLOAD_
 
 /** Documents for a quote a customer wants to take out: uploads/leads. */
 export const leadMulterOptions = attachmentMulterOptions(LEADS_UPLOAD_DIR)
+
+// Formats WhatsApp delivers voice notes and audio files in. 16 MB is
+// WhatsApp's own limit for audio.
+const AUDIO_MIME = new Set(['audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/amr', 'audio/webm'])
+export const MAX_AUDIO_SIZE = 16 * 1024 * 1024
+
+/** A WhatsApp voice note, one per request: uploads/audios. */
+export const audioMulterOptions = attachmentMulterOptions(AUDIOS_UPLOAD_DIR, AUDIO_MIME, {
+  fileSize: MAX_AUDIO_SIZE,
+  files: 1,
+})
 
 export interface AdjuntoMeta {
   filename: string

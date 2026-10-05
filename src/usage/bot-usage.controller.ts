@@ -20,6 +20,7 @@ export class BotUsageController {
       inputTokens: dto.inputTokens,
       outputTokens: dto.outputTokens,
       cachedInputTokens: dto.cachedInputTokens,
+      audioSeconds: dto.audioSeconds,
     })
   }
 

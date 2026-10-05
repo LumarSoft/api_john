@@ -130,6 +130,25 @@ describe('monthly usage billing', () => {
     expect(prisma.usageMonthly.upsert.mock.calls[0][0].create.openaiCostUsd).toBeCloseTo(0.138, 8)
   })
 
+  it('prices a transcription per minute of audio, not per token', async () => {
+    const { service, prisma } = setup()
+    await service.recordOpenAI({
+      metaPhoneNumberId: 'PN',
+      model: 'gpt-transcribe',
+      inputTokens: 0,
+      outputTokens: 0,
+      audioSeconds: 90,
+    })
+    expect(prisma.usageMonthly.upsert.mock.calls[0][0].create.openaiCostUsd).toBeCloseTo(0.00675, 8)
+  })
+
+  it('rejects a model without a configured rate', async () => {
+    const { service } = setup()
+    await expect(
+      service.recordOpenAI({ metaPhoneNumberId: 'PN', model: 'otro-modelo', inputTokens: 1, outputTokens: 1 }),
+    ).rejects.toThrow('Tarifa no configurada')
+  })
+
   it('does not prorate monthly recorded consumption by elapsed days', async () => {
     const { service, prisma } = setup()
     prisma.usageMonthly.findMany.mockResolvedValue([

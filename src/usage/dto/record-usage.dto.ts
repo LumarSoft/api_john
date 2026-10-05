@@ -31,6 +31,12 @@ export class RecordOpenAiUsageDto {
   @IsInt()
   @Min(0)
   outputTokens: number
+
+  // Seconds of audio, for models billed per minute (transcription).
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  audioSeconds?: number
 }
 
 export class RecordMetaUsageDto {

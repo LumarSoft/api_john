@@ -22,6 +22,14 @@ describe('signed attachment URLs', () => {
     expect(isValidAdjuntoSignature(signed.path, signed.exp, signed.sig, now)).toBe(true)
   })
 
+  it('protects stored voice notes like claim photos', () => {
+    const audio = '/uploads/audios/1791230000000-123.ogg'
+    const signed = parts(signAdjuntoUrl(audio, now))
+
+    expect(signed.sig).toBeTruthy()
+    expect(isValidAdjuntoSignature(signed.path, signed.exp, signed.sig, now)).toBe(true)
+  })
+
   it('keeps the same URL within the hour so the browser can cache it', () => {
     expect(signAdjuntoUrl(path, now)).toBe(signAdjuntoUrl(path, now + 10 * 60 * 1000))
   })

@@ -12,7 +12,13 @@ import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { AgentEchoDto } from './dto/agent-echo.dto'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
-import { AdjuntoMeta, MAX_FILES, toStoredAdjuntos } from '../siniestros/siniestro-upload.config'
+import {
+  AUDIOS_PUBLIC_PREFIX,
+  AdjuntoMeta,
+  MAX_FILES,
+  toAdjuntoMeta,
+  toStoredAdjuntos,
+} from '../siniestros/siniestro-upload.config'
 import { type ActiveClosure, computeStatus, formatSchedule, parseSchedule } from '../business-hours/schedule'
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 
@@ -736,6 +742,17 @@ export class BotService {
     })
 
     return { siniestroId: siniestro.id, adjuntosCount: merged.length, attached: true, attachments }
+  }
+
+  /**
+   * Stores a WhatsApp voice note so the inbox can play it next to its
+   * transcription. The bot saves the returned metadata with the message; the
+   * file is deleted after AUDIO_RETENTION_DAYS (MessageRetentionService).
+   */
+  async storeAudio(conversationId: number, file: Express.Multer.File | undefined): Promise<AdjuntoMeta> {
+    if (!file) throw new BadRequestException('No audio received')
+    await this.findConversation(conversationId)
+    return toAdjuntoMeta(file, undefined, AUDIOS_PUBLIC_PREFIX)
   }
 
   /** Marks the conversation as pending human attention (called by the bot when the user requests an advisor). */

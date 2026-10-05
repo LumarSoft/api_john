@@ -10,6 +10,8 @@ export interface RecordOpenAiInput {
   inputTokens: number
   outputTokens: number
   cachedInputTokens?: number
+  /** Seconds of audio, for transcription models (billed per minute, not per token). */
+  audioSeconds?: number
   requestId?: string
   timestamp?: number
 }
@@ -77,6 +79,7 @@ export class UsageService {
   private readonly priceInPer1M: number
   private readonly priceOutPer1M: number
   private readonly priceCachedPer1M: number
+  private readonly transcribePricePerMinute: number
   private readonly metaMarket: string
   private readonly defaultBudget: number
   readonly commercialPricing: {
@@ -93,6 +96,7 @@ export class UsageService {
     this.priceInPer1M = Number(config.get('OPENAI_PRICE_IN_PER_1M') ?? 0.2)
     this.priceOutPer1M = Number(config.get('OPENAI_PRICE_OUT_PER_1M') ?? 1.2)
     this.priceCachedPer1M = Number(config.get('OPENAI_PRICE_CACHED_PER_1M') ?? 0.02)
+    this.transcribePricePerMinute = Number(config.get('OPENAI_TRANSCRIBE_PRICE_PER_MINUTE') ?? 0.0045)
     this.metaMarket = config.get('META_DEFAULT_MARKET') ?? 'Argentina'
     this.defaultBudget = Number(config.get('DEFAULT_MONTHLY_BUDGET_USD') ?? 20)
     this.commercialPricing = {
@@ -138,6 +142,23 @@ export class UsageService {
     return periodElapsedFraction(period)
   }
 
+  /** USD for a chat completion; transcription is billed per minute instead (see recordOpenAI). */
+  private tokenCost(model: string, inputTokens: number, cached: number, outputTokens: number): number {
+    const rates = model.startsWith('gpt-6-luna')
+      ? { input: 0.1, cached: 0.01, output: 0.5 }
+      : model.startsWith('gpt-5.6-luna')
+        ? { input: this.priceInPer1M, cached: this.priceCachedPer1M, output: this.priceOutPer1M }
+        : null
+    if (!rates) throw new BadRequestException(`Tarifa no configurada para el modelo ${model}`)
+    const longContext = inputTokens > 272_000
+    return (
+      ((inputTokens - cached) * rates.input * (longContext ? 2 : 1) +
+        cached * rates.cached * (longContext ? 2 : 1) +
+        outputTokens * rates.output * (longContext ? 1.5 : 1)) /
+      1_000_000
+    )
+  }
+
   async recordOpenAI(input: RecordOpenAiInput): Promise<{ overBudget: boolean }> {
     const phone = await this.resolvePhone(input.metaPhoneNumberId)
     if (!phone) {
@@ -147,18 +168,9 @@ export class UsageService {
 
     const cached = Math.min(input.inputTokens, Math.max(0, input.cachedInputTokens ?? 0))
     const model = input.model ?? 'gpt-5.6-luna'
-    const rates = model.startsWith('gpt-6-luna')
-      ? { input: 0.1, cached: 0.01, output: 0.5 }
-      : model.startsWith('gpt-5.6-luna')
-        ? { input: this.priceInPer1M, cached: this.priceCachedPer1M, output: this.priceOutPer1M }
-        : null
-    if (!rates) throw new BadRequestException(`Tarifa no configurada para el modelo ${model}`)
-    const longContext = input.inputTokens > 272_000
-    const cost =
-      ((input.inputTokens - cached) * rates.input * (longContext ? 2 : 1) +
-        cached * rates.cached * (longContext ? 2 : 1) +
-        input.outputTokens * rates.output * (longContext ? 1.5 : 1)) /
-      1_000_000
+    const cost = model.startsWith('gpt-transcribe')
+      ? ((input.audioSeconds ?? 0) / 60) * this.transcribePricePerMinute
+      : this.tokenCost(model, input.inputTokens, cached, input.outputTokens)
     const deliveredAt = input.timestamp != null ? new Date(input.timestamp * 1000) : new Date()
     const period = currentPeriod(deliveredAt)
 

@@ -460,4 +460,31 @@ describe('BotService', () => {
       expect(prisma.poliza.findFirst.mock.calls[0][0].where.AND[1]).toHaveProperty('vigenciaHasta')
     })
   })
+
+  describe('storeAudio', () => {
+    const file = {
+      filename: '1791230000000-123.ogg',
+      originalname: 'audio.ogg',
+      mimetype: 'audio/ogg',
+      size: 4200,
+    } as Express.Multer.File
+
+    it('returns the protected URL of the stored voice note', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 7, producerId: 1, clientId: null })
+
+      await expect(service.storeAudio(7, file)).resolves.toEqual({
+        filename: '1791230000000-123.ogg',
+        originalName: 'audio.ogg',
+        url: '/uploads/audios/1791230000000-123.ogg',
+        mimeType: 'audio/ogg',
+        size: 4200,
+      })
+    })
+
+    it('rejects a request without a file or for an unknown conversation', async () => {
+      await expect(service.storeAudio(7, undefined)).rejects.toThrow('No audio received')
+      prisma.conversation.findFirst.mockResolvedValue(null)
+      await expect(service.storeAudio(99, file)).rejects.toThrow('not found')
+    })
+  })
 })

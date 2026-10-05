@@ -7,11 +7,12 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common'
-import { FilesInterceptor } from '@nestjs/platform-express'
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express'
 import { HandoffReasonDto } from '../novedades/dto/list-novedades.dto'
 import { BotService } from './bot.service'
 import { BotAuthGuard } from './bot-auth.guard'
@@ -22,7 +23,7 @@ import { AgentEchoDto } from './dto/agent-echo.dto'
 import { CoexistenceContactsDto, CoexistenceHistoryDto } from './dto/coexistence-sync.dto'
 import { CoexistenceSyncService } from './coexistence-sync.service'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
-import { MAX_FILES, siniestroMulterOptions } from '../siniestros/siniestro-upload.config'
+import { MAX_FILES, audioMulterOptions, siniestroMulterOptions } from '../siniestros/siniestro-upload.config'
 
 @UseGuards(BotAuthGuard)
 @Controller('bot')
@@ -127,6 +128,15 @@ export class BotController {
     @Query('tipo') tipo?: string,
   ) {
     return this.botService.attachAdjuntos(conversationId, files ?? [], tipo)
+  }
+
+  @Post('conversation/:conversationId/audio')
+  @UseInterceptors(FileInterceptor('audio', audioMulterOptions))
+  storeAudio(
+    @Param('conversationId', ParseIntPipe) conversationId: number,
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ) {
+    return this.botService.storeAudio(conversationId, file)
   }
 
   // Declared last on purpose: this two-segment GET (:phoneNumberId/:waId) is

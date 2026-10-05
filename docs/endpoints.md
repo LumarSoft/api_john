@@ -1465,6 +1465,35 @@ Crea un lead desde el cotizador web público (productor por defecto).
 
 `400 Bad Request` — `selectedPlanId` inexistente o no coincide con `productType`
 
+### POST /bot/conversation/:conversationId/audio
+
+Stores a WhatsApp voice note so the inbox can play it next to its transcription. The bot saves the returned metadata as the message `media`. Files live in `uploads/audios`, are served only through signed URLs (like claim photos) and are deleted after `AUDIO_RETENTION_DAYS` (env, default 30) by the daily retention job; the transcription stays in the message.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body** (`multipart/form-data`)
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| audio | file | Yes | `audio/ogg`, `audio/mpeg`, `audio/mp4`, `audio/aac`, `audio/amr` or `audio/webm`; max 16 MB |
+
+**Responses**
+
+`201 Created`
+```json
+{
+  "filename": "1791230000000-123.ogg",
+  "originalName": "audio.ogg",
+  "url": "/uploads/audios/1791230000000-123.ogg",
+  "mimeType": "audio/ogg",
+  "size": 4200
+}
+```
+
+`400 Bad Request` — No file, or a format that is not audio
+
+`404 Not Found` — Conversation not found
+
 ### POST /bot/conversation/:conversationId/leads
 
 Igual que `POST /leads` pero desde el bot: scope al productor de la conversación,
