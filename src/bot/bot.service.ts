@@ -736,7 +736,10 @@ export class BotService {
     // Multer has already persisted the upload. Build its durable metadata first
     // so a photo sent before a claim exists can still appear in the inbox.
     const attachments = await toStoredAdjuntos(files, tipo)
-    const { clientId, producerId } = await this.findActiveClientLink(conversationId)
+    // Deliberately the stored link, not the session-scoped one: photos for a
+    // claim often arrive after the session expired, and they belong to the
+    // open claim this same chat filed.
+    const { clientId, producerId } = await this.findConversation(conversationId)
 
     if (!clientId) {
       return { siniestroId: null, adjuntosCount: 0, attached: false, attachments }
@@ -870,28 +873,6 @@ export class BotService {
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
     return conversation
-  }
-
-  /** Like findConversation, but `clientId` is null when the link expired (see isClientLinkActive). */
-  private async findActiveClientLink(conversationId: number) {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, deletedAt: null },
-      select: {
-        id: true,
-        producerId: true,
-        clientId: true,
-        waId: true,
-        sessionStartedAt: true,
-        clientLinkedAt: true,
-        client: { select: { phone: true } },
-      },
-    })
-    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
-    return {
-      id: conversation.id,
-      producerId: conversation.producerId,
-      clientId: isClientLinkActive(conversation) ? conversation.clientId : null,
-    }
   }
 
   private async requireIdentifiedClient(conversationId: number) {

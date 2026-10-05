@@ -1,4 +1,5 @@
 import type { Prisma } from 'generated/prisma/client'
+import { BUSINESS_TZ } from '../business-hours/schedule'
 
 /**
  * `Poliza.status` is Triunfo's last movement type ("REFACTURACION",
@@ -61,17 +62,24 @@ export interface EstadoPago {
  * "in force" for a while after a rejected debit or a missed payment, but the
  * company won't cover a claim on it, so a claim has to check this too.
  *
- * `status` is mapped at sync time, so a "pending" installment whose due date
- * has since passed is overdue as well — a sync gap must not hide a debt.
+ * Due dates are date-only values stored at UTC midnight, which in Argentina is
+ * 21:00 of the previous day, so they are compared by calendar day against
+ * today in Argentina: an installment is past due from the day after its due
+ * date. The sync-time "overdue" status is not trusted on its own for the same
+ * reason (it flips on the due date itself), and a "pending" one whose due date
+ * has since passed counts too — a sync gap must not hide a debt.
  */
 export function estadoPago(
   cuotas: Array<{ status: string; dueDate: Date | null }>,
   now: Date = new Date(),
 ): EstadoPago {
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: BUSINESS_TZ }).format(now)
+  const isPastDue = (cuota: { status: string; dueDate: Date | null }) => {
+    if (cuota.status !== 'overdue' && cuota.status !== 'pending') return false
+    if (!cuota.dueDate) return cuota.status === 'overdue'
+    return cuota.dueDate.toISOString().slice(0, 10) < today
+  }
   const cuotasRechazadas = cuotas.filter(c => c.status === 'rejected').length
-  const cuotasVencidas = cuotas.filter(
-    c => c.status === 'overdue' || (c.status === 'pending' && c.dueDate !== null && c.dueDate < startOfToday),
-  ).length
+  const cuotasVencidas = cuotas.filter(isPastDue).length
   return { alDia: cuotasRechazadas === 0 && cuotasVencidas === 0, cuotasRechazadas, cuotasVencidas }
 }
