@@ -1,14 +1,8 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { estadoPago, inForcePolizaWhere } from '../common/poliza-vigencia'
+import { inForcePolizaWhere } from '../common/poliza-vigencia'
 import { isSamePhone } from '../common/phone-match'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
@@ -563,23 +557,18 @@ export class BotService {
    * renewals that haven't started yet stay out (see inForcePolizaWhere); the web
    * portal and panel still show them, labelled.
    *
-   * Each policy carries its payment standing (`estadoPago`): a policy can be in
-   * force on paper while a rejected debit or a missed installment leaves it
-   * without cover, and the bot must not take a claim on it as if it were fine.
+   * No payment standing is attached: the synced installment statuses are not
+   * reliable yet (most debit installments show as overdue), and gating claims
+   * on them stopped legitimate claims. See estadoPago in common/poliza-vigencia.
    */
   async getPolizas(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
-    const polizas = await this.prisma.poliza.findMany({
+    return this.prisma.poliza.findMany({
       where: { clientId, producerId, ...inForcePolizaWhere() },
       orderBy: { vigenciaHasta: 'desc' },
-      select: {
-        ...POLIZA_SUMMARY_SELECT,
-        cuotas: { where: { deletedAt: null }, select: { status: true, dueDate: true } },
-      },
+      select: POLIZA_SUMMARY_SELECT,
     })
-
-    return polizas.map(({ cuotas, ...poliza }) => ({ ...poliza, estadoPago: estadoPago(cuotas) }))
   }
 
   /**
@@ -659,25 +648,9 @@ export class BotService {
 
     const poliza = await this.prisma.poliza.findFirst({
       where: { AND: [this.polizaRefWhere(dto.polizaId, clientId, producerId), inForcePolizaWhere()] },
-      select: {
-        id: true,
-        certificado: true,
-        company: true,
-        producerCodeId: true,
-        cuotas: { where: { deletedAt: null }, select: { status: true, dueDate: true } },
-      },
+      select: { id: true, certificado: true, company: true, producerCodeId: true },
     })
     if (!poliza) throw new NotFoundException(`Policy ${dto.polizaId} not found or not in force`)
-    // The bot checks this before starting the claim; enforcing it here keeps any
-    // other caller from filing a claim on a policy the company won't cover.
-    const pago = estadoPago(poliza.cuotas)
-    if (!pago.alDia) {
-      throw new ConflictException(
-        pago.cuotasRechazadas > 0
-          ? `La póliza ${poliza.certificado} tiene un pago rechazado`
-          : `La póliza ${poliza.certificado} tiene cuotas vencidas impagas`,
-      )
-    }
 
     const siniestro = await this.prisma.siniestro.create({
       data: {

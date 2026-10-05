@@ -454,28 +454,6 @@ describe('BotService', () => {
     })
     const dto = { polizaId: 9, tipo: 'auto', fecha: '2026-10-05', descripcion: 'Choque' }
 
-    it('refuses a policy with a rejected debit', async () => {
-      prisma.poliza.findFirst.mockResolvedValue({
-        id: 9,
-        certificado: 'ABC',
-        company: 'Triunfo',
-        producerCodeId: 8,
-        cuotas: [{ status: 'rejected', dueDate: new Date() }],
-      })
-      await expect(service.createSiniestro(3, dto)).rejects.toThrow('pago rechazado')
-    })
-
-    it('refuses a policy with overdue installments', async () => {
-      prisma.poliza.findFirst.mockResolvedValue({
-        id: 9,
-        certificado: 'ABC',
-        company: 'Triunfo',
-        producerCodeId: 8,
-        cuotas: [{ status: 'overdue', dueDate: new Date(Date.now() - 20 * 86_400_000) }],
-      })
-      await expect(service.createSiniestro(3, dto)).rejects.toThrow('cuotas vencidas')
-    })
-
     it('only looks up policies in force', async () => {
       prisma.poliza.findFirst.mockResolvedValue(null)
       await expect(service.createSiniestro(3, dto)).rejects.toThrow('not in force')

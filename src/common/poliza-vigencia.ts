@@ -58,6 +58,11 @@ export interface EstadoPago {
 }
 
 /**
+ * Not used to gate anything yet: in production 64% of the policies in force
+ * have installments synced as overdue (mostly automatic debits), which points
+ * at the sync's status mapping rather than real debt. Wire it back into claims
+ * once `Cuota.status` is trustworthy.
+ *
  * Payment standing of a policy from its installments. Triunfo keeps a policy
  * "in force" for a while after a rejected debit or a missed payment, but the
  * company won't cover a claim on it, so a claim has to check this too.

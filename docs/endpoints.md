@@ -1266,7 +1266,7 @@ Links the conversation to a `Client` found by DNI or license plate within the pr
 
 ### GET /bot/conversation/:conversationId/polizas
 
-Policies of the identified client **in force today**, with vehicle summary and payment standing. `estadoPago.alDia` is `false` when an installment was rejected or is past due — the bot doesn't take a claim on such a policy.
+Policies of the identified client **in force today**, with vehicle summary.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1284,8 +1284,7 @@ Policies of the identified client **in force today**, with vehicle summary and p
     "vigenciaDesde": "2026-01-01T00:00:00.000Z",
     "vigenciaHasta": "2027-01-01T00:00:00.000Z",
     "paymentMethod": "Débito Automático",
-    "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS", "anio": 2022, "cobertura": "C" },
-    "estadoPago": { "alDia": false, "cuotasRechazadas": 1, "cuotasVencidas": 0 }
+    "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS", "anio": 2022, "cobertura": "C" }
   }
 ]
 ```
@@ -1369,7 +1368,7 @@ Claims filed by the identified client, newest first, with their internal trackin
 
 ### POST /bot/conversation/:conversationId/siniestros
 
-Files a new claim for one of the identified client's policies and notifies the advisor by email. The policy must be in force and paid up (no rejected or past-due installment). Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
+Files a new claim for one of the identified client's policies and notifies the advisor by email. The policy must be in force. Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1405,11 +1404,6 @@ Files a new claim for one of the identified client's policies and notifies the a
 `403 Forbidden` — Conversation has no identified client
 
 `404 Not Found` — Policy not found, not owned by the client or not in force
-
-`409 Conflict` — The policy has a rejected payment or past-due installments
-```json
-{ "statusCode": 409, "message": "La póliza 334455 tiene un pago rechazado", "error": "Conflict" }
-```
 
 ### POST /bot/conversation/:conversationId/adjuntos
 
