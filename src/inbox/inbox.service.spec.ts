@@ -10,13 +10,16 @@ describe('InboxService.listConversations', () => {
       {
         id: 7,
         waId: '549341',
+        phoneNumberId: 'P1',
+        contactName: null,
+        client: null,
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
         producer: { botEnabled: false },
         messages: [{ createdAt: lastInboundMessageAt }],
         _count: { messages: 4 },
       },
     ])
-    const prisma = { conversation: { findMany } }
+    const prisma = { conversation: { findMany }, whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) } }
     const notifier = {}
     const service = new InboxService(prisma as unknown as PrismaService, notifier as BotNotifierService)
 
@@ -24,6 +27,10 @@ describe('InboxService.listConversations', () => {
       {
         id: 7,
         waId: '549341',
+        phoneNumberId: 'P1',
+        contactName: null,
+        client: null,
+        clientIsContact: false,
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
         globalBotDisabled: true,
         customerMessageCount: 4,
@@ -40,6 +47,67 @@ describe('InboxService.listConversations', () => {
         orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       }),
     )
+  })
+})
+
+describe('InboxService.listConversations contact vs. consulted client', () => {
+  function setup(conversation: Record<string, unknown>, contacts: unknown[] = []) {
+    const prisma = {
+      conversation: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            { producer: { botEnabled: true }, messages: [], _count: { messages: 1 }, ...conversation },
+          ]),
+      },
+      whatsAppContact: { findMany: jest.fn().mockResolvedValue(contacts) },
+    }
+    return new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService)
+  }
+  const adriana = { id: 5, firstName: 'Adriana', lastName: 'Gómez', dni: '20111222' }
+
+  it('keeps the writer as the contact when they asked with someone else’s DNI', async () => {
+    const service = setup({
+      id: 7,
+      waId: '5493413404951',
+      phoneNumberId: 'P1',
+      contactName: 'John',
+      client: { ...adriana, phone: '341156930749' },
+    })
+
+    const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
+
+    expect(conversation).toMatchObject({ contactName: 'John', clientIsContact: false, client: adriana })
+    expect(conversation.client).not.toHaveProperty('phone', expect.anything())
+  })
+
+  it('recognizes the client as the writer when their phone is this WhatsApp number', async () => {
+    const service = setup({
+      id: 7,
+      waId: '5493413404951',
+      phoneNumberId: 'P1',
+      contactName: null,
+      client: { ...adriana, phone: '341153404951' },
+    })
+
+    const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
+
+    expect(conversation.clientIsContact).toBe(true)
+  })
+
+  it('prefers the name saved in the WhatsApp Business address book', async () => {
+    const service = setup({ id: 7, waId: '5493413404951', phoneNumberId: 'P1', contactName: 'johnny', client: null }, [
+      {
+        waId: '5493413404951',
+        phone: '5493413404951',
+        fullName: 'John Pellegrini',
+        phoneNumber: { phoneNumberId: 'P1' },
+      },
+    ])
+
+    const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
+
+    expect(conversation.contactName).toBe('John Pellegrini')
   })
 })
 
@@ -84,6 +152,13 @@ describe('InboxService.getMessages', () => {
     const result = await service.getMessages(7, 1, [2])
 
     expect(result[0].media?.url).toMatch(/^\/uploads\/siniestros\/a\.webp\?exp=\d+&sig=/)
+    // The whole stored history, not just the current bot session.
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { conversationId: 7, deletedAt: null, createdAt: { lte: expect.any(Date) } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    )
     expect(prisma.conversation.updateMany).toHaveBeenCalledWith({
       where: { id: 7, OR: [{ lastMessageAt: null }, { lastMessageAt: { lte: expect.any(Date) } }] },
       data: { unreadCount: 0, lastReadAt: expect.any(Date) },

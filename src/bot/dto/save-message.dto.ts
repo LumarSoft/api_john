@@ -40,4 +40,10 @@ export class SaveMessageDto {
   @ValidateNested()
   @Type(() => MessageMediaDto)
   media?: MessageMediaDto
+
+  // WhatsApp profile name of the sender (inbound messages only).
+  @IsOptional()
+  @IsString()
+  @MaxLength(191)
+  contactName?: string
 }

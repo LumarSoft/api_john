@@ -933,11 +933,11 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 | Param  | Type   | Required | Constraints                                                  |
 |--------|--------|----------|--------------------------------------------------------------|
 | status | string | No       | `open`, `pending` or `closed`                                |
-| search | string | No       | Matches client name, DNI or the WhatsApp number (`waId`)     |
+| search | string | No       | Matches client name, DNI, contact name or the WhatsApp number (`waId`) |
 
 **Responses**
 
-`200 OK` — Array of conversation summaries; `client` is the linked insured (null if not identified).
+`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf.
 ```json
 [
   {
@@ -951,7 +951,9 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
     "lastMessageAt": "2026-06-22T19:39:00.000Z",
     "sessionStartedAt": "2026-06-22T19:18:00.000Z",
     "phoneNumberId": "1234567890",
-    "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456" }
+    "contactName": "Evelyn",
+    "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456" },
+    "clientIsContact": true
   }
 ]
 ```
@@ -959,6 +961,24 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 `401 Unauthorized` — Missing or invalid JWT
 
 `403 Forbidden` — Token is not an employee/admin token
+
+### GET /admin/inbox/:id/messages
+
+Full stored history of a conversation in chronological order — not limited to the current bot session (live messages are kept `MESSAGE_RETENTION_DAYS`, default 30). Capped at the latest 500 messages. Opening the thread clears its unread counter.
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK`
+```json
+[
+  { "id": 41, "role": "user", "content": "Hola", "createdAt": "2026-06-12T13:00:00.000Z", "media": null },
+  { "id": 42, "role": "assistant", "content": "¡Hola! ¿Sos cliente?", "createdAt": "2026-06-12T13:00:02.000Z", "media": null }
+]
+```
+
+`404 Not Found` — Conversation not found or outside the user's scope
 
 ## Admin — Novedades
 
@@ -1095,7 +1115,9 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
 
 Finds or creates the conversation for a WhatsApp user (`waId`) under the producer that owns `phoneNumberId`. Returns the last 10 messages of the **current session** in chronological order and the linked client (or `null` if the user has not identified yet).
 
-**Inactivity timeout (lazy):** if more than `SESSION_TIMEOUT_MINUTES` (env, default 5) elapsed since the last message, a new session is started — older messages are excluded from the response (they remain in the DB until the retention job) and `newSession` is `true` so the bot can greet the user again. The identified client link is kept across sessions. There is no background job: the boundary is evaluated on each inbound message.
+**Inactivity timeout (lazy):** if more than `SESSION_TIMEOUT_MINUTES` (env, default 5) elapsed since the last message, a new session is started — older messages are excluded from the response (they remain in the DB until the retention job) and `newSession` is `true` so the bot can greet the user again. There is no background job: the boundary is evaluated on each inbound message.
+
+**Linked client:** `client` is returned only while the link applies to whoever is writing: always when the client's stored phone is this `waId`, otherwise only within the session in which they identified. Someone who identified with another person's DNI is treated as unidentified on their next session, so the bot asks again instead of greeting them as that person. The client-scoped endpoints below apply the same rule.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1187,6 +1209,8 @@ Persists a message in the conversation.
 |---------|--------|----------|--------------------------|
 | role    | string | Yes      | `user` or `assistant`    |
 | content | string | Yes      | Non-empty, max 10000 chars |
+| media   | object | No       | Upload metadata (`url`, `originalName`, `mimeType`, `size`, `tipo?`) |
+| contactName | string | No   | Sender's WhatsApp profile name (inbound only), max 191 chars; stored on the conversation |
 
 ```json
 { "role": "user", "content": "Quiero cotizar mi auto" }
@@ -1242,7 +1266,7 @@ Links the conversation to a `Client` found by DNI or license plate within the pr
 
 ### GET /bot/conversation/:conversationId/polizas
 
-Policies of the identified client, with vehicle summary.
+Policies of the identified client **in force today**, with vehicle summary and payment standing. `estadoPago.alDia` is `false` when an installment was rejected or is past due — the bot doesn't take a claim on such a policy.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1260,7 +1284,8 @@ Policies of the identified client, with vehicle summary.
     "vigenciaDesde": "2026-01-01T00:00:00.000Z",
     "vigenciaHasta": "2027-01-01T00:00:00.000Z",
     "paymentMethod": "Débito Automático",
-    "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS", "anio": 2022, "cobertura": "C" }
+    "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS", "anio": 2022, "cobertura": "C" },
+    "estadoPago": { "alDia": false, "cuotasRechazadas": 1, "cuotasVencidas": 0 }
   }
 ]
 ```
@@ -1344,7 +1369,7 @@ Claims filed by the identified client, newest first, with their internal trackin
 
 ### POST /bot/conversation/:conversationId/siniestros
 
-Files a new claim for one of the identified client's policies and notifies the advisor by email. Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
+Files a new claim for one of the identified client's policies and notifies the advisor by email. The policy must be in force and paid up (no rejected or past-due installment). Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1379,7 +1404,12 @@ Files a new claim for one of the identified client's policies and notifies the a
 
 `403 Forbidden` — Conversation has no identified client
 
-`404 Not Found` — Policy not found or not owned by the client
+`404 Not Found` — Policy not found, not owned by the client or not in force
+
+`409 Conflict` — The policy has a rejected payment or past-due installments
+```json
+{ "statusCode": 409, "message": "La póliza 334455 tiene un pago rechazado", "error": "Conflict" }
+```
 
 ### POST /bot/conversation/:conversationId/adjuntos
 

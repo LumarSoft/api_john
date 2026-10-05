@@ -683,6 +683,13 @@ model Conversation {
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   clientId       Int? // se vincula cuando el cliente se identifica por DNI
   client         Client?       @relation(fields: [clientId], references: [id])
+  // When the current client link was made. A chat can be about someone else's
+  // policy (a relative writes with the holder's DNI): unless the client's phone
+  // is this WhatsApp number, the link only lasts for the session it was made in.
+  clientLinkedAt DateTime?
+  // WhatsApp profile name of whoever writes from this number (Meta `contacts`).
+  // The inbox shows it instead of the linked client when they are not the same person.
+  contactName    String?       @db.VarChar(191)
   messages       Message[]
 
   @@unique([waId, producerId])

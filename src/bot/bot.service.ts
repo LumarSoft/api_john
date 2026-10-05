@@ -1,8 +1,15 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { inForcePolizaWhere } from '../common/poliza-vigencia'
+import { estadoPago, inForcePolizaWhere } from '../common/poliza-vigencia'
+import { isSamePhone } from '../common/phone-match'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
@@ -19,6 +26,28 @@ import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
 
 const toDateStr = (d: Date): string => d.toISOString().slice(0, 10)
+
+interface ClientLink {
+  waId: string
+  sessionStartedAt: Date | null
+  clientLinkedAt: Date | null
+  client: { phone: string | null } | null
+}
+
+/**
+ * Whether the conversation's linked client still applies to whoever is writing.
+ * A WhatsApp number is a person, not a client: a relative or a broker often
+ * writes with someone else's DNI. That link is honoured only for the session
+ * in which it was made; otherwise the next visit greeted the writer by the
+ * other person's name and served that person's policies without asking. A
+ * client whose stored phone is this very number stays linked across sessions.
+ */
+function isClientLinkActive(link: ClientLink): boolean {
+  if (!link.client) return false
+  if (isSamePhone(link.waId, link.client.phone)) return true
+  if (!link.clientLinkedAt) return false
+  return !link.sessionStartedAt || link.clientLinkedAt >= link.sessionStartedAt
+}
 
 const CLIENT_SUMMARY_SELECT = {
   id: true,
@@ -231,6 +260,7 @@ export class BotService {
       botPaused: true,
       status: true,
       flowState: true,
+      clientLinkedAt: true,
       client: { select: CLIENT_SUMMARY_SELECT },
     } as const
 
@@ -289,9 +319,18 @@ export class BotService {
       select: { id: true, role: true, content: true, createdAt: true },
     })
 
+    const clientActive = isClientLinkActive({
+      waId,
+      sessionStartedAt,
+      clientLinkedAt: conversation.clientLinkedAt,
+      client: conversation.client,
+    })
+
     return {
       conversationId: conversation.id,
-      client: conversation.client,
+      // The stored link may belong to an earlier session about someone else's
+      // policy; the bot then treats the writer as unidentified and asks again.
+      client: clientActive ? conversation.client : null,
       newSession,
       // BUGFIX: botPaused was selected above but never returned, so the bot
       // received `undefined` and kept replying even after an admin took over the
@@ -341,7 +380,7 @@ export class BotService {
         lastMessageAt: null,
         warnedAt: null,
         flowState: null,
-        ...(unlinkClient ? { clientId: null, producerCodeId: null } : {}),
+        ...(unlinkClient ? { clientId: null, producerCodeId: null, clientLinkedAt: null } : {}),
       },
     })
     return { ok: true }
@@ -458,6 +497,7 @@ export class BotService {
           lastMessageAt: message.createdAt,
           warnedAt: null,
           ...(dto.role === 'user' ? { unreadCount: { increment: 1 } } : {}),
+          ...(dto.role === 'user' && dto.contactName?.trim() ? { contactName: dto.contactName.trim() } : {}),
         },
       })
 
@@ -506,7 +546,7 @@ export class BotService {
     // routes it to the right admin even when the number serves several codes.
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { clientId: client.id, producerCodeId: client.producerCodeId },
+      data: { clientId: client.id, producerCodeId: client.producerCodeId, clientLinkedAt: new Date() },
       select: { client: { select: CLIENT_SUMMARY_SELECT } },
     })
 
@@ -522,15 +562,24 @@ export class BotService {
    * a claim, documents or account status. Cancelled policies, expired ones and
    * renewals that haven't started yet stay out (see inForcePolizaWhere); the web
    * portal and panel still show them, labelled.
+   *
+   * Each policy carries its payment standing (`estadoPago`): a policy can be in
+   * force on paper while a rejected debit or a missed installment leaves it
+   * without cover, and the bot must not take a claim on it as if it were fine.
    */
   async getPolizas(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
-    return this.prisma.poliza.findMany({
+    const polizas = await this.prisma.poliza.findMany({
       where: { clientId, producerId, ...inForcePolizaWhere() },
       orderBy: { vigenciaHasta: 'desc' },
-      select: POLIZA_SUMMARY_SELECT,
+      select: {
+        ...POLIZA_SUMMARY_SELECT,
+        cuotas: { where: { deletedAt: null }, select: { status: true, dueDate: true } },
+      },
     })
+
+    return polizas.map(({ cuotas, ...poliza }) => ({ ...poliza, estadoPago: estadoPago(cuotas) }))
   }
 
   /**
@@ -609,10 +658,26 @@ export class BotService {
     const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
 
     const poliza = await this.prisma.poliza.findFirst({
-      where: this.polizaRefWhere(dto.polizaId, clientId, producerId),
-      select: { id: true, certificado: true, company: true, producerCodeId: true },
+      where: { AND: [this.polizaRefWhere(dto.polizaId, clientId, producerId), inForcePolizaWhere()] },
+      select: {
+        id: true,
+        certificado: true,
+        company: true,
+        producerCodeId: true,
+        cuotas: { where: { deletedAt: null }, select: { status: true, dueDate: true } },
+      },
     })
-    if (!poliza) throw new NotFoundException(`Policy ${dto.polizaId} not found`)
+    if (!poliza) throw new NotFoundException(`Policy ${dto.polizaId} not found or not in force`)
+    // The bot checks this before starting the claim; enforcing it here keeps any
+    // other caller from filing a claim on a policy the company won't cover.
+    const pago = estadoPago(poliza.cuotas)
+    if (!pago.alDia) {
+      throw new ConflictException(
+        pago.cuotasRechazadas > 0
+          ? `La póliza ${poliza.certificado} tiene un pago rechazado`
+          : `La póliza ${poliza.certificado} tiene cuotas vencidas impagas`,
+      )
+    }
 
     const siniestro = await this.prisma.siniestro.create({
       data: {
@@ -671,7 +736,7 @@ export class BotService {
     // Multer has already persisted the upload. Build its durable metadata first
     // so a photo sent before a claim exists can still appear in the inbox.
     const attachments = await toStoredAdjuntos(files, tipo)
-    const { clientId, producerId } = await this.findConversation(conversationId)
+    const { clientId, producerId } = await this.findActiveClientLink(conversationId)
 
     if (!clientId) {
       return { siniestroId: null, adjuntosCount: 0, attached: false, attachments }
@@ -708,10 +773,14 @@ export class BotService {
         producerId: true,
         producerCodeId: true,
         clientId: true,
-        client: { select: { firstName: true, lastName: true } },
+        contactName: true,
+        sessionStartedAt: true,
+        clientLinkedAt: true,
+        client: { select: { firstName: true, lastName: true, phone: true } },
       },
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
+    const client = isClientLinkActive(conversation) ? conversation.client : null
 
     // Already waiting for an agent — don't bump again or emit a duplicate novedad.
     if (conversation.status === 'pending' && !reason?.trim()) return { ok: true }
@@ -721,13 +790,13 @@ export class BotService {
       data: { status: 'pending' },
     })
 
-    const clienteNombre = conversation.client
-      ? `${conversation.client.firstName} ${conversation.client.lastName}`.trim()
-      : conversation.waId
+    const clienteNombre = client
+      ? `${client.firstName} ${client.lastName}`.trim()
+      : (conversation.contactName ?? conversation.waId)
     await this.novedades.recordHandoff(conversation.producerId, {
       conversationId,
       reason,
-      clientId: conversation.clientId,
+      clientId: client ? conversation.clientId : null,
       clienteNombre,
       producerCodeId: conversation.producerCodeId,
     })
@@ -803,17 +872,42 @@ export class BotService {
     return conversation
   }
 
+  /** Like findConversation, but `clientId` is null when the link expired (see isClientLinkActive). */
+  private async findActiveClientLink(conversationId: number) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, deletedAt: null },
+      select: {
+        id: true,
+        producerId: true,
+        clientId: true,
+        waId: true,
+        sessionStartedAt: true,
+        clientLinkedAt: true,
+        client: { select: { phone: true } },
+      },
+    })
+    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
+    return {
+      id: conversation.id,
+      producerId: conversation.producerId,
+      clientId: isClientLinkActive(conversation) ? conversation.clientId : null,
+    }
+  }
+
   private async requireIdentifiedClient(conversationId: number) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
       select: {
         producerId: true,
+        waId: true,
+        sessionStartedAt: true,
+        clientLinkedAt: true,
         client: { select: { ...CLIENT_SUMMARY_SELECT, deletedAt: true } },
       },
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
 
-    const { client } = conversation
+    const client = isClientLinkActive(conversation) ? conversation.client : null
     if (!client || client.deletedAt) {
       throw new ForbiddenException('Conversation has no identified client — call identify first')
     }

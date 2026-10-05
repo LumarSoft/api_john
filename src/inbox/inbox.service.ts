@@ -7,11 +7,17 @@ import {
 } from '@nestjs/common'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { isSamePhone } from '../common/phone-match'
 import { signAdjuntoUrl } from '../siniestros/adjunto-url'
 import { BotNotifierService } from './bot-notifier.service'
 import { ListInboxDto } from './dto/list-inbox.dto'
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000
+
+// The thread shows the whole stored history (live messages are kept
+// MESSAGE_RETENTION_DAYS); the cap only bounds the 3-second poll on chats with
+// a long Coexistence backfill.
+const MAX_THREAD_MESSAGES = 500
 
 // Conversations not yet attributed to a code (unidentified WhatsApp numbers) stay
 // visible to every admin of the org so new handoffs can be picked up.
@@ -32,8 +38,31 @@ const CONVERSATION_SUMMARY_SELECT = {
   lastReadAt: true,
   sessionStartedAt: true,
   phoneNumberId: true,
-  client: { select: { id: true, firstName: true, lastName: true, dni: true } },
+  contactName: true,
+  client: { select: { id: true, firstName: true, lastName: true, dni: true, phone: true } },
 } as const
+
+type ConversationContact = {
+  waId: string
+  contactName: string | null
+  client: { phone: string | null } | null
+}
+
+/**
+ * Who is writing vs. which client the chat is about. A relative can identify
+ * with the holder's DNI; the inbox must keep showing the writer and only note
+ * the client they asked about. `clientIsContact` is true when the linked
+ * client's stored phone is this WhatsApp number.
+ */
+function withContact<T extends ConversationContact>(conversation: T, agendaName?: string | null) {
+  const { client, ...rest } = conversation
+  return {
+    ...rest,
+    contactName: agendaName ?? conversation.contactName,
+    client: client ? { ...client, phone: undefined } : null,
+    clientIsContact: client ? isSamePhone(conversation.waId, client.phone) : false,
+  }
+}
 
 const CONVERSATION_LIST_SELECT = {
   ...CONVERSATION_SUMMARY_SELECT,
@@ -91,6 +120,7 @@ export class InboxService {
                     { client: { lastName: { contains: search } } },
                     { client: { dni: { contains: search } } },
                     { waId: { contains: search } },
+                    { contactName: { contains: search } },
                   ],
                 } as Prisma.ConversationWhereInput,
               ]
@@ -101,8 +131,10 @@ export class InboxService {
       select: CONVERSATION_LIST_SELECT,
     })
 
+    const agenda = await this.agendaNames(producerId, conversations)
+
     return conversations.map(({ messages, producer, _count, ...conversation }) => ({
-      ...conversation,
+      ...withContact(conversation, agenda.get(`${conversation.phoneNumberId}:${conversation.waId}`)),
       globalBotDisabled: !producer.botEnabled,
       customerMessageCount: _count.messages,
       // `lastMessageAt` can point at a bot/agent reply. The dedicated inbound
@@ -112,18 +144,18 @@ export class InboxService {
   }
 
   async getMessages(conversationId: number, producerId: number, codeIds: number[]) {
-    const conversation = await this.findAndVerify(conversationId, producerId, codeIds)
+    await this.findAndVerify(conversationId, producerId, codeIds)
     const readAt = new Date()
 
-    const messages = await this.prisma.message.findMany({
-      where: {
-        conversationId,
-        deletedAt: null,
-        createdAt: { lte: readAt, ...(conversation.sessionStartedAt ? { gte: conversation.sessionStartedAt } : {}) },
-      },
-      orderBy: { createdAt: 'asc' },
+    // Not limited to the bot session: the session boundary moves after a few
+    // idle minutes, and filtering by it hid every earlier conversation.
+    const latest = await this.prisma.message.findMany({
+      where: { conversationId, deletedAt: null, createdAt: { lte: readAt } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: MAX_THREAD_MESSAGES,
       select: { id: true, role: true, content: true, rawData: true, createdAt: true },
     })
+    const messages = latest.reverse()
 
     // Do not clear a message that arrived after this fetch began. The
     // lastMessageAt guard makes opening a busy chat race-safe.
@@ -166,10 +198,11 @@ export class InboxService {
       throw new ConflictException('La conversación ya fue tomada por otro agente')
     }
 
-    return this.prisma.conversation.findFirstOrThrow({
+    const conversation = await this.prisma.conversation.findFirstOrThrow({
       where: { id: conversationId },
       select: CONVERSATION_SUMMARY_SELECT,
     })
+    return withContact(conversation)
   }
 
   async release(conversationId: number, producerId: number, codeIds: number[]) {
@@ -256,6 +289,37 @@ export class InboxService {
   }
 
   // ─── Helpers ───────────────────────────────────────────
+
+  /**
+   * Names the office saved in the WhatsApp Business address book (Coexistence
+   * contacts), keyed by `${metaPhoneNumberId}:${waId}`. They win over the
+   * customer's own WhatsApp profile name.
+   */
+  private async agendaNames(
+    producerId: number,
+    conversations: Array<{ waId: string; phoneNumberId: string | null }>,
+  ): Promise<Map<string, string>> {
+    const waIds = [...new Set(conversations.map(c => c.waId))]
+    if (!waIds.length) return new Map()
+
+    const contacts = await this.prisma.whatsAppContact.findMany({
+      where: {
+        deletedAt: null,
+        fullName: { not: null },
+        phoneNumber: { producerId },
+        OR: [{ waId: { in: waIds } }, { phone: { in: waIds } }],
+      },
+      select: { waId: true, phone: true, fullName: true, phoneNumber: { select: { phoneNumberId: true } } },
+    })
+
+    const names = new Map<string, string>()
+    for (const contact of contacts) {
+      const name = contact.fullName?.trim()
+      if (!name) continue
+      names.set(`${contact.phoneNumber.phoneNumberId}:${contact.waId ?? contact.phone}`, name)
+    }
+    return names
+  }
 
   // Fix #2: producerId lives in the DB query — not a post-fetch application check.
   // This means a wrong-tenant :id is indistinguishable from a missing :id (both 404),

@@ -36,7 +36,10 @@ describe('BotService', () => {
     beforeEach(() => {
       prisma.conversation.findFirst.mockResolvedValue({
         producerId: 2,
-        client: { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', deletedAt: null },
+        waId: '5493410000000',
+        sessionStartedAt: new Date(Date.now() - 60_000),
+        clientLinkedAt: new Date(),
+        client: { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', phone: null, deletedAt: null },
       })
       prisma.poliza.findFirst.mockResolvedValue({
         id: 9,
@@ -84,6 +87,18 @@ describe('BotService', () => {
       prisma.poliza.findFirst.mockResolvedValue(null)
       await expect(service.requestPolicyCancellation(3, 9)).rejects.toThrow('not found')
       expect(prisma.novedad.create).not.toHaveBeenCalled()
+    })
+
+    it('rejects a third-party link made in an earlier session', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({
+        producerId: 2,
+        waId: '5493410000000',
+        sessionStartedAt: new Date(),
+        clientLinkedAt: new Date(Date.now() - 60 * 60_000),
+        client: { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', phone: null, deletedAt: null },
+      })
+      await expect(service.requestPolicyCancellation(3, 9)).rejects.toThrow('identified client')
+      expect(prisma.poliza.findFirst).not.toHaveBeenCalled()
     })
 
     it('reuses a pending notification on a retry', async () => {
@@ -159,6 +174,60 @@ describe('BotService', () => {
       expect(prisma.conversation.update).not.toHaveBeenCalled()
     })
 
+    describe('linked client', () => {
+      const adriana = { id: 5, firstName: 'Adriana', lastName: 'Gómez', dni: '20111222', phone: '341156930749' }
+
+      it('keeps a third-party link inside the session it was made in', async () => {
+        const start = new Date(Date.now() - 60_000)
+        prisma.conversation.findFirst.mockResolvedValue({
+          id: 7,
+          sessionStartedAt: start,
+          lastMessageAt: new Date(),
+          phoneNumberId: 'P1',
+          clientLinkedAt: new Date(start.getTime() + 1_000),
+          client: adriana,
+        })
+
+        const result = await service.getOrCreateConversation('P1', '5493413404951')
+
+        expect(result.client).toEqual(adriana)
+      })
+
+      it('drops a third-party link once a new session starts', async () => {
+        const old = new Date(Date.now() - 10 * 60_000)
+        prisma.conversation.findFirst.mockResolvedValue({
+          id: 7,
+          sessionStartedAt: old,
+          lastMessageAt: old,
+          phoneNumberId: 'P1',
+          clientLinkedAt: old,
+          client: adriana,
+        })
+
+        const result = await service.getOrCreateConversation('P1', '5493413404951')
+
+        expect(result.newSession).toBe(true)
+        expect(result.client).toBeNull()
+      })
+
+      it('drops legacy links with no link time unless the phone matches', async () => {
+        const recent = new Date()
+        prisma.conversation.findFirst.mockResolvedValue({
+          id: 7,
+          sessionStartedAt: recent,
+          lastMessageAt: recent,
+          phoneNumberId: 'P1',
+          clientLinkedAt: null,
+          client: adriana,
+        })
+
+        await expect(service.getOrCreateConversation('P1', '5493413404951')).resolves.toMatchObject({ client: null })
+        await expect(service.getOrCreateConversation('P1', '5493416930749')).resolves.toMatchObject({
+          client: adriana,
+        })
+      })
+    })
+
     it('backfills the originating phone number on legacy rows', async () => {
       const recent = new Date()
       prisma.conversation.findFirst.mockResolvedValue({
@@ -197,7 +266,7 @@ describe('BotService', () => {
 
       expect(prisma.conversation.update).toHaveBeenCalledWith({
         where: { id: 7 },
-        data: expect.objectContaining({ clientId: null, producerCodeId: null }),
+        data: expect.objectContaining({ clientId: null, producerCodeId: null, clientLinkedAt: null }),
       })
     })
   })
@@ -353,6 +422,64 @@ describe('BotService', () => {
       expect(tx.message.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ rawData: { media } }) }),
       )
+    })
+
+    it('records the sender’s WhatsApp profile name with an inbound message', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 7, producerId: 1, clientId: null })
+      const created = { id: 101, role: 'user', content: 'hola', createdAt: new Date() }
+      const tx = {
+        message: { create: jest.fn().mockResolvedValue(created) },
+        conversation: { update: jest.fn().mockResolvedValue({}) },
+      }
+      prisma.$transaction.mockImplementation(async (cb: any) => cb(tx))
+
+      await service.saveMessage(7, { role: 'user', content: 'hola', contactName: ' John ' } as any)
+
+      expect(tx.conversation.update).toHaveBeenCalledWith({
+        where: { id: 7 },
+        data: expect.objectContaining({ contactName: 'John' }),
+      })
+    })
+  })
+
+  describe('createSiniestro', () => {
+    beforeEach(() => {
+      prisma.conversation.findFirst.mockResolvedValue({
+        producerId: 2,
+        waId: '5493410000000',
+        sessionStartedAt: new Date(Date.now() - 60_000),
+        clientLinkedAt: new Date(),
+        client: { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', phone: null, deletedAt: null },
+      })
+    })
+    const dto = { polizaId: 9, tipo: 'auto', fecha: '2026-10-05', descripcion: 'Choque' }
+
+    it('refuses a policy with a rejected debit', async () => {
+      prisma.poliza.findFirst.mockResolvedValue({
+        id: 9,
+        certificado: 'ABC',
+        company: 'Triunfo',
+        producerCodeId: 8,
+        cuotas: [{ status: 'rejected', dueDate: new Date() }],
+      })
+      await expect(service.createSiniestro(3, dto)).rejects.toThrow('pago rechazado')
+    })
+
+    it('refuses a policy with overdue installments', async () => {
+      prisma.poliza.findFirst.mockResolvedValue({
+        id: 9,
+        certificado: 'ABC',
+        company: 'Triunfo',
+        producerCodeId: 8,
+        cuotas: [{ status: 'overdue', dueDate: new Date(Date.now() - 20 * 86_400_000) }],
+      })
+      await expect(service.createSiniestro(3, dto)).rejects.toThrow('cuotas vencidas')
+    })
+
+    it('only looks up policies in force', async () => {
+      prisma.poliza.findFirst.mockResolvedValue(null)
+      await expect(service.createSiniestro(3, dto)).rejects.toThrow('not in force')
+      expect(prisma.poliza.findFirst.mock.calls[0][0].where.AND[1]).toHaveProperty('vigenciaHasta')
     })
   })
 })

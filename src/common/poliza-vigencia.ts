@@ -48,3 +48,30 @@ export function estadoVigencia(
   if (poliza.vigenciaHasta && poliza.vigenciaHasta < now) return 'vencida'
   return 'vigente'
 }
+
+export interface EstadoPago {
+  /** No rejected installment and none past due — the policy is paid up. */
+  alDia: boolean
+  cuotasRechazadas: number
+  cuotasVencidas: number
+}
+
+/**
+ * Payment standing of a policy from its installments. Triunfo keeps a policy
+ * "in force" for a while after a rejected debit or a missed payment, but the
+ * company won't cover a claim on it, so a claim has to check this too.
+ *
+ * `status` is mapped at sync time, so a "pending" installment whose due date
+ * has since passed is overdue as well — a sync gap must not hide a debt.
+ */
+export function estadoPago(
+  cuotas: Array<{ status: string; dueDate: Date | null }>,
+  now: Date = new Date(),
+): EstadoPago {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const cuotasRechazadas = cuotas.filter(c => c.status === 'rejected').length
+  const cuotasVencidas = cuotas.filter(
+    c => c.status === 'overdue' || (c.status === 'pending' && c.dueDate !== null && c.dueDate < startOfToday),
+  ).length
+  return { alDia: cuotasRechazadas === 0 && cuotasVencidas === 0, cuotasRechazadas, cuotasVencidas }
+}

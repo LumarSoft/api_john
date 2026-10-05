@@ -1,4 +1,4 @@
-import { estadoVigencia, inForcePolizaWhere, isCancelledStatus } from './poliza-vigencia'
+import { estadoPago, estadoVigencia, inForcePolizaWhere, isCancelledStatus } from './poliza-vigencia'
 
 describe('poliza vigencia', () => {
   const now = new Date('2026-09-30T12:00:00Z')
@@ -42,5 +42,42 @@ describe('poliza vigencia', () => {
       OR: [{ vigenciaDesde: null }, { vigenciaDesde: { lte: now } }],
       NOT: [{ status: { startsWith: 'ANUL' } }, { status: { startsWith: 'RESCISION' } }],
     })
+  })
+})
+
+describe('estadoPago', () => {
+  const now = new Date(2026, 9, 5, 12)
+
+  it('is al día when every installment is paid or not yet due', () => {
+    expect(
+      estadoPago(
+        [
+          { status: 'paid', dueDate: new Date(2026, 8, 10) },
+          { status: 'pending', dueDate: new Date(2026, 9, 5) },
+          { status: 'pending', dueDate: new Date(2026, 10, 10) },
+        ],
+        now,
+      ),
+    ).toEqual({ alDia: true, cuotasRechazadas: 0, cuotasVencidas: 0 })
+  })
+
+  it('flags a rejected debit', () => {
+    expect(estadoPago([{ status: 'rejected', dueDate: new Date(2026, 9, 10) }], now)).toEqual({
+      alDia: false,
+      cuotasRechazadas: 1,
+      cuotasVencidas: 0,
+    })
+  })
+
+  it('counts overdue installments, including pending ones whose due date already passed', () => {
+    expect(
+      estadoPago(
+        [
+          { status: 'overdue', dueDate: new Date(2026, 8, 10) },
+          { status: 'pending', dueDate: new Date(2026, 9, 4) },
+        ],
+        now,
+      ),
+    ).toEqual({ alDia: false, cuotasRechazadas: 0, cuotasVencidas: 2 })
   })
 })
