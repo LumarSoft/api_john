@@ -68,3 +68,10 @@ chat transcripts are ephemeral and the goal is to keep the `Message` table from
 growing unbounded, which a `deletedAt` flag cannot do. That job hard-deletes
 messages older than `MESSAGE_RETENTION_DAYS` (default 30). Any new hard delete
 must be justified the same way and documented here.
+
+Explicit inbox deletion is a second exception for ephemeral chat data:
+`InboxService.deleteConversations` hard-deletes messages and conversations in
+one scoped transaction, so the next inbound message creates a fresh chat without
+conflicting with the unique WhatsApp/producer key. Business records are retained;
+contact leads are detached and related HANDOFF notices are soft-deleted. Media
+files remain subject to the existing retention policy.

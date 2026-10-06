@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Request, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { ScopeService } from '../common/scope/scope.service'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
@@ -23,6 +35,18 @@ export class AdminInboxController {
     const metaPhoneNumberId =
       dto.phoneNumberId != null ? await this.scope.metaPhoneNumberId(req.user.producerId, dto.phoneNumberId) : null
     return this.inbox.listConversations(req.user.producerId, codeIds, dto, metaPhoneNumberId)
+  }
+
+  @Delete()
+  async deleteAll(@Request() req: AuthenticatedRequest) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.inbox.deleteConversations(req.user.producerId, codeIds)
+  }
+
+  @Delete(':id')
+  async deleteOne(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.inbox.deleteConversations(req.user.producerId, codeIds, id)
   }
 
   @Get(':id/messages')

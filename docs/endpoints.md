@@ -1935,3 +1935,17 @@ Persists a whole ordering in one call, for a drag-and-drop list.
 `401 Unauthorized` — Missing or invalid token
 
 `404 Not Found` — One of the ids does not belong to this producer
+
+
+### Eliminar chats de la bandeja
+
+- `DELETE /admin/inbox/:id`: borra un chat accesible al usuario autenticado;
+  devuelve 404 si no existe o está fuera de su organización/códigos.
+- `DELETE /admin/inbox`: borra todos los chats accesibles, incluidos los cerrados.
+  No utiliza los filtros de búsqueda o estado de la pantalla.
+- Respuesta: `{ "deletedCount": 1 }` (0 si la bandeja ya estaba vacía).
+- En una transacción se borran los mensajes y conversaciones, se desvinculan
+  las solicitudes de sus chats y se ocultan las novedades HANDOFF relacionadas.
+  Se conservan clientes, pólizas, cotizaciones, solicitudes y siniestros.
+- El panel exige confirmación y mantiene el modal abierto si la operación falla.
+  No borra las conversaciones de la aplicación de WhatsApp del cliente.

@@ -307,3 +307,83 @@ describe('InboxService.autoReleaseToBot', () => {
     expect(notifier.resetFlow).not.toHaveBeenCalled()
   })
 })
+
+describe('InboxService.deleteConversations', () => {
+  function setup(rows: Array<{ id: number; waId: string; phoneNumberId: string | null }> = []) {
+    const tx = {
+      conversation: { findMany: jest.fn().mockResolvedValue(rows), updateMany: jest.fn(), deleteMany: jest.fn() },
+      message: { deleteMany: jest.fn() },
+      contactLead: { updateMany: jest.fn() },
+      novedad: { updateMany: jest.fn() },
+    }
+    const prisma = {
+      $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    }
+    const notifier = { resetFlow: jest.fn().mockResolvedValue(undefined) }
+    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    return { service, tx, notifier }
+  }
+
+  it('scopes individual deletion and preserves business records', async () => {
+    const { service, tx, notifier } = setup([{ id: 7, waId: '549341', phoneNumberId: 'P1' }])
+    await expect(service.deleteConversations(1, [2], 7)).resolves.toEqual({ deletedCount: 1 })
+    const scope = {
+      producerId: 1,
+      deletedAt: null,
+      id: 7,
+      AND: [{ OR: [{ producerCodeId: { in: [2] } }, { producerCodeId: null }] }],
+    }
+    expect(tx.conversation.findMany).toHaveBeenCalledWith({
+      where: scope,
+      select: { id: true, phoneNumberId: true, waId: true },
+    })
+    expect(tx.message.deleteMany).toHaveBeenCalledWith({ where: { conversationId: { in: [7] } } })
+    expect(tx.contactLead.updateMany).toHaveBeenCalledWith({
+      where: { producerId: 1, conversationId: { in: [7] } },
+      data: { conversationId: null },
+    })
+    expect(tx.novedad.updateMany).toHaveBeenCalledWith({
+      where: { producerId: 1, type: 'HANDOFF', refId: { in: [7] }, deletedAt: null },
+      data: { deletedAt: expect.any(Date) },
+    })
+    expect(tx.conversation.deleteMany).toHaveBeenCalledWith({ where: { ...scope, id: { in: [7] } } })
+    expect(notifier.resetFlow).toHaveBeenCalledWith('P1', '549341')
+  })
+
+  it('rejects nonexistent or unauthorized chats without deleting anything', async () => {
+    const { service, tx, notifier } = setup()
+    await expect(service.deleteConversations(1, [2], 99)).rejects.toThrow('Conversation not found')
+    expect(tx.message.deleteMany).not.toHaveBeenCalled()
+    expect(tx.conversation.deleteMany).not.toHaveBeenCalled()
+    expect(notifier.resetFlow).not.toHaveBeenCalled()
+  })
+
+  it('deletes all accessible statuses independently of UI filters', async () => {
+    const { service, tx, notifier } = setup([
+      { id: 7, waId: 'one', phoneNumberId: 'P1' },
+      { id: 8, waId: 'two', phoneNumberId: null },
+    ])
+    await expect(service.deleteConversations(1, [2])).resolves.toEqual({ deletedCount: 2 })
+    expect(tx.conversation.findMany.mock.calls[0][0].where).toEqual({
+      producerId: 1,
+      deletedAt: null,
+      AND: [{ OR: [{ producerCodeId: { in: [2] } }, { producerCodeId: null }] }],
+    })
+    expect(tx.message.deleteMany).toHaveBeenCalledWith({ where: { conversationId: { in: [7, 8] } } })
+    expect(notifier.resetFlow).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows clearing an empty inbox', async () => {
+    const { service, tx } = setup()
+    await expect(service.deleteConversations(1, [])).resolves.toEqual({ deletedCount: 0 })
+    expect(tx.conversation.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('does not reset bot memory if the transaction fails', async () => {
+    const { service, tx, notifier } = setup([{ id: 7, waId: 'one', phoneNumberId: 'P1' }])
+    tx.message.deleteMany.mockRejectedValue(new Error('database unavailable'))
+    await expect(service.deleteConversations(1, [2], 7)).rejects.toThrow('database unavailable')
+    expect(tx.conversation.deleteMany).not.toHaveBeenCalled()
+    expect(notifier.resetFlow).not.toHaveBeenCalled()
+  })
+})

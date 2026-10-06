@@ -172,6 +172,46 @@ export class InboxService {
     return messages.map(({ rawData, ...message }) => ({ ...message, media: messageMedia(rawData) }))
   }
 
+  /** Explicit deletion of ephemeral chats. Business records remain intact. */
+  async deleteConversations(producerId: number, codeIds: number[], conversationId?: number) {
+    const deleted = await this.prisma.$transaction(async tx => {
+      const where: Prisma.ConversationWhereInput = {
+        producerId,
+        deletedAt: null,
+        AND: codeScopeOr(codeIds),
+        ...(conversationId !== undefined ? { id: conversationId } : {}),
+      }
+      const conversations = await tx.conversation.findMany({
+        where,
+        select: { id: true, phoneNumberId: true, waId: true },
+      })
+      if (conversationId !== undefined && conversations.length === 0) {
+        throw new NotFoundException('Conversation not found')
+      }
+      if (!conversations.length) return conversations
+      const ids = conversations.map(c => c.id)
+      // Lock the selected rows before removing their history, so a concurrent
+      // bot turn cannot recreate a deleted transcript inside this transaction.
+      await tx.conversation.updateMany({ where: { ...where, id: { in: ids } }, data: { flowState: null } })
+      await tx.contactLead.updateMany({
+        where: { producerId, conversationId: { in: ids } },
+        data: { conversationId: null },
+      })
+      await tx.novedad.updateMany({
+        where: { producerId, type: 'HANDOFF', refId: { in: ids }, deletedAt: null },
+        data: { deletedAt: new Date() },
+      })
+      await tx.message.deleteMany({ where: { conversationId: { in: ids } } })
+      await tx.conversation.deleteMany({ where: { ...where, id: { in: ids } } })
+      return conversations
+    })
+    // Flow snapshots are also deleted above; notification is best-effort.
+    for (const c of deleted) {
+      if (c.phoneNumberId) await this.botNotifier.resetFlow(c.phoneNumberId, c.waId)
+    }
+    return { deletedCount: deleted.length }
+  }
+
   async takeover(conversationId: number, producerId: number, codeIds: number[], userId: number) {
     // Fix #2: verify the conversation exists AND belongs to this producer before
     // touching anything — 404 for both "not found" and "wrong tenant" so we
