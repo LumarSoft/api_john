@@ -1184,7 +1184,7 @@ Persists the bot's deterministic flow state for a conversation (the serialized `
 
 Sweep used by the bot's inactivity job (runs every minute). Finds the conversations that have been idle longer than `SESSION_TIMEOUT_MINUTES` and have not been warned yet, and **atomically marks them as warned** so the same silence is never warned twice. Each returned item carries the user's `waId` and the Meta `phoneNumberId` the chat came through, so the warning is sent from the same number the user wrote to.
 
-The chat is always finalized (claimed), but the warning is only **returned** during office hours (Mon–Fri 08–16, Argentina time); outside that window the conversations are finalized silently and the response is empty. Legacy conversations with no stored phone number are skipped until the next inbound message backfills it.
+Every claimed chat is finalized, but a conversation is only **returned** (so the bot sends the goodbye) when the bot was running it and left it waiting on the customer: the organization's bot is on, no advisor has taken the chat (`botPaused` false), the last message is the bot's (`role: "assistant"`) and the silence crossed the timeout within the last 10 minutes. Anything else — chats that piled up while the bot was switched off, chats an advisor handled, chats where the customer wrote last — is finalized silently, so re-enabling the bot never sends a burst of goodbyes. Returned items carry `isOpenNow` so the notice can say the office is closed. Legacy conversations with no stored phone number are skipped until the next inbound message backfills it.
 
 **Auth required:** Yes (`x-bot-secret`)
 

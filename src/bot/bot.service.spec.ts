@@ -331,11 +331,17 @@ describe('BotService', () => {
     )
     /** Closed every day. */
     const alwaysClosed = Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map(d => [d, []]))
-    const candidateWith = (businessHours: unknown) => ({
+    // Default session timeout is 5 minutes: 6 minutes ago just crossed it.
+    const justIdle = () => new Date(Date.now() - 6 * 60_000)
+    const candidateWith = (businessHours: unknown, overrides: Record<string, unknown> = {}) => ({
       id: 7,
       waId: 'wa1',
       phoneNumberId: 'P1',
+      botPaused: false,
+      lastMessageAt: justIdle(),
+      messages: [{ role: 'assistant' }],
       producer: { id: 1, businessHours },
+      ...overrides,
     })
 
     it('claims the conversation and returns it so the goodbye is sent', async () => {
@@ -370,6 +376,37 @@ describe('BotService', () => {
       expect(prisma.conversation.updateMany).toHaveBeenCalled()
       expect(result).toHaveLength(1)
       expect(result[0].isOpenNow).toBe(false)
+    })
+
+    it.each([
+      ['piled up while the bot was off (idle for days)', { lastMessageAt: new Date(Date.now() - 3 * 86_400_000) }],
+      ['an advisor has the chat', { botPaused: true }],
+      ['the customer wrote last and got no answer', { messages: [{ role: 'user' }] }],
+      ['an advisor wrote last', { messages: [{ role: 'agent' }] }],
+    ])('finalizes silently, without a goodbye, a chat that %s', async (_case, overrides) => {
+      prisma.conversation.findMany.mockResolvedValue([candidateWith(alwaysOpen, overrides)])
+
+      const result = await service.claimPendingWarnings()
+
+      expect(prisma.conversation.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: [7] } }, data: { warnedAt: expect.any(Date) } }),
+      )
+      expect(result).toEqual([])
+    })
+
+    it('only says goodbye to the chats that qualify when re-enabling sweeps a backlog', async () => {
+      prisma.conversation.findMany.mockResolvedValue([
+        candidateWith(alwaysOpen, { id: 1, waId: 'reciente' }),
+        candidateWith(alwaysOpen, { id: 2, waId: 'viejo', lastMessageAt: new Date(Date.now() - 2 * 3_600_000) }),
+        candidateWith(alwaysOpen, { id: 3, waId: 'sin-respuesta', messages: [{ role: 'user' }] }),
+      ])
+
+      const result = await service.claimPendingWarnings()
+
+      expect(prisma.conversation.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: [1, 2, 3] } } }),
+      )
+      expect(result.map(r => r.waId)).toEqual(['reciente'])
     })
 
     it('does nothing when no conversation is idle', async () => {

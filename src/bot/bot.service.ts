@@ -24,6 +24,10 @@ import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 
 // Inactivity window after which a chat is considered finished (see getOrCreateConversation).
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
+// The goodbye only goes out for a silence that crossed the timeout this
+// recently. The sweep runs every minute, so anything older was not being
+// swept — the bot was switched off, paused or down — and is closed silently.
+const WARNING_WINDOW_MS = 10 * 60_000
 
 const toDateStr = (d: Date): string => d.toISOString().slice(0, 10)
 
@@ -400,9 +404,11 @@ export class BotService {
    * the next inbound message backfills it.
    */
   async claimPendingWarnings(limit = 50) {
-    const cutoff = new Date(Date.now() - this.sessionTimeoutMs)
+    const now = Date.now()
+    const cutoff = new Date(now - this.sessionTimeoutMs)
+    const windowStart = new Date(cutoff.getTime() - WARNING_WINDOW_MS)
 
-    const candidates = await this.prisma.conversation.findMany({
+    const claimed = await this.prisma.conversation.findMany({
       where: {
         deletedAt: null,
         producer: { botEnabled: true },
@@ -415,17 +421,39 @@ export class BotService {
         id: true,
         waId: true,
         phoneNumberId: true,
+        botPaused: true,
+        lastMessageAt: true,
+        messages: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { role: true },
+        },
         producer: { select: { id: true, businessHours: true } },
       },
     })
 
-    if (candidates.length === 0) return []
+    if (claimed.length === 0) return []
 
     // Claim regardless of the hour so the same silence is never warned twice.
     await this.prisma.conversation.updateMany({
-      where: { id: { in: candidates.map(c => c.id) } },
+      where: { id: { in: claimed.map(c => c.id) } },
       data: { warnedAt: new Date() },
     })
+
+    // Every claimed chat is finalized, but the goodbye only goes to a session
+    // the bot was running and left waiting on the customer, right after the
+    // timeout. Re-enabling the bot used to send it to every chat that piled up
+    // while it was off — days-old ones and chats it never answered included —
+    // and an advisor's chat got the bot's goodbye mid-conversation.
+    const candidates = claimed.filter(
+      c =>
+        !c.botPaused &&
+        c.lastMessageAt !== null &&
+        c.lastMessageAt >= windowStart &&
+        c.messages[0]?.role === 'assistant',
+    )
+    if (candidates.length === 0) return []
 
     // Each producer's own weekly schedule + active closures decide whether we are
     // open now: outside hours (or on a holiday) the chat is finalized silently.
