@@ -20,7 +20,7 @@ import { VehicleType } from '../infoauto/infoauto.types'
 import { QuoteVehicleDto } from './dto/quote-vehicle.dto'
 import { CoverageRequestDto } from './dto/coverage-request.dto'
 import { encryptCardNumber } from './card-crypto'
-import { isVisiblePaymentMethod } from '../common/payment-methods'
+import { isVisiblePaymentMethod, paymentMethodLabel } from '../common/payment-methods'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import type { QuoteCoverage, QuoteAutoResult, NormalizedQuote, CoverageRequestResult } from './cotizador.types'
 export type { QuoteCoverage, QuotePaymentOption, QuoteAutoResult } from './cotizador.types'
@@ -380,7 +380,7 @@ export class CotizadorService {
           .filter(q => isVisiblePaymentMethod(q.FormaPagoCod))
           .map(q => ({
             code: q.FormaPagoCod ?? '',
-            name: q.FormaPagoNom ?? '',
+            name: paymentMethodLabel(q.FormaPagoCod, q.FormaPagoNom ?? ''),
             premium: Number.parseFloat(q.Premio ?? '0') || 0,
             installmentValue: Number.parseFloat(q.ValorCuota ?? '0') || 0,
             installments: q.Cuotas ?? 1,

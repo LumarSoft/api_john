@@ -18,3 +18,16 @@ export type VisiblePaymentMethodCode = (typeof VISIBLE_PAYMENT_METHOD_CODES)[num
 
 export const isVisiblePaymentMethod = (code?: string): boolean =>
   VISIBLE_PAYMENT_METHOD_CODES.includes(String(code ?? '').trim() as VisiblePaymentMethodCode)
+
+/**
+ * How each visible method is named to the client, by client request: the card
+ * price (Triunfo's "Débito Automático") and the cash price (its "Plan de Pago",
+ * paid with a coupon). Same label on the web, in the bot and in stored quotes.
+ */
+const PAYMENT_METHOD_LABELS: Record<VisiblePaymentMethodCode, string> = {
+  '1': 'Con tarjeta',
+  '9': 'En efectivo',
+}
+
+export const paymentMethodLabel = (code?: string, fallback = ''): string =>
+  PAYMENT_METHOD_LABELS[String(code ?? '').trim() as VisiblePaymentMethodCode] ?? fallback

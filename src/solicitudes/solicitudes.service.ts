@@ -11,7 +11,7 @@ import { LEADS_PUBLIC_PREFIX, toStoredAdjuntos } from '../siniestros/siniestro-u
 import { ListSolicitudesDto } from './dto/list-solicitudes.dto'
 import { UpdateSolicitudDto } from './dto/update-solicitud.dto'
 import type { LeadKind, SolicitudListItem } from './solicitudes.types'
-import { isVisiblePaymentMethod } from '../common/payment-methods'
+import { isVisiblePaymentMethod, paymentMethodLabel } from '../common/payment-methods'
 
 /** Take-out documents kept per lead (DNI front/back, tarjeta azul, retries). */
 const MAX_LEAD_ADJUNTOS = 10
@@ -70,7 +70,7 @@ function parseQuoteCoverages(result: unknown): QuoteCoverageView[] {
       paymentOptions: toArr(c.Cotizaciones)
         .filter(q => isVisiblePaymentMethod(q.FormaPagoCod))
         .map(q => ({
-          name: q.FormaPagoNom ?? '',
+          name: paymentMethodLabel(q.FormaPagoCod, q.FormaPagoNom ?? ''),
           premium: Number.parseFloat(q.Premio ?? '0') || 0,
           installmentValue: Number.parseFloat(q.ValorCuota ?? '0') || 0,
           installments: q.Cuotas ?? 1,
