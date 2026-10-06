@@ -83,6 +83,10 @@ model CoverageSetting {
   // Optional vehicle-year window. Null on both ends = every year.
   yearFrom     Int?
   yearTo       Int?
+  // Years for which a highlighted coverage is the recommended one (badge and
+  // first place). Null on both ends = every year the coverage is offered.
+  highlightYearFrom Int?
+  highlightYearTo   Int?
   firstSeenAt  DateTime  @default(now())
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt

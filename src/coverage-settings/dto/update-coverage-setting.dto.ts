@@ -50,4 +50,19 @@ export class UpdateCoverageSettingDto {
   @Min(MIN_VEHICLE_YEAR)
   @Max(MAX_VEHICLE_YEAR)
   yearTo?: number | null
+
+  // Years for which a highlighted coverage is recommended. Null on both = all years.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_VEHICLE_YEAR)
+  @Max(MAX_VEHICLE_YEAR)
+  highlightYearFrom?: number | null
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(MIN_VEHICLE_YEAR)
+  @Max(MAX_VEHICLE_YEAR)
+  highlightYearTo?: number | null
 }

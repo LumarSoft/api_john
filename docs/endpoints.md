@@ -1816,6 +1816,8 @@ Rows are never created or deleted by hand: a coverage appears the first time Tri
 
 A code with no row yet is shown rather than hidden: hiding an unknown coverage would silently drop an offer nobody chose to drop.
 
+In a quote, the coverages recommended for that vehicle year (`highlighted`, within `highlightYearFrom`–`highlightYearTo` when set) come first with the badge, then the rest by `sortOrder`. The web and the WhatsApp bot show them in that order.
+
 ### GET /admin/coberturas
 
 Lists every coverage code ever seen for the authenticated user's producer, ordered by `sortOrder`.
@@ -1839,6 +1841,8 @@ Lists every coverage code ever seen for the authenticated user's producer, order
     "sortOrder": 100,
     "yearFrom": null,
     "yearTo": null,
+    "highlightYearFrom": null,
+    "highlightYearTo": null,
     "firstSeenAt": "2026-08-04T02:41:00.000Z"
   }
 ]
@@ -1864,9 +1868,11 @@ Updates one coverage. Any edit sets `isConfigured` to `true`.
 | sortOrder   | number   | No       | Integer ≥ 0                                              |
 | yearFrom    | number   | No       | Vehicle year 1900–2100, or `null` for no lower bound     |
 | yearTo      | number   | No       | Vehicle year 1900–2100, or `null` for no upper bound     |
+| highlightYearFrom | number | No | First vehicle year the coverage is recommended for (1900–2100), or `null` |
+| highlightYearTo   | number | No | Last vehicle year the coverage is recommended for (1900–2100), or `null` |
 
 ```json
-{ "name": "Todo Riesgo Premium", "isActive": true, "yearFrom": 2015 }
+{ "name": "Todo Riesgo Premium", "isActive": true, "yearFrom": 2015, "highlighted": true, "highlightYearFrom": 2010 }
 ```
 
 **Responses**

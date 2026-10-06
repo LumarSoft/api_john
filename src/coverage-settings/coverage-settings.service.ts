@@ -17,8 +17,13 @@ const SETTING_SELECT = {
   sortOrder: true,
   yearFrom: true,
   yearTo: true,
+  highlightYearFrom: true,
+  highlightYearTo: true,
   firstSeenAt: true,
 } as const
+
+const inYearRange = (year: number, from: number | null, to: number | null): boolean =>
+  (from === null || year >= from) && (to === null || year <= to)
 
 type SettingRow = Prisma.CoverageSettingGetPayload<{ select: typeof SETTING_SELECT }>
 
@@ -66,6 +71,8 @@ export class CoverageSettingsService {
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         ...(dto.yearFrom !== undefined ? { yearFrom: dto.yearFrom } : {}),
         ...(dto.yearTo !== undefined ? { yearTo: dto.yearTo } : {}),
+        ...(dto.highlightYearFrom !== undefined ? { highlightYearFrom: dto.highlightYearFrom } : {}),
+        ...(dto.highlightYearTo !== undefined ? { highlightYearTo: dto.highlightYearTo } : {}),
         // Any edit means a human has reviewed this code.
         isConfigured: true,
       },
@@ -97,8 +104,10 @@ export class CoverageSettingsService {
 
   /**
    * Applies the display rules to the coverages Triunfo quoted: drops the ones
-   * turned off (or outside their year window), sorts by the configured order and
-   * attaches the commercial wording.
+   * turned off (or outside their year window), puts the recommended ones for
+   * this vehicle year first ("La más elegida", optionally limited to a year
+   * range — what suits a 2015 car is not what suits a 2024 one), then the
+   * configured order, and attaches the commercial wording.
    *
    * A code with no row yet passes through with its default copy. Hiding an
    * unknown coverage would silently remove an offer the broker never chose to
@@ -124,9 +133,7 @@ export class CoverageSettingsService {
         const setting = byCode.get(c.code)
         if (!setting) return true // unknown code — show it
         if (!setting.isActive) return false
-        if (setting.yearFrom !== null && vehicleYear < setting.yearFrom) return false
-        if (setting.yearTo !== null && vehicleYear > setting.yearTo) return false
-        return true
+        return inYearRange(vehicleYear, setting.yearFrom, setting.yearTo)
       })
       .map(c => {
         const setting = byCode.get(c.code)
@@ -136,11 +143,12 @@ export class CoverageSettingsService {
           name: setting?.name ?? fallback.name,
           tagline: setting?.tagline ?? (fallback.tagline || null),
           benefits: setting ? this.readBenefits(setting.benefits) : fallback.benefits,
-          highlighted: setting?.highlighted ?? false,
+          highlighted:
+            !!setting?.highlighted && inYearRange(vehicleYear, setting.highlightYearFrom, setting.highlightYearTo),
           _order: setting?.sortOrder ?? fallback.sortOrder,
         }
       })
-      .sort((a, b) => a._order - b._order)
+      .sort((a, b) => Number(b.highlighted) - Number(a.highlighted) || a._order - b._order)
       .map(({ _order, ...coverage }) => coverage as T & CoverageDisplay)
   }
 
@@ -224,6 +232,8 @@ export class CoverageSettingsService {
       sortOrder: setting.sortOrder,
       yearFrom: setting.yearFrom,
       yearTo: setting.yearTo,
+      highlightYearFrom: setting.highlightYearFrom,
+      highlightYearTo: setting.highlightYearTo,
       firstSeenAt: setting.firstSeenAt,
     }
   }
