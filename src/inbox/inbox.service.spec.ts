@@ -343,7 +343,7 @@ describe('InboxService.deleteConversations', () => {
       data: { conversationId: null },
     })
     expect(tx.novedad.updateMany).toHaveBeenCalledWith({
-      where: { producerId: 1, type: 'HANDOFF', refId: { in: [7] }, deletedAt: null },
+      where: { producerId: 1, type: 'handoff', refId: { in: [7] }, deletedAt: null },
       data: { deletedAt: expect.any(Date) },
     })
     expect(tx.conversation.deleteMany).toHaveBeenCalledWith({ where: { ...scope, id: { in: [7] } } })

@@ -1,4 +1,16 @@
-import { Body, Controller, Post, Get, Param, ParseIntPipe, Patch, Query, Request, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Post,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { ScopeService } from '../common/scope/scope.service'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
@@ -20,6 +32,12 @@ export class AdminNovedadesController {
       phoneNumberId: query.phoneNumberId,
     })
     return this.novedadesService.listForAdmin(req.user.producerId, codeIds, query)
+  }
+
+  @Delete()
+  async clearAll(@Request() req: AuthenticatedRequest) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.novedadesService.clearAll(req.user.producerId, codeIds)
   }
 
   @Get('stats')

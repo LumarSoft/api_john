@@ -11,6 +11,7 @@ import { isSamePhone } from '../common/phone-match'
 import { signAdjuntoUrl } from '../siniestros/adjunto-url'
 import { BotNotifierService } from './bot-notifier.service'
 import { ListInboxDto } from './dto/list-inbox.dto'
+import { NovedadType } from '../novedades/dto/list-novedades.dto'
 import { UpdateInboxContactDto } from './dto/update-inbox-contact.dto'
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000
@@ -198,7 +199,7 @@ export class InboxService {
         data: { conversationId: null },
       })
       await tx.novedad.updateMany({
-        where: { producerId, type: 'HANDOFF', refId: { in: ids }, deletedAt: null },
+        where: { producerId, type: NovedadType.HANDOFF, refId: { in: ids }, deletedAt: null },
         data: { deletedAt: new Date() },
       })
       await tx.message.deleteMany({ where: { conversationId: { in: ids } } })

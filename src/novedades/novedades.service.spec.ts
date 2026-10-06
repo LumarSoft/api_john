@@ -31,6 +31,34 @@ describe('NovedadesService', () => {
     service = new NovedadesService(prisma as never)
   })
 
+  describe('clearAll', () => {
+    it('soft deletes only accessible notifications without changing business records', async () => {
+      prisma.novedad.updateMany.mockResolvedValue({ count: 15 })
+      await expect(service.clearAll(5, [10])).resolves.toEqual({ clearedCount: 15 })
+      expect(prisma.novedad.updateMany).toHaveBeenCalledWith({
+        where: { producerId: 5, deletedAt: null, OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] },
+        data: { deletedAt: expect.any(Date) },
+      })
+      expect(prisma.contactLead.updateMany).not.toHaveBeenCalled()
+      expect(prisma.solicitud.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('returns zero when there are no accessible notifications', async () => {
+      prisma.novedad.updateMany.mockResolvedValue({ count: 0 })
+      await expect(service.clearAll(5, [])).resolves.toEqual({ clearedCount: 0 })
+      expect(prisma.novedad.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { producerId: 5, deletedAt: null, OR: [{ producerCodeId: { in: [] } }, { producerCodeId: null }] },
+        }),
+      )
+    })
+
+    it('reports database failures without returning a false success', async () => {
+      prisma.novedad.updateMany.mockRejectedValue(new Error('database unavailable'))
+      await expect(service.clearAll(5, [10])).rejects.toThrow('database unavailable')
+    })
+  })
+
   describe('emission', () => {
     it('records a siniestro novedad with a denormalized title, body and client', async () => {
       prisma.novedad.create.mockResolvedValue({ id: 1 })

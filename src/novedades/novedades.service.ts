@@ -187,6 +187,15 @@ export class NovedadesService {
     }
   }
 
+  /** Clears notifications only, leaving their underlying business records intact. */
+  async clearAll(producerId: number, codeIds: number[]) {
+    const result = await this.prisma.novedad.updateMany({
+      where: { producerId, deletedAt: null, ...this.codeScope(codeIds) },
+      data: { deletedAt: new Date() },
+    })
+    return { clearedCount: result.count }
+  }
+
   async getStats(producerId: number, codeIds: number[]) {
     const base = { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds) }
 

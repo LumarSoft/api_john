@@ -1949,3 +1949,12 @@ Persists a whole ordering in one call, for a drag-and-drop list.
   Se conservan clientes, pólizas, cotizaciones, solicitudes y siniestros.
 - El panel exige confirmación y mantiene el modal abierto si la operación falla.
   No borra las conversaciones de la aplicación de WhatsApp del cliente.
+
+
+### Limpiar novedades
+
+`DELETE /admin/novedades` requiere autenticación de administración. Limpia todas
+las novedades accesibles de la organización y códigos del usuario, sin filtros
+por página, estado o categoría. Responde `{ "clearedCount": 15 }`. Aplica borrado
+lógico solo a Novedad: conserva chats, siniestros, solicitudes y sus estados.
+Las nuevas novedades continúan registrándose. El panel exige confirmación.
