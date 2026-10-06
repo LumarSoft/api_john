@@ -962,6 +962,29 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 
 `403 Forbidden` — Token is not an employee/admin token
 
+### PATCH /admin/inbox/:id/contact
+
+Manual fix of who a chat belongs to. `contactName` sets the name shown for whoever writes from this number (it wins over the address book and the WhatsApp profile name, which the bot refreshes on every message); empty or `null` goes back to the automatic name. `unlinkClient: true` removes the linked client — e.g. someone who asked with another person's DNI — and the bot asks for identification again on the next message.
+
+**Auth required:** Yes (user JWT)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| contactName | string \| null | No | ≤ 191 chars; empty or `null` = automatic name |
+| unlinkClient | boolean | No | `true` removes the linked client |
+
+```json
+{ "contactName": "John Pellegrini", "unlinkClient": true }
+```
+
+**Responses**
+
+`200 OK` — The conversation summary, as in `GET /admin/inbox`.
+
+`404 Not Found` — Conversation not found or outside the user's scope
+
 ### GET /admin/inbox/:id/messages
 
 Full stored history of a conversation in chronological order — not limited to the current bot session (live messages are kept `MESSAGE_RETENTION_DAYS`, default 30). Capped at the latest 500 messages. Opening the thread clears its unread counter.

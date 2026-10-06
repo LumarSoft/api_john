@@ -95,6 +95,31 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
     expect(conversation.clientIsContact).toBe(true)
   })
 
+  it('prefers a name set by hand over the address book and the profile', async () => {
+    const service = setup(
+      {
+        id: 7,
+        waId: '5493413404951',
+        phoneNumberId: 'P1',
+        contactName: 'johnny',
+        contactNameManual: 'John P.',
+        client: null,
+      },
+      [
+        {
+          waId: '5493413404951',
+          phone: '5493413404951',
+          fullName: 'John Pellegrini',
+          phoneNumber: { phoneNumberId: 'P1' },
+        },
+      ],
+    )
+
+    const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
+
+    expect(conversation.contactName).toBe('John P.')
+  })
+
   it('prefers the name saved in the WhatsApp Business address book', async () => {
     const service = setup({ id: 7, waId: '5493413404951', phoneNumberId: 'P1', contactName: 'johnny', client: null }, [
       {
@@ -108,6 +133,63 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
     const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
 
     expect(conversation.contactName).toBe('John Pellegrini')
+  })
+})
+
+describe('InboxService.updateContact', () => {
+  function setup() {
+    const prisma = {
+      conversation: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: 7, waId: '549341', producerId: 1, producer: { botEnabled: true } }),
+        update: jest.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+          Promise.resolve({
+            id: 7,
+            waId: '5493413404951',
+            contactName: 'Adri',
+            contactNameManual: 'contactNameManual' in data ? data.contactNameManual : null,
+            client:
+              data.clientId === null ? null : { id: 5, firstName: 'Adriana', lastName: 'Gómez', dni: '1', phone: null },
+          }),
+        ),
+      },
+    }
+    return { prisma, service: new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService) }
+  }
+
+  it('shows the name set by hand and unlinks a client attached by mistake', async () => {
+    const { prisma, service } = setup()
+
+    const result = await service.updateContact(7, 1, [2], { contactName: '  John Pellegrini ', unlinkClient: true })
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 7 },
+        data: { contactNameManual: 'John Pellegrini', clientId: null, clientLinkedAt: null },
+      }),
+    )
+    expect(result).toMatchObject({ contactName: 'John Pellegrini', client: null, clientIsContact: false })
+  })
+
+  it('goes back to the automatic name when the field is cleared, keeping the client', async () => {
+    const { prisma, service } = setup()
+
+    const result = await service.updateContact(7, 1, [2], { contactName: '' })
+
+    expect(prisma.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { contactNameManual: null } }),
+    )
+    expect(result.contactName).toBe('Adri')
+    expect(result.client).not.toBeNull()
+  })
+
+  it('rejects a conversation outside the user scope', async () => {
+    const { prisma, service } = setup()
+    prisma.conversation.findFirst.mockResolvedValue(null)
+
+    await expect(service.updateContact(99, 1, [2], { unlinkClient: true })).rejects.toThrow('not found')
+    expect(prisma.conversation.update).not.toHaveBeenCalled()
   })
 })
 

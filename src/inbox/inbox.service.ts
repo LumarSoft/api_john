@@ -11,6 +11,7 @@ import { isSamePhone } from '../common/phone-match'
 import { signAdjuntoUrl } from '../siniestros/adjunto-url'
 import { BotNotifierService } from './bot-notifier.service'
 import { ListInboxDto } from './dto/list-inbox.dto'
+import { UpdateInboxContactDto } from './dto/update-inbox-contact.dto'
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000
 
@@ -39,12 +40,14 @@ const CONVERSATION_SUMMARY_SELECT = {
   sessionStartedAt: true,
   phoneNumberId: true,
   contactName: true,
+  contactNameManual: true,
   client: { select: { id: true, firstName: true, lastName: true, dni: true, phone: true } },
 } as const
 
 type ConversationContact = {
   waId: string
   contactName: string | null
+  contactNameManual: string | null
   client: { phone: string | null } | null
 }
 
@@ -58,7 +61,9 @@ function withContact<T extends ConversationContact>(conversation: T, agendaName?
   const { client, ...rest } = conversation
   return {
     ...rest,
-    contactName: agendaName ?? conversation.contactName,
+    // A name set by hand in the inbox wins: it is how an advisor fixes a chat
+    // shown under the wrong person.
+    contactName: conversation.contactNameManual ?? agendaName ?? conversation.contactName,
     client: client ? { ...client, phone: undefined } : null,
     clientIsContact: client ? isSamePhone(conversation.waId, client.phone) : false,
   }
@@ -200,6 +205,26 @@ export class InboxService {
 
     const conversation = await this.prisma.conversation.findFirstOrThrow({
       where: { id: conversationId },
+      select: CONVERSATION_SUMMARY_SELECT,
+    })
+    return withContact(conversation)
+  }
+
+  /**
+   * Manual fix of who a chat belongs to: the name shown for the writer and,
+   * optionally, dropping a client linked by mistake (a relative who asked with
+   * the holder's DNI). Unlinking also makes the bot ask for identification on
+   * the next message instead of serving that client's data.
+   */
+  async updateContact(conversationId: number, producerId: number, codeIds: number[], dto: UpdateInboxContactDto) {
+    await this.findAndVerify(conversationId, producerId, codeIds)
+
+    const conversation = await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        ...(dto.contactName !== undefined ? { contactNameManual: dto.contactName?.trim() || null } : {}),
+        ...(dto.unlinkClient ? { clientId: null, clientLinkedAt: null } : {}),
+      },
       select: CONVERSATION_SUMMARY_SELECT,
     })
     return withContact(conversation)

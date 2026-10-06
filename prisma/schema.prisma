@@ -694,6 +694,9 @@ model Conversation {
   // WhatsApp profile name of whoever writes from this number (Meta `contacts`).
   // The inbox shows it instead of the linked client when they are not the same person.
   contactName    String?       @db.VarChar(191)
+  // Name an advisor set by hand in the inbox. Wins over the address book and
+  // the WhatsApp profile name, which the bot refreshes on every message.
+  contactNameManual String?    @db.VarChar(191)
   messages       Message[]
 
   @@unique([waId, producerId])
