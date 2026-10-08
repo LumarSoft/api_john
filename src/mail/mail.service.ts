@@ -71,6 +71,34 @@ export class MailService {
     }
   }
 
+  /**
+   * Plain alert to one or more recipients (bot status changes and the like).
+   * Never throws: callers treat the alert as best-effort.
+   */
+  async sendAlert(alert: { to: string[]; subject: string; text: string; html: string }): Promise<void> {
+    if (alert.to.length === 0) return
+    if (!this.resend) {
+      this.logger.log(`[MAIL:DRY-RUN] to=${alert.to.join(',')} subject="${alert.subject}" — ${alert.text}`)
+      return
+    }
+    try {
+      const { error } = await this.resend.emails.send({
+        from: this.from,
+        to: alert.to,
+        subject: alert.subject,
+        html: alert.html,
+        text: alert.text,
+      })
+      if (error) {
+        this.logger.error(`Resend error for alert "${alert.subject}": ${error.message}`)
+        return
+      }
+      this.logger.log(`Alert "${alert.subject}" sent to ${alert.to.join(',')}`)
+    } catch (err) {
+      this.logger.error(`Failed to send alert "${alert.subject}"`, err as Error)
+    }
+  }
+
   private buildHtml(data: SiniestroNotification): string {
     const fecha = data.fecha.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
     return `

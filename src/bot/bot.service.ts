@@ -320,7 +320,10 @@ export class BotService {
       },
       orderBy: { createdAt: 'desc' },
       take: 10,
-      select: { id: true, role: true, content: true, createdAt: true },
+      // `source` lets the bot tell an employee's WhatsApp-app reply (app_echo)
+      // from its own messages, so it can stay quiet when the customer is just
+      // closing a conversation a person had with them.
+      select: { id: true, role: true, content: true, createdAt: true, source: true },
     })
 
     const clientActive = isClientLinkActive({

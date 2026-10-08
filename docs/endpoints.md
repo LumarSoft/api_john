@@ -579,6 +579,87 @@ Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own
 
 ---
 
+## Admin — Configuración
+
+### GET /admin/config
+
+Configuración del bot de la organización del usuario autenticado, incluido quién fue el último en encender o apagar el bot y cuándo.
+
+**Auth required:** Yes (admin)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "botName": "Nico",
+  "botEnabled": false,
+  "lastBotStatusChange": {
+    "botEnabled": false,
+    "at": "2026-10-06T11:12:00.000Z",
+    "by": "mili@jpmg.com"
+  }
+}
+```
+
+`lastBotStatusChange` es `null` cuando el switch nunca se usó desde que existe la auditoría.
+
+### PATCH /admin/config
+
+Actualiza el nombre con el que se presenta el bot. Un `botName` vacío vuelve al nombre por defecto.
+
+**Auth required:** Yes (admin)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| botName | string | No | máx. 60 caracteres |
+
+```json
+{ "botName": "Nico" }
+```
+
+**Responses**
+
+`200 OK`
+```json
+{ "botName": "Nico", "botEnabled": true }
+```
+
+### PATCH /admin/config/bot-status
+
+Switch global: enciende o apaga todas las respuestas automáticas del bot de la organización. Los mensajes entrantes se siguen guardando en la bandeja. Cada cambio real queda registrado en `BotStatusChange` (quién, cuándo) y se anuncia al dueño por los canales configurados (`BOT_STATUS_ALERT_EMAIL`, `BOT_STATUS_ALERT_PHONE` + `BOT_STATUS_ALERT_TEMPLATE`); sin configuración el aviso solo se loguea. Repetir el estado actual no genera registro ni aviso.
+
+**Auth required:** Yes (SuperAdmin)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| botEnabled | boolean | Yes | — |
+
+```json
+{ "botEnabled": false }
+```
+
+**Responses**
+
+`200 OK`
+```json
+{ "botName": "Nico", "botEnabled": false }
+```
+
+`403 Forbidden`
+```json
+{ "statusCode": 403, "message": "Forbidden resource", "error": "Forbidden" }
+```
+
+`404 Not Found`
+```json
+{ "statusCode": 404, "message": "Producer not found", "error": "Not Found" }
+```
+
 ## Admin — Asegurados
 
 All endpoints are scoped to the authenticated user's `producerId` and require a `user` JWT.

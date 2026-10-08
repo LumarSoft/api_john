@@ -57,6 +57,27 @@ model Producer {
   businessClosures BusinessClosure[]
   usageMonthly     UsageMonthly[]
   coverageSettings CoverageSetting[]
+  botStatusChanges BotStatusChange[]
+}
+
+// ─── BOT STATUS AUDIT ────────────────────────────────────
+// One row per flip of the organization-wide bot switch (Producer.botEnabled),
+// so the owner can see who turned the bot off, when and for how long. The
+// switch itself used to leave no trace at all.
+model BotStatusChange {
+  id         Int       @id @default(autoincrement())
+  botEnabled Boolean
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
+  // Admin who flipped the switch. Null when it did not come from a logged-in user.
+  userId     Int?
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([producerId, createdAt])
+  @@index([userId])
 }
 
 /// How a Triunfo auto coverage is shown in the quote results — one row per
@@ -335,6 +356,7 @@ model User {
   producerCodes         UserProducerCode[]
   cotizaciones          Cotizacion[]
   assignedConversations Conversation[]     @relation("assigned_conversations")
+  botStatusChanges      BotStatusChange[]
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────

@@ -32,6 +32,9 @@ export class AdminConfigController {
   @Patch('bot-status')
   @Roles(Role.SUPERADMIN)
   setBotStatus(@Request() req: AuthenticatedRequest, @Body() dto: SetBotStatusDto) {
-    return this.usersService.setBotEnabled(req.user.producerId, dto.botEnabled)
+    return this.usersService.setBotEnabled(req.user.producerId, dto.botEnabled, {
+      id: req.user.id,
+      email: req.user.email,
+    })
   }
 }
