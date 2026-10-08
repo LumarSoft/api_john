@@ -1,5 +1,37 @@
 import { CoverageSettingsService } from './coverage-settings.service'
 import type { PrismaService } from '../prisma/prisma.service'
+import { VehicleType } from '../infoauto/infoauto.types'
+
+describe('motorcycle wording', () => {
+  it('names moto coverages as Triunfo does and ignores the car settings of the same codes', async () => {
+    const prisma = {
+      coverageSetting: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            code: 'B1',
+            name: 'Todo Total 1',
+            tagline: 'auto',
+            benefits: ['x'],
+            isActive: true,
+            highlighted: true,
+            sortOrder: 1,
+          },
+        ]),
+      },
+    }
+    const service = new CoverageSettingsService(prisma as unknown as PrismaService)
+    const quoted = [{ code: 'B1' }, { code: 'B4' }, { code: 'A' }]
+
+    const result = await service.apply(1, quoted, 2026, ['A', 'B4', 'B1'], VehicleType.MOTO)
+
+    expect(result.map(c => [c.code, c.name, c.highlighted])).toEqual([
+      ['A', 'Responsabilidad civil', false],
+      ['B4', 'Responsabilidad civil + incendio', false],
+      ['B1', 'RC + incendio + robo', false],
+    ])
+    expect(result[2].benefits).toContain('Robo y/o hurto total')
+  })
+})
 
 describe('motorcycle required coverages', () => {
   it('keeps A, B and B1 even when car display settings hide them by activity or year', async () => {

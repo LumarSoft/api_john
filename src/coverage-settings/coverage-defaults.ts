@@ -89,3 +89,56 @@ export function defaultCopyFor(code: string): CoverageCopy {
     sortOrder: base.sortOrder + (Number.isFinite(suffix) ? suffix : 0),
   }
 }
+
+/**
+ * Motorcycle coverages, named as Triunfo's own cotizador names them. Triunfo
+ * quotes motos with the same letter codes as cars, but the products behind them
+ * differ (B1 on a moto is "RC + incendio + robo", on a car "Todo Total 1"), so
+ * the car wording and the producer's car settings must never leak into a moto
+ * quote. The benefit lists mirror the comparison table on Triunfo's web.
+ */
+const MOTO_COPY: Record<string, CoverageCopy> = {
+  A: {
+    name: 'Responsabilidad civil',
+    tagline: 'La cobertura obligatoria para circular',
+    benefits: [
+      'Responsabilidad civil hacia terceros',
+      'Extensión de cobertura a países limítrofes',
+      'Asistencia jurídica',
+      'Seguro de vida y sepelio',
+    ],
+    sortOrder: 100,
+  },
+  B4: {
+    name: 'Responsabilidad civil + incendio',
+    tagline: 'RC más incendio total',
+    benefits: ['Todo lo de Responsabilidad civil', 'Incendio total', 'Ajuste automático de suma asegurada (10%)'],
+    sortOrder: 200,
+  },
+  B1: {
+    name: 'RC + incendio + robo',
+    tagline: 'RC más incendio y robo total',
+    benefits: [
+      'Todo lo de Responsabilidad civil + incendio',
+      'Robo y/o hurto total',
+      'Ajuste automático de suma asegurada (10%)',
+    ],
+    sortOrder: 300,
+  },
+  B: {
+    name: 'Todo total',
+    tagline: 'RC más robo, incendio y destrucción total',
+    benefits: [
+      'Todo lo de Responsabilidad civil',
+      'Robo y/o hurto total',
+      'Incendio total',
+      'Destrucción total por accidente',
+    ],
+    sortOrder: 400,
+  },
+}
+
+/** Wording for a motorcycle coverage code; unknown codes fall back to the car copy. */
+export function motoCopyFor(code: string): CoverageCopy {
+  return MOTO_COPY[code.trim().toUpperCase()] ?? defaultCopyFor(code)
+}

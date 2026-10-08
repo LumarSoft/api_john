@@ -3,7 +3,8 @@ import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UpdateCoverageSettingDto } from './dto/update-coverage-setting.dto'
 import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
-import { defaultCopyFor } from './coverage-defaults'
+import { defaultCopyFor, motoCopyFor } from './coverage-defaults'
+import { VehicleType } from '../infoauto/infoauto.types'
 
 const SETTING_SELECT = {
   id: true,
@@ -118,8 +119,28 @@ export class CoverageSettingsService {
     coverages: T[],
     vehicleYear: number,
     requiredCodes: readonly string[] = [],
+    vehicleType: VehicleType = VehicleType.AUTO,
   ): Promise<Array<T & CoverageDisplay>> {
     if (coverages.length === 0) return []
+
+    // Motorcycles share Triunfo's letter codes with cars but not the products:
+    // the admin screen configures car wording, so a moto quote always uses the
+    // fixed moto catalog (names, benefits, order) and no car highlight.
+    if (vehicleType === VehicleType.MOTO) {
+      return coverages
+        .map(c => ({ c, copy: motoCopyFor(c.code) }))
+        .sort((a, b) => a.copy.sortOrder - b.copy.sortOrder)
+        .map(
+          ({ c, copy }) =>
+            ({
+              ...c,
+              name: copy.name,
+              tagline: copy.tagline || null,
+              benefits: copy.benefits,
+              highlighted: false,
+            }) as T & CoverageDisplay,
+        )
+    }
 
     const settings = await this.prisma.coverageSetting.findMany({
       where: { producerId, code: { in: coverages.map(c => c.code) }, deletedAt: null },

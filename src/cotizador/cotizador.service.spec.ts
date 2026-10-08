@@ -170,8 +170,8 @@ describe('CotizadorService motorcycle offers', () => {
       1,
       null,
     )
-    expect(result.coverages.map(c => c.code)).toEqual(codes.filter(c => ['A', 'B', 'B1'].includes(c)))
-    expect(settings.apply).toHaveBeenCalledWith(1, expect.any(Array), 2025, ['A', 'B', 'B1'])
-    expect(result.messages.some(message => message.includes('cobertura B.'))).toBe(!codes.includes('B'))
+    expect(result.coverages.map(c => c.code)).toEqual(codes.filter(c => ['A', 'B4', 'B1'].includes(c)))
+    expect(settings.apply).toHaveBeenCalledWith(1, expect.any(Array), 2025, ['A', 'B4', 'B1'], VehicleType.MOTO)
+    expect(result.messages.some(message => message.includes('cobertura B4.'))).toBe(!codes.includes('B4'))
   })
 })

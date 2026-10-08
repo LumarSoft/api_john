@@ -190,10 +190,19 @@ export class CotizadorService {
       )
       .catch(err => this.logger.warn(`No se pudieron registrar las coberturas: ${(err as Error).message}`))
 
-    const requiredCodes = vehicleType === VehicleType.MOTO ? ['A', 'B', 'B1'] : []
+    // Motorcycles are offered exactly as Triunfo's own cotizador does: RC (A),
+    // RC + incendio (B4) and RC + incendio + robo (B1). Triunfo also prices B
+    // ("todo total") for motos but does not show it, and neither do we.
+    const requiredCodes = vehicleType === VehicleType.MOTO ? ['A', 'B4', 'B1'] : []
     const offered =
       vehicleType === VehicleType.MOTO ? quote.coverages.filter(c => requiredCodes.includes(c.code)) : quote.coverages
-    const coverages = await this.coverageSettings.apply(resolvedProducerId, offered, dto.manufactureYear, requiredCodes)
+    const coverages = await this.coverageSettings.apply(
+      resolvedProducerId,
+      offered,
+      dto.manufactureYear,
+      requiredCodes,
+      vehicleType,
+    )
     const missing = requiredCodes.filter(code => !coverages.some(c => c.code === code))
     return {
       ...quote,
