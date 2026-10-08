@@ -119,4 +119,39 @@ describe('InfoAutoService', () => {
       jest.useRealTimers()
     }
   })
+
+  // InfoAuto lists brand-new versions (e.g. KYMCO SKYTOWN 150) with no used-price
+  // range but with a 0km list price. Triunfo prices them for the current year only.
+  it.each([
+    [VehicleType.MOTO, 2026, true, true, undefined],
+    [VehicleType.MOTO, 2025, true, false, 'solo como 0km 2026'],
+    [VehicleType.MOTO, 2027, true, false, 'solo como 0km 2026'],
+    [VehicleType.AUTO, 2026, true, true, undefined],
+    [VehicleType.MOTO, 2026, false, false, 'no tiene precio de referencia'],
+  ])(
+    'validates %s year %i for a version without used-price range (list_price=%s)',
+    async (type, year, listPrice, valid, message) => {
+      jest.useFakeTimers({ now: new Date('2026-09-30T12:00:00Z') })
+      try {
+        const http = {
+          post: jest.fn().mockReturnValue(of({ data: { access_token: 'token' }, headers: {} })),
+          get: jest.fn().mockReturnValue(
+            of({
+              data: [{ codia: 9500084, prices_from: null, prices_to: null, prices: false, list_price: listPrice }],
+              headers: {},
+            }),
+          ),
+        }
+        const service = new InfoAutoService(http as any, config as any)
+        const result = service.validateVehicleYear(type, 950, 9500084, year)
+        if (valid) await expect(result).resolves.toBeUndefined()
+        else {
+          await expect(result).rejects.toMatchObject({ status: 400 })
+          await expect(result).rejects.toThrow(message as string)
+        }
+      } finally {
+        jest.useRealTimers()
+      }
+    },
+  )
 })

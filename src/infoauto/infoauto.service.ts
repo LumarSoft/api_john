@@ -227,22 +227,32 @@ export class InfoAutoService {
       throw new BadRequestException('Año del vehículo inválido')
     }
     for (let page = 1; ; page++) {
-      const { data } = await this.get<Array<{ codia: number; prices_from?: number | null; prices_to?: number | null }>>(
-        type,
-        `/brands/${brandId}/models/`,
-        { page, page_size: 100 },
-      )
+      const { data } = await this.get<
+        Array<{ codia: number; prices_from?: number | null; prices_to?: number | null; list_price?: boolean }>
+      >(type, `/brands/${brandId}/models/`, { page, page_size: 100 })
       if (!Array.isArray(data)) throw new BadGatewayException('No se pudo validar el vehículo en InfoAuto')
       const model = data.find(m => Number(m.codia) === codia)
       if (model) {
         const from = model.prices_from
         const to = model.prices_to
+        const currentYear = new Date().getFullYear()
         // A recent motorcycle can still be sold as the current model year
         // while InfoAuto's annual publication catches up.
-        const recentMoto = type === VehicleType.MOTO && typeof to === 'number' && to >= new Date().getFullYear() - 1
+        const recentMoto = type === VehicleType.MOTO && typeof to === 'number' && to >= currentYear - 1
         if (typeof from !== 'number' || typeof to !== 'number') {
+          // InfoAuto publishes no used-price range for two kinds of versions.
+          // Brand-new models sold only as 0km carry `list_price` and Triunfo
+          // prices them for the current model year only (any other year comes
+          // back with ValorVehiculo 0 and no theft coverage). Discontinued
+          // models with no price at all cannot be valued by Triunfo either.
+          if (model.list_price && year === currentYear) return
+          if (model.list_price) {
+            throw new BadRequestException(
+              `El catálogo lista esta versión solo como 0km ${currentYear}. Elegí ese año o consultá con un asesor.`,
+            )
+          }
           throw new BadRequestException(
-            'El catálogo no permite verificar el año de esta versión. Consultá con un asesor.',
+            'El catálogo no tiene precio de referencia para esta versión, así que no se puede cotizar online. Consultá con un asesor.',
           )
         }
         if (year < from || (year > to && !recentMoto)) {
