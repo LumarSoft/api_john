@@ -259,7 +259,7 @@ Sin relación con el código, pero condicionan qué se puede construir:
 |---|---|
 | `RESTCotizadorAutV2` | contrato previamente verificado; revalidación de moto bloqueada por credencial de Triunfo rechazada |
 | `RESTNovedadesCartera` | OK — 225 novedades en 7 días |
-| `RESTConsultaInspV2` | responde, pero no encuentra ninguna operación de la cartera |
+| `RESTConsultaInspV2` | responde, pero **no es un servicio de documentos de póliza**: devuelve la URL de la documentación de una *inspección*. Sonda del 2026-10-08 (ver §6) |
 | `RESTInspeccionPFV2` | **500** — `Unrecognized field "Autenticacion"`, contrato desconocido |
 | `RESTPreInspV2` | **500** — ídem |
 | `RESTSolicitudAutomotoresV2` | sin probar — emite póliza real y facturable |
@@ -349,7 +349,29 @@ cuando haga falta; en el servidor va en `true`.
 **Triunfo** (consultas ya enviadas por mail):
 - Contrato correcto de `RESTInspeccionPFV2` y `RESTPreInspV2` (consulta 2).
 - Si `RESTConsultaInspV2` puede ver pólizas de cartera o solo operaciones
-  nacidas por API (consulta 6).
+  nacidas por API (consulta 6). **Sonda 2026-10-08, con una póliza emitida el
+  día anterior (art. 128, cert. 1203782) y un presupuesto creado ese mismo día
+  por `RESTCotizadorAutV2`:**
+  - `TipoOperacion` acepta `C`, `P` e `I`. `I` = número de inspección: con
+    cualquier número responde "Inspección propia de otro Productor", así que el
+    servicio indexa inspecciones, no pólizas. `P` = presupuesto: en la serie
+    1655546–1655549 responde "No se encuentra la Inspección" (la operación
+    existe pero no tiene inspección); nuestros presupuestos (2054xxxx) y el de
+    julio (19744878) dan "No se encuentra esa Operación".
+  - `C` = certificado: "No se encuentra esa Operación" para certificado,
+    certificado anterior, póliza de `Ramas[]`, combinaciones con artículo y
+    suplemento, numérico o texto, y con el código de productor de la póliza.
+    Pasar `Articulo`/`Certificado` como campos sueltos o anidar `Operacion`
+    da HTTP 500 (Tomcat). No existen `RESTConsultaInsp`, `V1`, `V3` ni
+    endpoints con nombres de documentos (`RESTDocumentosPoliza`,
+    `RESTImpresionPoliza`, `RESTCertificadoCobertura`, `RESTCuponPago`…: 404).
+  - Conclusión: el servicio devuelve la documentación de la inspección de una
+    operación nacida por API (`RESTPreInspV2`/`RESTInspeccionPFV2`, que hoy
+    dan 500). No sirve para tarjeta, certificado de cobertura ni cupón de la
+    cartera. La pregunta a Triunfo debe ser otra: **qué servicio REST entrega
+    los PDF de tarjeta de circulación, certificado de cobertura y cupón de
+    pago de una póliza vigente** (los que la oficina hoy baja del portal de
+    productores), o si existe una URL de impresión por certificado.
 - Si se puede emitir una póliza de prueba en producción y anularla (consulta 11).
 - Qué espera en `Marca`/`Modelo` para el artículo 481 (motos).
 - Cómo mapea `MX` y `CH` del feature 21 de InfoAuto.
