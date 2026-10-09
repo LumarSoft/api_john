@@ -1,6 +1,12 @@
 import { ConfigService } from '@nestjs/config'
 import { BotService } from './bot.service'
 
+// Image optimisation touches the disk; these tests only care where a photo goes.
+jest.mock('../siniestros/siniestro-upload.config', () => ({
+  ...jest.requireActual('../siniestros/siniestro-upload.config'),
+  toStoredAdjuntos: jest.fn().mockResolvedValue([{ url: '/uploads/siniestros/a.jpg' }]),
+}))
+
 function createPrismaMock() {
   return {
     phoneNumber: { findFirst: jest.fn() },
@@ -13,7 +19,8 @@ function createPrismaMock() {
       updateMany: jest.fn(),
       findMany: jest.fn(),
     },
-    message: { create: jest.fn(), findMany: jest.fn() },
+    message: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
+    siniestro: { findFirst: jest.fn(), update: jest.fn() },
     businessClosure: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   }
@@ -226,6 +233,43 @@ describe('BotService', () => {
           client: adriana,
         })
       })
+    })
+
+    it('tells the bot what a person from the office said last, even in an earlier session', async () => {
+      const old = new Date(Date.now() - 3 * 60 * 60_000)
+      prisma.conversation.findFirst.mockResolvedValue({
+        id: 7,
+        sessionStartedAt: old,
+        lastMessageAt: old,
+        phoneNumberId: 'P1',
+        client: null,
+      })
+      prisma.message.findFirst.mockResolvedValue({ content: 'Pasame las fotos que tenés', createdAt: old })
+
+      const result = await service.getOrCreateConversation('P1', 'wa1')
+
+      expect(result.newSession).toBe(true)
+      expect(result.lastHumanReply).toEqual({ content: 'Pasame las fotos que tenés', createdAt: old.toISOString() })
+      expect(result.previousActivityAt).toBe(old.toISOString())
+      const where = prisma.message.findFirst.mock.calls[0][0].where
+      expect(where.OR).toEqual([{ role: 'agent' }, { source: 'app_echo' }])
+      // Looks back a day, not just into the current session.
+      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThan(23 * 60 * 60_000)
+    })
+
+    it('reports no previous activity for a brand-new chat', async () => {
+      prisma.conversation.findFirst.mockResolvedValue(null)
+      prisma.conversation.create.mockResolvedValue({
+        id: 8,
+        sessionStartedAt: new Date(),
+        lastMessageAt: null,
+        phoneNumberId: 'P1',
+        client: null,
+      })
+
+      const result = await service.getOrCreateConversation('P1', 'wa2')
+
+      expect(result).toMatchObject({ lastHumanReply: null, previousActivityAt: null })
     })
 
     it('backfills the originating phone number on legacy rows', async () => {
@@ -523,5 +567,39 @@ describe('BotService', () => {
       prisma.conversation.findFirst.mockResolvedValue(null)
       await expect(service.storeAudio(99, file)).rejects.toThrow('not found')
     })
+  })
+})
+
+describe('BotService.attachAdjuntos', () => {
+  let prisma: ReturnType<typeof createPrismaMock>
+  let service: BotService
+  const photo = [{ originalname: 'a.jpg' }] as unknown as Express.Multer.File[]
+
+  beforeEach(() => {
+    prisma = createPrismaMock()
+    const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService
+    const usage = { isLlmEnabled: jest.fn().mockResolvedValue(true) }
+    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, config)
+    prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: 5 })
+    prisma.siniestro.findFirst.mockResolvedValue(null)
+  })
+
+  it('only joins a loose photo to a claim filed in the last 48 hours', async () => {
+    const result = await service.attachAdjuntos(3, photo)
+
+    expect(result.attached).toBe(false)
+    const where = prisma.siniestro.findFirst.mock.calls[0][0].where
+    const since = where.createdAt.gte as Date
+    expect(Date.now() - since.getTime()).toBeGreaterThan(47 * 60 * 60_000)
+    expect(Date.now() - since.getTime()).toBeLessThan(49 * 60 * 60_000)
+  })
+
+  it('attaches a guided claim photo to the open claim whatever its age', async () => {
+    prisma.siniestro.findFirst.mockResolvedValue({ id: 9, adjuntos: [] })
+
+    const result = await service.attachAdjuntos(3, photo, 'tarjeta_verde')
+
+    expect(result).toMatchObject({ siniestroId: 9, attached: true })
+    expect(prisma.siniestro.findFirst.mock.calls[0][0].where).not.toHaveProperty('createdAt')
   })
 })

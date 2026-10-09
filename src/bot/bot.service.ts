@@ -28,6 +28,13 @@ const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
 // recently. The sweep runs every minute, so anything older was not being
 // swept — the bot was switched off, paused or down — and is closed silently.
 const WARNING_WINDOW_MS = 10 * 60_000
+// How far back the bot is told that a person from the office wrote to this
+// chat. A session lasts minutes, so a customer who answers that person a few
+// hours later starts a fresh session the bot would otherwise greet from zero.
+const HUMAN_REPLY_LOOKBACK_MS = 24 * 60 * 60_000
+// A photo sent outside the guided claim steps only joins an open claim filed
+// this recently; an older claim is not where an unrelated photo belongs.
+const LOOSE_PHOTO_CLAIM_WINDOW_MS = 48 * 60 * 60_000
 
 const toDateStr = (d: Date): string => d.toISOString().slice(0, 10)
 
@@ -312,6 +319,20 @@ export class BotService {
       })
     }
 
+    // Regardless of the session: the last thing a person from the office (inbox
+    // or WhatsApp Business app) wrote, so the bot can tell a customer who is
+    // answering that person from someone starting a new conversation.
+    const lastHumanReply = await this.prisma.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        deletedAt: null,
+        OR: [{ role: 'agent' }, { source: 'app_echo' }],
+        createdAt: { gte: new Date(Date.now() - HUMAN_REPLY_LOOKBACK_MS) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { content: true, createdAt: true },
+    })
+
     const messages = await this.prisma.message.findMany({
       where: {
         conversationId: conversation.id,
@@ -347,6 +368,12 @@ export class BotService {
       // or deploy doesn't lose the user's place. Null = start fresh.
       flowState,
       messages: messages.reverse(),
+      lastHumanReply: lastHumanReply
+        ? { content: lastHumanReply.content, createdAt: lastHumanReply.createdAt.toISOString() }
+        : null,
+      // When this number last talked to us before this message, across sessions:
+      // someone who wrote a few hours ago does not need the full introduction again.
+      previousActivityAt: lastActivity ? lastActivity.toISOString() : null,
     }
   }
 
@@ -737,8 +764,9 @@ export class BotService {
   /**
    * Attaches WhatsApp photos to the conversation's most recent open siniestro.
    * Images arrive as separate messages outside the LLM loop, so we target the
-   * latest non-resolved claim of the identified client. The total is capped at
-   * MAX_FILES, keeping the most recent attachments.
+   * latest non-resolved claim of the identified client — filed within the last
+   * 48 h when the photo did not come from a guided claim step. The total is
+   * capped at MAX_FILES, keeping the most recent attachments.
    */
   async attachAdjuntos(conversationId: number, files: Express.Multer.File[], tipo?: string) {
     if (!files.length) throw new BadRequestException('No files received')
@@ -756,7 +784,16 @@ export class BotService {
     }
 
     const siniestro = await this.prisma.siniestro.findFirst({
-      where: { clientId, producerId, deletedAt: null, estado: { not: 'resuelto' } },
+      where: {
+        clientId,
+        producerId,
+        deletedAt: null,
+        estado: { not: 'resuelto' },
+        // The guided claim steps label their photos (tipo); a loose photo only
+        // joins a claim filed recently. A moto photo sent to get a quote ended
+        // up inside the client's old, still-open claim.
+        ...(tipo ? {} : { createdAt: { gte: new Date(Date.now() - LOOSE_PHOTO_CLAIM_WINDOW_MS) } }),
+      },
       orderBy: { createdAt: 'desc' },
       select: { id: true, adjuntos: true },
     })

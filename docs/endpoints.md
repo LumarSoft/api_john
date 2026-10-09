@@ -1222,6 +1222,8 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 
 **Inactivity timeout (lazy):** if more than `SESSION_TIMEOUT_MINUTES` (env, default 5) elapsed since the last message, a new session is started — older messages are excluded from the response (they remain in the DB until the retention job) and `newSession` is `true` so the bot can greet the user again. There is no background job: the boundary is evaluated on each inbound message.
 
+**Earlier human replies:** `lastHumanReply` is the last message a person from the office wrote in this chat (inbox reply or WhatsApp Business app) within the last 24 hours, whatever the session, or `null`. `previousActivityAt` is when the chat had activity before this request, also across sessions (`null` for a brand-new chat or after a reset). The bot uses them to stay out of a conversation a person was having and to skip its full introduction for someone it talked to a few hours ago.
+
 **Linked client:** `client` is returned only while the link applies to whoever is writing: always when the client's stored phone is this `waId`, otherwise only within the session in which they identified. Someone who identified with another person's DNI is treated as unidentified on their next session, so the bot asks again instead of greeting them as that person. The client-scoped endpoints below apply the same rule.
 
 **Auth required:** Yes (`x-bot-secret`)
@@ -1239,7 +1241,9 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
   "messages": [
     { "id": 41, "role": "user", "content": "Hola", "createdAt": "2026-06-12T13:00:00.000Z" },
     { "id": 42, "role": "assistant", "content": "¡Hola! ¿Sos cliente?", "createdAt": "2026-06-12T13:00:02.000Z" }
-  ]
+  ],
+  "lastHumanReply": { "content": "Pasame las fotos que tenés", "createdAt": "2026-06-12T10:15:00.000Z" },
+  "previousActivityAt": "2026-06-12T12:58:00.000Z"
 }
 ```
 
@@ -1514,8 +1518,10 @@ Files a new claim for one of the identified client's policies and notifies the a
 
 Attaches photos (received by the bot over WhatsApp) to the conversation's most
 recent open claim — the latest siniestro of the identified client whose `estado`
-is not `resuelto`. The total per claim is capped at 5 attachments, keeping the
-most recent. Sent as `multipart/form-data`.
+is not `resuelto`. A photo sent without `tipo` (outside the guided claim steps)
+only joins a claim filed in the last 48 hours; otherwise it is stored for the
+inbox and the response says `attached: false`. The total per claim is capped at
+5 attachments, keeping the most recent. Sent as `multipart/form-data`.
 
 **Auth required:** Yes (`x-bot-secret`)
 
