@@ -42,7 +42,7 @@ export interface CatalogField {
 export interface ProductCatalogItem {
   id: string
   label: string
-  /** One-line subtitle, e.g. "Todo riesgo, terceros completo". */
+  /** One-line subtitle, e.g. "Cualquier cilindrada". */
   sub: string
   /** Longer description of the coverage. */
   summary: string
@@ -60,11 +60,20 @@ export const PRODUCT_CATALOG: ProductCatalogItem[] = [
   {
     id: 'auto',
     label: 'Auto',
-    sub: 'Todo riesgo, terceros completo',
+    sub: 'Responsabilidad civil, todo total, terceros completo y todo riesgo',
     summary:
-      'Cobertura para vehículos particulares y comerciales en todo el territorio nacional. Atención de siniestros sin franquicia variable y peritaje propio.',
-    includes: ['Responsabilidad civil', 'Robo, hurto y daño total', 'Granizo y daños parciales', 'Auto de reemplazo'],
-    excludes: ['Conducción sin registro', 'Daños preexistentes', 'Uso fuera de territorio'],
+      'Seguro de auto con Triunfo Seguros en cuatro niveles: Responsabilidad civil (lo obligatorio), Todo total (suma robo, incendio y destrucción total), Terceros completo (suma robo e incendio parcial, cristales, cerraduras y granizo) y Todo riesgo (suma los daños parciales por accidente, con franquicia). Hay variantes dentro de cada nivel: la cotización muestra qué incluye y qué no cada opción.',
+    includes: [
+      'Responsabilidad civil hacia terceros (obligatoria)',
+      'Robo, incendio y destrucción total (desde Todo total)',
+      'Robo e incendio parcial, cristales, cerraduras y granizo (desde Terceros completo)',
+      'Daños parciales por accidente, con franquicia (solo Todo riesgo)',
+    ],
+    excludes: [
+      'Daños parciales por accidente, salvo en Todo riesgo',
+      'Conducción sin registro habilitante',
+      'Daños preexistentes',
+    ],
     flow: 'instant',
     fields: [],
   },
@@ -72,9 +81,15 @@ export const PRODUCT_CATALOG: ProductCatalogItem[] = [
     id: 'moto',
     label: 'Moto',
     sub: 'Cualquier cilindrada',
-    summary: 'Pólizas para motos de uso particular y de reparto, con cobertura ampliada para accesorios y casco.',
-    includes: ['Responsabilidad civil', 'Robo total y de partes', 'Casco y accesorios', 'Asistencia mecánica'],
-    excludes: ['Uso deportivo', 'Modificaciones no declaradas'],
+    summary:
+      'Seguro de moto con Triunfo Seguros en tres opciones: Responsabilidad civil (lo obligatorio), RC + incendio total y RC + incendio + robo total.',
+    includes: [
+      'Responsabilidad civil hacia terceros (obligatoria)',
+      'Incendio total (desde RC + incendio)',
+      'Robo y/o hurto total (RC + incendio + robo)',
+      'Asistencia jurídica y extensión a países limítrofes',
+    ],
+    excludes: ['Daños a la moto por accidente', 'Uso deportivo', 'Modificaciones no declaradas'],
     flow: 'instant',
     fields: [],
   },
