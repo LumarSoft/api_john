@@ -97,6 +97,7 @@ model CoverageSetting {
   name         String    @db.VarChar(80) // commercial name shown to the client
   tagline      String?   @db.VarChar(160)
   benefits     Json // string[] — bullet list shown on the card
+  exclusions   Json? // string[] — what it does not cover; null = the code's default list
   isActive     Boolean   @default(true) // shown in the quote results
   isConfigured Boolean   @default(false) // false until someone edits it in admin
   highlighted  Boolean   @default(false) // "La más elegida" badge

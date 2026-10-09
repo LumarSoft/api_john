@@ -3,7 +3,7 @@ import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UpdateCoverageSettingDto } from './dto/update-coverage-setting.dto'
 import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
-import { defaultCopyFor, motoCopyFor } from './coverage-defaults'
+import { defaultCopyFor, hasConfirmedCarCopy, motoCopyFor } from './coverage-defaults'
 import { VehicleType } from '../infoauto/infoauto.types'
 
 const SETTING_SELECT = {
@@ -12,6 +12,7 @@ const SETTING_SELECT = {
   name: true,
   tagline: true,
   benefits: true,
+  exclusions: true,
   isActive: true,
   isConfigured: true,
   highlighted: true,
@@ -38,8 +39,12 @@ export interface CoverageDisplay {
   name: string
   tagline: string | null
   benefits: string[]
+  exclusions: string[]
   highlighted: boolean
 }
+
+/** The client-facing wording of a coverage, wherever it comes from. */
+type CoverageWording = Pick<CoverageDisplay, 'name' | 'tagline' | 'benefits' | 'exclusions'>
 
 @Injectable()
 export class CoverageSettingsService {
@@ -59,14 +64,27 @@ export class CoverageSettingsService {
   }
 
   async update(producerId: number, id: number, dto: UpdateCoverageSettingDto) {
-    await this.requireSetting(producerId, id)
+    const existing = await this.requireSetting(producerId, id)
+    // An unconfigured row shows the default wording, not what was stored when it
+    // was discovered. The first edit (even just a visibility toggle) saves that
+    // wording, so the coverage keeps reading exactly as the admin saw it.
+    const shown = existing.isConfigured ? null : this.defaultWording(existing.code)
 
     const setting = await this.prisma.coverageSetting.update({
       where: { id },
       data: {
+        ...(shown
+          ? {
+              name: shown.name,
+              tagline: shown.tagline,
+              benefits: shown.benefits as unknown as Prisma.InputJsonValue,
+              exclusions: shown.exclusions as unknown as Prisma.InputJsonValue,
+            }
+          : {}),
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.tagline !== undefined ? { tagline: dto.tagline } : {}),
         ...(dto.benefits !== undefined ? { benefits: dto.benefits as unknown as Prisma.InputJsonValue } : {}),
+        ...(dto.exclusions !== undefined ? { exclusions: dto.exclusions as unknown as Prisma.InputJsonValue } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         ...(dto.highlighted !== undefined ? { highlighted: dto.highlighted } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
@@ -110,9 +128,10 @@ export class CoverageSettingsService {
    * range — what suits a 2015 car is not what suits a 2024 one), then the
    * configured order, and attaches the commercial wording.
    *
-   * A code with no row yet passes through with its default copy. Hiding an
-   * unknown coverage would silently remove an offer the broker never chose to
-   * remove — better to show it and let the admin screen flag it as unconfigured.
+   * A car coverage is only offered when someone said what it includes: the
+   * office-confirmed default copy or an admin's own wording. A code with
+   * neither is hidden — describing it by its letter promised destrucción total
+   * on coverages that do not have it — and the admin screen flags it for review.
    */
   async apply<T extends QuotedCoverage>(
     producerId: number,
@@ -137,6 +156,7 @@ export class CoverageSettingsService {
               name: copy.name,
               tagline: copy.tagline || null,
               benefits: copy.benefits,
+              exclusions: copy.exclusions,
               highlighted: false,
             }) as T & CoverageDisplay,
         )
@@ -152,21 +172,19 @@ export class CoverageSettingsService {
       .filter(c => {
         if (requiredCodes.includes(c.code)) return true
         const setting = byCode.get(c.code)
-        if (!setting) return true // unknown code — show it
+        if (!setting?.isConfigured && !hasConfirmedCarCopy(c.code)) return false
+        if (!setting) return true
         if (!setting.isActive) return false
         return inYearRange(vehicleYear, setting.yearFrom, setting.yearTo)
       })
       .map(c => {
         const setting = byCode.get(c.code)
-        const fallback = defaultCopyFor(c.code)
         return {
           ...c,
-          name: setting?.name ?? fallback.name,
-          tagline: setting?.tagline ?? (fallback.tagline || null),
-          benefits: setting ? this.readBenefits(setting.benefits) : fallback.benefits,
+          ...(setting ? this.wordingOf(setting) : this.defaultWording(c.code)),
           highlighted:
             !!setting?.highlighted && inYearRange(vehicleYear, setting.highlightYearFrom, setting.highlightYearTo),
-          _order: setting?.sortOrder ?? fallback.sortOrder,
+          _order: setting?.sortOrder ?? defaultCopyFor(c.code).sortOrder,
         }
       })
       .sort((a, b) => Number(b.highlighted) - Number(a.highlighted) || a._order - b._order)
@@ -210,6 +228,7 @@ export class CoverageSettingsService {
             name: copy.name,
             tagline: copy.tagline || null,
             benefits: copy.benefits as unknown as Prisma.InputJsonValue,
+            exclusions: copy.exclusions as unknown as Prisma.InputJsonValue,
             sortOrder: copy.sortOrder,
             isActive: true,
             isConfigured: false,
@@ -230,23 +249,45 @@ export class CoverageSettingsService {
   private async requireSetting(producerId: number, id: number) {
     const setting = await this.prisma.coverageSetting.findFirst({
       where: { id, producerId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, code: true, isConfigured: true },
     })
     if (!setting) throw new NotFoundException(`Cobertura ${id} no encontrada`)
     return setting
   }
 
-  private readBenefits(value: Prisma.JsonValue): string[] {
+  private readList(value: Prisma.JsonValue): string[] {
     return Array.isArray(value) ? value.filter((b): b is string => typeof b === 'string') : []
+  }
+
+  private defaultWording(code: string): CoverageWording {
+    const copy = defaultCopyFor(code)
+    return { name: copy.name, tagline: copy.tagline || null, benefits: copy.benefits, exclusions: copy.exclusions }
+  }
+
+  /**
+   * What a row reads like to the client. Until someone edits it, a row has no
+   * wording of its own: what was stored when the code was discovered may predate
+   * the confirmed copy, so it follows the current default instead.
+   */
+  private wordingOf(setting: SettingRow): CoverageWording {
+    if (!setting.isConfigured) return this.defaultWording(setting.code)
+    return {
+      name: setting.name,
+      tagline: setting.tagline,
+      benefits: this.readList(setting.benefits),
+      // Rows configured before exclusions existed keep the code's default list.
+      exclusions:
+        setting.exclusions == null ? defaultCopyFor(setting.code).exclusions : this.readList(setting.exclusions),
+    }
   }
 
   private toResponse(setting: SettingRow) {
     return {
       id: setting.id,
       code: setting.code,
-      name: setting.name,
-      tagline: setting.tagline,
-      benefits: this.readBenefits(setting.benefits),
+      ...this.wordingOf(setting),
+      // Hidden from quotes until someone writes what it covers.
+      needsReview: !setting.isConfigured && !hasConfirmedCarCopy(setting.code),
       isActive: setting.isActive,
       isConfigured: setting.isConfigured,
       highlighted: setting.highlighted,

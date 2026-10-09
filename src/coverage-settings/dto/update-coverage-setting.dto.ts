@@ -22,6 +22,14 @@ export class UpdateCoverageSettingDto {
   @MaxLength(150, { each: true })
   benefits?: string[]
 
+  // What the coverage does not include, shown next to the benefits.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(12)
+  @IsString({ each: true })
+  @MaxLength(150, { each: true })
+  exclusions?: string[]
+
   @IsOptional()
   @IsBoolean()
   isActive?: boolean

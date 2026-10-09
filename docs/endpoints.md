@@ -112,7 +112,7 @@ The raw Triunfo response is persisted as `Cotizacion` (with `vehicleType`); the 
 Two rules are applied on top of what Triunfo returns:
 
 - **Payment methods** — only `Débito Automático` (`1`) and `Plan de Pago` (`9`) are exposed. `Contado` (`6`) is quoted by Triunfo but never shown; see `src/common/payment-methods.ts`.
-- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see *Admin — Coberturas*). Codes with no row yet pass through with default wording and are registered so they show up in the admin screen.
+- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see *Admin — Coberturas*). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes always return A, B4 and B1 with fixed moto wording.
 
 `Valor` is sent as `"0"` so Triunfo resolves the market value itself and returns it in `vehicleValue`; the InfoAuto valuation endpoints are not part of the current subscription.
 
@@ -149,6 +149,7 @@ Two rules are applied on top of what Triunfo returns:
       "name": "Responsabilidad Civil",
       "tagline": "La cobertura obligatoria para circular",
       "benefits": ["Daños a terceros, personas y cosas", "Asistencia y defensa legal"],
+      "exclusions": ["Robo, incendio o daños de tu propio auto"],
       "highlighted": false,
       "paymentOptions": [
         { "code": "1", "name": "Débito Automático", "premium": 67825, "installmentValue": 67825, "installments": 1 },
@@ -1916,9 +1917,9 @@ Live hours for the default producer: formatted week, open-now and ready copy.
 
 How each Triunfo auto coverage is shown in the quote results.
 
-Rows are never created or deleted by hand: a coverage appears the first time Triunfo quotes its code, with `isConfigured: false` and default wording taken from its letter prefix. Which coverages Triunfo quotes for a given vehicle and year is Triunfo's decision and is not configurable — these settings only decide, among the ones it did quote, which are shown, in what order and with what wording.
+Rows are never created or deleted by hand: a coverage appears the first time Triunfo quotes its code, with `isConfigured: false`. Which coverages Triunfo quotes for a given vehicle and year is Triunfo's decision and is not configurable — these settings only decide, among the ones it did quote, which are shown, in what order and with what wording.
 
-A code with no row yet is shown rather than hidden: hiding an unknown coverage would silently drop an offer nobody chose to drop.
+Codes of the same letter are different products (B includes destrucción total, B1 does not), so wording is never derived from the letter. A few codes have office-confirmed default wording (A, B, B1, C2, D3, in `src/coverage-settings/coverage-defaults.ts`); an unconfigured row of those codes reads with that default. Any other code is hidden from quotes (`needsReview: true`) until an admin edits it — guessing what a coverage includes would promise coverage the policy may not have. The first edit of an unconfigured row, even a visibility toggle, stores the wording the admin was shown.
 
 In a quote, the coverages recommended for that vehicle year (`highlighted`, within `highlightYearFrom`–`highlightYearTo` when set) come first with the badge, then the rest by `sortOrder`. The web and the WhatsApp bot show them in that order.
 
@@ -1939,6 +1940,8 @@ Lists every coverage code ever seen for the authenticated user's producer, order
     "name": "Responsabilidad Civil",
     "tagline": "La cobertura obligatoria para circular",
     "benefits": ["Daños a terceros, personas y cosas", "Asistencia y defensa legal"],
+    "exclusions": ["Robo, incendio o daños de tu propio auto"],
+    "needsReview": false,
     "isActive": true,
     "isConfigured": true,
     "highlighted": false,
@@ -1967,6 +1970,7 @@ Updates one coverage. Any edit sets `isConfigured` to `true`.
 | name        | string   | No       | ≤ 80                                                     |
 | tagline     | string   | No       | ≤ 160                                                    |
 | benefits    | string[] | No       | ≤ 12 items, each ≤ 150 chars                             |
+| exclusions  | string[] | No       | What it does not include; ≤ 12 items, each ≤ 150 chars   |
 | isActive    | boolean  | No       | `false` hides the coverage from every quote              |
 | highlighted | boolean  | No       | Renders the "La más elegida" badge                       |
 | sortOrder   | number   | No       | Integer ≥ 0                                              |

@@ -16,6 +16,8 @@ export interface DisplayedQuoteCoverage extends QuoteCoverage {
   name: string
   tagline: string | null
   benefits: string[]
+  /** What it does not include, so the client can tell similar coverages apart. */
+  exclusions: string[]
   highlighted: boolean
 }
 

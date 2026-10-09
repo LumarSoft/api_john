@@ -64,6 +64,8 @@ describe('recommended coverage by vehicle year', () => {
     yearTo: null,
     highlightYearFrom: null,
     highlightYearTo: null,
+    // Highlighting a coverage is an admin edit, so these rows are configured.
+    isConfigured: true,
     ...extra,
   })
 
@@ -112,5 +114,141 @@ describe('recommended coverage by vehicle year', () => {
     const result = await serviceWith(rows).apply(1, [{ code: 'D2' }, { code: 'A' }], 2015)
 
     expect(result.map(c => c.code)).toEqual(['A', 'D2'])
+  })
+})
+
+describe('car coverage wording', () => {
+  // Rows as they sit in production: discovered with the old letter-based copy,
+  // which promised destrucción total on every B, and never edited.
+  const discovered = (code: string, sortOrder: number, extra: Record<string, unknown> = {}) => ({
+    code,
+    name: `Todo Total ${code.slice(1)}`.trim(),
+    tagline: 'Responsabilidad civil + pérdidas totales',
+    benefits: ['Robo y hurto total', 'Incendio total', 'Destrucción total por accidente'],
+    exclusions: null,
+    isActive: true,
+    isConfigured: false,
+    highlighted: false,
+    sortOrder,
+    yearFrom: null,
+    yearTo: null,
+    highlightYearFrom: null,
+    highlightYearTo: null,
+    ...extra,
+  })
+
+  function serviceWith(rows: unknown[]) {
+    const prisma = { coverageSetting: { findMany: jest.fn().mockResolvedValue(rows) } }
+    return new CoverageSettingsService(prisma as unknown as PrismaService)
+  }
+
+  it('tells B and B1 apart instead of promising destrucción total on both', async () => {
+    const service = serviceWith([discovered('B', 200), discovered('B1', 201)])
+
+    const [b, b1] = await service.apply(1, [{ code: 'B' }, { code: 'B1' }], 2009)
+
+    expect(b.benefits).toContain('Destrucción total por accidente')
+    expect(b1.benefits).not.toContain('Destrucción total por accidente')
+    expect(b1.exclusions).toContain('Destrucción total por accidente')
+    expect(b1.name).not.toEqual(b.name)
+  })
+
+  it('hides the codes nobody described and offers the confirmed ones, including C2 and D3', async () => {
+    const service = serviceWith([
+      discovered('A', 100, { isConfigured: true, name: 'Responsabilidad Civil', benefits: ['RC'] }),
+      discovered('B4', 204),
+      discovered('C', 300),
+      discovered('C2', 302),
+      discovered('D3', 403),
+    ])
+    const quoted = ['A', 'B4', 'C', 'C2', 'D3', 'D4'].map(code => ({ code }))
+
+    const result = await service.apply(1, quoted, 2025)
+
+    expect(result.map(c => c.code)).toEqual(['A', 'C2', 'D3'])
+    expect(result.find(c => c.code === 'C2')?.benefits.join(' ')).toMatch(/Cristales, cerraduras y granizo/)
+  })
+
+  it('offers a code an admin described, with the admin wording', async () => {
+    const service = serviceWith([
+      discovered('B4', 204, {
+        isConfigured: true,
+        name: 'RC + incendio total',
+        benefits: ['Incendio total'],
+        exclusions: ['Robo'],
+      }),
+    ])
+
+    const [b4] = await service.apply(1, [{ code: 'B4' }], 2020)
+
+    expect(b4).toMatchObject({ name: 'RC + incendio total', benefits: ['Incendio total'], exclusions: ['Robo'] })
+  })
+
+  it('keeps the confirmed exclusions for a row configured before exclusions existed', async () => {
+    const service = serviceWith([
+      discovered('B1', 201, { isConfigured: true, name: 'B1 de la oficina', exclusions: null }),
+    ])
+
+    const [b1] = await service.apply(1, [{ code: 'B1' }], 2020)
+
+    expect(b1.name).toBe('B1 de la oficina')
+    expect(b1.exclusions).toContain('Destrucción total por accidente')
+  })
+})
+
+describe('editing a coverage for the first time', () => {
+  it('saves the wording the admin was shown, not the stale discovered copy', async () => {
+    const update = jest.fn().mockImplementation(async ({ data }) => ({
+      id: 7,
+      code: 'B1',
+      isConfigured: true,
+      firstSeenAt: new Date(),
+      ...data,
+    }))
+    const prisma = {
+      coverageSetting: {
+        findFirst: jest.fn().mockResolvedValue({ id: 7, code: 'B1', isConfigured: false }),
+        update,
+      },
+    }
+    const service = new CoverageSettingsService(prisma as unknown as PrismaService)
+
+    await service.update(1, 7, { isActive: false })
+
+    const data = update.mock.calls[0][0].data
+    expect(data.isActive).toBe(false)
+    expect(data.isConfigured).toBe(true)
+    expect(data.benefits).not.toContain('Destrucción total por accidente')
+    expect(data.exclusions).toContain('Destrucción total por accidente')
+  })
+
+  it('lets the edit override the default wording', async () => {
+    const update = jest.fn().mockImplementation(async ({ data }) => ({ id: 7, code: 'B4', ...data }))
+    const prisma = {
+      coverageSetting: {
+        findFirst: jest.fn().mockResolvedValue({ id: 7, code: 'B4', isConfigured: false }),
+        update,
+      },
+    }
+    const service = new CoverageSettingsService(prisma as unknown as PrismaService)
+
+    await service.update(1, 7, { name: 'RC + incendio', benefits: ['Incendio total'] })
+
+    expect(update.mock.calls[0][0].data).toMatchObject({ name: 'RC + incendio', benefits: ['Incendio total'] })
+  })
+
+  it('leaves the wording of an already configured coverage alone', async () => {
+    const update = jest.fn().mockImplementation(async ({ data }) => ({ id: 7, code: 'B1', ...data }))
+    const prisma = {
+      coverageSetting: {
+        findFirst: jest.fn().mockResolvedValue({ id: 7, code: 'B1', isConfigured: true }),
+        update,
+      },
+    }
+    const service = new CoverageSettingsService(prisma as unknown as PrismaService)
+
+    await service.update(1, 7, { isActive: true })
+
+    expect(update.mock.calls[0][0].data).not.toHaveProperty('benefits')
   })
 })
