@@ -321,8 +321,10 @@ export class BotService {
 
     // Regardless of the session: the last thing a person from the office (inbox
     // or WhatsApp Business app) wrote, so the bot can tell a customer who is
-    // answering that person from someone starting a new conversation.
-    const lastHumanReply = await this.prisma.message.findFirst({
+    // answering that person from someone starting a new conversation. Only
+    // while that person spoke last: once the bot answered after them, the
+    // customer's "ok" or "sí" is for the bot.
+    const humanReply = await this.prisma.message.findFirst({
       where: {
         conversationId: conversation.id,
         deletedAt: null,
@@ -332,6 +334,19 @@ export class BotService {
       orderBy: { createdAt: 'desc' },
       select: { content: true, createdAt: true },
     })
+    const botSpokeAfter = humanReply
+      ? await this.prisma.message.findFirst({
+          where: {
+            conversationId: conversation.id,
+            deletedAt: null,
+            role: 'assistant',
+            source: 'live',
+            createdAt: { gt: humanReply.createdAt },
+          },
+          select: { id: true },
+        })
+      : null
+    const lastHumanReply = botSpokeAfter ? null : humanReply
 
     const messages = await this.prisma.message.findMany({
       where: {

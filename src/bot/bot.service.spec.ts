@@ -244,7 +244,9 @@ describe('BotService', () => {
         phoneNumberId: 'P1',
         client: null,
       })
-      prisma.message.findFirst.mockResolvedValue({ content: 'Pasame las fotos que tenés', createdAt: old })
+      prisma.message.findFirst
+        .mockResolvedValueOnce({ content: 'Pasame las fotos que tenés', createdAt: old })
+        .mockResolvedValueOnce(null) // the bot has not spoken since
 
       const result = await service.getOrCreateConversation('P1', 'wa1')
 
@@ -255,6 +257,29 @@ describe('BotService', () => {
       expect(where.OR).toEqual([{ role: 'agent' }, { source: 'app_echo' }])
       // Looks back a day, not just into the current session.
       expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThan(23 * 60 * 60_000)
+    })
+
+    it('drops the human reply once the bot answered after it', async () => {
+      const old = new Date(Date.now() - 3 * 60 * 60_000)
+      prisma.conversation.findFirst.mockResolvedValue({
+        id: 7,
+        sessionStartedAt: old,
+        lastMessageAt: old,
+        phoneNumberId: 'P1',
+        client: null,
+      })
+      prisma.message.findFirst
+        .mockResolvedValueOnce({ content: 'Pasame las fotos', createdAt: old })
+        .mockResolvedValueOnce({ id: 90 })
+
+      const result = await service.getOrCreateConversation('P1', 'wa1')
+
+      expect(result.lastHumanReply).toBeNull()
+      expect(prisma.message.findFirst.mock.calls[1][0].where).toMatchObject({
+        role: 'assistant',
+        source: 'live',
+        createdAt: { gt: old },
+      })
     })
 
     it('reports no previous activity for a brand-new chat', async () => {
