@@ -56,7 +56,7 @@ describe('recommended coverage by vehicle year', () => {
     code,
     name: code,
     tagline: null,
-    benefits: [],
+    benefits: ['Daños a terceros'],
     isActive: true,
     highlighted: false,
     sortOrder,
@@ -184,6 +184,12 @@ describe('car coverage wording', () => {
     expect(b4).toMatchObject({ name: 'RC + incendio total', benefits: ['Incendio total'], exclusions: ['Robo'] })
   })
 
+  it('hides a code made visible without saying what it includes', async () => {
+    const service = serviceWith([discovered('B4', 204, { isConfigured: true, benefits: [] })])
+
+    expect(await service.apply(1, [{ code: 'B4' }], 2020)).toEqual([])
+  })
+
   it('keeps the confirmed exclusions for a row configured before exclusions existed', async () => {
     const service = serviceWith([
       discovered('B1', 201, { isConfigured: true, name: 'B1 de la oficina', exclusions: null }),
@@ -250,5 +256,51 @@ describe('editing a coverage for the first time', () => {
     await service.update(1, 7, { isActive: true })
 
     expect(update.mock.calls[0][0].data).not.toHaveProperty('benefits')
+  })
+})
+
+describe('admin review flag', () => {
+  const setting = (code: string, extra: Record<string, unknown> = {}) => ({
+    id: 1,
+    code,
+    name: code,
+    tagline: null,
+    benefits: [],
+    exclusions: null,
+    isActive: true,
+    isConfigured: false,
+    highlighted: false,
+    sortOrder: 0,
+    yearFrom: null,
+    yearTo: null,
+    highlightYearFrom: null,
+    highlightYearTo: null,
+    firstSeenAt: new Date(),
+    ...extra,
+  })
+
+  it('flags the codes that quotes hide because nothing says what they include', async () => {
+    const prisma = {
+      coverageSetting: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([
+            setting('B1'),
+            setting('B4'),
+            setting('C1', { isConfigured: true }),
+            setting('C7', { isConfigured: true, benefits: ['Granizo ilimitado'] }),
+          ]),
+      },
+    }
+    const service = new CoverageSettingsService(prisma as unknown as PrismaService)
+
+    const list = await service.listForAdmin(1)
+
+    expect(list.map(c => [c.code, c.needsReview])).toEqual([
+      ['B1', false],
+      ['B4', true],
+      ['C1', true],
+      ['C7', false],
+    ])
   })
 })

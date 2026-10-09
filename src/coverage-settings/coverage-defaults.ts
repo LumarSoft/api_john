@@ -88,11 +88,6 @@ const CAR_COPY: Record<string, CoverageCopy> = {
   },
 }
 
-/** True when the office confirmed what this car coverage includes. */
-export function hasConfirmedCarCopy(code: string): boolean {
-  return code.trim().toUpperCase() in CAR_COPY
-}
-
 /**
  * Wording a car coverage code starts with: the confirmed copy when there is one,
  * otherwise an empty template named after its family ("Todo Total 4") that the

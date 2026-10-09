@@ -3,7 +3,7 @@ import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UpdateCoverageSettingDto } from './dto/update-coverage-setting.dto'
 import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
-import { defaultCopyFor, hasConfirmedCarCopy, motoCopyFor } from './coverage-defaults'
+import { defaultCopyFor, motoCopyFor } from './coverage-defaults'
 import { VehicleType } from '../infoauto/infoauto.types'
 
 const SETTING_SELECT = {
@@ -128,8 +128,8 @@ export class CoverageSettingsService {
    * range — what suits a 2015 car is not what suits a 2024 one), then the
    * configured order, and attaches the commercial wording.
    *
-   * A car coverage is only offered when someone said what it includes: the
-   * office-confirmed default copy or an admin's own wording. A code with
+   * A car coverage is only offered when its wording says what it includes:
+   * the office-confirmed default copy or an admin's own benefits. A code with
    * neither is hidden — describing it by its letter promised destrucción total
    * on coverages that do not have it — and the admin screen flags it for review.
    */
@@ -172,7 +172,10 @@ export class CoverageSettingsService {
       .filter(c => {
         if (requiredCodes.includes(c.code)) return true
         const setting = byCode.get(c.code)
-        if (!setting?.isConfigured && !hasConfirmedCarCopy(c.code)) return false
+        // Nobody wrote what it includes (an unconfirmed code, or one made visible
+        // without text): offering it would mean guessing.
+        const wording = setting ? this.wordingOf(setting) : this.defaultWording(c.code)
+        if (wording.benefits.length === 0) return false
         if (!setting) return true
         if (!setting.isActive) return false
         return inYearRange(vehicleYear, setting.yearFrom, setting.yearTo)
@@ -287,7 +290,7 @@ export class CoverageSettingsService {
       code: setting.code,
       ...this.wordingOf(setting),
       // Hidden from quotes until someone writes what it covers.
-      needsReview: !setting.isConfigured && !hasConfirmedCarCopy(setting.code),
+      needsReview: this.wordingOf(setting).benefits.length === 0,
       isActive: setting.isActive,
       isConfigured: setting.isConfigured,
       highlighted: setting.highlighted,
