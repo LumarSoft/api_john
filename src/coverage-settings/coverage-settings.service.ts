@@ -65,9 +65,9 @@ export class CoverageSettingsService {
 
   async update(producerId: number, id: number, dto: UpdateCoverageSettingDto) {
     const existing = await this.requireSetting(producerId, id)
-    // An unconfigured row shows the default wording, not what was stored when it
-    // was discovered. The first edit (even just a visibility toggle) saves that
-    // wording, so the coverage keeps reading exactly as the admin saw it.
+    // An unconfigured row shows the default wording and visibility, not what was
+    // stored when it was discovered. The first edit (even just a visibility
+    // toggle) saves them, so the coverage keeps reading exactly as the admin saw it.
     const shown = existing.isConfigured ? null : this.defaultWording(existing.code)
 
     const setting = await this.prisma.coverageSetting.update({
@@ -79,6 +79,7 @@ export class CoverageSettingsService {
               tagline: shown.tagline,
               benefits: shown.benefits as unknown as Prisma.InputJsonValue,
               exclusions: shown.exclusions as unknown as Prisma.InputJsonValue,
+              isActive: defaultCopyFor(existing.code).offered,
             }
           : {}),
         ...(dto.name !== undefined ? { name: dto.name } : {}),
@@ -128,8 +129,9 @@ export class CoverageSettingsService {
    * range — what suits a 2015 car is not what suits a 2024 one), then the
    * configured order, and attaches the commercial wording.
    *
-   * A car coverage is only offered when its wording says what it includes:
-   * the office-confirmed default copy or an admin's own benefits. A code with
+   * A car coverage is only offered when its wording says what it includes —
+   * the manual's description or an admin's own benefits — and it is switched
+   * on: by default for the everyday codes, or by an admin from the panel. A code with
    * neither is hidden — describing it by its letter promised destrucción total
    * on coverages that do not have it — and the admin screen flags it for review.
    */
@@ -176,9 +178,8 @@ export class CoverageSettingsService {
         // without text): offering it would mean guessing.
         const wording = setting ? this.wordingOf(setting) : this.defaultWording(c.code)
         if (wording.benefits.length === 0) return false
-        if (!setting) return true
-        if (!setting.isActive) return false
-        return inYearRange(vehicleYear, setting.yearFrom, setting.yearTo)
+        if (!this.isOffered(c.code, setting)) return false
+        return !setting || inYearRange(vehicleYear, setting.yearFrom, setting.yearTo)
       })
       .map(c => {
         const setting = byCode.get(c.code)
@@ -233,7 +234,7 @@ export class CoverageSettingsService {
             benefits: copy.benefits as unknown as Prisma.InputJsonValue,
             exclusions: copy.exclusions as unknown as Prisma.InputJsonValue,
             sortOrder: copy.sortOrder,
-            isActive: true,
+            isActive: copy.offered,
             isConfigured: false,
           },
         })
@@ -260,6 +261,15 @@ export class CoverageSettingsService {
 
   private readList(value: Prisma.JsonValue): string[] {
     return Array.isArray(value) ? value.filter((b): b is string => typeof b === 'string') : []
+  }
+
+  /**
+   * Whether a code is switched on. A row nobody configured follows the default:
+   * what was stored when it was discovered predates the manual's descriptions
+   * (every code was stored visible), so it is not a choice anyone made.
+   */
+  private isOffered(code: string, setting?: SettingRow): boolean {
+    return setting?.isConfigured ? setting.isActive : defaultCopyFor(code).offered
   }
 
   private defaultWording(code: string): CoverageWording {
@@ -291,7 +301,7 @@ export class CoverageSettingsService {
       ...this.wordingOf(setting),
       // Hidden from quotes until someone writes what it covers.
       needsReview: this.wordingOf(setting).benefits.length === 0,
-      isActive: setting.isActive,
+      isActive: this.isOffered(setting.code, setting),
       isConfigured: setting.isConfigured,
       highlighted: setting.highlighted,
       sortOrder: setting.sortOrder,

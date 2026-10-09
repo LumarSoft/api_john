@@ -38,9 +38,34 @@ describe('motorcycle required coverages', () => {
     const prisma = {
       coverageSetting: {
         findMany: jest.fn().mockResolvedValue([
-          { code: 'A', isActive: false, yearFrom: null, yearTo: null, sortOrder: 1, benefits: [] },
-          { code: 'B', isActive: true, yearFrom: 2025, yearTo: null, sortOrder: 2, benefits: [] },
-          { code: 'B1', isActive: true, yearFrom: null, yearTo: 2020, sortOrder: 3, benefits: [] },
+          // Hiding by activity or year is an admin edit, so these rows are configured.
+          {
+            code: 'A',
+            isActive: false,
+            isConfigured: true,
+            yearFrom: null,
+            yearTo: null,
+            sortOrder: 1,
+            benefits: ['x'],
+          },
+          {
+            code: 'B',
+            isActive: true,
+            isConfigured: true,
+            yearFrom: 2025,
+            yearTo: null,
+            sortOrder: 2,
+            benefits: ['x'],
+          },
+          {
+            code: 'B1',
+            isActive: true,
+            isConfigured: true,
+            yearFrom: null,
+            yearTo: 2020,
+            sortOrder: 3,
+            benefits: ['x'],
+          },
         ]),
       },
     }
@@ -153,7 +178,7 @@ describe('car coverage wording', () => {
     expect(b1.name).not.toEqual(b.name)
   })
 
-  it('hides the codes nobody described and offers the confirmed ones, including C2 and D3', async () => {
+  it('offers the everyday codes by default and keeps the rest described but off', async () => {
     const service = serviceWith([
       discovered('A', 100, { isConfigured: true, name: 'Responsabilidad Civil', benefits: ['RC'] }),
       discovered('B4', 204),
@@ -161,12 +186,14 @@ describe('car coverage wording', () => {
       discovered('C2', 302),
       discovered('D3', 403),
     ])
-    const quoted = ['A', 'B4', 'C', 'C2', 'D3', 'D4'].map(code => ({ code }))
+    // C7 is not in Triunfo's manual; B4, C and D4 are, but are off by default.
+    const quoted = ['A', 'B4', 'C', 'C2', 'C7', 'D3', 'D4'].map(code => ({ code }))
 
     const result = await service.apply(1, quoted, 2025)
 
     expect(result.map(c => c.code)).toEqual(['A', 'C2', 'D3'])
-    expect(result.find(c => c.code === 'C2')?.benefits.join(' ')).toMatch(/Cristales, cerraduras y granizo/)
+    expect(result.find(c => c.code === 'C2')?.benefits.join(' ')).toMatch(/Parabrisas y luneta hasta \$500\.000/)
+    expect(result.find(c => c.code === 'D3')?.exclusions.join(' ')).toMatch(/10% del siniestro, mínimo \$550\.000/)
   })
 
   it('offers a code an admin described, with the admin wording', async () => {
@@ -188,6 +215,27 @@ describe('car coverage wording', () => {
     const service = serviceWith([discovered('B4', 204, { isConfigured: true, benefits: [] })])
 
     expect(await service.apply(1, [{ code: 'B4' }], 2020)).toEqual([])
+  })
+
+  it('offers a described code once an admin switches it on, with the manual wording', async () => {
+    const service = serviceWith([
+      discovered('B3', 203, { isConfigured: true, isActive: true, benefits: ['Incendio total y parcial'] }),
+    ])
+
+    const [b3] = await service.apply(1, [{ code: 'B3' }], 2020)
+
+    expect(b3.code).toBe('B3')
+  })
+
+  it('describes each code as the manual does: C1 has no destrucción total, B4 no robo', async () => {
+    const service = serviceWith([discovered('C1', 301), discovered('B4', 204)])
+
+    const [c1, b4] = await service.listForAdmin(1)
+
+    expect(c1.benefits).not.toContain('Destrucción total por accidente')
+    expect(c1.exclusions).toContain('Destrucción total por accidente')
+    expect(b4.benefits).toEqual(['Todo lo de Responsabilidad Civil', 'Incendio total'])
+    expect(b4.exclusions).toContain('Robo o hurto')
   })
 
   it('keeps the confirmed exclusions for a row configured before exclusions existed', async () => {
@@ -226,6 +274,23 @@ describe('editing a coverage for the first time', () => {
     expect(data.isConfigured).toBe(true)
     expect(data.benefits).not.toContain('Destrucción total por accidente')
     expect(data.exclusions).toContain('Destrucción total por accidente')
+  })
+
+  it('switches on a code that was off by default without losing its wording', async () => {
+    const update = jest.fn().mockImplementation(async ({ data }) => ({ id: 7, code: 'B3', ...data }))
+    const prisma = {
+      coverageSetting: {
+        findFirst: jest.fn().mockResolvedValue({ id: 7, code: 'B3', isConfigured: false }),
+        update,
+      },
+    }
+    const service = new CoverageSettingsService(prisma as unknown as PrismaService)
+
+    await service.update(1, 7, { isActive: true })
+
+    const data = update.mock.calls[0][0].data
+    expect(data.isActive).toBe(true)
+    expect(data.benefits).toContain('Incendio total y parcial')
   })
 
   it('lets the edit override the default wording', async () => {
@@ -288,7 +353,8 @@ describe('admin review flag', () => {
             setting('B1'),
             setting('B4'),
             setting('C1', { isConfigured: true }),
-            setting('C7', { isConfigured: true, benefits: ['Granizo ilimitado'] }),
+            setting('C7'),
+            setting('C8', { isConfigured: true, benefits: ['Granizo ilimitado'] }),
           ]),
       },
     }
@@ -298,9 +364,18 @@ describe('admin review flag', () => {
 
     expect(list.map(c => [c.code, c.needsReview])).toEqual([
       ['B1', false],
-      ['B4', true],
+      ['B4', false], // described by the manual
+      ['C1', true], // an admin emptied it
+      ['C7', true], // not in the manual
+      ['C8', false],
+    ])
+    // Unconfigured rows show their default visibility, whatever was stored.
+    expect(list.map(c => [c.code, c.isActive])).toEqual([
+      ['B1', true],
+      ['B4', false],
       ['C1', true],
       ['C7', false],
+      ['C8', true],
     ])
   })
 })
