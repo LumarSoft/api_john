@@ -190,16 +190,19 @@ export class BotService {
   async recordAgentEcho(dto: AgentEchoDto) {
     const { producerId } = await this.getContext(dto.phoneNumberId)
 
-    const conversation = await this.prisma.conversation.findFirst({
-      where: { waId: dto.waId, producerId, deletedAt: null },
-      select: { id: true, botPaused: true },
-    })
-
     // No conversation yet means the employee wrote first, before the customer
-    // ever reached the bot. Nothing to pause and no transcript to append to.
-    if (!conversation) {
-      return { conversationId: null, botPaused: false, created: false }
-    }
+    // ever reached the bot. It is created here, already paused: otherwise the
+    // customer's reply to her finds no takeover and the bot answers on top of
+    // her ("Soy NICO… ¿ya sos cliente?" right after she asked for a DNI).
+    const conversation =
+      (await this.prisma.conversation.findFirst({
+        where: { waId: dto.waId, producerId, deletedAt: null },
+        select: { id: true, botPaused: true },
+      })) ??
+      (await this.prisma.conversation.create({
+        data: { waId: dto.waId, producerId, phoneNumberId: dto.phoneNumberId, sessionStartedAt: new Date() },
+        select: { id: true, botPaused: true },
+      }))
 
     const created = await this.prisma.$transaction(async tx => {
       const inserted = await tx.message.createMany({

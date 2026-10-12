@@ -374,6 +374,39 @@ describe('BotService', () => {
       expect(result.created).toBe(true)
     })
 
+    it('creates the conversation already paused when the employee writes first', async () => {
+      prisma.conversation.findFirst.mockResolvedValue(null)
+      prisma.conversation.create.mockResolvedValue({ id: 9, botPaused: false })
+      const tx = {
+        message: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        conversation: { update: jest.fn().mockResolvedValue({}) },
+      }
+      prisma.$transaction.mockImplementation(async (cb: any) => cb(tx))
+
+      const result = await service.recordAgentEcho({
+        phoneNumberId: 'P1',
+        waId: 'wa1',
+        content: 'Hola Gustavo, pasame el DNI',
+        waMessageId: 'wamid.2',
+      })
+
+      expect(prisma.conversation.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ waId: 'wa1', producerId: 1, phoneNumberId: 'P1' }),
+        }),
+      )
+      expect(tx.message.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: [expect.objectContaining({ conversationId: 9, source: 'app_echo' })] }),
+      )
+      expect(tx.conversation.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 9 },
+          data: expect.objectContaining({ botPaused: true, handedOverAt: expect.any(Date) }),
+        }),
+      )
+      expect(result).toEqual({ conversationId: 9, botPaused: true, created: true })
+    })
+
     it('turns a retried wamid into a no-op', async () => {
       const tx = {
         message: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
