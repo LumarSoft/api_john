@@ -28,6 +28,7 @@ import { UsageModule } from './usage/usage.module'
 import { PhoneNumbersModule } from './phone-numbers/phone-numbers.module'
 import { OwnerModule } from './owner/owner.module'
 import { WhatsappOnboardingModule } from './whatsapp-onboarding/whatsapp-onboarding.module'
+import { ImprovementsModule } from './improvements/improvements.module'
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { WhatsappOnboardingModule } from './whatsapp-onboarding/whatsapp-onboard
     PhoneNumbersModule,
     OwnerModule,
     WhatsappOnboardingModule,
+    ImprovementsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

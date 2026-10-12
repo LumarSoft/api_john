@@ -2051,3 +2051,118 @@ las novedades accesibles de la organización y códigos del usuario, sin filtros
 por página, estado o categoría. Responde `{ "clearedCount": 15 }`. Aplica borrado
 lógico solo a Novedad: conserva chats, siniestros, solicitudes y sus estados.
 Las nuevas novedades continúan registrándose. El panel exige confirmación.
+
+
+## Mejoras
+
+Cambios de la plataforma contados para la oficina. Lumar (OWNER) los escribe y
+publica; los usuarios de cada organización los leen en "Mejoras". Una mejora con
+`producerId: null` la ven todas las organizaciones. `publishedAt: null` = borrador
+(solo lo ve el OWNER). `releasedOn` es la fecha de la mejora que muestra la
+tarjeta; si se publica sin fecha, toma la de hoy. Áreas: `BOT`, `BANDEJA`,
+`COTIZADOR`, `PANEL`, `PORTAL`.
+
+### GET /admin/improvements
+
+Mejoras publicadas para la organización del usuario (y las de todas), ordenadas
+por `releasedOn` descendente.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`200 OK`
+```json
+[
+  {
+    "id": 2,
+    "title": "El bot responde lo que le piden desde el primer mensaje",
+    "summary": "Si el cliente arranca pidiendo algo concreto, el bot va directo a eso…",
+    "beforeText": "Ante cualquier primer mensaje el bot contestaba…",
+    "afterText": "El bot entiende qué pide el primer mensaje…",
+    "example": "Cliente: Hola, me pasás mi póliza\nNICO: ¡Hola! Soy NICO 👋 …",
+    "area": "BOT",
+    "releasedOn": "2026-10-09T00:00:00.000Z",
+    "publishedAt": "2026-10-12T15:00:00.000Z"
+  }
+]
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+### GET /admin/improvements/unseen-count
+
+Cantidad de mejoras publicadas después de la última visita del usuario a
+"Mejoras" (todas, si nunca entró).
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`200 OK` → `{ "count": 3 }`
+
+### POST /admin/improvements/visit
+
+Registra que el usuario abrió "Mejoras" y devuelve la visita anterior, para
+marcar como nuevas las publicadas desde entonces.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`201 Created` → `{ "previousVisitAt": "2026-10-10T12:00:00.000Z", "visitedAt": "2026-10-12T15:00:00.000Z" }`
+
+### GET /owner/improvements
+
+Todas las mejoras, borradores primero, con su organización.
+
+**Auth required:** Yes (Bearer, role `OWNER`)
+
+`200 OK` → lista con los campos de `GET /admin/improvements` más
+`producerId`, `producer: { id, name } | null`, `createdAt` y `updatedAt`.
+
+`403 Forbidden` — Insufficient role
+
+### POST /owner/improvements
+
+**Auth required:** Yes (Bearer, role `OWNER`)
+
+**Request body**
+
+| Field      | Type           | Required | Constraints |
+|------------|----------------|----------|-------------|
+| title      | string         | Yes      | 1–140 chars |
+| summary    | string         | Yes      | 1–500 chars |
+| beforeText | string         | No       | ≤ 5000 chars; vacío = sin "antes" |
+| afterText  | string         | No       | ≤ 5000 chars |
+| example    | string         | No       | ≤ 5000 chars; una línea por mensaje |
+| area       | string         | Yes      | `BOT` \| `BANDEJA` \| `COTIZADOR` \| `PANEL` \| `PORTAL` |
+| releasedOn | string \| null | No       | YYYY-MM-DD |
+| producerId | number \| null | No       | organización existente; null/omitido = todas |
+| published  | boolean        | No       | true = publicar ya; si no, queda en borrador |
+
+```json
+{ "title": "Nueva sección Mejoras", "summary": "Acá vamos a ir contando…", "area": "PANEL", "producerId": 1, "published": false }
+```
+
+`201 Created` → la mejora (formato de `GET /owner/improvements`)
+
+`400 Bad Request` — Validation error / organization not found
+
+### PATCH /owner/improvements/:id
+
+Mismos campos que el alta, todos opcionales. `published: true` publica (si ya
+estaba publicada conserva su `publishedAt`, así una corrección no la vuelve a
+mostrar como nueva); `published: false` la pasa a borrador.
+
+**Auth required:** Yes (Bearer, role `OWNER`)
+
+`200 OK` → la mejora actualizada
+
+`400 Bad Request` — Validation error / organization not found
+
+`404 Not Found` — Improvement not found
+
+### DELETE /owner/improvements/:id
+
+Borrado lógico.
+
+**Auth required:** Yes (Bearer, role `OWNER`)
+
+`200 OK` → `{ "ok": true }`
+
+`404 Not Found` — Improvement not found
