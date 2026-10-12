@@ -657,7 +657,7 @@ describe('BotService.attachAdjuntos', () => {
 
     const result = await service.attachAdjuntos(3, photo, 'tarjeta_verde')
 
-    expect(result).toMatchObject({ siniestroId: 9, attached: true })
+    expect(result).toMatchObject({ claimId: 9, attached: true })
     expect(prisma.claim.findFirst.mock.calls[0][0].where).not.toHaveProperty('createdAt')
   })
 })

@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer'
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
 
-export enum CobranzaEstadoFilter {
+export enum CollectionStatusFilter {
   VENCIDAS = 'vencidas',
   RECHAZADAS = 'rechazadas',
   PENDIENTES = 'pendientes',
@@ -15,8 +15,8 @@ export class ListCobranzasDto {
   search?: string
 
   @IsOptional()
-  @IsEnum(CobranzaEstadoFilter)
-  estado?: CobranzaEstadoFilter
+  @IsEnum(CollectionStatusFilter)
+  status?: CollectionStatusFilter
 
   @IsOptional()
   @Type(() => Number)

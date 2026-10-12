@@ -199,7 +199,7 @@ export class NovedadesService {
   async getStats(producerId: number, codeIds: number[]) {
     const base = { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds) }
 
-    const [unreadTotal, unreadSiniestros, unreadHandoff, unreadBajas] = await this.prisma.$transaction([
+    const [unreadTotal, unreadClaims, unreadHandoff, unreadCancellations] = await this.prisma.$transaction([
       this.prisma.notification.count({ where: base }),
       this.prisma.notification.count({ where: { ...base, type: NovedadType.SINIESTRO } }),
       this.prisma.notification.count({ where: { ...base, type: NovedadType.HANDOFF } }),
@@ -223,9 +223,9 @@ export class NovedadesService {
     const actionableByCategory = Object.fromEntries(categories.map((category, i) => [category, counts[i]]))
     return {
       unreadTotal,
-      unreadSiniestros,
+      unreadClaims,
       unreadHandoff,
-      unreadBajas,
+      unreadCancellations,
       actionableByCategory,
       actionableTotal: counts.reduce((a, b) => a + b, 0),
     }

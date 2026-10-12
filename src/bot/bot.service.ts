@@ -626,11 +626,11 @@ export class BotService {
       select: { client: { select: CLIENT_SUMMARY_SELECT } },
     })
 
-    const polizasCount = await this.prisma.policy.count({
+    const policyCount = await this.prisma.policy.count({
       where: { clientId: client.id, deletedAt: null },
     })
 
-    return { client: updated.client, polizasCount }
+    return { client: updated.client, policyCount }
   }
 
   /**
@@ -641,7 +641,7 @@ export class BotService {
    *
    * No payment standing is attached: the synced installment statuses are not
    * reliable yet (most debit installments show as overdue), and gating claims
-   * on them stopped legitimate claims. See estadoPago in common/poliza-vigencia.
+   * on them stopped legitimate claims. See paymentStatus in common/poliza-vigencia.
    */
   async getPolizas(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
@@ -685,9 +685,9 @@ export class BotService {
       const { installments, ...rest } = poliza
       return {
         ...rest,
-        cuotasPagas: installments.filter(c => c.status === 'paid').length,
-        cuotasImpagas: installments.filter(c => c.status !== 'paid'),
-        tieneRechazos: installments.some(c => c.status === 'rejected'),
+        paidInstallments: installments.filter(c => c.status === 'paid').length,
+        unpaidInstallments: installments.filter(c => c.status !== 'paid'),
+        hasRejectedInstallments: installments.some(c => c.status === 'rejected'),
       }
     })
   }
@@ -703,7 +703,7 @@ export class BotService {
     if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
 
     const documentos = await this.triunfo.getDocumentos(poliza.certificateNumber)
-    return documentos.map(doc => ({ codigo: doc.Codigo, nombre: doc.Nombre, url: doc.Url }))
+    return documentos.map(doc => ({ code: doc.Codigo, name: doc.Nombre, url: doc.Url }))
   }
 
   async getSiniestros(conversationId: number) {
@@ -798,7 +798,7 @@ export class BotService {
     const { clientId, producerId } = await this.findConversation(conversationId)
 
     if (!clientId) {
-      return { siniestroId: null, adjuntosCount: 0, attached: false, attachments }
+      return { claimId: null, attachmentCount: 0, attached: false, attachments }
     }
 
     const siniestro = await this.prisma.claim.findFirst({
@@ -816,7 +816,7 @@ export class BotService {
       select: { id: true, attachments: true },
     })
     if (!siniestro) {
-      return { siniestroId: null, adjuntosCount: 0, attached: false, attachments }
+      return { claimId: null, attachmentCount: 0, attached: false, attachments }
     }
 
     const existing = Array.isArray(siniestro.attachments) ? (siniestro.attachments as unknown as AdjuntoMeta[]) : []
@@ -827,7 +827,7 @@ export class BotService {
       data: { attachments: merged as unknown as Prisma.InputJsonValue },
     })
 
-    return { siniestroId: siniestro.id, adjuntosCount: merged.length, attached: true, attachments }
+    return { claimId: siniestro.id, attachmentCount: merged.length, attached: true, attachments }
   }
 
   /**

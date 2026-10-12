@@ -1,4 +1,4 @@
-import { estadoPago, estadoVigencia, inForcePolizaWhere, isCancelledMovimiento } from './poliza-vigencia'
+import { paymentStatus, validityStatus, inForcePolizaWhere, isCancelledMovimiento } from './poliza-vigencia'
 
 describe('poliza vigencia', () => {
   const now = new Date('2026-09-30T12:00:00Z')
@@ -9,19 +9,19 @@ describe('poliza vigencia', () => {
   const renovacion = { lastMovement: 'RENOVACION', validFrom: d('2026-10-03'), validTo: d('2027-10-03') }
 
   it('the policy covering today is vigente, its renewal is próxima', () => {
-    expect(estadoVigencia(actual, now)).toBe('vigente')
-    expect(estadoVigencia(renovacion, now)).toBe('proxima')
+    expect(validityStatus(actual, now)).toBe('vigente')
+    expect(validityStatus(renovacion, now)).toBe('proxima')
   })
 
   it('swaps on the renewal date', () => {
     const onRenewal = new Date('2026-10-03T10:00:00Z')
-    expect(estadoVigencia(actual, onRenewal)).toBe('vencida')
-    expect(estadoVigencia(renovacion, onRenewal)).toBe('vigente')
+    expect(validityStatus(actual, onRenewal)).toBe('vencida')
+    expect(validityStatus(renovacion, onRenewal)).toBe('vigente')
   })
 
   it('a cancelled policy is anulada even if its end date is in the future', () => {
     const anulada = { lastMovement: 'ANULA POR VENTA', validFrom: d('2026-02-27'), validTo: d('2027-02-27') }
-    expect(estadoVigencia(anulada, now)).toBe('anulada')
+    expect(validityStatus(anulada, now)).toBe('anulada')
   })
 
   it.each([
@@ -45,50 +45,50 @@ describe('poliza vigencia', () => {
   })
 })
 
-describe('estadoPago', () => {
+describe('paymentStatus', () => {
   // 5/10/2026 12:00 in Argentina. Due dates are stored as UTC midnight.
   const now = new Date('2026-10-05T15:00:00Z')
   const due = (iso: string) => new Date(`${iso}T00:00:00Z`)
 
   it('is al día when every installment is paid or not yet past due', () => {
     expect(
-      estadoPago(
+      paymentStatus(
         [
           { status: 'paid', dueDate: due('2026-09-10') },
           { status: 'pending', dueDate: due('2026-11-10') },
         ],
         now,
       ),
-    ).toEqual({ alDia: true, cuotasRechazadas: 0, cuotasVencidas: 0 })
+    ).toEqual({ upToDate: true, rejectedInstallments: 0, overdueInstallments: 0 })
   })
 
   it('does not treat an installment due today as past due, even if the sync marked it overdue', () => {
     expect(
-      estadoPago(
+      paymentStatus(
         [
           { status: 'pending', dueDate: due('2026-10-05') },
           { status: 'overdue', dueDate: due('2026-10-05') },
         ],
         now,
-      ).alDia,
+      ).upToDate,
     ).toBe(true)
     // Late at night in Argentina it is still the due date (already the 6th in UTC).
     expect(
-      estadoPago([{ status: 'overdue', dueDate: due('2026-10-05') }], new Date('2026-10-06T02:30:00Z')).alDia,
+      paymentStatus([{ status: 'overdue', dueDate: due('2026-10-05') }], new Date('2026-10-06T02:30:00Z')).upToDate,
     ).toBe(true)
   })
 
   it('flags a rejected debit', () => {
-    expect(estadoPago([{ status: 'rejected', dueDate: due('2026-10-10') }], now)).toEqual({
-      alDia: false,
-      cuotasRechazadas: 1,
-      cuotasVencidas: 0,
+    expect(paymentStatus([{ status: 'rejected', dueDate: due('2026-10-10') }], now)).toEqual({
+      upToDate: false,
+      rejectedInstallments: 1,
+      overdueInstallments: 0,
     })
   })
 
   it('counts installments past their due date, including pending ones the sync did not update', () => {
     expect(
-      estadoPago(
+      paymentStatus(
         [
           { status: 'overdue', dueDate: due('2026-09-10') },
           { status: 'pending', dueDate: due('2026-10-04') },
@@ -96,6 +96,6 @@ describe('estadoPago', () => {
         ],
         now,
       ),
-    ).toEqual({ alDia: false, cuotasRechazadas: 0, cuotasVencidas: 3 })
+    ).toEqual({ upToDate: false, rejectedInstallments: 0, overdueInstallments: 3 })
   })
 })

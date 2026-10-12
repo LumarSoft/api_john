@@ -162,14 +162,14 @@ export class SiniestrosService {
     const countByStatus = (status: ClaimStatus) =>
       this.prisma.claim.count({ where: { producerId, deletedAt: null, ...code, status } })
 
-    const [pendientes, enProceso, resueltos, sinNroCompania] = await this.prisma.$transaction([
+    const [pending, inProgress, resolved, withoutInsurerNumber] = await this.prisma.$transaction([
       countByStatus('pending'),
       countByStatus('in_progress'),
       countByStatus('resolved'),
       this.prisma.claim.count({ where: { producerId, deletedAt: null, ...code, insurerClaimNumber: null } }),
     ])
 
-    return { pendientes, enProceso, resueltos, sinNroCompania }
+    return { pending, inProgress, resolved, withoutInsurerNumber }
   }
 
   async findOneForAdmin(id: number, producerId: number, codeIds: number[]) {

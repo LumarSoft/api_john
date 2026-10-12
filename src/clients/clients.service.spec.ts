@@ -18,7 +18,7 @@ describe('ClientsService.findPolizas (portal)', () => {
     const prisma = { policy: { findMany: jest.fn().mockResolvedValue(rows) } }
     const service = new ClientsService(prisma as unknown as PrismaService)
     const res = await service.findPolizas(1, 1)
-    return res.map(p => ({ id: p.id, estado: p.estadoVigencia }))
+    return res.map(p => ({ id: p.id, estado: p.validityStatus }))
   }
 
   beforeAll(() => {

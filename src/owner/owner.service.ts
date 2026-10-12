@@ -15,8 +15,8 @@ const round2 = <T extends Record<string, number>>(o: T): T =>
 /** Zero metrics for a producer code with no cartera yet. */
 const EMPTY_CODE_METRICS = {
   clients: 0,
-  polizas: 0,
-  siniestros: 0,
+  policies: 0,
+  claims: 0,
   lastCarteraSyncAt: null as Date | null,
 }
 
@@ -221,7 +221,7 @@ export class OwnerService {
 
     const scope = { producerId, deletedAt: null, producerCodeId: { in: codeIds } }
 
-    const [clients, polizas, siniestros, syncMarks] = await Promise.all([
+    const [clients, policies, claims, syncMarks] = await Promise.all([
       this.prisma.client.groupBy({ by: ['producerCodeId'], where: scope, _count: { _all: true } }),
       this.prisma.policy.groupBy({ by: ['producerCodeId'], where: scope, _count: { _all: true } }),
       this.prisma.claim.groupBy({ by: ['producerCodeId'], where: scope, _count: { _all: true } }),
@@ -236,7 +236,7 @@ export class OwnerService {
 
     const put = (
       rows: Array<{ producerCodeId: number | null; _count: { _all: number } }>,
-      key: 'clients' | 'polizas' | 'siniestros',
+      key: 'clients' | 'policies' | 'claims',
     ) => {
       for (const r of rows) {
         if (r.producerCodeId == null) continue
@@ -246,8 +246,8 @@ export class OwnerService {
     }
 
     put(clients, 'clients')
-    put(polizas, 'polizas')
-    put(siniestros, 'siniestros')
+    put(policies, 'policies')
+    put(claims, 'claims')
 
     for (const s of syncMarks) {
       const entry = map.get(s.id)

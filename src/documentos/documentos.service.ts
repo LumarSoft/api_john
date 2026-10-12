@@ -3,8 +3,8 @@ import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
 
 export interface DocumentoResponse {
-  codigo: string
-  nombre: string
+  code: string
+  name: string
   url: string
 }
 
@@ -31,8 +31,8 @@ export class DocumentosService {
     const documentos = await this.triunfo.getDocumentos(poliza.certificateNumber)
 
     return documentos.map(doc => ({
-      codigo: doc.Codigo,
-      nombre: doc.Nombre,
+      code: doc.Codigo,
+      name: doc.Nombre,
       url: doc.Url,
     }))
   }

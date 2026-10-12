@@ -198,9 +198,9 @@ describe('NovedadesService', () => {
 
       expect(stats).toEqual({
         unreadTotal: 3,
-        unreadSiniestros: 2,
+        unreadClaims: 2,
         unreadHandoff: 1,
-        unreadBajas: 0,
+        unreadCancellations: 0,
         actionableTotal: 12,
         actionableByCategory: { baja: 2, pagos: 2, cotizacion: 2, siniestro: 2, documentos: 2, other: 2 },
       })

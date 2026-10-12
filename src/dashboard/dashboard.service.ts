@@ -6,26 +6,26 @@ const EXPIRING_WINDOW_DAYS = 30
 const RENEWAL_MONTHS = 6
 const SPANISH_MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
-export interface RenovacionPoint {
+export interface RenewalPoint {
   month: string // YYYY-MM, used as a stable key
   label: string // short Spanish month label, e.g. "Mar"
   total: number // policies expiring that month
-  prima: string // sum of their premium (prima en riesgo)
+  premium: string // sum of their premium (premium at risk)
 }
 
 export interface DashboardData {
   kpis: {
-    asegurados: number
-    solicitudesNuevas: number
-    cuotasVencidas: number
-    montoDeudaTotal: string
-    siniestrosAbiertos: number
+    insuredClients: number
+    newRequests: number
+    overdueInstallments: number
+    totalDebt: string
+    openClaims: number
   }
-  renovaciones: { primaEnRiesgo: string; timeline: RenovacionPoint[] }
-  cartera: { vigentes: number; porVencer: number; vencidas: number }
-  solicitudesPorEstado: { nuevas: number; contactadas: number; cerradas: number }
-  cobranzas: { pendientes: number; vencidas: number; rechazadas: number }
-  siniestrosPorEstado: { pendiente: number; enProceso: number; resuelto: number }
+  renewals: { premiumAtRisk: string; timeline: RenewalPoint[] }
+  portfolio: { inForce: number; expiringSoon: number; expired: number }
+  requestsByStatus: { new: number; contacted: number; closed: number }
+  collections: { pending: number; overdue: number; rejected: number }
+  claimsByStatus: { pending: number; inProgress: number; resolved: number }
 }
 
 @Injectable()
@@ -89,29 +89,29 @@ export class DashboardService {
       this.prisma.claim.count({ where: { ...siniestro, status: 'resolved' } }),
     ])
 
-    const montoDeudaTotal = await this.computeMontoDeuda(producerId, codeIds)
-    const renovaciones = await this.buildRenovaciones(producerId, codeIds, now)
+    const totalDebt = await this.computeMontoDeuda(producerId, codeIds)
+    const renewals = await this.buildRenovaciones(producerId, codeIds, now)
 
     return {
       kpis: {
-        asegurados,
-        solicitudesNuevas: solicitudesNuevasCotizacion + solicitudesNuevasLead,
-        cuotasVencidas,
-        montoDeudaTotal,
-        siniestrosAbiertos,
+        insuredClients: asegurados,
+        newRequests: solicitudesNuevasCotizacion + solicitudesNuevasLead,
+        overdueInstallments: cuotasVencidas,
+        totalDebt,
+        openClaims: siniestrosAbiertos,
       },
-      renovaciones,
-      cartera: { vigentes, porVencer, vencidas },
-      solicitudesPorEstado: {
-        nuevas: cotizacionNuevas + leadNuevas,
-        contactadas: cotizacionContactadas + leadContactadas,
-        cerradas: cotizacionCerradas + leadCerradas,
+      renewals,
+      portfolio: { inForce: vigentes, expiringSoon: porVencer, expired: vencidas },
+      requestsByStatus: {
+        new: cotizacionNuevas + leadNuevas,
+        contacted: cotizacionContactadas + leadContactadas,
+        closed: cotizacionCerradas + leadCerradas,
       },
-      cobranzas: { pendientes: cuotasPendientes, vencidas: cuotasVencidas, rechazadas: cuotasRechazadas },
-      siniestrosPorEstado: {
-        pendiente: siniestrosPendiente,
-        enProceso: siniestrosEnProceso,
-        resuelto: siniestrosResuelto,
+      collections: { pending: cuotasPendientes, overdue: cuotasVencidas, rejected: cuotasRechazadas },
+      claimsByStatus: {
+        pending: siniestrosPendiente,
+        inProgress: siniestrosEnProceso,
+        resolved: siniestrosResuelto,
       },
     }
   }
@@ -137,7 +137,7 @@ export class DashboardService {
     producerId: number,
     codeIds: number[],
     now: Date,
-  ): Promise<{ primaEnRiesgo: string; timeline: RenovacionPoint[] }> {
+  ): Promise<{ premiumAtRisk: string; timeline: RenewalPoint[] }> {
     const start = new Date(now.getFullYear(), now.getMonth(), 1)
     const end = new Date(now.getFullYear(), now.getMonth() + RENEWAL_MONTHS, 1)
 
@@ -151,13 +151,13 @@ export class DashboardService {
       select: { validTo: true, premium: true },
     })
 
-    const timeline: RenovacionPoint[] = []
+    const timeline: RenewalPoint[] = []
     const primaByMonth = new Map<string, number>()
     for (let i = 0; i < RENEWAL_MONTHS; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
       const key = this.monthKey(d)
       primaByMonth.set(key, 0)
-      timeline.push({ month: key, label: SPANISH_MONTHS[d.getMonth()], total: 0, prima: '0.00' })
+      timeline.push({ month: key, label: SPANISH_MONTHS[d.getMonth()], total: 0, premium: '0.00' })
     }
 
     let primaEnRiesgo = 0
@@ -172,10 +172,10 @@ export class DashboardService {
     }
 
     for (const point of timeline) {
-      point.prima = (primaByMonth.get(point.month) ?? 0).toFixed(2)
+      point.premium = (primaByMonth.get(point.month) ?? 0).toFixed(2)
     }
 
-    return { primaEnRiesgo: primaEnRiesgo.toFixed(2), timeline }
+    return { premiumAtRisk: primaEnRiesgo.toFixed(2), timeline }
   }
 
   private monthKey(d: Date): string {

@@ -2,7 +2,7 @@ import { Type } from 'class-transformer'
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
 import { RiskType } from 'generated/prisma/client'
 
-export enum ClientEstadoFilter {
+export enum ClientStatusFilter {
   VIGENTE = 'vigente',
   POR_VENCER = 'por_vencer',
   VENCIDA = 'vencida',
@@ -26,8 +26,8 @@ export class ListClientsDto {
   riskType?: RiskType
 
   @IsOptional()
-  @IsEnum(ClientEstadoFilter)
-  estado?: ClientEstadoFilter
+  @IsEnum(ClientStatusFilter)
+  status?: ClientStatusFilter
 
   @IsOptional()
   @IsEnum(ClientSort)

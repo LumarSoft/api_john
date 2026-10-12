@@ -14,7 +14,7 @@ import { BUSINESS_TZ } from '../business-hours/schedule'
  */
 const CANCELLED_PREFIXES = ['ANUL', 'RESCISION'] as const
 
-export type EstadoVigencia = 'vigente' | 'proxima' | 'vencida' | 'anulada'
+export type ValidityStatus = 'vigente' | 'proxima' | 'vencida' | 'anulada'
 
 export function isCancelledMovimiento(lastMovement: string | null | undefined): boolean {
   const s = (lastMovement ?? '').trim().toUpperCase()
@@ -40,21 +40,21 @@ export function expiringPolizaWhere(until: Date, now: Date = new Date()): Prisma
   return { AND: [inForcePolizaWhere(now), { validTo: { lte: until } }] }
 }
 
-export function estadoVigencia(
+export function validityStatus(
   poliza: { lastMovement: string | null; validFrom: Date | null; validTo: Date | null },
   now: Date = new Date(),
-): EstadoVigencia {
+): ValidityStatus {
   if (isCancelledMovimiento(poliza.lastMovement)) return 'anulada'
   if (poliza.validFrom && poliza.validFrom > now) return 'proxima'
   if (poliza.validTo && poliza.validTo < now) return 'vencida'
   return 'vigente'
 }
 
-export interface EstadoPago {
+export interface PaymentStatus {
   /** No rejected installment and none past due — the policy is paid up. */
-  alDia: boolean
-  cuotasRechazadas: number
-  cuotasVencidas: number
+  upToDate: boolean
+  rejectedInstallments: number
+  overdueInstallments: number
 }
 
 /**
@@ -74,17 +74,21 @@ export interface EstadoPago {
  * reason (it flips on the due date itself), and a "pending" one whose due date
  * has since passed counts too — a sync gap must not hide a debt.
  */
-export function estadoPago(
+export function paymentStatus(
   cuotas: Array<{ status: string; dueDate: Date | null }>,
   now: Date = new Date(),
-): EstadoPago {
+): PaymentStatus {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: BUSINESS_TZ }).format(now)
   const isPastDue = (cuota: { status: string; dueDate: Date | null }) => {
     if (cuota.status !== 'overdue' && cuota.status !== 'pending') return false
     if (!cuota.dueDate) return cuota.status === 'overdue'
     return cuota.dueDate.toISOString().slice(0, 10) < today
   }
-  const cuotasRechazadas = cuotas.filter(c => c.status === 'rejected').length
-  const cuotasVencidas = cuotas.filter(isPastDue).length
-  return { alDia: cuotasRechazadas === 0 && cuotasVencidas === 0, cuotasRechazadas, cuotasVencidas }
+  const rejectedInstallments = cuotas.filter(c => c.status === 'rejected').length
+  const overdueInstallments = cuotas.filter(isPastDue).length
+  return {
+    upToDate: rejectedInstallments === 0 && overdueInstallments === 0,
+    rejectedInstallments,
+    overdueInstallments,
+  }
 }

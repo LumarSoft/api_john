@@ -669,7 +669,7 @@ Returns a paginated, searchable and filterable list of insured clients (asegurad
 |-------|------|----------|-------------|
 | `search` | string | No | Max 120 chars. Matches first name, last name, email, DNI, phone or vehicle plate (`dominio`). |
 | `riskType` | enum | No | One of `auto`, `home`, `life`, `commercial`, `other`. Filters clients with at least one policy of that risk. |
-| `estado` | enum | No | One of `vigente` (has an in-force policy), `por_vencer` (a policy expiring within 30 days), `vencida` (has policies but none in force), `sin_polizas` (no policies). |
+| `status` | enum | No | One of `vigente` (has an in-force policy), `por_vencer` (a policy expiring within 30 days), `vencida` (has policies but none in force), `sin_polizas` (no policies). |
 | `sort` | enum | No | One of `nombre_asc` (default), `nombre_desc`, `reciente`. |
 | `page` | int | No | `>= 1`. Defaults to 1. |
 | `pageSize` | int | No | `1..100`. Defaults to 20. |
@@ -722,7 +722,7 @@ Returns aggregate portfolio metrics for the dashboard/stat bar.
 
 `200 OK`
 ```json
-{ "totalClients": 134, "vigentes": 210, "porVencer": 12, "vencidas": 8, "cuotasVencidas": 5 }
+{ "totalClients": 134, "inForce": 210, "expiringSoon": 12, "expired": 8, "overdueInstallments": 5 }
 ```
 
 `401 Unauthorized` — Missing or invalid token
@@ -763,27 +763,27 @@ siniestros. All metrics are scoped to the authenticated user's producer.
 ```json
 {
   "kpis": {
-    "asegurados": 134,
-    "solicitudesNuevas": 7,
-    "cuotasVencidas": 5,
-    "montoDeudaTotal": "182340.50",
-    "siniestrosAbiertos": 3
+    "insuredClients": 134,
+    "newRequests": 7,
+    "overdueInstallments": 5,
+    "totalDebt": "182340.50",
+    "openClaims": 3
   },
-  "renovaciones": {
-    "primaEnRiesgo": "2415000.00",
+  "renewals": {
+    "premiumAtRisk": "2415000.00",
     "timeline": [
-      { "month": "2026-06", "label": "Jun", "total": 9, "prima": "540000.00" },
-      { "month": "2026-07", "label": "Jul", "total": 18, "prima": "910000.00" },
-      { "month": "2026-08", "label": "Ago", "total": 7, "prima": "320000.00" },
-      { "month": "2026-09", "label": "Sep", "total": 12, "prima": "415000.00" },
-      { "month": "2026-10", "label": "Oct", "total": 14, "prima": "180000.00" },
-      { "month": "2026-11", "label": "Nov", "total": 6, "prima": "50000.00" }
+      { "month": "2026-06", "label": "Jun", "total": 9, "premium": "540000.00" },
+      { "month": "2026-07", "label": "Jul", "total": 18, "premium": "910000.00" },
+      { "month": "2026-08", "label": "Ago", "total": 7, "premium": "320000.00" },
+      { "month": "2026-09", "label": "Sep", "total": 12, "premium": "415000.00" },
+      { "month": "2026-10", "label": "Oct", "total": 14, "premium": "180000.00" },
+      { "month": "2026-11", "label": "Nov", "total": 6, "premium": "50000.00" }
     ]
   },
-  "cartera": { "vigentes": 210, "porVencer": 12, "vencidas": 8 },
-  "solicitudesPorEstado": { "nuevas": 7, "contactadas": 14, "cerradas": 31 },
-  "cobranzas": { "pendientes": 22, "vencidas": 5, "rechazadas": 2 },
-  "siniestrosPorEstado": { "pendiente": 2, "enProceso": 1, "resuelto": 9 }
+  "portfolio": { "inForce": 210, "expiringSoon": 12, "expired": 8 },
+  "requestsByStatus": { "new": 7, "contacted": 14, "closed": 31 },
+  "collections": { "pending": 22, "overdue": 5, "rejected": 2 },
+  "claimsByStatus": { "pending": 2, "inProgress": 1, "resolved": 9 }
 }
 ```
 
@@ -822,7 +822,7 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 | Parameter | Type   | Required | Description                                                       |
 |-----------|--------|----------|-------------------------------------------------------------------|
 | search    | string | No       | Filter by first name, last name, email, DNI, phone, or plate      |
-| estado    | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`) |
+| status    | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`) |
 | page      | number | No       | Page number (default: 1)                                          |
 | pageSize  | number | No       | Results per page (default: 20, max: 100)                          |
 
@@ -839,13 +839,13 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
       "dni": "12345678",
       "email": "maria@example.com",
       "phone": "+54 11 1234-5678",
-      "ramos": ["auto", "home"],
+      "riskTypes": ["auto", "home"],
       "licensePlate": "AB123CD",
       "pendingCount": 2,
       "overdueCount": 1,
       "rejectedCount": 0,
       "paidCount": 5,
-      "totalDeuda": "15420.00",
+      "totalDebt": "15420.00",
       "oldestOverdueDate": "2026-04-10T00:00:00.000Z"
     }
   ],
@@ -871,14 +871,14 @@ Returns aggregate debt stats across all clients for the authenticated producer. 
 `200 OK`
 ```json
 {
-  "clientesConDeuda": 12,
-  "clientesVencidas": 7,
-  "clientesRechazadas": 2,
-  "clientesPendientes": 10,
-  "cuotasVencidas": 18,
-  "cuotasRechazadas": 3,
-  "cuotasPendientes": 47,
-  "montoDeudaTotal": "284500.00"
+  "clientsWithDebt": 12,
+  "clientsWithOverdue": 7,
+  "clientsWithRejected": 2,
+  "clientsWithPending": 10,
+  "overdueInstallments": 18,
+  "rejectedInstallments": 3,
+  "pendingInstallments": 47,
+  "totalDebt": "284500.00"
 }
 ```
 
@@ -944,7 +944,7 @@ Paginated list of the producer's claims, newest first.
 
 ### GET /admin/siniestros/stats
 
-Claim counters for the admin dashboard. `sinNroCompania` counts claims not yet filed in Triunfo's web.
+Claim counters for the admin dashboard. `withoutInsurerNumber` counts claims not yet filed in Triunfo's web.
 
 **Auth required:** Yes (user JWT)
 
@@ -952,7 +952,7 @@ Claim counters for the admin dashboard. `sinNroCompania` counts claims not yet f
 
 `200 OK`
 ```json
-{ "pendientes": 3, "enProceso": 1, "resueltos": 14, "sinNroCompania": 4 }
+{ "pending": 3, "inProgress": 1, "resolved": 14, "withoutInsurerNumber": 4 }
 ```
 
 ### GET /admin/siniestros/:id
@@ -1148,7 +1148,7 @@ Unread counters for the sidebar badge and category filters.
 
 `200 OK`
 ```json
-{ "unreadTotal": 3, "unreadSiniestros": 2, "unreadHandoff": 1 }
+{ "unreadTotal": 3, "unreadClaims": 2, "unreadHandoff": 1 }
 ```
 
 ### PATCH /admin/novedades/read-all
@@ -1357,7 +1357,7 @@ Links the conversation to a `Client` found by DNI or license plate within the pr
     "phone": "5491155556666",
     "city": "CABA"
   },
-  "polizasCount": 2
+  "policyCount": 2
 }
 ```
 
@@ -1394,7 +1394,7 @@ Policies of the identified client **in force today**, with vehicle summary.
 
 ### GET /bot/conversation/:conversationId/estado-cuenta
 
-Account status per policy: unpaid installments (pending / overdue / rejected), paid count, and a `tieneRechazos` flag for debit-rejection detection.
+Account status per policy: unpaid installments (pending / overdue / rejected), paid count, and a `hasRejectedInstallments` flag for debit-rejection detection.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1410,11 +1410,11 @@ Account status per policy: unpaid installments (pending / overdue / rejected), p
     "lastMovement": "REFACTURACION",
     "paymentMethod": "Débito Automático",
     "vehicle": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" },
-    "cuotasPagas": 4,
-    "cuotasImpagas": [
+    "paidInstallments": 4,
+    "unpaidInstallments": [
       { "number": 5, "amount": "45200.00", "dueDate": "2026-06-10T00:00:00.000Z", "status": "rejected" }
     ],
-    "tieneRechazos": true
+    "hasRejectedInstallments": true
   }
 ]
 ```
@@ -1432,8 +1432,8 @@ Documents of a policy (tarjeta de circulación, certificado de cobertura, cupón
 `200 OK`
 ```json
 [
-  { "codigo": "1001", "nombre": "Tarjeta de Circulación", "url": "https://..." },
-  { "codigo": "1000", "nombre": "Certificado de Cobertura", "url": "https://..." }
+  { "code": "1001", "name": "Tarjeta de Circulación", "url": "https://..." },
+  { "code": "1000", "name": "Certificado de Cobertura", "url": "https://..." }
 ]
 ```
 
@@ -1527,7 +1527,7 @@ inbox and the response says `attached: false`. The total per claim is capped at
 
 `201 Created`
 ```json
-{ "siniestroId": 6, "adjuntosCount": 2 }
+{ "claimId": 6, "attachmentCount": 2 }
 ```
 
 `400 Bad Request` — No files received
@@ -1639,7 +1639,7 @@ Adjunta las fotos que el cliente manda por WhatsApp para contratar una cotizaci�
 
 `201 Created`
 ```json
-{ "leadId": 12, "adjuntosCount": 3 }
+{ "leadId": 12, "attachmentCount": 3 }
 ```
 
 `400 Bad Request` — No files received

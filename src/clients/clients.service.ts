@@ -1,55 +1,55 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { estadoVigencia, expiringPolizaWhere, inForcePolizaWhere } from '../common/poliza-vigencia'
-import { ClientEstadoFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
-import { CobranzaEstadoFilter, ListCobranzasDto } from './dto/list-cobranzas.dto'
+import { validityStatus, expiringPolizaWhere, inForcePolizaWhere } from '../common/poliza-vigencia'
+import { ClientStatusFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
+import { CollectionStatusFilter, ListCobranzasDto } from './dto/list-cobranzas.dto'
 
-// ─── Bien data extracted from rawData.SDTOtrosRiesgosDatos ───────────────────
+// ─── Insured item extracted from rawData.SDTOtrosRiesgosDatos ────────────────
 // Present on non-vehicle policies (life, home, commercial, other).
-// Never sent on vehicle policies (they use the Vehiculo relation instead).
+// Never sent on vehicle policies (they use the Vehicle relation instead).
 
-export interface BienCobertura {
-  riesgo: string
-  cobertura: string
-  sumaAsegurada: string
+export interface InsuredItemCoverage {
+  risk: string
+  coverage: string
+  sumInsured: string
 }
 
-export interface BienData {
-  descripcion: string | null
-  coberturas: BienCobertura[]
+export interface InsuredItem {
+  description: string | null
+  coverages: InsuredItemCoverage[]
 }
 
-function extractBien(rawData: Prisma.JsonValue): BienData | null {
+function extractInsuredItem(rawData: Prisma.JsonValue): InsuredItem | null {
   if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return null
   const raw = rawData as Record<string, Prisma.JsonValue>
   const otros = raw.SDTOtrosRiesgosDatos
   if (!otros || typeof otros !== 'object' || Array.isArray(otros)) return null
   const o = otros as Record<string, Prisma.JsonValue>
 
-  const descripcion =
+  const description =
     typeof o.ObjetoSeguroDescripcion === 'string' && o.ObjetoSeguroDescripcion.trim()
       ? o.ObjetoSeguroDescripcion.trim()
       : null
 
-  const coberturas: BienCobertura[] = []
+  const coverages: InsuredItemCoverage[] = []
   if (Array.isArray(o.SDTRiesgosCoberturas)) {
     for (const c of o.SDTRiesgosCoberturas) {
       if (c && typeof c === 'object' && !Array.isArray(c)) {
         const cob = c as Record<string, Prisma.JsonValue>
         if (typeof cob.Riesgo === 'string' && typeof cob.Cobertura === 'string') {
-          coberturas.push({
-            riesgo: cob.Riesgo,
-            cobertura: cob.Cobertura,
-            sumaAsegurada: typeof cob.SumaAsegurada === 'string' ? cob.SumaAsegurada : '0.00',
+          coverages.push({
+            risk: cob.Riesgo,
+            coverage: cob.Cobertura,
+            sumInsured: typeof cob.SumaAsegurada === 'string' ? cob.SumaAsegurada : '0.00',
           })
         }
       }
     }
   }
 
-  if (!descripcion && coberturas.length === 0) return null
-  return { descripcion, coberturas }
+  if (!description && coverages.length === 0) return null
+  return { description, coverages }
 }
 
 const DEFAULT_PAGE_SIZE = 20
@@ -215,7 +215,7 @@ export class ClientsService {
     })
 
     const now = new Date()
-    const withEstado = policies.map(p => ({ ...p, estadoVigencia: estadoVigencia(p, now) }))
+    const withStatus = policies.map(p => ({ ...p, validityStatus: validityStatus(p, now) }))
 
     // One vehicle accumulates a policy per renewal/replacement. Per plate show
     // what matters today — the policy in force and its upcoming renewal, each
@@ -223,22 +223,22 @@ export class ClientsService {
     // cancelled). Rows are ordered by validFrom desc, so the first one seen
     // for a plate is its most recent.
     const activePlates = new Set(
-      withEstado
-        .filter(p => p.vehicle?.licensePlate && (p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'))
+      withStatus
+        .filter(p => p.vehicle?.licensePlate && (p.validityStatus === 'vigente' || p.validityStatus === 'proxima'))
         .map(p => p.vehicle!.licensePlate),
     )
     const seenInactivePlate = new Set<string>()
 
-    return withEstado
+    return withStatus
       .filter(p => {
         const licensePlate = p.vehicle?.licensePlate
         if (!licensePlate) return true
-        if (activePlates.has(licensePlate)) return p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'
+        if (activePlates.has(licensePlate)) return p.validityStatus === 'vigente' || p.validityStatus === 'proxima'
         if (seenInactivePlate.has(licensePlate)) return false
         seenInactivePlate.add(licensePlate)
         return true
       })
-      .map(({ rawData, ...rest }) => ({ ...rest, bien: extractBien(rawData) }))
+      .map(({ rawData, ...rest }) => ({ ...rest, insuredItem: extractInsuredItem(rawData) }))
   }
 
   async findAllForAdmin(producerId: number, codeIds: number[], query: ListClientsDto) {
@@ -261,8 +261,8 @@ export class ClientsService {
       const allCuotas = client.policies.flatMap(p => p.installments)
       return {
         ...client,
-        policies: client.policies.map(({ installments: _, ...p }) => ({ ...p, estadoVigencia: estadoVigencia(p) })),
-        cuotaStats: {
+        policies: client.policies.map(({ installments: _, ...p }) => ({ ...p, validityStatus: validityStatus(p) })),
+        installmentStats: {
           pending: allCuotas.filter(c => c.status === 'pending').length,
           overdue: allCuotas.filter(c => c.status === 'overdue').length,
           rejected: allCuotas.filter(c => c.status === 'rejected').length,
@@ -286,7 +286,7 @@ export class ClientsService {
     const codeScope = { producerCodeId: { in: codeIds } }
     const activePoliza = { producerId, deletedAt: null, ...codeScope }
 
-    const [totalClients, vigentes, porVencer, vencidas, cuotasVencidas] = await this.prisma.$transaction([
+    const [totalClients, inForce, expiringSoon, expired, overdueInstallments] = await this.prisma.$transaction([
       this.prisma.client.count({ where: { producerId, deletedAt: null, ...this.clientVisibility(codeIds) } }),
       this.prisma.policy.count({ where: { AND: [activePoliza, inForcePolizaWhere(now)] } }),
       this.prisma.policy.count({ where: { AND: [activePoliza, expiringPolizaWhere(expiringLimit, now)] } }),
@@ -296,7 +296,7 @@ export class ClientsService {
       }),
     ])
 
-    return { totalClients, vigentes, porVencer, vencidas, cuotasVencidas }
+    return { totalClients, inForce, expiringSoon, expired, overdueInstallments }
   }
 
   // A client is visible to an admin if it's attributed to an accessible code OR
@@ -337,29 +337,29 @@ export class ClientsService {
       and.push({ policies: { some: { deletedAt: null, riskType: query.riskType } } })
     }
 
-    const estadoWhere = this.buildEstadoWhere(query.estado)
-    if (estadoWhere) and.push(estadoWhere)
+    const statusWhere = this.buildStatusWhere(query.status)
+    if (statusWhere) and.push(statusWhere)
 
     if (and.length) where.AND = and
     return where
   }
 
-  private buildEstadoWhere(estado?: ClientEstadoFilter): Prisma.ClientWhereInput | null {
-    if (!estado) return null
+  private buildStatusWhere(status?: ClientStatusFilter): Prisma.ClientWhereInput | null {
+    if (!status) return null
     const now = new Date()
     const expiringLimit = new Date(now.getTime() + EXPIRING_WINDOW_DAYS * 86_400_000)
 
-    switch (estado) {
-      case ClientEstadoFilter.VIGENTE:
+    switch (status) {
+      case ClientStatusFilter.VIGENTE:
         return { policies: { some: inForcePolizaWhere(now) } }
-      case ClientEstadoFilter.POR_VENCER:
+      case ClientStatusFilter.POR_VENCER:
         return { policies: { some: expiringPolizaWhere(expiringLimit, now) } }
-      case ClientEstadoFilter.VENCIDA:
+      case ClientStatusFilter.VENCIDA:
         // Has policies, but none currently in force.
         return {
           AND: [{ policies: { some: { deletedAt: null } } }, { policies: { none: inForcePolizaWhere(now) } }],
         }
-      case ClientEstadoFilter.SIN_POLIZAS:
+      case ClientStatusFilter.SIN_POLIZAS:
         return { policies: { none: { deletedAt: null } } }
       default:
         return null
@@ -384,7 +384,7 @@ export class ClientsService {
       select: ADMIN_CLIENT_DETAIL_SELECT,
     })
     if (!client) throw new NotFoundException(`Client ${id} not found`)
-    return { ...client, policies: client.policies.map(p => ({ ...p, estadoVigencia: estadoVigencia(p) })) }
+    return { ...client, policies: client.policies.map(p => ({ ...p, validityStatus: validityStatus(p) })) }
   }
 
   async findPolizaById(id: number, clientId: number, producerId: number) {
@@ -396,7 +396,7 @@ export class ClientsService {
     if (!poliza) throw new NotFoundException(`Policy ${id} not found`)
 
     const { rawData, ...rest } = poliza
-    return { ...rest, estadoVigencia: estadoVigencia(poliza), bien: extractBien(rawData) }
+    return { ...rest, validityStatus: validityStatus(poliza), insuredItem: extractInsuredItem(rawData) }
   }
 
   async findCobranzasForAdmin(producerId: number, codeIds: number[], query: ListCobranzasDto) {
@@ -459,14 +459,11 @@ export class ClientsService {
       const rejected = allCuotas.filter(c => c.status === 'rejected')
       const paid = allCuotas.filter(c => c.status === 'paid')
       // Negative-amount installments are insurer credits/adjustments, not debt — excluded from the owed total.
-      const totalDeuda = [...pending, ...overdue, ...rejected].reduce(
-        (sum, c) => sum + Math.max(0, Number(c.amount)),
-        0,
-      )
+      const totalDebt = [...pending, ...overdue, ...rejected].reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0)
 
-      const ramos: RiskType[] = []
+      const riskTypes: RiskType[] = []
       for (const p of client.policies) {
-        if (!ramos.includes(p.riskType)) ramos.push(p.riskType)
+        if (!riskTypes.includes(p.riskType)) riskTypes.push(p.riskType)
       }
       const licensePlate = client.policies.find(p => p.vehicle?.licensePlate)?.vehicle?.licensePlate ?? null
 
@@ -482,29 +479,29 @@ export class ClientsService {
         dni: client.dni,
         email: client.email,
         phone: client.phone,
-        ramos,
+        riskTypes,
         licensePlate,
         pendingCount: pending.length,
         overdueCount: overdue.length,
         rejectedCount: rejected.length,
         paidCount: paid.length,
-        totalDeuda: totalDeuda.toFixed(2),
+        totalDebt: totalDebt.toFixed(2),
         oldestOverdueDate,
       }
     })
 
     let filtered: typeof enriched
-    switch (query.estado) {
-      case CobranzaEstadoFilter.VENCIDAS:
+    switch (query.status) {
+      case CollectionStatusFilter.VENCIDAS:
         filtered = enriched.filter(c => c.overdueCount > 0)
         break
-      case CobranzaEstadoFilter.RECHAZADAS:
+      case CollectionStatusFilter.RECHAZADAS:
         filtered = enriched.filter(c => c.rejectedCount > 0)
         break
-      case CobranzaEstadoFilter.PENDIENTES:
+      case CollectionStatusFilter.PENDIENTES:
         filtered = enriched.filter(c => c.pendingCount > 0)
         break
-      case CobranzaEstadoFilter.TODAS:
+      case CollectionStatusFilter.TODAS:
       default:
         filtered = enriched.filter(c => c.pendingCount + c.overdueCount + c.rejectedCount > 0)
         break
@@ -515,7 +512,7 @@ export class ClientsService {
       if (a.oldestOverdueDate && b.oldestOverdueDate) return a.oldestOverdueDate.localeCompare(b.oldestOverdueDate)
       if (a.oldestOverdueDate) return -1
       if (b.oldestOverdueDate) return 1
-      return Number(b.totalDeuda) - Number(a.totalDeuda)
+      return Number(b.totalDebt) - Number(a.totalDebt)
     })
 
     const total = filtered.length
@@ -537,13 +534,13 @@ export class ClientsService {
     })
 
     const [
-      cuotasVencidas,
-      cuotasRechazadas,
-      cuotasPendientes,
-      clientesVencidas,
-      clientesRechazadas,
-      clientesPendientes,
-      clientesConDeuda,
+      overdueInstallments,
+      rejectedInstallments,
+      pendingInstallments,
+      clientsWithOverdue,
+      clientsWithRejected,
+      clientsWithPending,
+      clientsWithDebt,
     ] = await this.prisma.$transaction([
       this.prisma.installment.count({ where: { ...baseCuota, status: 'overdue' } }),
       this.prisma.installment.count({ where: { ...baseCuota, status: 'rejected' } }),
@@ -571,17 +568,17 @@ export class ClientsService {
       select: { amount: true },
     })
     // Negative-amount installments are insurer credits/adjustments, not debt — excluded from the owed total.
-    const montoDeudaTotal = deudaCuotas.reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0).toFixed(2)
+    const totalDebt = deudaCuotas.reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0).toFixed(2)
 
     return {
-      clientesConDeuda,
-      clientesVencidas,
-      clientesRechazadas,
-      clientesPendientes,
-      cuotasVencidas,
-      cuotasRechazadas,
-      cuotasPendientes,
-      montoDeudaTotal,
+      clientsWithDebt,
+      clientsWithOverdue,
+      clientsWithRejected,
+      clientsWithPending,
+      overdueInstallments,
+      rejectedInstallments,
+      pendingInstallments,
+      totalDebt,
     }
   }
 }

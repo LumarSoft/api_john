@@ -53,7 +53,7 @@ describe('SolicitudesService — bot take-out documents', () => {
     })
     expect(res).toEqual({
       leadId: 9,
-      adjuntosCount: 1,
+      attachmentCount: 1,
       attached: true,
       attachments: [expect.objectContaining({ url: '/uploads/leads/a.webp', tipo: 'dni_frente' })],
     })
