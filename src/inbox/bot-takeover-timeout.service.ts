@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Cron, CronExpression } from '@nestjs/schedule'
 import { PrismaService } from '../prisma/prisma.service'
-import { computeStatus, parseSchedule } from '../business-hours/schedule'
+import { type ActiveClosure, computeStatus, parseSchedule } from '../business-hours/schedule'
 import { InboxService } from './inbox.service'
 
 const DEFAULT_OPERATOR_IDLE_MINUTES = 30
@@ -59,7 +59,16 @@ export class BotTakeoverTimeoutService {
           waId: true,
           phoneNumberId: true,
           handedOverAt: true,
-          producer: { select: { businessHours: true } },
+          producer: {
+            select: {
+              businessHours: true,
+              // A holiday is closed like a night: nobody is going to answer.
+              businessClosures: {
+                where: { deletedAt: null, endDate: { gte: new Date(now.getTime() - 24 * 60 * 60_000) } },
+                select: { startDate: true, endDate: true, reason: true },
+              },
+            },
+          },
         },
       })
 
@@ -67,7 +76,12 @@ export class BotTakeoverTimeoutService {
       for (const conversation of paused) {
         const lastHuman = await this.lastHumanActivity(conversation.id, conversation.handedOverAt)
         const lastCustomer = await this.lastCustomerMessage(conversation.id)
-        const reason = this.releaseReason(lastHuman, lastCustomer, conversation.producer?.businessHours, now)
+        const closures: ActiveClosure[] = (conversation.producer?.businessClosures ?? []).map(c => ({
+          startDate: c.startDate.toISOString().slice(0, 10),
+          endDate: c.endDate.toISOString().slice(0, 10),
+          reason: c.reason,
+        }))
+        const reason = this.releaseReason(lastHuman, lastCustomer, conversation.producer?.businessHours, now, closures)
         if (!reason) continue
         if (await this.inbox.autoReleaseToBot(conversation)) {
           released++
@@ -87,7 +101,13 @@ export class BotTakeoverTimeoutService {
    * Why the conversation should go back to the bot now, or null to keep the
    * human on it. Exposed for tests.
    */
-  releaseReason(lastHuman: Date | null, lastCustomer: Date | null, businessHours: unknown, now: Date): string | null {
+  releaseReason(
+    lastHuman: Date | null,
+    lastCustomer: Date | null,
+    businessHours: unknown,
+    now: Date,
+    closures: ActiveClosure[] = [],
+  ): string | null {
     // A legacy pause with no timestamps at all cannot be reasoned about: release it.
     if (!lastHuman) return 'no takeover timestamps'
 
@@ -95,7 +115,7 @@ export class BotTakeoverTimeoutService {
     if (operatorIdle < this.operatorIdleMs) return null
 
     // Nobody answers outside business hours: the customer is better off with the bot.
-    if (!computeStatus(parseSchedule(businessHours), [], now).isOpenNow) {
+    if (!computeStatus(parseSchedule(businessHours), closures, now).isOpenNow) {
       return 'operator idle outside business hours'
     }
 

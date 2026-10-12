@@ -1850,6 +1850,15 @@ caller's producer; the public route serves the default producer.
 Schedule JSON shape: `{ mon: [{ "from": "09:00", "to": "12:00" }], ..., sun: [] }`
 (empty array = closed that day).
 
+National holidays are loaded automatically as closures of every active
+organization (`HolidaySyncService`: on boot and every Monday 05:00 ART, from
+api.argentinadatos.com, which mirrors argentina.gob.ar/feriados). They carry
+`source: "holiday"` and reason `feriado nacional: <nombre>`. Deleting one from the
+admin screen sticks (the sync does not create it again); an upcoming one that
+disappears from its year's calendar is removed. Env: `HOLIDAY_SYNC_ENABLED`
+(`false` turns it off), `HOLIDAY_TYPES` (default `inamovible,trasladable`; add
+`puente` to also close on días no laborables con fines turísticos).
+
 ### GET /admin/business-hours
 
 Current weekly schedule + active/upcoming closures.

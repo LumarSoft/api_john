@@ -273,6 +273,10 @@ model BusinessClosure {
   endDate   DateTime  @db.Date
   // Why the office is closed (required) — quoted back to users by the bot.
   reason    String    @db.VarChar(160)
+  // Null = loaded by an admin. "holiday" = an Argentine national holiday loaded
+  // by HolidaySyncService; a deleted one stays deleted (the sync sees it and
+  // does not create it again), so an admin can open on a holiday.
+  source    String?   @db.VarChar(16)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -281,6 +285,7 @@ model BusinessClosure {
   producer   Producer @relation(fields: [producerId], references: [id])
 
   @@index([producerId, startDate, endDate])
+  @@index([source, startDate])
 }
 
 model PhoneNumber {

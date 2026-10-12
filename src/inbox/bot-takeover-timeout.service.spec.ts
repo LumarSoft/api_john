@@ -11,7 +11,7 @@ describe('BotTakeoverTimeoutService', () => {
   const minutesBefore = (now: Date, m: number) => new Date(now.getTime() - m * 60_000)
 
   function setup(
-    conversation: { handedOverAt: Date | null },
+    conversation: { handedOverAt: Date | null; producer?: unknown },
     lastReplyAt: Date | null,
     lastCustomerAt: Date | null,
     env: Record<string, string> = {},
@@ -44,6 +44,26 @@ describe('BotTakeoverTimeoutService', () => {
     )
     return { service, prisma, inbox }
   }
+
+  it('treats a holiday like closed hours: back to the bot after 30 min without the operator', async () => {
+    const holiday = {
+      businessClosures: [
+        {
+          startDate: new Date('2026-09-30T00:00:00Z'),
+          endDate: new Date('2026-09-30T00:00:00Z'),
+          reason: 'feriado nacional (Prueba)',
+        },
+      ],
+    }
+    const { service, inbox } = setup(
+      { handedOverAt: minutesBefore(openNow, 40), producer: holiday },
+      minutesBefore(openNow, 31),
+      minutesBefore(openNow, 3),
+    )
+
+    await expect(service.releaseIdleTakeovers(openNow)).resolves.toBe(1)
+    expect(inbox.autoReleaseToBot).toHaveBeenCalled()
+  })
 
   describe('within business hours', () => {
     it('keeps the human on the chat while the customer keeps talking, even past 30 min of operator silence', async () => {
