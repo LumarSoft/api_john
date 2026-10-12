@@ -110,10 +110,10 @@ function buildDateRange(lastSyncAt: Date | null | undefined): {
 }
 
 /**
- * Triunfo returns several novedades for the same certificado out of order (we
+ * Triunfo returns several novedades for the same certificateNumber out of order (we
  * saw 13, 12, 14, 15, 11 for one policy, and an endoso before the "POLIZA NUEVA"
  * that precedes it). Since each novedad upserts the same row, processing them in
- * arrival order leaves the OLDEST suplemento persisted. Sorting ascending makes
+ * arrival order leaves the OLDEST endorsementNumber persisted. Sorting ascending makes
  * the newest one win.
  */
 function sortBySuplemento(novedades: TriunfoNovedad[]): TriunfoNovedad[] {
@@ -252,7 +252,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
           continue
         }
 
-        // Oldest suplemento first, so the newest movement of a certificado is the
+        // Oldest endorsement first, so the newest movement of a certificate is the
         // last one written. Triunfo does not guarantee any order.
         let codeFailures = 0
         for (const novedad of sortBySuplemento(novedades)) {
@@ -263,7 +263,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
             skipped++
             codeFailures++
             this.logger.warn(
-              `Skipped certificado ${novedad.Certificado} (code ${label}) — ${err instanceof Error ? err.message : err}`,
+              `Skipped certificate ${novedad.Certificado} (code ${label}) — ${err instanceof Error ? err.message : err}`,
             )
           }
         }
@@ -306,10 +306,10 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     const docNumero = String(novedad.DocNumero ?? '').trim()
     const cuit = String(novedad.CUIT ?? '').trim()
     const dni = docNumero && docNumero !== '0' ? docNumero : cuit && cuit !== '0' ? cuit : ''
-    const certificado = String(novedad.Certificado).trim()
+    const certificateNumber = String(novedad.Certificado).trim()
 
-    if (!dni || !certificado) {
-      this.logger.warn(`Skipped certificado ${novedad.Certificado} — no usable DocNumero/CUIT`)
+    if (!dni || !certificateNumber) {
+      this.logger.warn(`Skipped certificate ${novedad.Certificado} — no usable DocNumero/CUIT`)
       return
     }
 
@@ -326,10 +326,10 @@ export class CarteraSyncService implements OnApplicationBootstrap {
 
     const vigDesde = isoDate(novedad.VigenciaDesde ?? novedad.FechaVigDesde)
     const vigHasta = isoDate(novedad.VigenciaHasta ?? novedad.FechaVigHasta)
-    const movimiento = novedad.EstadoPoliza ?? novedad.Estado ?? ''
-    const premio = novedad.DetallePremio?.Premio ?? novedad.Premio ?? null
+    const lastMovement = novedad.EstadoPoliza ?? novedad.Estado ?? ''
+    const premium = novedad.DetallePremio?.Premio ?? novedad.Premio ?? null
     const paymentMethod = novedad.MedioPagoDescripcion ?? null
-    const suplemento = novedad.Suplemento ?? 0
+    const endorsementNumber = novedad.Suplemento ?? 0
 
     // Extract vehicle data first — presence determines riskType
     const vehiculoDatos: TriunfoVehiculoDato | null =
@@ -423,17 +423,17 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     // ── 2. Upsert Poliza ──────────────────────────────────
     const poliza = await this.prisma.policy.upsert({
       where: {
-        certificado_producerId: { certificado, producerId },
+        certificateNumber_producerId: { certificateNumber, producerId },
       },
       create: {
-        certificado,
-        suplemento,
+        certificateNumber,
+        endorsementNumber,
         company: 'triunfo',
         riskType,
-        movimiento,
-        vigenciaDesde: vigDesde,
-        vigenciaHasta: vigHasta,
-        premio,
+        lastMovement,
+        validFrom: vigDesde,
+        validTo: vigHasta,
+        premium,
         paymentMethod,
         rawData: novedad as object,
         clientId: client.id,
@@ -441,10 +441,10 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         producerCodeId,
       },
       update: {
-        suplemento,
-        movimiento,
-        vigenciaHasta: vigHasta,
-        premio,
+        endorsementNumber,
+        lastMovement,
+        validTo: vigHasta,
+        premium,
         paymentMethod,
         rawData: novedad as object,
         producerCodeId,
@@ -455,32 +455,35 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     // ── 3. Upsert Vehiculo (any policy with SDTVehiculoDatos) ─
     if (vehiculoDatos) {
       const v = vehiculoDatos
-      const marcaIA = Number.isInteger(v?.MarcaIA) ? (v.MarcaIA as number) : null
-      const modeloIA = Number.isInteger(v?.ModeloIA) ? (v.ModeloIA as number) : null
+      const infoautoBrandCode = Number.isInteger(v?.MarcaIA) ? (v.MarcaIA as number) : null
+      const infoautoModelCode = Number.isInteger(v?.ModeloIA) ? (v.ModeloIA as number) : null
 
       const vehiculoData = {
-        dominio: v.Dominio?.trim() || null,
-        marca: v?.Marca ?? null,
-        modelo: v?.Modelo ?? null,
-        subModelo: v?.SubModelo ?? null,
-        anio: v?.Anio ?? null,
-        marcaIA,
-        modeloIA,
+        licensePlate: v.Dominio?.trim() || null,
+        brand: v?.Marca ?? null,
+        model: v?.Modelo ?? null,
+        version: v?.SubModelo ?? null,
+        year: v?.Anio ?? null,
+        infoautoBrandCode,
+        infoautoModelCode,
         // Rebuilding the codia here means a policy can be looked up in InfoAuto
         // without re-deriving the rule at every call site.
-        codia: marcaIA !== null && modeloIA !== null ? marcaIA * 10000 + modeloIA : null,
-        tipo: v?.Tipo ?? null,
-        uso: v?.Uso ?? null,
-        cobertura: v?.Cobertura ?? novedad.Cobertura ?? null,
-        sumaAsegurada: v?.SumaAsegurada ?? null,
-        ceroKm: (v?.CeroKm ?? 0) === 1,
-        chasis: v?.Chasis ?? null,
-        motor: v?.Motor ?? null,
+        codia:
+          infoautoBrandCode !== null && infoautoModelCode !== null
+            ? infoautoBrandCode * 10000 + infoautoModelCode
+            : null,
+        type: v?.Tipo ?? null,
+        usage: v?.Uso ?? null,
+        coverage: v?.Cobertura ?? novedad.Cobertura ?? null,
+        sumInsured: v?.SumaAsegurada ?? null,
+        isZeroKm: (v?.CeroKm ?? 0) === 1,
+        chassisNumber: v?.Chasis ?? null,
+        engineNumber: v?.Motor ?? null,
       }
 
       await this.prisma.vehicle.upsert({
-        where: { polizaId: poliza.id },
-        create: { polizaId: poliza.id, ...vehiculoData },
+        where: { policyId: poliza.id },
+        create: { policyId: poliza.id, ...vehiculoData },
         update: vehiculoData,
       })
     }
@@ -492,11 +495,11 @@ export class CarteraSyncService implements OnApplicationBootstrap {
 
       await this.prisma.installment.upsert({
         where: {
-          polizaId_numeroCuota: { polizaId: poliza.id, numeroCuota: cuota.NumeroCuota },
+          policyId_number: { policyId: poliza.id, number: cuota.NumeroCuota },
         },
         create: {
-          polizaId: poliza.id,
-          numeroCuota: cuota.NumeroCuota,
+          policyId: poliza.id,
+          number: cuota.NumeroCuota,
           amount: cuota.ImporteCuota,
           dueDate,
           status,

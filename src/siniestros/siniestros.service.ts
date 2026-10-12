@@ -25,7 +25,7 @@ const SINIESTRO_SELECT = {
   policy: {
     select: {
       id: true,
-      certificado: true,
+      certificateNumber: true,
       company: true,
       riskType: true,
     },
@@ -49,10 +49,10 @@ const ADMIN_SINIESTRO_SELECT = {
   policy: {
     select: {
       id: true,
-      certificado: true,
+      certificateNumber: true,
       company: true,
       riskType: true,
-      vehiculo: { select: { dominio: true, marca: true, modelo: true } },
+      vehiculo: { select: { licensePlate: true, brand: true, model: true } },
     },
   },
 } as const
@@ -69,7 +69,7 @@ export class SiniestrosService {
     // The policy must belong to the authenticated client in this tenant.
     const poliza = await this.prisma.policy.findFirst({
       where: { id: dto.policyId, clientId, producerId, deletedAt: null },
-      select: { id: true, certificado: true, company: true, producerCodeId: true },
+      select: { id: true, certificateNumber: true, company: true, producerCodeId: true },
     })
     if (!poliza) {
       throw new NotFoundException(`Policy ${dto.policyId} not found`)
@@ -215,7 +215,7 @@ export class SiniestrosService {
         { client: { firstName: { contains: search } } },
         { client: { lastName: { contains: search } } },
         { client: { dni: { contains: search } } },
-        { policy: { certificado: { contains: search } } },
+        { policy: { certificateNumber: { contains: search } } },
         { insurerClaimNumber: { contains: search } },
       ]
     }
@@ -227,7 +227,7 @@ export class SiniestrosService {
     siniestroId: number,
     clientId: number,
     dto: CreateSiniestroDto,
-    poliza: { certificado: string; company: string },
+    poliza: { certificateNumber: string; company: string },
     adjuntosCount: number,
   ): Promise<void> {
     const client = await this.prisma.client.findUnique({
@@ -242,7 +242,7 @@ export class SiniestrosService {
       descripcion: dto.description,
       fecha: new Date(dto.occurredAt),
       cliente: client,
-      poliza: { certificado: poliza.certificado, company: poliza.company },
+      poliza: { certificateNumber: poliza.certificateNumber, company: poliza.company },
       adjuntosCount,
     })
   }

@@ -692,13 +692,13 @@ Returns a paginated, searchable and filterable list of insured clients (asegurad
       "polizas": [
         {
           "id": 88,
-          "certificado": "000123",
+          "certificateNumber": "000123",
           "riskType": "auto",
-          "movimiento": "REFACTURACION",
-          "vigenciaDesde": "2026-01-01T00:00:00.000Z",
-          "vigenciaHasta": "2027-01-01T00:00:00.000Z",
-          "premio": "150000.00",
-          "vehiculo": { "id": 5, "dominio": "AB123CD", "marca": "Toyota", "modelo": "Corolla", "subModelo": null, "anio": 2022, "cobertura": "C", "sumaAsegurada": "12000000.00" }
+          "lastMovement": "REFACTURACION",
+          "validFrom": "2026-01-01T00:00:00.000Z",
+          "validTo": "2027-01-01T00:00:00.000Z",
+          "premium": "150000.00",
+          "vehiculo": { "id": 5, "licensePlate": "AB123CD", "brand": "Toyota", "model": "Corolla", "version": null, "year": 2022, "coverage": "C", "sumInsured": "12000000.00" }
         }
       ]
     }
@@ -840,7 +840,7 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
       "email": "maria@example.com",
       "phone": "+54 11 1234-5678",
       "ramos": ["auto", "home"],
-      "dominio": "AB123CD",
+      "licensePlate": "AB123CD",
       "pendingCount": 2,
       "overdueCount": 1,
       "rejectedCount": 0,
@@ -924,10 +924,10 @@ Paginated list of the producer's claims, newest first.
       "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456", "email": "evelyn@example.com", "phone": "5491155556666" },
       "policy": {
         "id": 12,
-        "certificado": "334455",
+        "certificateNumber": "334455",
         "company": "triunfo",
         "riskType": "auto",
-        "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS" }
+        "vehiculo": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" }
       }
     }
   ],
@@ -1378,14 +1378,14 @@ Policies of the identified client **in force today**, with vehicle summary.
 [
   {
     "id": 12,
-    "certificado": "334455",
+    "certificateNumber": "334455",
     "company": "triunfo",
     "riskType": "auto",
-    "movimiento": "REFACTURACION",
-    "vigenciaDesde": "2026-01-01T00:00:00.000Z",
-    "vigenciaHasta": "2027-01-01T00:00:00.000Z",
+    "lastMovement": "REFACTURACION",
+    "validFrom": "2026-01-01T00:00:00.000Z",
+    "validTo": "2027-01-01T00:00:00.000Z",
     "paymentMethod": "Débito Automático",
-    "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS", "anio": 2022, "cobertura": "C" }
+    "vehiculo": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS", "year": 2022, "coverage": "C" }
   }
 ]
 ```
@@ -1405,14 +1405,14 @@ Account status per policy: unpaid installments (pending / overdue / rejected), p
 [
   {
     "id": 12,
-    "certificado": "334455",
+    "certificateNumber": "334455",
     "riskType": "auto",
-    "movimiento": "REFACTURACION",
+    "lastMovement": "REFACTURACION",
     "paymentMethod": "Débito Automático",
-    "vehiculo": { "dominio": "AB123CD", "marca": "FIAT", "modelo": "CRONOS" },
+    "vehiculo": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" },
     "cuotasPagas": 4,
     "cuotasImpagas": [
-      { "numeroCuota": 5, "amount": "45200.00", "dueDate": "2026-06-10T00:00:00.000Z", "status": "rejected" }
+      { "number": 5, "amount": "45200.00", "dueDate": "2026-06-10T00:00:00.000Z", "status": "rejected" }
     ],
     "tieneRechazos": true
   }
@@ -1460,7 +1460,7 @@ Claims filed by the identified client, newest first, with their internal trackin
     "status": "in_progress",
     "insurerClaimNumber": "SIN-884213",
     "createdAt": "2026-06-10T15:00:00.000Z",
-    "policy": { "id": 12, "certificado": "334455", "riskType": "auto" }
+    "policy": { "id": 12, "certificateNumber": "334455", "riskType": "auto" }
   }
 ]
 ```
@@ -1498,7 +1498,7 @@ Files a new claim for one of the identified client's policies and notifies the a
   "status": "pending",
   "insurerClaimNumber": null,
   "createdAt": "2026-06-12T13:05:00.000Z",
-  "policy": { "id": 12, "certificado": "334455", "riskType": "auto" }
+  "policy": { "id": 12, "certificateNumber": "334455", "riskType": "auto" }
 }
 ```
 

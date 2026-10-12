@@ -483,23 +483,23 @@ enum RiskType {
 }
 
 model Policy {
-  id            Int       @id @default(autoincrement())
-  certificado   String // certificate number from Triunfo
-  suplemento    Int       @default(0) // policy version / supplement
-  company       String // "triunfo" — expandable for future companies
-  riskType      RiskType  @default(other)
+  id                Int       @id @default(autoincrement())
+  certificateNumber String // Triunfo's certificate number
+  endorsementNumber Int       @default(0) // Triunfo's suplemento: the policy version
+  company           String // "triunfo" — expandable for future companies
+  riskType          RiskType  @default(other)
   // Triunfo's last movement on the policy ("REFACTURACION", "ANULA POR VENTA",
   // "RENOVACION"…), not its status: validity is computed from the dates and
   // this movement (see common/poliza-vigencia.ts).
-  movimiento    String
-  vigenciaDesde DateTime?
-  vigenciaHasta DateTime?
-  premio        Decimal?  @db.Decimal(12, 2)
-  paymentMethod String?
-  rawData       Json // full provider response for this policy
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  lastMovement      String
+  validFrom         DateTime?
+  validTo           DateTime?
+  premium           Decimal?  @db.Decimal(12, 2)
+  paymentMethod     String?
+  rawData           Json // full provider response for this policy
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
 
   clientId       Int
   client         Client        @relation(fields: [clientId], references: [id])
@@ -513,35 +513,35 @@ model Policy {
   cuotas     Installment[]
   siniestros Claim[]
 
-  @@unique([certificado, producerId])
+  @@unique([certificateNumber, producerId])
   @@index([producerCodeId])
 }
 
 model Vehicle {
-  id            Int       @id @default(autoincrement())
-  dominio       String? // license plate
-  marca         String?
-  modelo        String?
-  subModelo     String?
-  anio          Int?
+  id                Int       @id @default(autoincrement())
+  licensePlate      String?
+  brand             String?
+  model             String?
+  version           String?
+  year              Int?
   // InfoAuto identity, as Triunfo reports it in SDTVehiculoDatos.
-  // codia = marcaIA * 10000 + modeloIA — verified against the whole InfoAuto
+  // codia = infoautoBrandCode * 10000 + infoautoModelCode — verified against the whole InfoAuto
   // catalog (13.082 models, no exceptions). Keeping it lets us go back to
   // InfoAuto from a policy for the spec sheet, the photo or a value refresh.
-  marcaIA       Int?
-  modeloIA      Int?
-  codia         Int?
-  tipo          String? // "AUTOMOVIL" | "MOTO" etc.
-  uso           String? // "PARTICULAR" | "COMERCIAL" etc.
-  cobertura     String? // coverage code (e.g. "A", "B", "C")
-  sumaAsegurada Decimal?  @db.Decimal(14, 2)
-  ceroKm        Boolean   @default(false)
-  chasis        String?
-  motor         String?
-  deletedAt     DateTime?
+  infoautoBrandCode Int?
+  infoautoModelCode Int?
+  codia             Int?
+  type              String? // "AUTOMOVIL" | "MOTO" etc.
+  usage             String? // "PARTICULAR" | "COMERCIAL" etc.
+  coverage          String? // coverage code (e.g. "A", "B", "C")
+  sumInsured        Decimal?  @db.Decimal(14, 2)
+  isZeroKm          Boolean   @default(false)
+  chassisNumber     String?
+  engineNumber      String?
+  deletedAt         DateTime?
 
-  polizaId Int    @unique
-  poliza   Policy @relation(fields: [polizaId], references: [id])
+  policyId Int    @unique
+  policy   Policy @relation(fields: [policyId], references: [id])
 }
 
 enum InstallmentStatus {
@@ -552,17 +552,17 @@ enum InstallmentStatus {
 }
 
 model Installment {
-  id          Int               @id @default(autoincrement())
-  numeroCuota Int
-  amount      Decimal           @db.Decimal(12, 2)
-  dueDate     DateTime?
-  status      InstallmentStatus @default(pending)
-  deletedAt   DateTime?
+  id        Int               @id @default(autoincrement())
+  number    Int
+  amount    Decimal           @db.Decimal(12, 2)
+  dueDate   DateTime?
+  status    InstallmentStatus @default(pending)
+  deletedAt DateTime?
 
-  polizaId Int
-  poliza   Policy @relation(fields: [polizaId], references: [id])
+  policyId Int
+  policy   Policy @relation(fields: [policyId], references: [id])
 
-  @@unique([polizaId, numeroCuota])
+  @@unique([policyId, number])
 }
 
 // ─── SINIESTROS (denuncias del cliente) ──────────────────

@@ -44,7 +44,7 @@ export class DashboardService {
     const cotizacionLead = { deletedAt: null, cotizacion: { producerId, deletedAt: null, ...codeOrNull } }
     const contactLead = { producerId, deletedAt: null, ...codeOrNull }
     const poliza = { producerId, deletedAt: null, ...code }
-    const cuota = { deletedAt: null, poliza: { producerId, deletedAt: null, ...code } }
+    const cuota = { deletedAt: null, policy: { producerId, deletedAt: null, ...code } }
     const siniestro = { producerId, deletedAt: null, ...code }
 
     const [
@@ -75,7 +75,7 @@ export class DashboardService {
       this.prisma.claim.count({ where: { ...siniestro, status: { in: ['pending', 'in_progress'] } } }),
       this.prisma.policy.count({ where: { AND: [poliza, inForcePolizaWhere(now)] } }),
       this.prisma.policy.count({ where: { AND: [poliza, expiringPolizaWhere(expiringLimit, now)] } }),
-      this.prisma.policy.count({ where: { ...poliza, vigenciaHasta: { lt: now } } }),
+      this.prisma.policy.count({ where: { ...poliza, validTo: { lt: now } } }),
       this.prisma.quoteRequest.count({ where: { ...cotizacionLead, status: 'NEW' } }),
       this.prisma.quoteRequest.count({ where: { ...cotizacionLead, status: 'CONTACTED' } }),
       this.prisma.quoteRequest.count({ where: { ...cotizacionLead, status: 'CLOSED' } }),
@@ -122,7 +122,7 @@ export class DashboardService {
     const cuotas = await this.prisma.installment.findMany({
       where: {
         deletedAt: null,
-        poliza: { producerId, deletedAt: null, producerCodeId: { in: codeIds } },
+        policy: { producerId, deletedAt: null, producerCodeId: { in: codeIds } },
         status: { in: ['pending', 'overdue', 'rejected'] },
       },
       select: { amount: true },
@@ -146,9 +146,9 @@ export class DashboardService {
         producerId,
         deletedAt: null,
         producerCodeId: { in: codeIds },
-        vigenciaHasta: { gte: start, lt: end },
+        validTo: { gte: start, lt: end },
       },
-      select: { vigenciaHasta: true, premio: true },
+      select: { validTo: true, premium: true },
     })
 
     const timeline: RenovacionPoint[] = []
@@ -162,10 +162,10 @@ export class DashboardService {
 
     let primaEnRiesgo = 0
     for (const poliza of polizas) {
-      if (!poliza.vigenciaHasta) continue
-      const point = timeline.find(p => p.month === this.monthKey(poliza.vigenciaHasta as Date))
+      if (!poliza.validTo) continue
+      const point = timeline.find(p => p.month === this.monthKey(poliza.validTo as Date))
       if (!point) continue
-      const prima = Math.max(0, Number(poliza.premio ?? 0))
+      const prima = Math.max(0, Number(poliza.premium ?? 0))
       point.total++
       primaByMonth.set(point.month, (primaByMonth.get(point.month) ?? 0) + prima)
       primaEnRiesgo += prima

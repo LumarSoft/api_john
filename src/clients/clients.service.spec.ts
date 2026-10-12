@@ -3,18 +3,18 @@ import { ClientsService } from './clients.service'
 
 describe('ClientsService.findPolizas (portal)', () => {
   const d = (iso: string) => new Date(`${iso}T00:00:00Z`)
-  const poliza = (id: number, dominio: string | null, movimiento: string, desde: string, hasta: string) => ({
+  const poliza = (id: number, licensePlate: string | null, lastMovement: string, desde: string, hasta: string) => ({
     id,
-    certificado: String(id),
-    movimiento,
-    vigenciaDesde: d(desde),
-    vigenciaHasta: d(hasta),
+    certificateNumber: String(id),
+    lastMovement,
+    validFrom: d(desde),
+    validTo: d(hasta),
     rawData: {},
-    vehiculo: dominio ? { dominio } : null,
+    vehiculo: licensePlate ? { licensePlate } : null,
   })
 
   async function list(rows: ReturnType<typeof poliza>[]) {
-    // The service orders by vigenciaDesde desc; the mock returns rows in that order.
+    // The service orders by validFrom desc; the mock returns rows in that order.
     const prisma = { policy: { findMany: jest.fn().mockResolvedValue(rows) } }
     const service = new ClientsService(prisma as unknown as PrismaService)
     const res = await service.findPolizas(1, 1)

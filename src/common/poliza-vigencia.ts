@@ -2,9 +2,9 @@ import type { Prisma } from 'generated/prisma/client'
 import { BUSINESS_TZ } from '../business-hours/schedule'
 
 /**
- * `Poliza.movimiento` is Triunfo's last movement type ("REFACTURACION",
+ * `Policy.lastMovement` is Triunfo's last movement type ("REFACTURACION",
  * "RENOVACION", "ANULA POR VENTA", …), not a validity flag, and a cancelled
- * policy keeps its original `vigenciaHasta`. So "in force" has to combine the
+ * policy keeps its original `validTo`. So "in force" has to combine the
  * dates with the movement: over 2,000 cancelled policies had an end date in the
  * future and were counted — and shown in the bot — as current.
  *
@@ -16,8 +16,8 @@ const CANCELLED_PREFIXES = ['ANUL', 'RESCISION'] as const
 
 export type EstadoVigencia = 'vigente' | 'proxima' | 'vencida' | 'anulada'
 
-export function isCancelledMovimiento(movimiento: string | null | undefined): boolean {
-  const s = (movimiento ?? '').trim().toUpperCase()
+export function isCancelledMovimiento(lastMovement: string | null | undefined): boolean {
+  const s = (lastMovement ?? '').trim().toUpperCase()
   return CANCELLED_PREFIXES.some(prefix => s.startsWith(prefix))
 }
 
@@ -29,24 +29,24 @@ export function isCancelledMovimiento(movimiento: string | null | undefined): bo
 export function inForcePolizaWhere(now: Date = new Date()): Prisma.PolicyWhereInput {
   return {
     deletedAt: null,
-    vigenciaHasta: { gte: now },
-    OR: [{ vigenciaDesde: null }, { vigenciaDesde: { lte: now } }],
-    NOT: CANCELLED_PREFIXES.map(prefix => ({ movimiento: { startsWith: prefix } })),
+    validTo: { gte: now },
+    OR: [{ validFrom: null }, { validFrom: { lte: now } }],
+    NOT: CANCELLED_PREFIXES.map(prefix => ({ lastMovement: { startsWith: prefix } })),
   }
 }
 
 /** Where-clause for policies in force now that end within `until`. */
 export function expiringPolizaWhere(until: Date, now: Date = new Date()): Prisma.PolicyWhereInput {
-  return { AND: [inForcePolizaWhere(now), { vigenciaHasta: { lte: until } }] }
+  return { AND: [inForcePolizaWhere(now), { validTo: { lte: until } }] }
 }
 
 export function estadoVigencia(
-  poliza: { movimiento: string | null; vigenciaDesde: Date | null; vigenciaHasta: Date | null },
+  poliza: { lastMovement: string | null; validFrom: Date | null; validTo: Date | null },
   now: Date = new Date(),
 ): EstadoVigencia {
-  if (isCancelledMovimiento(poliza.movimiento)) return 'anulada'
-  if (poliza.vigenciaDesde && poliza.vigenciaDesde > now) return 'proxima'
-  if (poliza.vigenciaHasta && poliza.vigenciaHasta < now) return 'vencida'
+  if (isCancelledMovimiento(poliza.lastMovement)) return 'anulada'
+  if (poliza.validFrom && poliza.validFrom > now) return 'proxima'
+  if (poliza.validTo && poliza.validTo < now) return 'vencida'
   return 'vigente'
 }
 

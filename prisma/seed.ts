@@ -298,17 +298,17 @@ async function main() {
 
   // Poliza 1 — Auto vigente (Ford Focus)
   const polizaAuto = await prisma.policy.upsert({
-    where: { certificado_producerId: { certificado: 'TEST-001', producerId: producer.id } },
+    where: { certificateNumber_producerId: { certificateNumber: 'TEST-001', producerId: producer.id } },
     update: {},
     create: {
-      certificado: 'TEST-001',
-      suplemento: 0,
+      certificateNumber: 'TEST-001',
+      endorsementNumber: 0,
       company: 'triunfo',
       riskType: 'auto',
-      movimiento: 'POLIZA NUEVA',
-      vigenciaDesde: oneYearAgo,
-      vigenciaHasta: oneYearFromNow,
-      premio: '62450.00',
+      lastMovement: 'POLIZA NUEVA',
+      validFrom: oneYearAgo,
+      validTo: oneYearFromNow,
+      premium: '62450.00',
       paymentMethod: 'Débito Automático',
       rawData: {
         Articulo: '458',
@@ -329,20 +329,20 @@ async function main() {
   })
 
   await prisma.vehicle.upsert({
-    where: { polizaId: polizaAuto.id },
+    where: { policyId: polizaAuto.id },
     update: {},
     create: {
-      polizaId: polizaAuto.id,
-      dominio: 'AB123CD',
-      marca: 'FORD',
-      modelo: 'FOCUS',
-      subModelo: 'TITANIUM 2.0',
-      anio: 2022,
-      tipo: 'AUTOMOVIL',
-      uso: 'PARTICULAR',
-      cobertura: 'A',
-      sumaAsegurada: '8500000.00',
-      ceroKm: false,
+      policyId: polizaAuto.id,
+      licensePlate: 'AB123CD',
+      brand: 'FORD',
+      model: 'FOCUS',
+      version: 'TITANIUM 2.0',
+      year: 2022,
+      type: 'AUTOMOVIL',
+      usage: 'PARTICULAR',
+      coverage: 'A',
+      sumInsured: '8500000.00',
+      isZeroKm: false,
     },
   })
 
@@ -352,11 +352,11 @@ async function main() {
     dueDate.setMonth(dueDate.getMonth() + i - 1)
     const isPast = dueDate < today
     await prisma.installment.upsert({
-      where: { polizaId_numeroCuota: { polizaId: polizaAuto.id, numeroCuota: i } },
+      where: { policyId_number: { policyId: polizaAuto.id, number: i } },
       update: {},
       create: {
-        polizaId: polizaAuto.id,
-        numeroCuota: i,
+        policyId: polizaAuto.id,
+        number: i,
         amount: '62450.00',
         dueDate,
         status: isPast ? 'paid' : 'pending',
@@ -366,17 +366,17 @@ async function main() {
 
   // Poliza 2 — Auto vigente (Volkswagen Gol) — mismo cliente, distinto auto
   const polizaMoto = await prisma.policy.upsert({
-    where: { certificado_producerId: { certificado: 'TEST-002', producerId: producer.id } },
+    where: { certificateNumber_producerId: { certificateNumber: 'TEST-002', producerId: producer.id } },
     update: {},
     create: {
-      certificado: 'TEST-002',
-      suplemento: 0,
+      certificateNumber: 'TEST-002',
+      endorsementNumber: 0,
       company: 'triunfo',
       riskType: 'auto',
-      movimiento: 'POLIZA NUEVA',
-      vigenciaDesde: sixMonthsAgo,
-      vigenciaHasta: oneYearFromNow,
-      premio: '28900.00',
+      lastMovement: 'POLIZA NUEVA',
+      validFrom: sixMonthsAgo,
+      validTo: oneYearFromNow,
+      premium: '28900.00',
       paymentMethod: 'Contado',
       rawData: {
         Articulo: '481',
@@ -397,36 +397,36 @@ async function main() {
   })
 
   await prisma.vehicle.upsert({
-    where: { polizaId: polizaMoto.id },
+    where: { policyId: polizaMoto.id },
     update: {},
     create: {
-      polizaId: polizaMoto.id,
-      dominio: 'XZ789YW',
-      marca: 'VOLKSWAGEN',
-      modelo: 'GOL',
-      subModelo: 'TREND 1.6',
-      anio: 2019,
-      tipo: 'AUTOMOVIL',
-      uso: 'PARTICULAR',
-      cobertura: 'B',
-      sumaAsegurada: '4200000.00',
-      ceroKm: false,
+      policyId: polizaMoto.id,
+      licensePlate: 'XZ789YW',
+      brand: 'VOLKSWAGEN',
+      model: 'GOL',
+      version: 'TREND 1.6',
+      year: 2019,
+      type: 'AUTOMOVIL',
+      usage: 'PARTICULAR',
+      coverage: 'B',
+      sumInsured: '4200000.00',
+      isZeroKm: false,
     },
   })
 
   // Poliza 3 — Vencida (mismo auto que TEST-001, patente AB123CD — deduplication test)
   const polizaVencida = await prisma.policy.upsert({
-    where: { certificado_producerId: { certificado: 'TEST-000', producerId: producer.id } },
+    where: { certificateNumber_producerId: { certificateNumber: 'TEST-000', producerId: producer.id } },
     update: {},
     create: {
-      certificado: 'TEST-000',
-      suplemento: 0,
+      certificateNumber: 'TEST-000',
+      endorsementNumber: 0,
       company: 'triunfo',
       riskType: 'auto',
-      movimiento: 'REFACTURACION',
-      vigenciaDesde: new Date('2024-01-01'),
-      vigenciaHasta: oneYearAgo,
-      premio: '48200.00',
+      lastMovement: 'REFACTURACION',
+      validFrom: new Date('2024-01-01'),
+      validTo: oneYearAgo,
+      premium: '48200.00',
       paymentMethod: 'Débito Automático',
       rawData: {
         Articulo: '458',
@@ -445,19 +445,19 @@ async function main() {
   })
 
   await prisma.vehicle.upsert({
-    where: { polizaId: polizaVencida.id },
+    where: { policyId: polizaVencida.id },
     update: {},
     create: {
-      polizaId: polizaVencida.id,
-      dominio: 'AB123CD', // same plate as TEST-001 — deduplication should hide this one
-      marca: 'FORD',
-      modelo: 'FOCUS',
-      anio: 2022,
-      tipo: 'AUTOMOVIL',
-      uso: 'PARTICULAR',
-      cobertura: 'A',
-      sumaAsegurada: '6000000.00',
-      ceroKm: false,
+      policyId: polizaVencida.id,
+      licensePlate: 'AB123CD', // same plate as TEST-001 — deduplication should hide this one
+      brand: 'FORD',
+      model: 'FOCUS',
+      year: 2022,
+      type: 'AUTOMOVIL',
+      usage: 'PARTICULAR',
+      coverage: 'A',
+      sumInsured: '6000000.00',
+      isZeroKm: false,
     },
   })
 

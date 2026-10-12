@@ -68,22 +68,22 @@ const ADMIN_CLIENT_SELECT = {
     where: { deletedAt: null },
     select: {
       id: true,
-      certificado: true,
+      certificateNumber: true,
       riskType: true,
-      movimiento: true,
-      vigenciaDesde: true,
-      vigenciaHasta: true,
-      premio: true,
+      lastMovement: true,
+      validFrom: true,
+      validTo: true,
+      premium: true,
       vehiculo: {
         select: {
           id: true,
-          dominio: true,
-          marca: true,
-          modelo: true,
-          subModelo: true,
-          anio: true,
-          cobertura: true,
-          sumaAsegurada: true,
+          licensePlate: true,
+          brand: true,
+          model: true,
+          version: true,
+          year: true,
+          coverage: true,
+          sumInsured: true,
         },
       },
       cuotas: {
@@ -91,7 +91,7 @@ const ADMIN_CLIENT_SELECT = {
         select: { status: true },
       },
     },
-    orderBy: { vigenciaHasta: 'asc' as const },
+    orderBy: { validTo: 'asc' as const },
   },
 } as const
 
@@ -101,89 +101,89 @@ const ADMIN_CLIENT_DETAIL_SELECT = {
     where: { deletedAt: null },
     select: {
       id: true,
-      certificado: true,
-      suplemento: true,
+      certificateNumber: true,
+      endorsementNumber: true,
       company: true,
       riskType: true,
-      movimiento: true,
-      vigenciaDesde: true,
-      vigenciaHasta: true,
-      premio: true,
+      lastMovement: true,
+      validFrom: true,
+      validTo: true,
+      premium: true,
       paymentMethod: true,
       vehiculo: {
         select: {
           id: true,
-          dominio: true,
-          marca: true,
-          modelo: true,
-          subModelo: true,
-          anio: true,
-          tipo: true,
-          uso: true,
-          cobertura: true,
-          sumaAsegurada: true,
-          ceroKm: true,
-          chasis: true,
-          motor: true,
+          licensePlate: true,
+          brand: true,
+          model: true,
+          version: true,
+          year: true,
+          type: true,
+          usage: true,
+          coverage: true,
+          sumInsured: true,
+          isZeroKm: true,
+          chassisNumber: true,
+          engineNumber: true,
         },
       },
       cuotas: {
         where: { deletedAt: null },
         select: {
           id: true,
-          numeroCuota: true,
+          number: true,
           amount: true,
           dueDate: true,
           status: true,
         },
-        orderBy: { numeroCuota: 'asc' as const },
+        orderBy: { number: 'asc' as const },
       },
     },
-    orderBy: { vigenciaHasta: 'asc' as const },
+    orderBy: { validTo: 'asc' as const },
   },
 } as const
 
 // Poliza shape fetched from DB — rawData is extracted server-side and dropped from the response
 const POLIZA_LIST_SELECT = {
   id: true,
-  certificado: true,
-  suplemento: true,
+  certificateNumber: true,
+  endorsementNumber: true,
   company: true,
   riskType: true,
-  movimiento: true,
-  vigenciaDesde: true,
-  vigenciaHasta: true,
-  premio: true,
+  lastMovement: true,
+  validFrom: true,
+  validTo: true,
+  premium: true,
   paymentMethod: true,
   createdAt: true,
   rawData: true,
   vehiculo: {
     select: {
       id: true,
-      dominio: true,
-      marca: true,
-      modelo: true,
-      subModelo: true,
-      anio: true,
-      tipo: true,
-      uso: true,
-      cobertura: true,
-      sumaAsegurada: true,
-      ceroKm: true,
-      chasis: true,
-      motor: true,
+      licensePlate: true,
+      brand: true,
+      model: true,
+      version: true,
+      year: true,
+      type: true,
+      usage: true,
+      coverage: true,
+      sumInsured: true,
+      isZeroKm: true,
+      chassisNumber: true,
+      engineNumber: true,
     },
   },
   cuotas: {
     where: { deletedAt: null },
     select: {
       id: true,
-      numeroCuota: true,
+      number: true,
       amount: true,
       dueDate: true,
       status: true,
     },
-    orderBy: { numeroCuota: 'asc' as const },
+    orderBy: { number: 'asc' as const },
   },
 } as const
 
@@ -194,12 +194,12 @@ const POLIZA_DETAIL_SELECT = {
     where: { deletedAt: null },
     select: {
       id: true,
-      numeroCuota: true,
+      number: true,
       amount: true,
       dueDate: true,
       status: true,
     },
-    orderBy: { numeroCuota: 'asc' as const },
+    orderBy: { number: 'asc' as const },
   },
 } as const
 
@@ -211,7 +211,7 @@ export class ClientsService {
     const polizas = await this.prisma.policy.findMany({
       where: { clientId, producerId, deletedAt: null },
       select: POLIZA_LIST_SELECT,
-      orderBy: { vigenciaDesde: 'desc' },
+      orderBy: { validFrom: 'desc' },
     })
 
     const now = new Date()
@@ -220,22 +220,22 @@ export class ClientsService {
     // One vehicle accumulates a policy per renewal/replacement. Per plate show
     // what matters today — the policy in force and its upcoming renewal, each
     // labelled — or, when neither exists, only the most recent one (expired or
-    // cancelled). Rows are ordered by vigenciaDesde desc, so the first one seen
+    // cancelled). Rows are ordered by validFrom desc, so the first one seen
     // for a plate is its most recent.
     const activePlates = new Set(
       withEstado
-        .filter(p => p.vehiculo?.dominio && (p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'))
-        .map(p => p.vehiculo!.dominio),
+        .filter(p => p.vehiculo?.licensePlate && (p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'))
+        .map(p => p.vehiculo!.licensePlate),
     )
     const seenInactivePlate = new Set<string>()
 
     return withEstado
       .filter(p => {
-        const dominio = p.vehiculo?.dominio
-        if (!dominio) return true
-        if (activePlates.has(dominio)) return p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'
-        if (seenInactivePlate.has(dominio)) return false
-        seenInactivePlate.add(dominio)
+        const licensePlate = p.vehiculo?.licensePlate
+        if (!licensePlate) return true
+        if (activePlates.has(licensePlate)) return p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'
+        if (seenInactivePlate.has(licensePlate)) return false
+        seenInactivePlate.add(licensePlate)
         return true
       })
       .map(({ rawData, ...rest }) => ({ ...rest, bien: extractBien(rawData) }))
@@ -290,9 +290,9 @@ export class ClientsService {
       this.prisma.client.count({ where: { producerId, deletedAt: null, ...this.clientVisibility(codeIds) } }),
       this.prisma.policy.count({ where: { AND: [activePoliza, inForcePolizaWhere(now)] } }),
       this.prisma.policy.count({ where: { AND: [activePoliza, expiringPolizaWhere(expiringLimit, now)] } }),
-      this.prisma.policy.count({ where: { ...activePoliza, vigenciaHasta: { lt: now } } }),
+      this.prisma.policy.count({ where: { ...activePoliza, validTo: { lt: now } } }),
       this.prisma.installment.count({
-        where: { deletedAt: null, status: 'overdue', poliza: { producerId, deletedAt: null, ...codeScope } },
+        where: { deletedAt: null, status: 'overdue', policy: { producerId, deletedAt: null, ...codeScope } },
       }),
     ])
 
@@ -327,7 +327,7 @@ export class ClientsService {
             { email: { contains: word } },
             { dni: { contains: word } },
             { phone: { contains: word } },
-            { polizas: { some: { deletedAt: null, vehiculo: { dominio: { contains: word } } } } },
+            { polizas: { some: { deletedAt: null, vehiculo: { licensePlate: { contains: word } } } } },
           ],
         })
       }
@@ -422,7 +422,7 @@ export class ClientsService {
             { email: { contains: word } },
             { dni: { contains: word } },
             { phone: { contains: word } },
-            { polizas: { some: { deletedAt: null, vehiculo: { dominio: { contains: word } } } } },
+            { polizas: { some: { deletedAt: null, vehiculo: { licensePlate: { contains: word } } } } },
           ],
         })
       }
@@ -441,7 +441,7 @@ export class ClientsService {
           where: { deletedAt: null },
           select: {
             riskType: true,
-            vehiculo: { select: { dominio: true } },
+            vehiculo: { select: { licensePlate: true } },
             cuotas: {
               where: { deletedAt: null },
               select: { amount: true, status: true, dueDate: true },
@@ -468,7 +468,7 @@ export class ClientsService {
       for (const p of client.polizas) {
         if (!ramos.includes(p.riskType)) ramos.push(p.riskType)
       }
-      const dominio = client.polizas.find(p => p.vehiculo?.dominio)?.vehiculo?.dominio ?? null
+      const licensePlate = client.polizas.find(p => p.vehiculo?.licensePlate)?.vehiculo?.licensePlate ?? null
 
       const overdueDates = overdue.map(c => c.dueDate).filter((d): d is Date => d != null)
       const oldestOverdueDate = overdueDates.length
@@ -483,7 +483,7 @@ export class ClientsService {
         email: client.email,
         phone: client.phone,
         ramos,
-        dominio,
+        licensePlate,
         pendingCount: pending.length,
         overdueCount: overdue.length,
         rejectedCount: rejected.length,
@@ -526,7 +526,7 @@ export class ClientsService {
 
   async getCobranzasStats(producerId: number, codeIds: number[]) {
     const codeScope = { producerCodeId: { in: codeIds } }
-    const baseCuota = { deletedAt: null, poliza: { producerId, deletedAt: null, ...codeScope } }
+    const baseCuota = { deletedAt: null, policy: { producerId, deletedAt: null, ...codeScope } }
     // Count clients who have a policy IN an accessible code with a cuota of the
     // given status. Scoping by the policy's code (not the client's) naturally
     // includes clients whose cartera spans several codes.

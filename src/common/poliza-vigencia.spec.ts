@@ -5,8 +5,8 @@ describe('poliza vigencia', () => {
   const d = (iso: string) => new Date(`${iso}T00:00:00Z`)
 
   // Real case: a Corsa whose policy runs until 03/10 and its renewal from 03/10.
-  const actual = { movimiento: 'REFACTURACION', vigenciaDesde: d('2026-03-03'), vigenciaHasta: d('2026-10-03') }
-  const renovacion = { movimiento: 'RENOVACION', vigenciaDesde: d('2026-10-03'), vigenciaHasta: d('2027-10-03') }
+  const actual = { lastMovement: 'REFACTURACION', validFrom: d('2026-03-03'), validTo: d('2026-10-03') }
+  const renovacion = { lastMovement: 'RENOVACION', validFrom: d('2026-10-03'), validTo: d('2027-10-03') }
 
   it('the policy covering today is vigente, its renewal is próxima', () => {
     expect(estadoVigencia(actual, now)).toBe('vigente')
@@ -20,7 +20,7 @@ describe('poliza vigencia', () => {
   })
 
   it('a cancelled policy is anulada even if its end date is in the future', () => {
-    const anulada = { movimiento: 'ANULA POR VENTA', vigenciaDesde: d('2026-02-27'), vigenciaHasta: d('2027-02-27') }
+    const anulada = { lastMovement: 'ANULA POR VENTA', validFrom: d('2026-02-27'), validTo: d('2027-02-27') }
     expect(estadoVigencia(anulada, now)).toBe('anulada')
   })
 
@@ -31,16 +31,16 @@ describe('poliza vigencia', () => {
     ['ENDOSO ANULA ENDOSO', false],
     ['REFACTURACION', false],
     ['RENOVACION', false],
-  ])('isCancelledMovimiento(%s) = %s', (movimiento, expected) => {
-    expect(isCancelledMovimiento(movimiento)).toBe(expected)
+  ])('isCancelledMovimiento(%s) = %s', (lastMovement, expected) => {
+    expect(isCancelledMovimiento(lastMovement)).toBe(expected)
   })
 
   it('builds a where-clause that requires started, not ended and not cancelled', () => {
     expect(inForcePolizaWhere(now)).toEqual({
       deletedAt: null,
-      vigenciaHasta: { gte: now },
-      OR: [{ vigenciaDesde: null }, { vigenciaDesde: { lte: now } }],
-      NOT: [{ movimiento: { startsWith: 'ANUL' } }, { movimiento: { startsWith: 'RESCISION' } }],
+      validTo: { gte: now },
+      OR: [{ validFrom: null }, { validFrom: { lte: now } }],
+      NOT: [{ lastMovement: { startsWith: 'ANUL' } }, { lastMovement: { startsWith: 'RESCISION' } }],
     })
   })
 })

@@ -50,9 +50,9 @@ describe('BotService', () => {
       })
       prisma.policy.findFirst.mockResolvedValue({
         id: 9,
-        certificado: 'ABC',
+        certificateNumber: 'ABC',
         producerCodeId: 8,
-        vehiculo: { dominio: 'AA123BB' },
+        vehiculo: { licensePlate: 'AA123BB' },
       })
       prisma.notification.findFirst.mockResolvedValue(null)
       prisma.notification.create.mockResolvedValue({ id: 17 })
@@ -596,7 +596,7 @@ describe('BotService', () => {
     it('only looks up policies in force', async () => {
       prisma.policy.findFirst.mockResolvedValue(null)
       await expect(service.createSiniestro(3, dto)).rejects.toThrow('not in force')
-      expect(prisma.policy.findFirst.mock.calls[0][0].where.AND[1]).toHaveProperty('vigenciaHasta')
+      expect(prisma.policy.findFirst.mock.calls[0][0].where.AND[1]).toHaveProperty('validTo')
     })
   })
 

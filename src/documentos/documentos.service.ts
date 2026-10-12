@@ -22,13 +22,13 @@ export class DocumentosService {
   async findByPoliza(polizaId: number, clientId: number, producerId: number): Promise<DocumentoResponse[]> {
     const poliza = await this.prisma.policy.findFirst({
       where: { id: polizaId, clientId, producerId, deletedAt: null },
-      select: { certificado: true },
+      select: { certificateNumber: true },
     })
     if (!poliza) {
       throw new NotFoundException(`Policy ${polizaId} not found`)
     }
 
-    const documentos = await this.triunfo.getDocumentos(poliza.certificado)
+    const documentos = await this.triunfo.getDocumentos(poliza.certificateNumber)
 
     return documentos.map(doc => ({
       codigo: doc.Codigo,

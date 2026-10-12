@@ -72,20 +72,20 @@ const CLIENT_SUMMARY_SELECT = {
 
 const POLIZA_SUMMARY_SELECT = {
   id: true,
-  certificado: true,
+  certificateNumber: true,
   company: true,
   riskType: true,
-  movimiento: true,
-  vigenciaDesde: true,
-  vigenciaHasta: true,
+  lastMovement: true,
+  validFrom: true,
+  validTo: true,
   paymentMethod: true,
   vehiculo: {
     select: {
-      dominio: true,
-      marca: true,
-      modelo: true,
-      anio: true,
-      cobertura: true,
+      licensePlate: true,
+      brand: true,
+      model: true,
+      year: true,
+      coverage: true,
     },
   },
 } as const
@@ -607,7 +607,7 @@ export class BotService {
         where: {
           producerId: conversation.producerId,
           deletedAt: null,
-          vehiculo: { dominio: plate, deletedAt: null },
+          vehiculo: { licensePlate: plate, deletedAt: null },
         },
         select: { clientId: true, producerCodeId: true },
       })
@@ -648,7 +648,7 @@ export class BotService {
 
     return this.prisma.policy.findMany({
       where: { clientId, producerId, ...inForcePolizaWhere() },
-      orderBy: { vigenciaHasta: 'desc' },
+      orderBy: { validTo: 'desc' },
       select: POLIZA_SUMMARY_SELECT,
     })
   }
@@ -668,15 +668,15 @@ export class BotService {
       where: { clientId, producerId, ...inForcePolizaWhere() },
       select: {
         id: true,
-        certificado: true,
+        certificateNumber: true,
         riskType: true,
-        movimiento: true,
+        lastMovement: true,
         paymentMethod: true,
-        vehiculo: { select: { dominio: true, marca: true, modelo: true } },
+        vehiculo: { select: { licensePlate: true, brand: true, model: true } },
         cuotas: {
           where: { deletedAt: null },
-          orderBy: { numeroCuota: 'asc' },
-          select: { numeroCuota: true, amount: true, dueDate: true, status: true },
+          orderBy: { number: 'asc' },
+          select: { number: true, amount: true, dueDate: true, status: true },
         },
       },
     })
@@ -698,11 +698,11 @@ export class BotService {
 
     const poliza = await this.prisma.policy.findFirst({
       where: this.polizaRefWhere(polizaId, clientId, producerId),
-      select: { certificado: true },
+      select: { certificateNumber: true },
     })
     if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
 
-    const documentos = await this.triunfo.getDocumentos(poliza.certificado)
+    const documentos = await this.triunfo.getDocumentos(poliza.certificateNumber)
     return documentos.map(doc => ({ codigo: doc.Codigo, nombre: doc.Nombre, url: doc.Url }))
   }
 
@@ -720,7 +720,7 @@ export class BotService {
         status: true,
         insurerClaimNumber: true,
         createdAt: true,
-        policy: { select: { id: true, certificado: true, riskType: true } },
+        policy: { select: { id: true, certificateNumber: true, riskType: true } },
       },
     })
   }
@@ -730,7 +730,7 @@ export class BotService {
 
     const poliza = await this.prisma.policy.findFirst({
       where: { AND: [this.polizaRefWhere(dto.policyId, clientId, producerId), inForcePolizaWhere()] },
-      select: { id: true, certificado: true, company: true, producerCodeId: true },
+      select: { id: true, certificateNumber: true, company: true, producerCodeId: true },
     })
     if (!poliza) throw new NotFoundException(`Policy ${dto.policyId} not found or not in force`)
 
@@ -753,7 +753,7 @@ export class BotService {
         status: true,
         insurerClaimNumber: true,
         createdAt: true,
-        policy: { select: { id: true, certificado: true, riskType: true } },
+        policy: { select: { id: true, certificateNumber: true, riskType: true } },
       },
     })
 
@@ -764,7 +764,7 @@ export class BotService {
       descripcion: siniestro.description,
       fecha: siniestro.occurredAt,
       cliente: { firstName: client.firstName, lastName: client.lastName, dni: client.dni, email: client.email },
-      poliza: { certificado: poliza.certificado, company: poliza.company },
+      poliza: { certificateNumber: poliza.certificateNumber, company: poliza.company },
       adjuntosCount: 0,
     })
 
@@ -888,10 +888,10 @@ export class BotService {
     const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
     const poliza = await this.prisma.policy.findFirst({
       where: { id: polizaId, clientId, producerId, deletedAt: null },
-      select: { id: true, certificado: true, producerCodeId: true, vehiculo: { select: { dominio: true } } },
+      select: { id: true, certificateNumber: true, producerCodeId: true, vehiculo: { select: { licensePlate: true } } },
     })
     if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
-    const body = `Póliza ${poliza.id}: ${poliza.certificado}${poliza.vehiculo?.dominio ? ` · Patente ${poliza.vehiculo.dominio}` : ''}. DNI ${client.dni}. El cliente solicita gestionar la baja; pendiente de confirmación de la oficina.`
+    const body = `Póliza ${poliza.id}: ${poliza.certificateNumber}${poliza.vehiculo?.licensePlate ? ` · Patente ${poliza.vehiculo.licensePlate}` : ''}. DNI ${client.dni}. El cliente solicita gestionar la baja; pendiente de confirmación de la oficina.`
     return this.prisma.$transaction(async tx => {
       const existing = await tx.notification.findFirst({
         where: {
@@ -914,7 +914,7 @@ export class BotService {
             type: 'baja_poliza',
             category: 'baja',
             refId: conversationId,
-            title: `Solicitud de baja · ${client.firstName} ${client.lastName} · Póliza ${poliza.certificado}`,
+            title: `Solicitud de baja · ${client.firstName} ${client.lastName} · Póliza ${poliza.certificateNumber}`,
             body,
           },
           select: { id: true },
@@ -928,8 +928,8 @@ export class BotService {
 
   /**
    * Locates one of the client's policies by the reference the bot passes, which
-   * may be either the internal `id` or the visible `certificado` number — the
-   * LLM routinely confuses the two (it shows the certificado to the user and
+   * may be either the internal `id` or the visible certificate number — the
+   * LLM routinely confuses the two (it shows the certificate number to the user and
    * then sends it back as the id). Scoped to the identified client, so the OR
    * can never resolve to another client's policy.
    */
@@ -938,7 +938,7 @@ export class BotService {
       clientId,
       producerId,
       deletedAt: null,
-      OR: [{ id: ref }, { certificado: String(ref) }],
+      OR: [{ id: ref }, { certificateNumber: String(ref) }],
     }
   }
 
