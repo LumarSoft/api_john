@@ -159,7 +159,7 @@ export class CotizadorService {
     const resolvedProducerId = await this.resolveProducerId(producerId)
 
     if (quoteNumber) {
-      await this.prisma.cotizacion.upsert({
+      await this.prisma.quote.upsert({
         where: { quoteNumber },
         create: {
           quoteNumber,
@@ -216,7 +216,7 @@ export class CotizadorService {
   }
 
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {
-    const cotizacion = await this.prisma.cotizacion.findFirst({
+    const cotizacion = await this.prisma.quote.findFirst({
       where: { quoteNumber, deletedAt: null },
       select: { id: true, result: true, producerId: true, producerCodeId: true },
     })
@@ -256,7 +256,7 @@ export class CotizadorService {
     }
 
     // 1:1 with the quote — re-submitting the same quote overwrites the previous lead
-    const solicitud = await this.prisma.solicitud.upsert({
+    const solicitud = await this.prisma.quoteRequest.upsert({
       where: { cotizacionId: cotizacion.id },
       create: { cotizacionId: cotizacion.id, ...data },
       update: { ...data, deletedAt: null, status: 'NEW' },

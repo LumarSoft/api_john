@@ -269,7 +269,7 @@ export class SolicitudesService {
     // A non-vehicle productType filter excludes every cotizacion.
     if (dto.productType && !vehicleType) return []
 
-    const solicitudes = await this.prisma.solicitud.findMany({
+    const solicitudes = await this.prisma.quoteRequest.findMany({
       where: {
         deletedAt: null,
         ...(dto.status ? { status: dto.status } : {}),
@@ -339,7 +339,7 @@ export class SolicitudesService {
     }
 
     // Card data is intentionally excluded from the detail response.
-    const solicitud = await this.prisma.solicitud.findFirst({
+    const solicitud = await this.prisma.quoteRequest.findFirst({
       where: { id, deletedAt: null, cotizacion: { producerId, OR: codeOr } },
       select: {
         id: true,
@@ -401,13 +401,13 @@ export class SolicitudesService {
       return { ok: true }
     }
 
-    const solicitud = await this.prisma.solicitud.findFirst({
+    const solicitud = await this.prisma.quoteRequest.findFirst({
       where: { id, deletedAt: null, cotizacion: { producerId, OR: codeOr } },
       select: { id: true },
     })
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} not found`)
     await this.prisma.$transaction([
-      this.prisma.solicitud.update({ where: { id }, data }),
+      this.prisma.quoteRequest.update({ where: { id }, data }),
       ...this.matterStatusUpdates(producerId, NovedadType.SOLICITUD, id, dto.status),
     ])
     return { ok: true }
@@ -417,7 +417,7 @@ export class SolicitudesService {
     if (!sourceStatus) return []
     const status = sourceStatus === 'CLOSED' ? 'resolved' : sourceStatus === 'CONTACTED' ? 'in_progress' : 'pending'
     return [
-      this.prisma.novedad.updateMany({
+      this.prisma.notification.updateMany({
         where: { producerId, type, refId, deletedAt: null },
         data: { status, resolvedAt: status === 'resolved' ? new Date() : null },
       }),

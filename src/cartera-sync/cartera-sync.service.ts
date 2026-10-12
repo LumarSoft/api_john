@@ -2,7 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import * as bcrypt from 'bcrypt'
 import { ConfigService } from '@nestjs/config'
-import { CuotaStatus, RiskType } from 'generated/prisma/client'
+import { InstallmentStatus, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import {
   TriunfoService,
@@ -121,7 +121,7 @@ function sortBySuplemento(novedades: TriunfoNovedad[]): TriunfoNovedad[] {
 }
 
 // Map Triunfo cuota Estado to our status values
-function mapCuotaStatus(estado: string, dueDate: Date | null): CuotaStatus {
+function mapCuotaStatus(estado: string, dueDate: Date | null): InstallmentStatus {
   const upper = (estado ?? '').toUpperCase()
   if (upper === 'PAGADA' || upper === 'COBRADA') return 'paid'
   if (upper === 'RECHAZADA' || upper === 'RECHAZADO' || upper === 'DEBITO_RECHAZADO') return 'rejected'
@@ -421,7 +421,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     }
 
     // ── 2. Upsert Poliza ──────────────────────────────────
-    const poliza = await this.prisma.poliza.upsert({
+    const poliza = await this.prisma.policy.upsert({
       where: {
         certificado_producerId: { certificado, producerId },
       },
@@ -478,7 +478,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         motor: v?.Motor ?? null,
       }
 
-      await this.prisma.vehiculo.upsert({
+      await this.prisma.vehicle.upsert({
         where: { polizaId: poliza.id },
         create: { polizaId: poliza.id, ...vehiculoData },
         update: vehiculoData,
@@ -490,7 +490,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       const dueDate = isoDate(cuota.FechaVtoCuota)
       const status = mapCuotaStatus(cuota.Estado, dueDate)
 
-      await this.prisma.cuota.upsert({
+      await this.prisma.installment.upsert({
         where: {
           polizaId_numeroCuota: { polizaId: poliza.id, numeroCuota: cuota.NumeroCuota },
         },

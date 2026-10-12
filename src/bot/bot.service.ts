@@ -603,7 +603,7 @@ export class BotService {
 
     if (!client && dto.plate) {
       const plate = dto.plate.replace(/[\s-]/g, '').toUpperCase()
-      const poliza = await this.prisma.poliza.findFirst({
+      const poliza = await this.prisma.policy.findFirst({
         where: {
           producerId: conversation.producerId,
           deletedAt: null,
@@ -626,7 +626,7 @@ export class BotService {
       select: { client: { select: CLIENT_SUMMARY_SELECT } },
     })
 
-    const polizasCount = await this.prisma.poliza.count({
+    const polizasCount = await this.prisma.policy.count({
       where: { clientId: client.id, deletedAt: null },
     })
 
@@ -646,7 +646,7 @@ export class BotService {
   async getPolizas(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
-    return this.prisma.poliza.findMany({
+    return this.prisma.policy.findMany({
       where: { clientId, producerId, ...inForcePolizaWhere() },
       orderBy: { vigenciaHasta: 'desc' },
       select: POLIZA_SUMMARY_SELECT,
@@ -664,7 +664,7 @@ export class BotService {
   async getEstadoCuenta(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
-    const polizas = await this.prisma.poliza.findMany({
+    const polizas = await this.prisma.policy.findMany({
       where: { clientId, producerId, ...inForcePolizaWhere() },
       select: {
         id: true,
@@ -696,7 +696,7 @@ export class BotService {
   async getDocumentos(conversationId: number, polizaId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
-    const poliza = await this.prisma.poliza.findFirst({
+    const poliza = await this.prisma.policy.findFirst({
       where: this.polizaRefWhere(polizaId, clientId, producerId),
       select: { certificado: true },
     })
@@ -709,7 +709,7 @@ export class BotService {
   async getSiniestros(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
-    return this.prisma.siniestro.findMany({
+    return this.prisma.claim.findMany({
       where: { clientId, producerId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -728,13 +728,13 @@ export class BotService {
   async createSiniestro(conversationId: number, dto: CreateBotSiniestroDto) {
     const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
 
-    const poliza = await this.prisma.poliza.findFirst({
+    const poliza = await this.prisma.policy.findFirst({
       where: { AND: [this.polizaRefWhere(dto.polizaId, clientId, producerId), inForcePolizaWhere()] },
       select: { id: true, certificado: true, company: true, producerCodeId: true },
     })
     if (!poliza) throw new NotFoundException(`Policy ${dto.polizaId} not found or not in force`)
 
-    const siniestro = await this.prisma.siniestro.create({
+    const siniestro = await this.prisma.claim.create({
       data: {
         tipo: dto.tipo,
         descripcion: dto.descripcion,
@@ -801,7 +801,7 @@ export class BotService {
       return { siniestroId: null, adjuntosCount: 0, attached: false, attachments }
     }
 
-    const siniestro = await this.prisma.siniestro.findFirst({
+    const siniestro = await this.prisma.claim.findFirst({
       where: {
         clientId,
         producerId,
@@ -822,7 +822,7 @@ export class BotService {
     const existing = Array.isArray(siniestro.adjuntos) ? (siniestro.adjuntos as unknown as AdjuntoMeta[]) : []
     const merged = [...existing, ...attachments].slice(-MAX_FILES)
 
-    await this.prisma.siniestro.update({
+    await this.prisma.claim.update({
       where: { id: siniestro.id },
       data: { adjuntos: merged as unknown as Prisma.InputJsonValue },
     })
@@ -886,14 +886,14 @@ export class BotService {
   /** Record a request for the office; never cancel the policy automatically. */
   async requestPolicyCancellation(conversationId: number, polizaId: number) {
     const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
-    const poliza = await this.prisma.poliza.findFirst({
+    const poliza = await this.prisma.policy.findFirst({
       where: { id: polizaId, clientId, producerId, deletedAt: null },
       select: { id: true, certificado: true, producerCodeId: true, vehiculo: { select: { dominio: true } } },
     })
     if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
     const body = `Póliza ${poliza.id}: ${poliza.certificado}${poliza.vehiculo?.dominio ? ` · Patente ${poliza.vehiculo.dominio}` : ''}. DNI ${client.dni}. El cliente solicita gestionar la baja; pendiente de confirmación de la oficina.`
     return this.prisma.$transaction(async tx => {
-      const existing = await tx.novedad.findFirst({
+      const existing = await tx.notification.findFirst({
         where: {
           producerId,
           type: 'baja_poliza',
@@ -906,7 +906,7 @@ export class BotService {
       })
       const notification =
         existing ??
-        (await tx.novedad.create({
+        (await tx.notification.create({
           data: {
             producerId,
             producerCodeId: poliza.producerCodeId,

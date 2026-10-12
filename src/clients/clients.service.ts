@@ -208,7 +208,7 @@ export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findPolizas(clientId: number, producerId: number) {
-    const polizas = await this.prisma.poliza.findMany({
+    const polizas = await this.prisma.policy.findMany({
       where: { clientId, producerId, deletedAt: null },
       select: POLIZA_LIST_SELECT,
       orderBy: { vigenciaDesde: 'desc' },
@@ -288,10 +288,10 @@ export class ClientsService {
 
     const [totalClients, vigentes, porVencer, vencidas, cuotasVencidas] = await this.prisma.$transaction([
       this.prisma.client.count({ where: { producerId, deletedAt: null, ...this.clientVisibility(codeIds) } }),
-      this.prisma.poliza.count({ where: { AND: [activePoliza, inForcePolizaWhere(now)] } }),
-      this.prisma.poliza.count({ where: { AND: [activePoliza, expiringPolizaWhere(expiringLimit, now)] } }),
-      this.prisma.poliza.count({ where: { ...activePoliza, vigenciaHasta: { lt: now } } }),
-      this.prisma.cuota.count({
+      this.prisma.policy.count({ where: { AND: [activePoliza, inForcePolizaWhere(now)] } }),
+      this.prisma.policy.count({ where: { AND: [activePoliza, expiringPolizaWhere(expiringLimit, now)] } }),
+      this.prisma.policy.count({ where: { ...activePoliza, vigenciaHasta: { lt: now } } }),
+      this.prisma.installment.count({
         where: { deletedAt: null, status: 'overdue', poliza: { producerId, deletedAt: null, ...codeScope } },
       }),
     ])
@@ -388,7 +388,7 @@ export class ClientsService {
   }
 
   async findPolizaById(id: number, clientId: number, producerId: number) {
-    const poliza = await this.prisma.poliza.findFirst({
+    const poliza = await this.prisma.policy.findFirst({
       where: { id, clientId, producerId, deletedAt: null },
       select: POLIZA_DETAIL_SELECT,
     })
@@ -545,9 +545,9 @@ export class ClientsService {
       clientesPendientes,
       clientesConDeuda,
     ] = await this.prisma.$transaction([
-      this.prisma.cuota.count({ where: { ...baseCuota, status: 'overdue' } }),
-      this.prisma.cuota.count({ where: { ...baseCuota, status: 'rejected' } }),
-      this.prisma.cuota.count({ where: { ...baseCuota, status: 'pending' } }),
+      this.prisma.installment.count({ where: { ...baseCuota, status: 'overdue' } }),
+      this.prisma.installment.count({ where: { ...baseCuota, status: 'rejected' } }),
+      this.prisma.installment.count({ where: { ...baseCuota, status: 'pending' } }),
       this.prisma.client.count({ where: clientWithCuotaStatus('overdue') }),
       this.prisma.client.count({ where: clientWithCuotaStatus('rejected') }),
       this.prisma.client.count({ where: clientWithCuotaStatus('pending') }),
@@ -566,7 +566,7 @@ export class ClientsService {
       }),
     ])
 
-    const deudaCuotas = await this.prisma.cuota.findMany({
+    const deudaCuotas = await this.prisma.installment.findMany({
       where: { ...baseCuota, status: { in: ['pending', 'overdue', 'rejected'] } },
       select: { amount: true },
     })

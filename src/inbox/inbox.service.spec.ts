@@ -314,7 +314,7 @@ describe('InboxService.deleteConversations', () => {
       conversation: { findMany: jest.fn().mockResolvedValue(rows), updateMany: jest.fn(), deleteMany: jest.fn() },
       message: { deleteMany: jest.fn() },
       contactLead: { updateMany: jest.fn() },
-      novedad: { updateMany: jest.fn() },
+      notification: { updateMany: jest.fn() },
     }
     const prisma = {
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
@@ -342,7 +342,7 @@ describe('InboxService.deleteConversations', () => {
       where: { producerId: 1, conversationId: { in: [7] } },
       data: { conversationId: null },
     })
-    expect(tx.novedad.updateMany).toHaveBeenCalledWith({
+    expect(tx.notification.updateMany).toHaveBeenCalledWith({
       where: { producerId: 1, type: 'handoff', refId: { in: [7] }, deletedAt: null },
       data: { deletedAt: expect.any(Date) },
     })

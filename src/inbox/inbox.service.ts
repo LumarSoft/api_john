@@ -198,7 +198,7 @@ export class InboxService {
         where: { producerId, conversationId: { in: ids } },
         data: { conversationId: null },
       })
-      await tx.novedad.updateMany({
+      await tx.notification.updateMany({
         where: { producerId, type: NovedadType.HANDOFF, refId: { in: ids }, deletedAt: null },
         data: { deletedAt: new Date() },
       })

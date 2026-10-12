@@ -26,7 +26,7 @@ export function isCancelledMovimiento(movimiento: string | null | undefined): bo
  * A renewal that starts next week is not in force yet — the policy it replaces
  * still is, and it is the one a claim filed today belongs to.
  */
-export function inForcePolizaWhere(now: Date = new Date()): Prisma.PolizaWhereInput {
+export function inForcePolizaWhere(now: Date = new Date()): Prisma.PolicyWhereInput {
   return {
     deletedAt: null,
     vigenciaHasta: { gte: now },
@@ -36,7 +36,7 @@ export function inForcePolizaWhere(now: Date = new Date()): Prisma.PolizaWhereIn
 }
 
 /** Where-clause for policies in force now that end within `until`. */
-export function expiringPolizaWhere(until: Date, now: Date = new Date()): Prisma.PolizaWhereInput {
+export function expiringPolizaWhere(until: Date, now: Date = new Date()): Prisma.PolicyWhereInput {
   return { AND: [inForcePolizaWhere(now), { vigenciaHasta: { lte: until } }] }
 }
 

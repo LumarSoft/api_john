@@ -20,7 +20,7 @@ export class DocumentosService {
    * The policy must belong to the authenticated client in this tenant.
    */
   async findByPoliza(polizaId: number, clientId: number, producerId: number): Promise<DocumentoResponse[]> {
-    const poliza = await this.prisma.poliza.findFirst({
+    const poliza = await this.prisma.policy.findFirst({
       where: { id: polizaId, clientId, producerId, deletedAt: null },
       select: { certificado: true },
     })

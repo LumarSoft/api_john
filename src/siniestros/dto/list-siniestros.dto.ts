@@ -1,13 +1,13 @@
 import { Type } from 'class-transformer'
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
-import { SiniestroEstado } from 'generated/prisma/client'
+import { ClaimStatus } from 'generated/prisma/client'
 
-export { SiniestroEstado }
+export { ClaimStatus }
 
 export class ListSiniestrosDto {
   @IsOptional()
-  @IsEnum(SiniestroEstado)
-  estado?: SiniestroEstado
+  @IsEnum(ClaimStatus)
+  estado?: ClaimStatus
 
   // Matches client first/last name, DNI or poliza certificado
   @IsOptional()

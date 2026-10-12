@@ -69,24 +69,24 @@ export class DashboardService {
       siniestrosResuelto,
     ] = await this.prisma.$transaction([
       this.prisma.client.count({ where: { producerId, deletedAt: null, ...code } }),
-      this.prisma.solicitud.count({ where: { ...cotizacionLead, status: 'NEW' } }),
+      this.prisma.quoteRequest.count({ where: { ...cotizacionLead, status: 'NEW' } }),
       this.prisma.contactLead.count({ where: { ...contactLead, status: 'NEW' } }),
-      this.prisma.cuota.count({ where: { ...cuota, status: 'overdue' } }),
-      this.prisma.siniestro.count({ where: { ...siniestro, estado: { in: ['pendiente', 'en_proceso'] } } }),
-      this.prisma.poliza.count({ where: { AND: [poliza, inForcePolizaWhere(now)] } }),
-      this.prisma.poliza.count({ where: { AND: [poliza, expiringPolizaWhere(expiringLimit, now)] } }),
-      this.prisma.poliza.count({ where: { ...poliza, vigenciaHasta: { lt: now } } }),
-      this.prisma.solicitud.count({ where: { ...cotizacionLead, status: 'NEW' } }),
-      this.prisma.solicitud.count({ where: { ...cotizacionLead, status: 'CONTACTED' } }),
-      this.prisma.solicitud.count({ where: { ...cotizacionLead, status: 'CLOSED' } }),
+      this.prisma.installment.count({ where: { ...cuota, status: 'overdue' } }),
+      this.prisma.claim.count({ where: { ...siniestro, estado: { in: ['pendiente', 'en_proceso'] } } }),
+      this.prisma.policy.count({ where: { AND: [poliza, inForcePolizaWhere(now)] } }),
+      this.prisma.policy.count({ where: { AND: [poliza, expiringPolizaWhere(expiringLimit, now)] } }),
+      this.prisma.policy.count({ where: { ...poliza, vigenciaHasta: { lt: now } } }),
+      this.prisma.quoteRequest.count({ where: { ...cotizacionLead, status: 'NEW' } }),
+      this.prisma.quoteRequest.count({ where: { ...cotizacionLead, status: 'CONTACTED' } }),
+      this.prisma.quoteRequest.count({ where: { ...cotizacionLead, status: 'CLOSED' } }),
       this.prisma.contactLead.count({ where: { ...contactLead, status: 'NEW' } }),
       this.prisma.contactLead.count({ where: { ...contactLead, status: 'CONTACTED' } }),
       this.prisma.contactLead.count({ where: { ...contactLead, status: 'CLOSED' } }),
-      this.prisma.cuota.count({ where: { ...cuota, status: 'pending' } }),
-      this.prisma.cuota.count({ where: { ...cuota, status: 'rejected' } }),
-      this.prisma.siniestro.count({ where: { ...siniestro, estado: 'pendiente' } }),
-      this.prisma.siniestro.count({ where: { ...siniestro, estado: 'en_proceso' } }),
-      this.prisma.siniestro.count({ where: { ...siniestro, estado: 'resuelto' } }),
+      this.prisma.installment.count({ where: { ...cuota, status: 'pending' } }),
+      this.prisma.installment.count({ where: { ...cuota, status: 'rejected' } }),
+      this.prisma.claim.count({ where: { ...siniestro, estado: 'pendiente' } }),
+      this.prisma.claim.count({ where: { ...siniestro, estado: 'en_proceso' } }),
+      this.prisma.claim.count({ where: { ...siniestro, estado: 'resuelto' } }),
     ])
 
     const montoDeudaTotal = await this.computeMontoDeuda(producerId, codeIds)
@@ -119,7 +119,7 @@ export class DashboardService {
   // Total owed across pending/overdue/rejected cuotas. Negative amounts are insurer
   // credits/adjustments, not debt — excluded, mirroring the cobranzas stats logic.
   private async computeMontoDeuda(producerId: number, codeIds: number[]): Promise<string> {
-    const cuotas = await this.prisma.cuota.findMany({
+    const cuotas = await this.prisma.installment.findMany({
       where: {
         deletedAt: null,
         poliza: { producerId, deletedAt: null, producerCodeId: { in: codeIds } },
@@ -141,7 +141,7 @@ export class DashboardService {
     const start = new Date(now.getFullYear(), now.getMonth(), 1)
     const end = new Date(now.getFullYear(), now.getMonth() + RENEWAL_MONTHS, 1)
 
-    const polizas = await this.prisma.poliza.findMany({
+    const polizas = await this.prisma.policy.findMany({
       where: {
         producerId,
         deletedAt: null,

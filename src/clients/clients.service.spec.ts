@@ -15,7 +15,7 @@ describe('ClientsService.findPolizas (portal)', () => {
 
   async function list(rows: ReturnType<typeof poliza>[]) {
     // The service orders by vigenciaDesde desc; the mock returns rows in that order.
-    const prisma = { poliza: { findMany: jest.fn().mockResolvedValue(rows) } }
+    const prisma = { policy: { findMany: jest.fn().mockResolvedValue(rows) } }
     const service = new ClientsService(prisma as unknown as PrismaService)
     const res = await service.findPolizas(1, 1)
     return res.map(p => ({ id: p.id, estado: p.estadoVigencia }))

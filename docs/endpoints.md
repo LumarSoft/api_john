@@ -107,7 +107,7 @@ Requests a vehicle insurance quote from the Triunfo API. `vehicleType` is the pa
 |-------------|--------|-----------------|
 | vehicleType | string | `auto` or `moto` |
 
-The raw Triunfo response is persisted as `Cotizacion` (with `vehicleType`); the endpoint returns a normalized result with one entry per coverage that is meant to be shown.
+The raw Triunfo response is persisted as `Quote` (with `vehicleType`); the endpoint returns a normalized result with one entry per coverage that is meant to be shown.
 
 Two rules are applied on top of what Triunfo returns:
 
@@ -1684,7 +1684,7 @@ Igual que `GET /pricing/:productType` pero scope al productor de la conversació
 ## Admin — Solicitudes de cotización
 
 Panel unificado: lista los leads (`ContactLead`) y las solicitudes de cobertura
-auto/moto (`Solicitud`) en un mismo stream. `UserAuthGuard`, scope al productor.
+auto/moto (`QuoteRequest`) en un mismo stream. `UserAuthGuard`, scope al productor.
 
 ### GET /admin/solicitudes
 
@@ -2050,7 +2050,7 @@ Persists a whole ordering in one call, for a drag-and-drop list.
 `DELETE /admin/novedades` requiere autenticación de administración. Limpia todas
 las novedades accesibles de la organización y códigos del usuario, sin filtros
 por página, estado o categoría. Responde `{ "clearedCount": 15 }`. Aplica borrado
-lógico solo a Novedad: conserva chats, siniestros, solicitudes y sus estados.
+lógico solo a Notification (novedades): conserva chats, siniestros, solicitudes y sus estados.
 Las nuevas novedades continúan registrándose. El panel exige confirmación.
 
 

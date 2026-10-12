@@ -297,7 +297,7 @@ async function main() {
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
 
   // Poliza 1 — Auto vigente (Ford Focus)
-  const polizaAuto = await prisma.poliza.upsert({
+  const polizaAuto = await prisma.policy.upsert({
     where: { certificado_producerId: { certificado: 'TEST-001', producerId: producer.id } },
     update: {},
     create: {
@@ -328,7 +328,7 @@ async function main() {
     },
   })
 
-  await prisma.vehiculo.upsert({
+  await prisma.vehicle.upsert({
     where: { polizaId: polizaAuto.id },
     update: {},
     create: {
@@ -351,7 +351,7 @@ async function main() {
     const dueDate = new Date(oneYearAgo)
     dueDate.setMonth(dueDate.getMonth() + i - 1)
     const isPast = dueDate < today
-    await prisma.cuota.upsert({
+    await prisma.installment.upsert({
       where: { polizaId_numeroCuota: { polizaId: polizaAuto.id, numeroCuota: i } },
       update: {},
       create: {
@@ -365,7 +365,7 @@ async function main() {
   }
 
   // Poliza 2 — Auto vigente (Volkswagen Gol) — mismo cliente, distinto auto
-  const polizaMoto = await prisma.poliza.upsert({
+  const polizaMoto = await prisma.policy.upsert({
     where: { certificado_producerId: { certificado: 'TEST-002', producerId: producer.id } },
     update: {},
     create: {
@@ -396,7 +396,7 @@ async function main() {
     },
   })
 
-  await prisma.vehiculo.upsert({
+  await prisma.vehicle.upsert({
     where: { polizaId: polizaMoto.id },
     update: {},
     create: {
@@ -415,7 +415,7 @@ async function main() {
   })
 
   // Poliza 3 — Vencida (mismo auto que TEST-001, patente AB123CD — deduplication test)
-  const polizaVencida = await prisma.poliza.upsert({
+  const polizaVencida = await prisma.policy.upsert({
     where: { certificado_producerId: { certificado: 'TEST-000', producerId: producer.id } },
     update: {},
     create: {
@@ -444,7 +444,7 @@ async function main() {
     },
   })
 
-  await prisma.vehiculo.upsert({
+  await prisma.vehicle.upsert({
     where: { polizaId: polizaVencida.id },
     update: {},
     create: {
@@ -467,11 +467,11 @@ async function main() {
   // data is never "orphaned" from scoping. Refined later per Triunfo code.
   const backfill = { producerCodeId: masterCodeId }
   await prisma.client.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
-  await prisma.poliza.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
-  await prisma.cotizacion.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
-  await prisma.siniestro.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.policy.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.quote.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.claim.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
   await prisma.contactLead.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
-  await prisma.novedad.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
+  await prisma.notification.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
   await prisma.conversation.updateMany({ where: { producerId: producer.id, producerCodeId: null }, data: backfill })
 
   console.log('✅ Seed completed.')

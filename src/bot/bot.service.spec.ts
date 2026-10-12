@@ -10,8 +10,8 @@ jest.mock('../siniestros/siniestro-upload.config', () => ({
 function createPrismaMock() {
   return {
     phoneNumber: { findFirst: jest.fn() },
-    poliza: { findFirst: jest.fn(), update: jest.fn() },
-    novedad: { findFirst: jest.fn(), create: jest.fn() },
+    policy: { findFirst: jest.fn(), update: jest.fn() },
+    notification: { findFirst: jest.fn(), create: jest.fn() },
     conversation: {
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -20,7 +20,7 @@ function createPrismaMock() {
       findMany: jest.fn(),
     },
     message: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
-    siniestro: { findFirst: jest.fn(), update: jest.fn() },
+    claim: { findFirst: jest.fn(), update: jest.fn() },
     businessClosure: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   }
@@ -48,23 +48,23 @@ describe('BotService', () => {
         clientLinkedAt: new Date(),
         client: { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', phone: null, deletedAt: null },
       })
-      prisma.poliza.findFirst.mockResolvedValue({
+      prisma.policy.findFirst.mockResolvedValue({
         id: 9,
         certificado: 'ABC',
         producerCodeId: 8,
         vehiculo: { dominio: 'AA123BB' },
       })
-      prisma.novedad.findFirst.mockResolvedValue(null)
-      prisma.novedad.create.mockResolvedValue({ id: 17 })
+      prisma.notification.findFirst.mockResolvedValue(null)
+      prisma.notification.create.mockResolvedValue({ id: 17 })
       prisma.$transaction.mockImplementation(fn => fn(prisma))
     })
 
     it('creates a scoped request, leaves the policy unchanged and flags the conversation for the office', async () => {
       await expect(service.requestPolicyCancellation(3, 9)).resolves.toEqual({ id: 17 })
-      expect(prisma.poliza.findFirst).toHaveBeenCalledWith(
+      expect(prisma.policy.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 9, clientId: 5, producerId: 2, deletedAt: null } }),
       )
-      expect(prisma.novedad.create).toHaveBeenCalledWith(
+      expect(prisma.notification.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             type: 'baja_poliza',
@@ -77,23 +77,23 @@ describe('BotService', () => {
         }),
       )
       expect(prisma.conversation.update).toHaveBeenCalledWith({ where: { id: 3 }, data: { status: 'pending' } })
-      expect(prisma.poliza.update).not.toHaveBeenCalled()
-      expect(prisma.novedad.findFirst).toHaveBeenCalledWith(
+      expect(prisma.policy.update).not.toHaveBeenCalled()
+      expect(prisma.notification.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({ where: expect.objectContaining({ status: { not: 'resolved' } }) }),
       )
-      expect(prisma.novedad.findFirst.mock.calls[0][0].where).not.toHaveProperty('readAt')
+      expect(prisma.notification.findFirst.mock.calls[0][0].where).not.toHaveProperty('readAt')
     })
 
     it('rejects an unidentified client before looking up any policy', async () => {
       prisma.conversation.findFirst.mockResolvedValue({ producerId: 2, client: null })
       await expect(service.requestPolicyCancellation(3, 9)).rejects.toThrow('identified client')
-      expect(prisma.poliza.findFirst).not.toHaveBeenCalled()
+      expect(prisma.policy.findFirst).not.toHaveBeenCalled()
     })
 
     it('rejects a policy outside the identified client and organization', async () => {
-      prisma.poliza.findFirst.mockResolvedValue(null)
+      prisma.policy.findFirst.mockResolvedValue(null)
       await expect(service.requestPolicyCancellation(3, 9)).rejects.toThrow('not found')
-      expect(prisma.novedad.create).not.toHaveBeenCalled()
+      expect(prisma.notification.create).not.toHaveBeenCalled()
     })
 
     it('rejects a third-party link made in an earlier session', async () => {
@@ -105,13 +105,13 @@ describe('BotService', () => {
         client: { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', phone: null, deletedAt: null },
       })
       await expect(service.requestPolicyCancellation(3, 9)).rejects.toThrow('identified client')
-      expect(prisma.poliza.findFirst).not.toHaveBeenCalled()
+      expect(prisma.policy.findFirst).not.toHaveBeenCalled()
     })
 
     it('reuses a pending notification on a retry', async () => {
-      prisma.novedad.findFirst.mockResolvedValue({ id: 17 })
+      prisma.notification.findFirst.mockResolvedValue({ id: 17 })
       await expect(service.requestPolicyCancellation(3, 9)).resolves.toEqual({ id: 17 })
-      expect(prisma.novedad.create).not.toHaveBeenCalled()
+      expect(prisma.notification.create).not.toHaveBeenCalled()
     })
   })
 
@@ -594,9 +594,9 @@ describe('BotService', () => {
     const dto = { polizaId: 9, tipo: 'auto', fecha: '2026-10-05', descripcion: 'Choque' }
 
     it('only looks up policies in force', async () => {
-      prisma.poliza.findFirst.mockResolvedValue(null)
+      prisma.policy.findFirst.mockResolvedValue(null)
       await expect(service.createSiniestro(3, dto)).rejects.toThrow('not in force')
-      expect(prisma.poliza.findFirst.mock.calls[0][0].where.AND[1]).toHaveProperty('vigenciaHasta')
+      expect(prisma.policy.findFirst.mock.calls[0][0].where.AND[1]).toHaveProperty('vigenciaHasta')
     })
   })
 
@@ -639,25 +639,25 @@ describe('BotService.attachAdjuntos', () => {
     const usage = { isLlmEnabled: jest.fn().mockResolvedValue(true) }
     service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, config)
     prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: 5 })
-    prisma.siniestro.findFirst.mockResolvedValue(null)
+    prisma.claim.findFirst.mockResolvedValue(null)
   })
 
   it('only joins a loose photo to a claim filed in the last 48 hours', async () => {
     const result = await service.attachAdjuntos(3, photo)
 
     expect(result.attached).toBe(false)
-    const where = prisma.siniestro.findFirst.mock.calls[0][0].where
+    const where = prisma.claim.findFirst.mock.calls[0][0].where
     const since = where.createdAt.gte as Date
     expect(Date.now() - since.getTime()).toBeGreaterThan(47 * 60 * 60_000)
     expect(Date.now() - since.getTime()).toBeLessThan(49 * 60 * 60_000)
   })
 
   it('attaches a guided claim photo to the open claim whatever its age', async () => {
-    prisma.siniestro.findFirst.mockResolvedValue({ id: 9, adjuntos: [] })
+    prisma.claim.findFirst.mockResolvedValue({ id: 9, adjuntos: [] })
 
     const result = await service.attachAdjuntos(3, photo, 'tarjeta_verde')
 
     expect(result).toMatchObject({ siniestroId: 9, attached: true })
-    expect(prisma.siniestro.findFirst.mock.calls[0][0].where).not.toHaveProperty('createdAt')
+    expect(prisma.claim.findFirst.mock.calls[0][0].where).not.toHaveProperty('createdAt')
   })
 })

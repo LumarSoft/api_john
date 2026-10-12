@@ -223,8 +223,8 @@ export class OwnerService {
 
     const [clients, polizas, siniestros, syncMarks] = await Promise.all([
       this.prisma.client.groupBy({ by: ['producerCodeId'], where: scope, _count: { _all: true } }),
-      this.prisma.poliza.groupBy({ by: ['producerCodeId'], where: scope, _count: { _all: true } }),
-      this.prisma.siniestro.groupBy({ by: ['producerCodeId'], where: scope, _count: { _all: true } }),
+      this.prisma.policy.groupBy({ by: ['producerCodeId'], where: scope, _count: { _all: true } }),
+      this.prisma.claim.groupBy({ by: ['producerCodeId'], where: scope, _count: { _all: true } }),
       this.prisma.producerCode.findMany({
         where: { id: { in: codeIds } },
         select: { id: true, lastCarteraSyncAt: true },

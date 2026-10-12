@@ -47,11 +47,11 @@ model Producer {
   wabaAccounts     WabaAccount[]
   users            User[]
   clients          Client[]
-  polizas          Poliza[]
-  cotizaciones     Cotizacion[]
+  polizas          Policy[]
+  cotizaciones     Quote[]
   conversations    Conversation[]
-  siniestros       Siniestro[]
-  novedades        Novedad[]
+  siniestros       Claim[]
+  novedades        Notification[]
   contactLeads     ContactLead[]
   productPlans     ProductPlan[]
   businessClosures BusinessClosure[]
@@ -227,12 +227,12 @@ model ProducerCode {
 
   users                UserProducerCode[]
   clients              Client[]
-  polizas              Poliza[]
-  cotizaciones         Cotizacion[]
-  siniestros           Siniestro[]
+  polizas              Policy[]
+  cotizaciones         Quote[]
+  siniestros           Claim[]
   contactLeads         ContactLead[]
   conversations        Conversation[]
-  novedades            Novedad[]
+  novedades            Notification[]
   // Phone numbers whose billing is attributed to this code.
   responsibleForPhones PhoneNumber[]             @relation("phone_responsible_code")
   // Phone numbers this code is served by (many-to-many, e.g. shared office line).
@@ -430,7 +430,7 @@ model User {
   producer              Producer              @relation(fields: [producerId], references: [id])
   // Producer codes this admin may access (ignored for SUPERADMIN = all codes).
   producerCodes         UserProducerCode[]
-  cotizaciones          Cotizacion[]
+  cotizaciones          Quote[]
   assignedConversations Conversation[]        @relation("assigned_conversations")
   botStatusChanges      BotStatusChange[]
   proposals             ImprovementProposal[]
@@ -461,9 +461,9 @@ model Client {
   producerCodeId Int?
   producerCode   ProducerCode?  @relation(fields: [producerCodeId], references: [id])
   conversations  Conversation[]
-  polizas        Poliza[]
-  siniestros     Siniestro[]
-  novedades      Novedad[]
+  polizas        Policy[]
+  siniestros     Claim[]
+  novedades      Notification[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
@@ -482,7 +482,7 @@ enum RiskType {
   other
 }
 
-model Poliza {
+model Policy {
   id            Int       @id @default(autoincrement())
   certificado   String // certificate number from Triunfo
   suplemento    Int       @default(0) // policy version / supplement
@@ -509,15 +509,15 @@ model Poliza {
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
 
-  vehiculo   Vehiculo?
-  cuotas     Cuota[]
-  siniestros Siniestro[]
+  vehiculo   Vehicle?
+  cuotas     Installment[]
+  siniestros Claim[]
 
   @@unique([certificado, producerId])
   @@index([producerCodeId])
 }
 
-model Vehiculo {
+model Vehicle {
   id            Int       @id @default(autoincrement())
   dominio       String? // license plate
   marca         String?
@@ -541,56 +541,56 @@ model Vehiculo {
   deletedAt     DateTime?
 
   polizaId Int    @unique
-  poliza   Poliza @relation(fields: [polizaId], references: [id])
+  poliza   Policy @relation(fields: [polizaId], references: [id])
 }
 
-enum CuotaStatus {
+enum InstallmentStatus {
   pending
   paid
   overdue
   rejected
 }
 
-model Cuota {
-  id          Int         @id @default(autoincrement())
+model Installment {
+  id          Int               @id @default(autoincrement())
   numeroCuota Int
-  amount      Decimal     @db.Decimal(12, 2)
+  amount      Decimal           @db.Decimal(12, 2)
   dueDate     DateTime?
-  status      CuotaStatus @default(pending)
+  status      InstallmentStatus @default(pending)
   deletedAt   DateTime?
 
   polizaId Int
-  poliza   Poliza @relation(fields: [polizaId], references: [id])
+  poliza   Policy @relation(fields: [polizaId], references: [id])
 
   @@unique([polizaId, numeroCuota])
 }
 
 // ─── SINIESTROS (denuncias del cliente) ──────────────────
 
-enum SiniestroEstado {
+enum ClaimStatus {
   pendiente
   en_proceso
   resuelto
 }
 
-model Siniestro {
-  id                   Int             @id @default(autoincrement())
+model Claim {
+  id                   Int         @id @default(autoincrement())
   tipo                 String // "auto" | "hogar" | "robo" | "otro"
-  descripcion          String          @db.Text
+  descripcion          String      @db.Text
   fecha                DateTime // date of the incident
-  estado               SiniestroEstado @default(pendiente)
+  estado               ClaimStatus @default(pendiente)
   // Official claim number, set by the admin after manually filing the claim in
   // Triunfo's web (their API has no claims endpoint yet).
   nroSiniestroCompania String?
   adjuntos             Json? // array of { filename, originalName, url, mimeType, size }
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
   deletedAt            DateTime?
 
   clientId       Int
   client         Client        @relation(fields: [clientId], references: [id])
   polizaId       Int
-  poliza         Poliza        @relation(fields: [polizaId], references: [id])
+  poliza         Policy        @relation(fields: [polizaId], references: [id])
   producerId     Int
   producer       Producer      @relation(fields: [producerId], references: [id])
   // Triunfo agent code that owns the underlying policy/client (for admin scoping).
@@ -606,23 +606,23 @@ model Siniestro {
 // asking for a human advisor (type "handoff"). title/body are denormalized at
 // creation so the list needs no joins; the full detail is fetched from the
 // source entity via `refId` when the admin opens it.
-enum NovedadStatus {
+enum NotificationStatus {
   pending
   in_progress
   resolved
 }
 
-model Novedad {
-  category   String        @default("other") // baja | pagos | cotizacion | siniestro | documentos | other
-  status     NovedadStatus @default(pending)
+model Notification {
+  category   String             @default("other") // baja | pagos | cotizacion | siniestro | documentos | other
+  status     NotificationStatus @default(pending)
   resolvedAt DateTime?
-  id         Int           @id @default(autoincrement())
+  id         Int                @id @default(autoincrement())
   type       String // "siniestro" | "handoff" | "baja_poliza" | "lead" | "solicitud"
-  refId      Int // Siniestro.id when type="siniestro"; Conversation.id for "handoff" and "baja_poliza"
+  refId      Int // Claim.id when type="siniestro"; Conversation.id for "handoff" and "baja_poliza"
   title      String
-  body       String?       @db.Text
+  body       String?            @db.Text
   readAt     DateTime? // null = unread; set when the admin marks it read
-  createdAt  DateTime      @default(now())
+  createdAt  DateTime           @default(now())
   deletedAt  DateTime?
 
   producerId     Int
@@ -645,7 +645,7 @@ model Novedad {
 
 // ─── COTIZACIONES ────────────────────────────────────────
 
-model Cotizacion {
+model Quote {
   id              Int       @id @default(autoincrement())
   quoteNumber     Int       @unique
   vehicleType     String    @default("AUTO") // AUTO | MOTO
@@ -665,7 +665,7 @@ model Cotizacion {
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   userId         Int?
   user           User?         @relation(fields: [userId], references: [id])
-  solicitud      Solicitud?
+  solicitud      QuoteRequest?
 
   @@index([producerCodeId])
 }
@@ -679,10 +679,10 @@ enum LeadStatus {
   CLOSED
 }
 
-model Solicitud {
-  id           Int        @id @default(autoincrement())
-  cotizacionId Int        @unique
-  cotizacion   Cotizacion @relation(fields: [cotizacionId], references: [id])
+model QuoteRequest {
+  id           Int   @id @default(autoincrement())
+  cotizacionId Int   @unique
+  cotizacion   Quote @relation(fields: [cotizacionId], references: [id])
 
   selectedCoverage  String
   coverageStartDate DateTime

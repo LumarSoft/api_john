@@ -64,7 +64,7 @@ export class NovedadesService {
   ): Promise<void> {
     const body = input.reason?.trim() || null
     // Exact repeats share a pending matter; a different request remains separate.
-    const existing = await this.prisma.novedad
+    const existing = await this.prisma.notification
       .findFirst({
         where: {
           producerId,
@@ -104,7 +104,7 @@ export class NovedadesService {
     },
   ): Promise<void> {
     try {
-      await this.prisma.novedad.create({
+      await this.prisma.notification.create({
         data: {
           producerId,
           category: data.category ?? MatterCategory.OTHER,
@@ -133,7 +133,7 @@ export class NovedadesService {
     const page = dto.page && dto.page > 0 ? dto.page : 1
     const pageSize = dto.pageSize && dto.pageSize > 0 ? dto.pageSize : DEFAULT_PAGE_SIZE
     const search = dto.search?.trim()
-    const where: Prisma.NovedadWhereInput = {
+    const where: Prisma.NotificationWhereInput = {
       producerId,
       deletedAt: null,
       ...this.codeScope(codeIds),
@@ -167,8 +167,8 @@ export class NovedadesService {
     }
 
     const [total, data] = await this.prisma.$transaction([
-      this.prisma.novedad.count({ where }),
-      this.prisma.novedad.findMany({
+      this.prisma.notification.count({ where }),
+      this.prisma.notification.findMany({
         where,
         select: NOVEDAD_SELECT,
         // Strictly newest first; read state doesn't reorder the list.
@@ -189,7 +189,7 @@ export class NovedadesService {
 
   /** Clears notifications only, leaving their underlying business records intact. */
   async clearAll(producerId: number, codeIds: number[]) {
-    const result = await this.prisma.novedad.updateMany({
+    const result = await this.prisma.notification.updateMany({
       where: { producerId, deletedAt: null, ...this.codeScope(codeIds) },
       data: { deletedAt: new Date() },
     })
@@ -200,16 +200,16 @@ export class NovedadesService {
     const base = { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds) }
 
     const [unreadTotal, unreadSiniestros, unreadHandoff, unreadBajas] = await this.prisma.$transaction([
-      this.prisma.novedad.count({ where: base }),
-      this.prisma.novedad.count({ where: { ...base, type: NovedadType.SINIESTRO } }),
-      this.prisma.novedad.count({ where: { ...base, type: NovedadType.HANDOFF } }),
-      this.prisma.novedad.count({ where: { ...base, type: NovedadType.BAJA_POLIZA } }),
+      this.prisma.notification.count({ where: base }),
+      this.prisma.notification.count({ where: { ...base, type: NovedadType.SINIESTRO } }),
+      this.prisma.notification.count({ where: { ...base, type: NovedadType.HANDOFF } }),
+      this.prisma.notification.count({ where: { ...base, type: NovedadType.BAJA_POLIZA } }),
     ])
 
     const categories = Object.values(MatterCategory)
     const counts = await this.prisma.$transaction(
       categories.map(category =>
-        this.prisma.novedad.count({
+        this.prisma.notification.count({
           where: {
             producerId,
             deletedAt: null,
@@ -242,12 +242,12 @@ export class NovedadesService {
     },
   ) {
     try {
-      const existing = await this.prisma.novedad.findFirst({
+      const existing = await this.prisma.notification.findFirst({
         where: { producerId, type: input.type, refId: input.refId, deletedAt: null },
         select: { id: true },
       })
       if (existing) {
-        await this.prisma.novedad.update({
+        await this.prisma.notification.update({
           where: { id: existing.id },
           data: {
             title: `Solicitud de cotización · ${input.name}`,
@@ -285,7 +285,7 @@ export class NovedadesService {
 
   async updateMatter(id: number, producerId: number, codeIds: number[], dto: UpdateMatterDto) {
     return this.prisma.$transaction(async tx => {
-      const matter = await tx.novedad.findFirst({
+      const matter = await tx.notification.findFirst({
         where: { id, producerId, deletedAt: null, ...this.codeScope(codeIds) },
         select: { type: true, refId: true },
       })
@@ -304,13 +304,13 @@ export class NovedadesService {
             data: { status },
           })
         } else {
-          await tx.solicitud.updateMany({
+          await tx.quoteRequest.updateMany({
             where: { id: matter.refId, deletedAt: null, cotizacion: { producerId, ...this.codeScope(codeIds) } },
             data: { status },
           })
         }
       }
-      return tx.novedad.update({
+      return tx.notification.update({
         where: { id },
         data: {
           ...(dto.category ? { category: dto.category } : {}),
@@ -324,7 +324,7 @@ export class NovedadesService {
   }
 
   async markRead(id: number, producerId: number, codeIds: number[]) {
-    const novedad = await this.prisma.novedad.findFirst({
+    const novedad = await this.prisma.notification.findFirst({
       where: { id, producerId, deletedAt: null, ...this.codeScope(codeIds) },
       select: { id: true, readAt: true },
     })
@@ -332,10 +332,10 @@ export class NovedadesService {
 
     // Idempotent: only stamp readAt the first time.
     if (novedad.readAt) {
-      return this.prisma.novedad.findFirstOrThrow({ where: { id }, select: NOVEDAD_SELECT })
+      return this.prisma.notification.findFirstOrThrow({ where: { id }, select: NOVEDAD_SELECT })
     }
 
-    return this.prisma.novedad.update({
+    return this.prisma.notification.update({
       where: { id },
       data: { readAt: new Date() },
       select: NOVEDAD_SELECT,
@@ -343,7 +343,7 @@ export class NovedadesService {
   }
 
   async markAllRead(producerId: number, codeIds: number[], type?: NovedadType) {
-    const result = await this.prisma.novedad.updateMany({
+    const result = await this.prisma.notification.updateMany({
       where: { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds), ...(type ? { type } : {}) },
       data: { readAt: new Date() },
     })
