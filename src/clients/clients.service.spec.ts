@@ -3,10 +3,10 @@ import { ClientsService } from './clients.service'
 
 describe('ClientsService.findPolizas (portal)', () => {
   const d = (iso: string) => new Date(`${iso}T00:00:00Z`)
-  const poliza = (id: number, dominio: string | null, status: string, desde: string, hasta: string) => ({
+  const poliza = (id: number, dominio: string | null, movimiento: string, desde: string, hasta: string) => ({
     id,
     certificado: String(id),
-    status,
+    movimiento,
     vigenciaDesde: d(desde),
     vigenciaHasta: d(hasta),
     rawData: {},

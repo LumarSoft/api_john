@@ -1,10 +1,11 @@
 import { Type } from 'class-transformer'
-import { IsIn, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
+import { IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
+import { ConversationStatus } from 'generated/prisma/client'
 
 export class ListInboxDto {
   @IsOptional()
-  @IsIn(['open', 'pending', 'closed'])
-  status?: string
+  @IsEnum(ConversationStatus)
+  status?: ConversationStatus
 
   // Matches client first/last name, DNI, or the WhatsApp number (waId).
   @IsOptional()

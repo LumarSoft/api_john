@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { Prisma } from 'generated/prisma/client'
+import { Prisma, SiniestroEstado } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
@@ -159,7 +159,7 @@ export class SiniestrosService {
 
   async getAdminStats(producerId: number, codeIds: number[]) {
     const code = { producerCodeId: { in: codeIds } }
-    const countByEstado = (estado: string) =>
+    const countByEstado = (estado: SiniestroEstado) =>
       this.prisma.siniestro.count({ where: { producerId, deletedAt: null, ...code, estado } })
 
     const [pendientes, enProceso, resueltos, sinNroCompania] = await this.prisma.$transaction([

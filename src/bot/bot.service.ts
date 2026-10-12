@@ -75,7 +75,7 @@ const POLIZA_SUMMARY_SELECT = {
   certificado: true,
   company: true,
   riskType: true,
-  status: true,
+  movimiento: true,
   vigenciaDesde: true,
   vigenciaHasta: true,
   paymentMethod: true,
@@ -670,7 +670,7 @@ export class BotService {
         id: true,
         certificado: true,
         riskType: true,
-        status: true,
+        movimiento: true,
         paymentMethod: true,
         vehiculo: { select: { dominio: true, marca: true, modelo: true } },
         cuotas: {

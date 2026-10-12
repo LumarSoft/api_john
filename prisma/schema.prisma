@@ -455,7 +455,9 @@ model Client {
   dni                    String
   firstName              String
   lastName               String
-  email                  String
+  // Null when Triunfo has no email for the client. Synthetic "<dni>@cliente.local"
+  // addresses used to fill it in: they ended up as 40% of all clients.
+  email                  String?
   password               String
   requiresPasswordChange Boolean   @default(true)
   phone                  String?
@@ -498,7 +500,10 @@ model Poliza {
   suplemento    Int       @default(0) // policy version / supplement
   company       String // "triunfo" — expandable for future companies
   riskType      RiskType  @default(other)
-  status        String // "VIGENTE" | "VENCIDA" | "REFACTURACION" etc.
+  // Triunfo's last movement on the policy ("REFACTURACION", "ANULA POR VENTA",
+  // "RENOVACION"…), not its status: validity is computed from the dates and
+  // this movement (see common/poliza-vigencia.ts).
+  movimiento    String
   vigenciaDesde DateTime?
   vigenciaHasta DateTime?
   premio        Decimal?  @db.Decimal(12, 2)
@@ -551,12 +556,19 @@ model Vehiculo {
   poliza   Poliza @relation(fields: [polizaId], references: [id])
 }
 
+enum CuotaStatus {
+  pending
+  paid
+  overdue
+  rejected
+}
+
 model Cuota {
-  id          Int       @id @default(autoincrement())
+  id          Int         @id @default(autoincrement())
   numeroCuota Int
-  amount      Decimal   @db.Decimal(12, 2)
+  amount      Decimal     @db.Decimal(12, 2)
   dueDate     DateTime?
-  status      String    @default("pending") // "pending" | "paid" | "overdue" | "rejected"
+  status      CuotaStatus @default(pending)
   deletedAt   DateTime?
 
   polizaId Int
@@ -567,18 +579,24 @@ model Cuota {
 
 // ─── SINIESTROS (denuncias del cliente) ──────────────────
 
+enum SiniestroEstado {
+  pendiente
+  en_proceso
+  resuelto
+}
+
 model Siniestro {
-  id                   Int       @id @default(autoincrement())
+  id                   Int             @id @default(autoincrement())
   tipo                 String // "auto" | "hogar" | "robo" | "otro"
-  descripcion          String    @db.Text
+  descripcion          String          @db.Text
   fecha                DateTime // date of the incident
-  estado               String    @default("pendiente") // "pendiente" | "en_proceso" | "resuelto"
+  estado               SiniestroEstado @default(pendiente)
   // Official claim number, set by the admin after manually filing the claim in
   // Triunfo's web (their API has no claims endpoint yet).
   nroSiniestroCompania String?
   adjuntos             Json? // array of { filename, originalName, url, mimeType, size }
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
   deletedAt            DateTime?
 
   clientId       Int
@@ -600,17 +618,23 @@ model Siniestro {
 // asking for a human advisor (type "handoff"). title/body are denormalized at
 // creation so the list needs no joins; the full detail is fetched from the
 // source entity via `refId` when the admin opens it.
+enum NovedadStatus {
+  pending
+  in_progress
+  resolved
+}
+
 model Novedad {
-  category   String    @default("other") // baja | pagos | cotizacion | siniestro | documentos | other
-  status     String    @default("pending") // pending | in_progress | resolved
+  category   String        @default("other") // baja | pagos | cotizacion | siniestro | documentos | other
+  status     NovedadStatus @default(pending)
   resolvedAt DateTime?
-  id         Int       @id @default(autoincrement())
+  id         Int           @id @default(autoincrement())
   type       String // "siniestro" | "handoff" | "baja_poliza" | "lead" | "solicitud"
   refId      Int // Siniestro.id when type="siniestro"; Conversation.id for "handoff" and "baja_poliza"
   title      String
-  body       String?   @db.Text
+  body       String?       @db.Text
   readAt     DateTime? // null = unread; set when the admin marks it read
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime      @default(now())
   deletedAt  DateTime?
 
   producerId     Int
@@ -660,6 +684,13 @@ model Cotizacion {
 
 // ─── SOLICITUDES DE COBERTURA (LEADS) ────────────────────
 
+// Follow-up of a quote request or a contact lead in the admin panel.
+enum LeadStatus {
+  NEW
+  CONTACTED
+  CLOSED
+}
+
 model Solicitud {
   id           Int        @id @default(autoincrement())
   cotizacionId Int        @unique
@@ -686,8 +717,8 @@ model Solicitud {
 
   // Follow-up state for the unified "Solicitudes de cotización" admin panel,
   // shared with ContactLead so both lead kinds are managed the same way.
-  status String  @default("NEW") // NEW | CONTACTED | CLOSED
-  notes  String? @db.Text
+  status LeadStatus @default(NEW)
+  notes  String?    @db.Text
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -699,19 +730,19 @@ model Solicitud {
 // (bici, comercio, praxis, personas) come straight from a contact form; the
 // `fixed` products (bolso, hogar) carry the chosen ProductPlan in selectedPlanId.
 model ContactLead {
-  id             Int       @id @default(autoincrement())
+  id             Int        @id @default(autoincrement())
   productType    String // bici | comercio | praxis | personas | bolso | hogar
   channel        String // WEB | WHATSAPP
-  status         String    @default("NEW") // NEW | CONTACTED | CLOSED
+  status         LeadStatus @default(NEW)
   contactName    String
   phone          String
   email          String?
   payload        Json // product-specific fields (actividad, superficie, bici subtype, etc.)
   selectedPlanId Int? // set only for the fixed-price products (bolso, hogar)
-  notes          String?   @db.Text
+  notes          String?    @db.Text
   conversationId Int? // set when the lead came from the WhatsApp bot
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
   deletedAt      DateTime?
 
   producerId     Int
@@ -751,6 +782,12 @@ model ProductPlan {
 
 // ─── CONVERSACIONES WHATSAPP ─────────────────────────────
 
+enum ConversationStatus {
+  open
+  pending
+  closed
+}
+
 model Conversation {
   id        Int       @id @default(autoincrement())
   waId      String
@@ -781,12 +818,12 @@ model Conversation {
   flowState        String?   @db.Text
 
   // ─── Human handoff ───────────────────────────────────────
-  // status: "open" (bot active) | "pending" (waiting for agent) | "closed"
-  status           String    @default("open")
+  // open: bot active · pending: waiting for an agent · closed
+  status           ConversationStatus @default(open)
   // When true the bot skips the LLM/flow loop and only stores inbound messages.
-  botPaused        Boolean   @default(false)
+  botPaused        Boolean            @default(false)
   assignedToUserId Int?
-  assignedTo       User?     @relation("assigned_conversations", fields: [assignedToUserId], references: [id])
+  assignedTo       User?              @relation("assigned_conversations", fields: [assignedToUserId], references: [id])
   handedOverAt     DateTime?
 
   producerId        Int

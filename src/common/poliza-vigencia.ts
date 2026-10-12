@@ -2,7 +2,7 @@ import type { Prisma } from 'generated/prisma/client'
 import { BUSINESS_TZ } from '../business-hours/schedule'
 
 /**
- * `Poliza.status` is Triunfo's last movement type ("REFACTURACION",
+ * `Poliza.movimiento` is Triunfo's last movement type ("REFACTURACION",
  * "RENOVACION", "ANULA POR VENTA", …), not a validity flag, and a cancelled
  * policy keeps its original `vigenciaHasta`. So "in force" has to combine the
  * dates with the movement: over 2,000 cancelled policies had an end date in the
@@ -16,8 +16,8 @@ const CANCELLED_PREFIXES = ['ANUL', 'RESCISION'] as const
 
 export type EstadoVigencia = 'vigente' | 'proxima' | 'vencida' | 'anulada'
 
-export function isCancelledStatus(status: string | null | undefined): boolean {
-  const s = (status ?? '').trim().toUpperCase()
+export function isCancelledMovimiento(movimiento: string | null | undefined): boolean {
+  const s = (movimiento ?? '').trim().toUpperCase()
   return CANCELLED_PREFIXES.some(prefix => s.startsWith(prefix))
 }
 
@@ -31,7 +31,7 @@ export function inForcePolizaWhere(now: Date = new Date()): Prisma.PolizaWhereIn
     deletedAt: null,
     vigenciaHasta: { gte: now },
     OR: [{ vigenciaDesde: null }, { vigenciaDesde: { lte: now } }],
-    NOT: CANCELLED_PREFIXES.map(prefix => ({ status: { startsWith: prefix } })),
+    NOT: CANCELLED_PREFIXES.map(prefix => ({ movimiento: { startsWith: prefix } })),
   }
 }
 
@@ -41,10 +41,10 @@ export function expiringPolizaWhere(until: Date, now: Date = new Date()): Prisma
 }
 
 export function estadoVigencia(
-  poliza: { status: string | null; vigenciaDesde: Date | null; vigenciaHasta: Date | null },
+  poliza: { movimiento: string | null; vigenciaDesde: Date | null; vigenciaHasta: Date | null },
   now: Date = new Date(),
 ): EstadoVigencia {
-  if (isCancelledStatus(poliza.status)) return 'anulada'
+  if (isCancelledMovimiento(poliza.movimiento)) return 'anulada'
   if (poliza.vigenciaDesde && poliza.vigenciaDesde > now) return 'proxima'
   if (poliza.vigenciaHasta && poliza.vigenciaHasta < now) return 'vencida'
   return 'vigente'

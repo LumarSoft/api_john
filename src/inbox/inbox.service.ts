@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { Prisma } from 'generated/prisma/client'
+import { ConversationStatus, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { isSamePhone } from '../common/phone-match'
 import { signAdjuntoUrl } from '../siniestros/adjunto-url'
@@ -107,7 +107,7 @@ export class InboxService {
   ) {}
 
   async listConversations(producerId: number, codeIds: number[], dto: ListInboxDto, metaPhoneNumberId?: string | null) {
-    const statusFilter = dto.status ? [dto.status] : ['open', 'pending']
+    const statusFilter: ConversationStatus[] = dto.status ? [dto.status] : ['open', 'pending']
     const search = dto.search?.trim()
 
     const conversations = await this.prisma.conversation.findMany({

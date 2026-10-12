@@ -2,7 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import * as bcrypt from 'bcrypt'
 import { ConfigService } from '@nestjs/config'
-import { RiskType } from 'generated/prisma/client'
+import { CuotaStatus, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import {
   TriunfoService,
@@ -121,7 +121,7 @@ function sortBySuplemento(novedades: TriunfoNovedad[]): TriunfoNovedad[] {
 }
 
 // Map Triunfo cuota Estado to our status values
-function mapCuotaStatus(estado: string, dueDate: Date | null): string {
+function mapCuotaStatus(estado: string, dueDate: Date | null): CuotaStatus {
   const upper = (estado ?? '').toUpperCase()
   if (upper === 'PAGADA' || upper === 'COBRADA') return 'paid'
   if (upper === 'RECHAZADA' || upper === 'RECHAZADO' || upper === 'DEBITO_RECHAZADO') return 'rejected'
@@ -326,7 +326,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
 
     const vigDesde = isoDate(novedad.VigenciaDesde ?? novedad.FechaVigDesde)
     const vigHasta = isoDate(novedad.VigenciaHasta ?? novedad.FechaVigHasta)
-    const status = novedad.EstadoPoliza ?? novedad.Estado ?? ''
+    const movimiento = novedad.EstadoPoliza ?? novedad.Estado ?? ''
     const premio = novedad.DetallePremio?.Premio ?? novedad.Premio ?? null
     const paymentMethod = novedad.MedioPagoDescripcion ?? null
     const suplemento = novedad.Suplemento ?? 0
@@ -348,14 +348,12 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       select: { id: true, email: true, firstName: true },
     })
 
-    const isPlaceholderEmail = client?.email?.endsWith('@cliente.local')
-
     if (!client) {
       // Triunfo sometimes reuses the same email across different DNIs. Email is
       // unique per producer, so if the real email is already taken by ANOTHER
-      // client, fall back to the per-DNI placeholder (always unique) instead of
-      // crashing the upsert and dropping the policy.
-      let email = realEmail ?? `${dni}@cliente.local`
+      // client the new one is left without email instead of crashing the upsert
+      // and dropping the policy.
+      let email = realEmail
       let realEmailTaken = false
       if (realEmail) {
         const emailOwner = await this.prisma.client.findFirst({
@@ -363,7 +361,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
           select: { id: true },
         })
         if (emailOwner) {
-          email = `${dni}@cliente.local`
+          email = null
           realEmailTaken = true
         }
       }
@@ -398,12 +396,12 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       })
 
       if (realEmailTaken) {
-        this.logger.debug(`DNI=${dni}: email ${realEmail} already in use — created with placeholder`)
+        this.logger.debug(`DNI=${dni}: email ${realEmail} already in use — created without email`)
       } else {
         this.logger.debug(`Created client DNI=${dni} email=${email}`)
       }
-    } else if (isPlaceholderEmail && realEmail) {
-      // Upgrade placeholder email to real one from Triunfo — try, ignore conflict
+    } else if (!client.email && realEmail) {
+      // Fill in the email as soon as Triunfo reports one — try, ignore conflict
       try {
         await this.prisma.client.update({
           where: { id: client.id },
@@ -418,7 +416,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         })
         this.logger.debug(`Updated client DNI=${dni} → real email ${realEmail}`)
       } catch {
-        // Email conflict with another client — keep placeholder
+        // Email conflict with another client — stays without email
       }
     }
 
@@ -432,7 +430,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         suplemento,
         company: 'triunfo',
         riskType,
-        status,
+        movimiento,
         vigenciaDesde: vigDesde,
         vigenciaHasta: vigHasta,
         premio,
@@ -444,7 +442,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       },
       update: {
         suplemento,
-        status,
+        movimiento,
         vigenciaHasta: vigHasta,
         premio,
         paymentMethod,

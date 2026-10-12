@@ -1,11 +1,8 @@
 import { Type } from 'class-transformer'
 import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
+import { SiniestroEstado } from 'generated/prisma/client'
 
-export enum SiniestroEstado {
-  PENDIENTE = 'pendiente',
-  EN_PROCESO = 'en_proceso',
-  RESUELTO = 'resuelto',
-}
+export { SiniestroEstado }
 
 export class ListSiniestrosDto {
   @IsOptional()

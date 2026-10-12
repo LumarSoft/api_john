@@ -7,7 +7,7 @@ export interface SiniestroNotification {
   tipo: string
   descripcion: string
   fecha: Date
-  cliente: { firstName: string; lastName: string; dni: string; email: string }
+  cliente: { firstName: string; lastName: string; dni: string; email: string | null }
   poliza: { certificado: string; company: string }
   adjuntosCount: number
 }
@@ -112,7 +112,7 @@ export class MailService {
           <tr><td style="padding: 6px 0; color: #888;">Tipo</td><td style="padding: 6px 0;">${data.tipo}</td></tr>
           <tr><td style="padding: 6px 0; color: #888;">Fecha del hecho</td><td style="padding: 6px 0;">${fecha}</td></tr>
           <tr><td style="padding: 6px 0; color: #888;">Cliente</td><td style="padding: 6px 0;">${data.cliente.lastName}, ${data.cliente.firstName} (DNI ${data.cliente.dni})</td></tr>
-          <tr><td style="padding: 6px 0; color: #888;">Email cliente</td><td style="padding: 6px 0;">${data.cliente.email}</td></tr>
+          <tr><td style="padding: 6px 0; color: #888;">Email cliente</td><td style="padding: 6px 0;">${data.cliente.email ?? '—'}</td></tr>
           <tr><td style="padding: 6px 0; color: #888;">Póliza</td><td style="padding: 6px 0;">${data.poliza.certificado} (${data.poliza.company})</td></tr>
           <tr><td style="padding: 6px 0; color: #888;">Adjuntos</td><td style="padding: 6px 0;">${data.adjuntosCount}</td></tr>
         </table>
