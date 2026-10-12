@@ -121,8 +121,6 @@ export class UsageService {
         responsibleProducerCodeId: true,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
-        monthlyBasePriceUsd: true,
-        monthlyMaxPriceUsd: true,
       },
     })
   }
@@ -304,7 +302,7 @@ export class UsageService {
 
   /** Recomputes the invoiced amount for a period row after the cost changed. */
   private async refreshBilled(
-    phone: { id: number; monthlyBasePriceUsd: unknown; monthlyMaxPriceUsd: unknown },
+    phone: { id: number },
     rowId: number,
     usage: MonthlyBillableUsage,
     period: string,
@@ -378,8 +376,6 @@ export class UsageService {
             phoneNumberId: true,
             monthlyBudgetUsd: true,
             budgetExceededAt: true,
-            monthlyBasePriceUsd: true,
-            monthlyMaxPriceUsd: true,
           },
         },
         producerCode: { select: { id: true, code: true, holderName: true } },

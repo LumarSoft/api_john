@@ -41,8 +41,6 @@ export class PhoneNumbersService {
         isActive: true,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
-        monthlyBasePriceUsd: true,
-        monthlyMaxPriceUsd: true,
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true, holderName: true } } } },
         usageMonthly: {

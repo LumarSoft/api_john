@@ -214,11 +214,6 @@ model ProducerCode {
   // True for the organization's principal code (mirrors Producer.masterCode).
   isMaster          Boolean   @default(false)
   isActive          Boolean   @default(true)
-  // OPTIONAL per-code Triunfo credentials. Only needed if Triunfo requires a
-  // separate login per agent code to pull that code's cartera. If null, the
-  // org-level TRIUNFO_* env credentials (master code) are used. See cartera-sync.
-  triunfoUsuario    String?
-  triunfoPassword   String?
   // Last successful cartera sync for this code. Null = never synced, which makes
   // the next run use the full backfill window (6 months) instead of the
   // incremental one (3 months). See CarteraSyncService.buildDateRange.
@@ -319,13 +314,6 @@ model PhoneNumber {
   // LLM while the deterministic flows keep working at zero token cost.
   monthlyBudgetUsd Decimal?  @db.Decimal(10, 2)
   budgetExceededAt DateTime?
-
-  // ── Billing (what the CLIENT pays, as opposed to what the number COSTS) ──
-  // Legacy plan settings retained for schema compatibility. Billing now always
-  // uses the configured commercial token/message tariff, with USD 50–100 defaults.
-  monthlyBasePriceUsd Decimal? @db.Decimal(10, 2)
-  monthlyMaxPriceUsd  Decimal? @db.Decimal(10, 2)
-  billingMarkup       Decimal? @db.Decimal(6, 2)
 
   usageEvents      UsageEvent[]
   usageMonthly     UsageMonthly[]
@@ -709,11 +697,9 @@ model Solicitud {
   applicantDocNumber String
   applicantAddress   String
 
-  paymentMethod String // CREDIT | DEBIT | OTHER
-  cardCompany   String?
-  cardNumber    String?
-  cardExpiry    String? // YYYYMM (Triunfo format)
-  cardHolder    String?
+  // Preferred method only (CREDIT | DEBIT | OTHER). Card data is never stored:
+  // an agent finalizes the payment when issuing the policy.
+  paymentMethod String
 
   // Follow-up state for the unified "Solicitudes de cotización" admin panel,
   // shared with ContactLead so both lead kinds are managed the same way.

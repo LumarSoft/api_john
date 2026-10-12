@@ -190,13 +190,9 @@ Records the coverage request (lead) for an existing quote: the coverage the visi
 | docType    | string | Yes      | `DNI`, `CUIL`, `CUIT` or `PASAPORTE`                 |
 | docNumber  | string | Yes      | ≤ 15                                                 |
 | address    | string | Yes      | ≤ 160                                                |
-| paymentMethod | string | Yes   | `CREDIT`, `DEBIT` or `OTHER`                         |
-| cardCompany | string | If card | ≤ 30 — required when `paymentMethod` is `CREDIT`/`DEBIT` |
-| cardNumber | string | If card  | 13–19 digits — required when `paymentMethod` is `CREDIT`/`DEBIT` |
-| cardExpiry | string | If card  | `YYYYMM`, current month or later — required when `paymentMethod` is `CREDIT`/`DEBIT` |
-| cardHolder | string | If card  | ≤ 80 — required when `paymentMethod` is `CREDIT`/`DEBIT` |
+| paymentMethod | string | Yes   | `CREDIT`, `DEBIT` or `OTHER` — preferred method only |
 
-With `paymentMethod: "OTHER"` no card data is taken — an agent contacts the applicant by phone to finish the purchase. Card fields sent with `OTHER` are ignored.
+Card data is never taken or stored: an agent contacts the applicant to finish the payment when issuing the policy. Card fields are rejected as unknown properties.
 
 ```json
 {
@@ -211,11 +207,7 @@ With `paymentMethod: "OTHER"` no card data is taken — an agent contacts the ap
   "docType": "DNI",
   "docNumber": "30123456",
   "address": "Calle Ejemplo 123, Rosario",
-  "paymentMethod": "CREDIT",
-  "cardCompany": "VISA",
-  "cardNumber": "4111111111111111",
-  "cardExpiry": "202712",
-  "cardHolder": "Juan Pérez"
+  "paymentMethod": "CREDIT"
 }
 ```
 
@@ -230,7 +222,7 @@ With `paymentMethod: "OTHER"` no card data is taken — an agent contacts the ap
 }
 ```
 
-`400 Bad Request` — Validation error, `startDate` is in the past, or `cardExpiry` is in the past
+`400 Bad Request` — Validation error or `startDate` is in the past
 
 `404 Not Found` — No quote exists with that `quoteNumber`
 

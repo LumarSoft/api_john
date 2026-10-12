@@ -19,7 +19,6 @@ import { InfoAutoService } from '../infoauto/infoauto.service'
 import { VehicleType } from '../infoauto/infoauto.types'
 import { QuoteVehicleDto } from './dto/quote-vehicle.dto'
 import { CoverageRequestDto } from './dto/coverage-request.dto'
-import { encryptCardNumber } from './card-crypto'
 import { isVisiblePaymentMethod, paymentMethodLabel } from '../common/payment-methods'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import type { QuoteCoverage, QuoteAutoResult, NormalizedQuote, CoverageRequestResult } from './cotizador.types'
@@ -239,15 +238,6 @@ export class CotizadorService {
       throw new BadRequestException('startDate cannot be after the quote expiration date')
     }
 
-    const paysWithCard = dto.paymentMethod !== 'OTHER'
-    if (paysWithCard && dto.cardExpiry && dto.cardExpiry < this.currentYearMonth()) {
-      throw new BadRequestException('cardExpiry cannot be in the past')
-    }
-
-    // The PAN never touches the database in plaintext — resolve the key before writing anything
-    const encryptedCardNumber =
-      paysWithCard && dto.cardNumber ? encryptCardNumber(dto.cardNumber, this.cardEncryptionKey()) : null
-
     const data = {
       selectedCoverage: dto.coverage,
       coverageStartDate: startDate,
@@ -260,11 +250,9 @@ export class CotizadorService {
       applicantDocType: dto.docType,
       applicantDocNumber: dto.docNumber,
       applicantAddress: dto.address,
+      // Only the preferred method: card data is never taken here, an agent
+      // finalizes the payment when issuing the policy.
       paymentMethod: dto.paymentMethod,
-      cardCompany: paysWithCard ? (dto.cardCompany ?? null) : null,
-      cardNumber: encryptedCardNumber,
-      cardExpiry: paysWithCard ? (dto.cardExpiry ?? null) : null,
-      cardHolder: paysWithCard ? (dto.cardHolder ?? null) : null,
     }
 
     // 1:1 with the quote — re-submitting the same quote overwrites the previous lead
@@ -326,20 +314,6 @@ export class CotizadorService {
   // Dates arrive as YYYY-MM-DD; anchor them at UTC midnight to avoid timezone drift
   private parseDateOnly(value: string): Date {
     return new Date(`${value.slice(0, 10)}T00:00:00.000Z`)
-  }
-
-  private currentYearMonth(): string {
-    const now = new Date()
-    return `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}`
-  }
-
-  // 64 hex chars = 32-byte AES-256 key. Fail loudly rather than ever persisting a plaintext PAN.
-  private cardEncryptionKey(): Buffer {
-    const hex = this.configService.get<string>('CARD_ENCRYPTION_KEY', '')
-    if (!/^[0-9a-fA-F]{64}$/.test(hex)) {
-      throw new InternalServerErrorException('CARD_ENCRYPTION_KEY is not configured')
-    }
-    return Buffer.from(hex, 'hex')
   }
 
   // InfoAuto codia = brandId * 10000 + model number; Triunfo expects the model number alone
