@@ -5,6 +5,12 @@
 -- key, so those are dropped and added back under the new name).
 -- Columns and relation names keep their names, so the API's JSON does not change.
 
+-- Re-adding a foreign key normally rebuilds the whole table to validate every row,
+-- which kept Policy/Installment/Claim locked for minutes. These are the same
+-- constraints that already held this data, only renamed, so validation is skipped
+-- and the change is metadata-only (seconds). Checks are restored at the end.
+SET FOREIGN_KEY_CHECKS = 0;
+
 RENAME TABLE `Poliza` TO `Policy`, `Cuota` TO `Installment`, `Vehiculo` TO `Vehicle`, `Siniestro` TO `Claim`, `Novedad` TO `Notification`, `Cotizacion` TO `Quote`, `Solicitud` TO `QuoteRequest`;
 
 -- DropForeignKey
@@ -142,3 +148,4 @@ ALTER TABLE `QuoteRequest` RENAME INDEX `Solicitud_cotizacionId_key` TO `QuoteRe
 -- RenameIndex
 ALTER TABLE `Vehicle` RENAME INDEX `Vehiculo_polizaId_key` TO `Vehicle_polizaId_key`;
 
+SET FOREIGN_KEY_CHECKS = 1;
