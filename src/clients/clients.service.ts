@@ -64,7 +64,7 @@ const ADMIN_CLIENT_SELECT = {
   city: true,
   dni: true,
   createdAt: true,
-  polizas: {
+  policies: {
     where: { deletedAt: null },
     select: {
       id: true,
@@ -74,7 +74,7 @@ const ADMIN_CLIENT_SELECT = {
       validFrom: true,
       validTo: true,
       premium: true,
-      vehiculo: {
+      vehicle: {
         select: {
           id: true,
           licensePlate: true,
@@ -86,7 +86,7 @@ const ADMIN_CLIENT_SELECT = {
           sumInsured: true,
         },
       },
-      cuotas: {
+      installments: {
         where: { deletedAt: null },
         select: { status: true },
       },
@@ -97,7 +97,7 @@ const ADMIN_CLIENT_SELECT = {
 
 const ADMIN_CLIENT_DETAIL_SELECT = {
   ...ADMIN_CLIENT_SELECT,
-  polizas: {
+  policies: {
     where: { deletedAt: null },
     select: {
       id: true,
@@ -110,7 +110,7 @@ const ADMIN_CLIENT_DETAIL_SELECT = {
       validTo: true,
       premium: true,
       paymentMethod: true,
-      vehiculo: {
+      vehicle: {
         select: {
           id: true,
           licensePlate: true,
@@ -127,7 +127,7 @@ const ADMIN_CLIENT_DETAIL_SELECT = {
           engineNumber: true,
         },
       },
-      cuotas: {
+      installments: {
         where: { deletedAt: null },
         select: {
           id: true,
@@ -157,7 +157,7 @@ const POLIZA_LIST_SELECT = {
   paymentMethod: true,
   createdAt: true,
   rawData: true,
-  vehiculo: {
+  vehicle: {
     select: {
       id: true,
       licensePlate: true,
@@ -174,7 +174,7 @@ const POLIZA_LIST_SELECT = {
       engineNumber: true,
     },
   },
-  cuotas: {
+  installments: {
     where: { deletedAt: null },
     select: {
       id: true,
@@ -187,10 +187,10 @@ const POLIZA_LIST_SELECT = {
   },
 } as const
 
-// Full detail shape — includes cuotas, still omits rawData and password fields
+// Full detail shape — includes installments, still omits rawData and password fields
 const POLIZA_DETAIL_SELECT = {
   ...POLIZA_LIST_SELECT,
-  cuotas: {
+  installments: {
     where: { deletedAt: null },
     select: {
       id: true,
@@ -208,14 +208,14 @@ export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findPolizas(clientId: number, producerId: number) {
-    const polizas = await this.prisma.policy.findMany({
+    const policies = await this.prisma.policy.findMany({
       where: { clientId, producerId, deletedAt: null },
       select: POLIZA_LIST_SELECT,
       orderBy: { validFrom: 'desc' },
     })
 
     const now = new Date()
-    const withEstado = polizas.map(p => ({ ...p, estadoVigencia: estadoVigencia(p, now) }))
+    const withEstado = policies.map(p => ({ ...p, estadoVigencia: estadoVigencia(p, now) }))
 
     // One vehicle accumulates a policy per renewal/replacement. Per plate show
     // what matters today — the policy in force and its upcoming renewal, each
@@ -224,14 +224,14 @@ export class ClientsService {
     // for a plate is its most recent.
     const activePlates = new Set(
       withEstado
-        .filter(p => p.vehiculo?.licensePlate && (p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'))
-        .map(p => p.vehiculo!.licensePlate),
+        .filter(p => p.vehicle?.licensePlate && (p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'))
+        .map(p => p.vehicle!.licensePlate),
     )
     const seenInactivePlate = new Set<string>()
 
     return withEstado
       .filter(p => {
-        const licensePlate = p.vehiculo?.licensePlate
+        const licensePlate = p.vehicle?.licensePlate
         if (!licensePlate) return true
         if (activePlates.has(licensePlate)) return p.estadoVigencia === 'vigente' || p.estadoVigencia === 'proxima'
         if (seenInactivePlate.has(licensePlate)) return false
@@ -258,10 +258,10 @@ export class ClientsService {
     ])
 
     const data = raw.map(client => {
-      const allCuotas = client.polizas.flatMap(p => p.cuotas)
+      const allCuotas = client.policies.flatMap(p => p.installments)
       return {
         ...client,
-        polizas: client.polizas.map(({ cuotas: _, ...p }) => ({ ...p, estadoVigencia: estadoVigencia(p) })),
+        policies: client.policies.map(({ installments: _, ...p }) => ({ ...p, estadoVigencia: estadoVigencia(p) })),
         cuotaStats: {
           pending: allCuotas.filter(c => c.status === 'pending').length,
           overdue: allCuotas.filter(c => c.status === 'overdue').length,
@@ -307,7 +307,7 @@ export class ClientsService {
     return {
       OR: [
         { producerCodeId: { in: codeIds } },
-        { polizas: { some: { deletedAt: null, producerCodeId: { in: codeIds } } } },
+        { policies: { some: { deletedAt: null, producerCodeId: { in: codeIds } } } },
       ],
     }
   }
@@ -327,14 +327,14 @@ export class ClientsService {
             { email: { contains: word } },
             { dni: { contains: word } },
             { phone: { contains: word } },
-            { polizas: { some: { deletedAt: null, vehiculo: { licensePlate: { contains: word } } } } },
+            { policies: { some: { deletedAt: null, vehicle: { licensePlate: { contains: word } } } } },
           ],
         })
       }
     }
 
     if (query.riskType) {
-      and.push({ polizas: { some: { deletedAt: null, riskType: query.riskType } } })
+      and.push({ policies: { some: { deletedAt: null, riskType: query.riskType } } })
     }
 
     const estadoWhere = this.buildEstadoWhere(query.estado)
@@ -351,16 +351,16 @@ export class ClientsService {
 
     switch (estado) {
       case ClientEstadoFilter.VIGENTE:
-        return { polizas: { some: inForcePolizaWhere(now) } }
+        return { policies: { some: inForcePolizaWhere(now) } }
       case ClientEstadoFilter.POR_VENCER:
-        return { polizas: { some: expiringPolizaWhere(expiringLimit, now) } }
+        return { policies: { some: expiringPolizaWhere(expiringLimit, now) } }
       case ClientEstadoFilter.VENCIDA:
         // Has policies, but none currently in force.
         return {
-          AND: [{ polizas: { some: { deletedAt: null } } }, { polizas: { none: inForcePolizaWhere(now) } }],
+          AND: [{ policies: { some: { deletedAt: null } } }, { policies: { none: inForcePolizaWhere(now) } }],
         }
       case ClientEstadoFilter.SIN_POLIZAS:
-        return { polizas: { none: { deletedAt: null } } }
+        return { policies: { none: { deletedAt: null } } }
       default:
         return null
     }
@@ -384,7 +384,7 @@ export class ClientsService {
       select: ADMIN_CLIENT_DETAIL_SELECT,
     })
     if (!client) throw new NotFoundException(`Client ${id} not found`)
-    return { ...client, polizas: client.polizas.map(p => ({ ...p, estadoVigencia: estadoVigencia(p) })) }
+    return { ...client, policies: client.policies.map(p => ({ ...p, estadoVigencia: estadoVigencia(p) })) }
   }
 
   async findPolizaById(id: number, clientId: number, producerId: number) {
@@ -408,7 +408,7 @@ export class ClientsService {
     const where: Prisma.ClientWhereInput = {
       producerId,
       deletedAt: null,
-      polizas: { some: { deletedAt: null, cuotas: { some: { deletedAt: null } } } },
+      policies: { some: { deletedAt: null, installments: { some: { deletedAt: null } } } },
       AND: and,
     }
 
@@ -422,7 +422,7 @@ export class ClientsService {
             { email: { contains: word } },
             { dni: { contains: word } },
             { phone: { contains: word } },
-            { polizas: { some: { deletedAt: null, vehiculo: { licensePlate: { contains: word } } } } },
+            { policies: { some: { deletedAt: null, vehicle: { licensePlate: { contains: word } } } } },
           ],
         })
       }
@@ -437,12 +437,12 @@ export class ClientsService {
         dni: true,
         email: true,
         phone: true,
-        polizas: {
+        policies: {
           where: { deletedAt: null },
           select: {
             riskType: true,
-            vehiculo: { select: { licensePlate: true } },
-            cuotas: {
+            vehicle: { select: { licensePlate: true } },
+            installments: {
               where: { deletedAt: null },
               select: { amount: true, status: true, dueDate: true },
             },
@@ -453,22 +453,22 @@ export class ClientsService {
     })
 
     const enriched = clients.map(client => {
-      const allCuotas = client.polizas.flatMap(p => p.cuotas)
+      const allCuotas = client.policies.flatMap(p => p.installments)
       const pending = allCuotas.filter(c => c.status === 'pending')
       const overdue = allCuotas.filter(c => c.status === 'overdue')
       const rejected = allCuotas.filter(c => c.status === 'rejected')
       const paid = allCuotas.filter(c => c.status === 'paid')
-      // Negative-amount cuotas are insurer credits/adjustments, not debt — excluded from the owed total.
+      // Negative-amount installments are insurer credits/adjustments, not debt — excluded from the owed total.
       const totalDeuda = [...pending, ...overdue, ...rejected].reduce(
         (sum, c) => sum + Math.max(0, Number(c.amount)),
         0,
       )
 
       const ramos: RiskType[] = []
-      for (const p of client.polizas) {
+      for (const p of client.policies) {
         if (!ramos.includes(p.riskType)) ramos.push(p.riskType)
       }
-      const licensePlate = client.polizas.find(p => p.vehiculo?.licensePlate)?.vehiculo?.licensePlate ?? null
+      const licensePlate = client.policies.find(p => p.vehicle?.licensePlate)?.vehicle?.licensePlate ?? null
 
       const overdueDates = overdue.map(c => c.dueDate).filter((d): d is Date => d != null)
       const oldestOverdueDate = overdueDates.length
@@ -533,7 +533,7 @@ export class ClientsService {
     const clientWithCuotaStatus = (status: 'pending' | 'overdue' | 'rejected'): Prisma.ClientWhereInput => ({
       producerId,
       deletedAt: null,
-      polizas: { some: { deletedAt: null, ...codeScope, cuotas: { some: { deletedAt: null, status } } } },
+      policies: { some: { deletedAt: null, ...codeScope, installments: { some: { deletedAt: null, status } } } },
     })
 
     const [
@@ -555,11 +555,11 @@ export class ClientsService {
         where: {
           producerId,
           deletedAt: null,
-          polizas: {
+          policies: {
             some: {
               deletedAt: null,
               ...codeScope,
-              cuotas: { some: { deletedAt: null, status: { in: ['pending', 'overdue', 'rejected'] } } },
+              installments: { some: { deletedAt: null, status: { in: ['pending', 'overdue', 'rejected'] } } },
             },
           },
         },
@@ -570,7 +570,7 @@ export class ClientsService {
       where: { ...baseCuota, status: { in: ['pending', 'overdue', 'rejected'] } },
       select: { amount: true },
     })
-    // Negative-amount cuotas are insurer credits/adjustments, not debt — excluded from the owed total.
+    // Negative-amount installments are insurer credits/adjustments, not debt — excluded from the owed total.
     const montoDeudaTotal = deudaCuotas.reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0).toFixed(2)
 
     return {

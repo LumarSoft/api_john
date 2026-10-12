@@ -47,11 +47,11 @@ model Producer {
   wabaAccounts     WabaAccount[]
   users            User[]
   clients          Client[]
-  polizas          Policy[]
-  cotizaciones     Quote[]
+  policies         Policy[]
+  quotes           Quote[]
   conversations    Conversation[]
-  siniestros       Claim[]
-  novedades        Notification[]
+  claims           Claim[]
+  notifications    Notification[]
   contactLeads     ContactLead[]
   productPlans     ProductPlan[]
   businessClosures BusinessClosure[]
@@ -227,12 +227,12 @@ model ProducerCode {
 
   users                UserProducerCode[]
   clients              Client[]
-  polizas              Policy[]
-  cotizaciones         Quote[]
-  siniestros           Claim[]
+  policies             Policy[]
+  quotes               Quote[]
+  claims               Claim[]
   contactLeads         ContactLead[]
   conversations        Conversation[]
-  novedades            Notification[]
+  notifications        Notification[]
   // Phone numbers whose billing is attributed to this code.
   responsibleForPhones PhoneNumber[]             @relation("phone_responsible_code")
   // Phone numbers this code is served by (many-to-many, e.g. shared office line).
@@ -415,22 +415,22 @@ enum Role {
 }
 
 model User {
-  lastNovedadesVisitAt    DateTime?
+  lastNotificationsVisitAt DateTime?
   // Last time this user opened "Mejoras": anything published after it is new to them.
-  lastImprovementsVisitAt DateTime?
-  id                      Int       @id @default(autoincrement())
-  email                   String    @unique
-  password                String
-  role                    Role      @default(ADMIN)
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
-  deletedAt               DateTime?
+  lastImprovementsVisitAt  DateTime?
+  id                       Int       @id @default(autoincrement())
+  email                    String    @unique
+  password                 String
+  role                     Role      @default(ADMIN)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  deletedAt                DateTime?
 
   producerId            Int
   producer              Producer              @relation(fields: [producerId], references: [id])
   // Producer codes this admin may access (ignored for SUPERADMIN = all codes).
   producerCodes         UserProducerCode[]
-  cotizaciones          Quote[]
+  quotes                Quote[]
   assignedConversations Conversation[]        @relation("assigned_conversations")
   botStatusChanges      BotStatusChange[]
   proposals             ImprovementProposal[]
@@ -461,9 +461,9 @@ model Client {
   producerCodeId Int?
   producerCode   ProducerCode?  @relation(fields: [producerCodeId], references: [id])
   conversations  Conversation[]
-  polizas        Policy[]
-  siniestros     Claim[]
-  novedades      Notification[]
+  policies       Policy[]
+  claims         Claim[]
+  notifications  Notification[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
@@ -509,9 +509,9 @@ model Policy {
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
 
-  vehiculo   Vehicle?
-  cuotas     Installment[]
-  siniestros Claim[]
+  vehicle      Vehicle?
+  installments Installment[]
+  claims       Claim[]
 
   @@unique([certificateNumber, producerId])
   @@index([producerCodeId])
@@ -667,7 +667,7 @@ model Quote {
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   userId         Int?
   user           User?         @relation(fields: [userId], references: [id])
-  solicitud      QuoteRequest?
+  quoteRequest   QuoteRequest?
 
   @@index([producerCodeId])
 }
@@ -682,9 +682,9 @@ enum LeadStatus {
 }
 
 model QuoteRequest {
-  id           Int   @id @default(autoincrement())
-  cotizacionId Int   @unique
-  cotizacion   Quote @relation(fields: [cotizacionId], references: [id])
+  id      Int   @id @default(autoincrement())
+  quoteId Int   @unique
+  quote   Quote @relation(fields: [quoteId], references: [id])
 
   selectedCoverage  String
   coverageStartDate DateTime

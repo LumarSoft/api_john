@@ -41,7 +41,7 @@ export class DashboardService {
     const codeOrNull = { OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }
 
     // Producer- + code-scoping shortcuts for each entity.
-    const cotizacionLead = { deletedAt: null, cotizacion: { producerId, deletedAt: null, ...codeOrNull } }
+    const cotizacionLead = { deletedAt: null, quote: { producerId, deletedAt: null, ...codeOrNull } }
     const contactLead = { producerId, deletedAt: null, ...codeOrNull }
     const poliza = { producerId, deletedAt: null, ...code }
     const cuota = { deletedAt: null, policy: { producerId, deletedAt: null, ...code } }

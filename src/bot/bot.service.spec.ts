@@ -52,7 +52,7 @@ describe('BotService', () => {
         id: 9,
         certificateNumber: 'ABC',
         producerCodeId: 8,
-        vehiculo: { licensePlate: 'AA123BB' },
+        vehicle: { licensePlate: 'AA123BB' },
       })
       prisma.notification.findFirst.mockResolvedValue(null)
       prisma.notification.create.mockResolvedValue({ id: 17 })

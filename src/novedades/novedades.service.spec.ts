@@ -306,12 +306,12 @@ describe('NovedadesService', () => {
 
     it('returns the previous visit before advancing its timestamp', async () => {
       const previous = new Date('2026-09-29T12:00:00Z')
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ lastNovedadesVisitAt: previous })
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ lastNotificationsVisitAt: previous })
       const result = await service.registerVisit(3)
       expect(result.previousVisitAt).toEqual(previous)
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 3 },
-        data: { lastNovedadesVisitAt: result.visitedAt },
+        data: { lastNotificationsVisitAt: result.visitedAt },
       })
     })
   })

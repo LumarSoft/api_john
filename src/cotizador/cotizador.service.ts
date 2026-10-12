@@ -257,8 +257,8 @@ export class CotizadorService {
 
     // 1:1 with the quote — re-submitting the same quote overwrites the previous lead
     const solicitud = await this.prisma.quoteRequest.upsert({
-      where: { cotizacionId: cotizacion.id },
-      create: { cotizacionId: cotizacion.id, ...data },
+      where: { quoteId: cotizacion.id },
+      create: { quoteId: cotizacion.id, ...data },
       update: { ...data, deletedAt: null, status: 'NEW' },
     })
 

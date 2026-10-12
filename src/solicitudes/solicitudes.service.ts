@@ -273,7 +273,7 @@ export class SolicitudesService {
       where: {
         deletedAt: null,
         ...(dto.status ? { status: dto.status } : {}),
-        cotizacion: {
+        quote: {
           producerId,
           deletedAt: null,
           OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }],
@@ -290,18 +290,18 @@ export class SolicitudesService {
         applicantEmail: true,
         applicantPhone: true,
         createdAt: true,
-        cotizacion: { select: { vehicleType: true, manufactureYear: true } },
+        quote: { select: { vehicleType: true, manufactureYear: true } },
       },
     })
 
     return solicitudes.map(s => ({
       id: s.id,
       kind: 'cotizacion' as const,
-      productType: s.cotizacion.vehicleType.toLowerCase(),
+      productType: s.quote.vehicleType.toLowerCase(),
       contactName: `${s.applicantFirstName} ${s.applicantLastName ?? ''}`.trim(),
       phone: s.applicantPhone,
       email: s.applicantEmail,
-      summary: `Cobertura ${s.selectedCoverage} · ${s.cotizacion.manufactureYear}`,
+      summary: `Cobertura ${s.selectedCoverage} · ${s.quote.manufactureYear}`,
       channel: 'WEB',
       status: s.status,
       createdAt: s.createdAt,
@@ -340,7 +340,7 @@ export class SolicitudesService {
 
     // Card data is intentionally excluded from the detail response.
     const solicitud = await this.prisma.quoteRequest.findFirst({
-      where: { id, deletedAt: null, cotizacion: { producerId, OR: codeOr } },
+      where: { id, deletedAt: null, quote: { producerId, OR: codeOr } },
       select: {
         id: true,
         status: true,
@@ -357,7 +357,7 @@ export class SolicitudesService {
         applicantAddress: true,
         paymentMethod: true,
         createdAt: true,
-        cotizacion: {
+        quote: {
           // `result` is the full raw Triunfo quote — same source the web/bot used,
           // so the panel shows EXACTLY the same coverages and prices (consistency).
           select: { quoteNumber: true, vehicleType: true, manufactureYear: true, postalCode: true, result: true },
@@ -366,12 +366,12 @@ export class SolicitudesService {
     })
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} not found`)
 
-    const { cotizacion, ...rest } = solicitud
-    const { result, ...cotizacionMeta } = cotizacion
+    const { quote, ...rest } = solicitud
+    const { result, ...quoteMeta } = quote
     return {
       kind,
       ...rest,
-      cotizacion: cotizacionMeta,
+      quote: quoteMeta,
       // All quoted coverages with their prices (cheapest first), so the admin sees
       // the same figures presented to the client.
       coverages: parseQuoteCoverages(result),
@@ -402,7 +402,7 @@ export class SolicitudesService {
     }
 
     const solicitud = await this.prisma.quoteRequest.findFirst({
-      where: { id, deletedAt: null, cotizacion: { producerId, OR: codeOr } },
+      where: { id, deletedAt: null, quote: { producerId, OR: codeOr } },
       select: { id: true },
     })
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} not found`)

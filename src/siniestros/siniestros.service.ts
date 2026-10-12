@@ -52,7 +52,7 @@ const ADMIN_SINIESTRO_SELECT = {
       certificateNumber: true,
       company: true,
       riskType: true,
-      vehiculo: { select: { licensePlate: true, brand: true, model: true } },
+      vehicle: { select: { licensePlate: true, brand: true, model: true } },
     },
   },
 } as const

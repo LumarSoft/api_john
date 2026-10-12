@@ -276,10 +276,13 @@ export class NovedadesService {
 
   async registerVisit(userId: number) {
     return this.prisma.$transaction(async tx => {
-      const user = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { lastNovedadesVisitAt: true } })
+      const user = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { lastNotificationsVisitAt: true },
+      })
       const visitedAt = new Date()
-      await tx.user.update({ where: { id: userId }, data: { lastNovedadesVisitAt: visitedAt } })
-      return { previousVisitAt: user.lastNovedadesVisitAt, visitedAt }
+      await tx.user.update({ where: { id: userId }, data: { lastNotificationsVisitAt: visitedAt } })
+      return { previousVisitAt: user.lastNotificationsVisitAt, visitedAt }
     })
   }
 
@@ -305,7 +308,7 @@ export class NovedadesService {
           })
         } else {
           await tx.quoteRequest.updateMany({
-            where: { id: matter.refId, deletedAt: null, cotizacion: { producerId, ...this.codeScope(codeIds) } },
+            where: { id: matter.refId, deletedAt: null, quote: { producerId, ...this.codeScope(codeIds) } },
             data: { status },
           })
         }

@@ -689,7 +689,7 @@ Returns a paginated, searchable and filterable list of insured clients (asegurad
       "city": "CABA",
       "dni": "30111222",
       "createdAt": "2026-01-10T12:00:00.000Z",
-      "polizas": [
+      "policies": [
         {
           "id": 88,
           "certificateNumber": "000123",
@@ -698,7 +698,7 @@ Returns a paginated, searchable and filterable list of insured clients (asegurad
           "validFrom": "2026-01-01T00:00:00.000Z",
           "validTo": "2027-01-01T00:00:00.000Z",
           "premium": "150000.00",
-          "vehiculo": { "id": 5, "licensePlate": "AB123CD", "brand": "Toyota", "model": "Corolla", "version": null, "year": 2022, "coverage": "C", "sumInsured": "12000000.00" }
+          "vehicle": { "id": 5, "licensePlate": "AB123CD", "brand": "Toyota", "model": "Corolla", "version": null, "year": 2022, "coverage": "C", "sumInsured": "12000000.00" }
         }
       ]
     }
@@ -729,7 +729,7 @@ Returns aggregate portfolio metrics for the dashboard/stat bar.
 
 ### GET /admin/clients/:id
 
-Returns the full detail of a single insured client, including every policy with its vehicle and instalments (`cuotas`).
+Returns the full detail of a single insured client, including every policy with its vehicle and instalments (`installments`).
 
 **Auth required:** Yes
 
@@ -927,7 +927,7 @@ Paginated list of the producer's claims, newest first.
         "certificateNumber": "334455",
         "company": "triunfo",
         "riskType": "auto",
-        "vehiculo": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" }
+        "vehicle": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" }
       }
     }
   ],
@@ -1385,7 +1385,7 @@ Policies of the identified client **in force today**, with vehicle summary.
     "validFrom": "2026-01-01T00:00:00.000Z",
     "validTo": "2027-01-01T00:00:00.000Z",
     "paymentMethod": "Débito Automático",
-    "vehiculo": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS", "year": 2022, "coverage": "C" }
+    "vehicle": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS", "year": 2022, "coverage": "C" }
   }
 ]
 ```
@@ -1409,7 +1409,7 @@ Account status per policy: unpaid installments (pending / overdue / rejected), p
     "riskType": "auto",
     "lastMovement": "REFACTURACION",
     "paymentMethod": "Débito Automático",
-    "vehiculo": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" },
+    "vehicle": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" },
     "cuotasPagas": 4,
     "cuotasImpagas": [
       { "number": 5, "amount": "45200.00", "dueDate": "2026-06-10T00:00:00.000Z", "status": "rejected" }

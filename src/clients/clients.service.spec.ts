@@ -10,7 +10,7 @@ describe('ClientsService.findPolizas (portal)', () => {
     validFrom: d(desde),
     validTo: d(hasta),
     rawData: {},
-    vehiculo: licensePlate ? { licensePlate } : null,
+    vehicle: licensePlate ? { licensePlate } : null,
   })
 
   async function list(rows: ReturnType<typeof poliza>[]) {

@@ -79,7 +79,7 @@ const POLIZA_SUMMARY_SELECT = {
   validFrom: true,
   validTo: true,
   paymentMethod: true,
-  vehiculo: {
+  vehicle: {
     select: {
       licensePlate: true,
       brand: true,
@@ -607,7 +607,7 @@ export class BotService {
         where: {
           producerId: conversation.producerId,
           deletedAt: null,
-          vehiculo: { licensePlate: plate, deletedAt: null },
+          vehicle: { licensePlate: plate, deletedAt: null },
         },
         select: { clientId: true, producerCodeId: true },
       })
@@ -672,8 +672,8 @@ export class BotService {
         riskType: true,
         lastMovement: true,
         paymentMethod: true,
-        vehiculo: { select: { licensePlate: true, brand: true, model: true } },
-        cuotas: {
+        vehicle: { select: { licensePlate: true, brand: true, model: true } },
+        installments: {
           where: { deletedAt: null },
           orderBy: { number: 'asc' },
           select: { number: true, amount: true, dueDate: true, status: true },
@@ -682,12 +682,12 @@ export class BotService {
     })
 
     return polizas.map(poliza => {
-      const { cuotas, ...rest } = poliza
+      const { installments, ...rest } = poliza
       return {
         ...rest,
-        cuotasPagas: cuotas.filter(c => c.status === 'paid').length,
-        cuotasImpagas: cuotas.filter(c => c.status !== 'paid'),
-        tieneRechazos: cuotas.some(c => c.status === 'rejected'),
+        cuotasPagas: installments.filter(c => c.status === 'paid').length,
+        cuotasImpagas: installments.filter(c => c.status !== 'paid'),
+        tieneRechazos: installments.some(c => c.status === 'rejected'),
       }
     })
   }
@@ -888,10 +888,10 @@ export class BotService {
     const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
     const poliza = await this.prisma.policy.findFirst({
       where: { id: polizaId, clientId, producerId, deletedAt: null },
-      select: { id: true, certificateNumber: true, producerCodeId: true, vehiculo: { select: { licensePlate: true } } },
+      select: { id: true, certificateNumber: true, producerCodeId: true, vehicle: { select: { licensePlate: true } } },
     })
     if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
-    const body = `Póliza ${poliza.id}: ${poliza.certificateNumber}${poliza.vehiculo?.licensePlate ? ` · Patente ${poliza.vehiculo.licensePlate}` : ''}. DNI ${client.dni}. El cliente solicita gestionar la baja; pendiente de confirmación de la oficina.`
+    const body = `Póliza ${poliza.id}: ${poliza.certificateNumber}${poliza.vehicle?.licensePlate ? ` · Patente ${poliza.vehicle.licensePlate}` : ''}. DNI ${client.dni}. El cliente solicita gestionar la baja; pendiente de confirmación de la oficina.`
     return this.prisma.$transaction(async tx => {
       const existing = await tx.notification.findFirst({
         where: {
