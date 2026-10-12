@@ -73,10 +73,12 @@ export class MailService {
 
   /**
    * Plain alert to one or more recipients (bot status changes and the like).
+   * Without `html`, the text is sent as a simple formatted body.
    * Never throws: callers treat the alert as best-effort.
    */
-  async sendAlert(alert: { to: string[]; subject: string; text: string; html: string }): Promise<void> {
+  async sendAlert(alert: { to: string[]; subject: string; text: string; html?: string }): Promise<void> {
     if (alert.to.length === 0) return
+    const html = alert.html ?? this.textToHtml(alert.subject, alert.text)
     if (!this.resend) {
       this.logger.log(`[MAIL:DRY-RUN] to=${alert.to.join(',')} subject="${alert.subject}" — ${alert.text}`)
       return
@@ -86,7 +88,7 @@ export class MailService {
         from: this.from,
         to: alert.to,
         subject: alert.subject,
-        html: alert.html,
+        html,
         text: alert.text,
       })
       if (error) {
@@ -118,6 +120,15 @@ export class MailService {
           <strong style="font-size: 13px; color: #888;">Descripción</strong>
           <p style="margin: 6px 0 0; font-size: 14px; white-space: pre-wrap;">${this.escape(data.descripcion)}</p>
         </div>
+      </div>
+    `
+  }
+
+  private textToHtml(title: string, text: string): string {
+    return `
+      <div style="font-family: Arial, sans-serif; color: #1a1a1a; max-width: 560px;">
+        <h2 style="margin: 0 0 12px;">${this.escape(title)}</h2>
+        <p style="margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap;">${this.escape(text)}</p>
       </div>
     `
   }

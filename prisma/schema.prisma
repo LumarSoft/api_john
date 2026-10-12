@@ -59,6 +59,7 @@ model Producer {
   coverageSettings CoverageSetting[]
   botStatusChanges BotStatusChange[]
   improvements     Improvement[]
+  proposals        ImprovementProposal[]
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
@@ -122,6 +123,40 @@ model Improvement {
   producer   Producer? @relation(fields: [producerId], references: [id], onDelete: Restrict)
 
   @@index([producerId, publishedAt])
+}
+
+// Ideas the organization's users send to Lumar from "Mejoras". Every user of
+// the organization sees every proposal (a shared board, so nobody proposes the
+// same thing twice); Lumar answers and moves them through the statuses.
+
+enum ProposalStatus {
+  NEW
+  REVIEWING
+  PLANNED
+  DONE
+  DISCARDED
+}
+
+model ImprovementProposal {
+  id          Int            @id @default(autoincrement())
+  title       String         @db.VarChar(140)
+  description String         @db.Text
+  status      ProposalStatus @default(NEW)
+  // Lumar's answer, shown to the whole organization.
+  response    String?        @db.Text
+  respondedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  deletedAt   DateTime?
+
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
+  // Who proposed it. Null if that user is later removed.
+  authorId   Int?
+  author     User?    @relation(fields: [authorId], references: [id])
+
+  @@index([producerId, createdAt])
+  @@index([status])
 }
 
 /// How a Triunfo auto coverage is shown in the quote results — one row per
@@ -399,12 +434,13 @@ model User {
   deletedAt               DateTime?
 
   producerId            Int
-  producer              Producer           @relation(fields: [producerId], references: [id])
+  producer              Producer              @relation(fields: [producerId], references: [id])
   // Producer codes this admin may access (ignored for SUPERADMIN = all codes).
   producerCodes         UserProducerCode[]
   cotizaciones          Cotizacion[]
-  assignedConversations Conversation[]     @relation("assigned_conversations")
+  assignedConversations Conversation[]        @relation("assigned_conversations")
   botStatusChanges      BotStatusChange[]
+  proposals             ImprovementProposal[]
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────

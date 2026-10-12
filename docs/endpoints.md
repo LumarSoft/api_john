@@ -2166,3 +2166,85 @@ Borrado lógico.
 `200 OK` → `{ "ok": true }`
 
 `404 Not Found` — Improvement not found
+
+
+## Propuestas de mejora
+
+Ideas que los usuarios de una organización le mandan a Lumar desde "Mejoras ›
+Propuestas". Todos los usuarios de la organización ven todas sus propuestas
+(tablero compartido). Cada propuesta nueva manda un mail a `PROPOSALS_ALERT_EMAIL`
+(direcciones separadas por coma) o, si no está configurado, a las cuentas OWNER.
+Estados: `NEW` (nueva), `REVIEWING` (en análisis), `PLANNED` (planificada),
+`DONE` (hecha), `DISCARDED` (descartada).
+
+### GET /admin/improvement-proposals
+
+Propuestas de la organización del usuario, más nuevas primero. `mine` indica si
+la hizo el usuario que consulta.
+
+**Auth required:** Yes (Bearer, type `user`)
+
+`200 OK`
+```json
+[
+  {
+    "id": 3,
+    "title": "Avisar al celular cuando piden un asesor",
+    "description": "Que me llegue un aviso…",
+    "status": "PLANNED",
+    "response": "Lo sumamos la semana que viene.",
+    "respondedAt": "2026-10-13T12:00:00.000Z",
+    "createdAt": "2026-10-12T15:00:00.000Z",
+    "author": { "email": "mili@example.com" },
+    "mine": true
+  }
+]
+```
+
+### POST /admin/improvement-proposals
+
+**Auth required:** Yes (Bearer, type `user`)
+
+**Request body**
+
+| Field       | Type   | Required | Constraints  |
+|-------------|--------|----------|--------------|
+| title       | string | Yes      | 1–140 chars  |
+| description | string | Yes      | 1–5000 chars |
+
+`201 Created` → la propuesta (formato de `GET /admin/improvement-proposals`)
+
+`400 Bad Request` — Validation error
+
+### GET /owner/improvement-proposals
+
+Todas las propuestas de todas las organizaciones, con `producer: { id, name }`.
+
+**Auth required:** Yes (Bearer, role `OWNER`)
+
+`200 OK` → lista (formato de `GET /admin/improvement-proposals` sin `mine`, más `producer`)
+
+### GET /owner/improvement-proposals/new-count
+
+Cantidad de propuestas en estado `NEW`.
+
+**Auth required:** Yes (Bearer, role `OWNER`)
+
+`200 OK` → `{ "count": 2 }`
+
+### PATCH /owner/improvement-proposals/:id
+
+**Auth required:** Yes (Bearer, role `OWNER`)
+
+**Request body**
+
+| Field    | Type   | Required | Constraints |
+|----------|--------|----------|-------------|
+| status   | string | No       | `NEW` \| `REVIEWING` \| `PLANNED` \| `DONE` \| `DISCARDED` |
+| response | string | No       | ≤ 5000 chars; vacío = sin respuesta |
+
+`respondedAt` se actualiza solo cuando cambia la respuesta.
+
+`200 OK` → la propuesta actualizada
+
+`404 Not Found` — Proposal not found
