@@ -6,10 +6,10 @@ import { ClaimStatus } from './list-siniestros.dto'
 export class UpdateSiniestroDto {
   @IsOptional()
   @IsEnum(ClaimStatus)
-  estado?: ClaimStatus
+  status?: ClaimStatus
 
   @IsOptional()
   @IsString()
   @MaxLength(50)
-  nroSiniestroCompania?: string
+  insurerClaimNumber?: string
 }

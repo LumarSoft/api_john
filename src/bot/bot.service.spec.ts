@@ -591,7 +591,7 @@ describe('BotService', () => {
         client: { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', phone: null, deletedAt: null },
       })
     })
-    const dto = { polizaId: 9, tipo: 'auto', fecha: '2026-10-05', descripcion: 'Choque' }
+    const dto = { policyId: 9, type: 'auto', occurredAt: '2026-10-05', description: 'Choque' }
 
     it('only looks up policies in force', async () => {
       prisma.policy.findFirst.mockResolvedValue(null)
@@ -653,7 +653,7 @@ describe('BotService.attachAdjuntos', () => {
   })
 
   it('attaches a guided claim photo to the open claim whatever its age', async () => {
-    prisma.claim.findFirst.mockResolvedValue({ id: 9, adjuntos: [] })
+    prisma.claim.findFirst.mockResolvedValue({ id: 9, attachments: [] })
 
     const result = await service.attachAdjuntos(3, photo, 'tarjeta_verde')
 

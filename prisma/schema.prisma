@@ -568,29 +568,31 @@ model Installment {
 // ─── SINIESTROS (denuncias del cliente) ──────────────────
 
 enum ClaimStatus {
-  pendiente
-  en_proceso
-  resuelto
+  pending
+  in_progress
+  resolved
 }
 
 model Claim {
-  id                   Int         @id @default(autoincrement())
-  tipo                 String // "auto" | "hogar" | "robo" | "otro"
-  descripcion          String      @db.Text
-  fecha                DateTime // date of the incident
-  estado               ClaimStatus @default(pendiente)
+  id                 Int         @id @default(autoincrement())
+  // Category the client picked: "auto" | "moto" | "hogar" | "robo" | "otro".
+  type               String
+  description        String      @db.Text
+  // When the incident happened (not when it was reported: that is createdAt).
+  occurredAt         DateTime
+  status             ClaimStatus @default(pending)
   // Official claim number, set by the admin after manually filing the claim in
   // Triunfo's web (their API has no claims endpoint yet).
-  nroSiniestroCompania String?
-  adjuntos             Json? // array of { filename, originalName, url, mimeType, size }
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
-  deletedAt            DateTime?
+  insurerClaimNumber String?
+  attachments        Json? // array of { filename, originalName, url, mimeType, size }
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  deletedAt          DateTime?
 
   clientId       Int
   client         Client        @relation(fields: [clientId], references: [id])
-  polizaId       Int
-  poliza         Policy        @relation(fields: [polizaId], references: [id])
+  policyId       Int
+  policy         Policy        @relation(fields: [policyId], references: [id])
   producerId     Int
   producer       Producer      @relation(fields: [producerId], references: [id])
   // Triunfo agent code that owns the underlying policy/client (for admin scoping).

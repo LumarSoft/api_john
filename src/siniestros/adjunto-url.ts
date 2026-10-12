@@ -56,10 +56,10 @@ export function signAdjuntoList(adjuntos: unknown): unknown {
   })
 }
 
-/** Signs the `url` of every attachment in a siniestro row returned to a client. */
-export function withSignedAdjuntos<T extends { adjuntos: unknown }>(row: T): T {
-  if (!Array.isArray(row.adjuntos)) return row
-  return { ...row, adjuntos: signAdjuntoList(row.adjuntos) }
+/** Signs the `url` of every attachment in a claim row returned to a client. */
+export function withSignedAttachments<T extends { attachments: unknown }>(row: T): T {
+  if (!Array.isArray(row.attachments)) return row
+  return { ...row, attachments: signAdjuntoList(row.attachments) }
 }
 
 /** Express middleware mounted on each protected folder: no valid signature, no file. */

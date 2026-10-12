@@ -6,20 +6,20 @@ export type SiniestroTipo = (typeof SINIESTRO_TIPOS)[number]
 
 export class CreateSiniestroDto {
   @IsIn(SINIESTRO_TIPOS)
-  tipo: SiniestroTipo
+  type: SiniestroTipo
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(2000)
-  descripcion: string
+  description: string
 
   // ISO date of the incident (e.g. "2026-06-01")
   @IsDateString()
-  fecha: string
+  occurredAt: string
 
   // Sent as a string over multipart/form-data; coerced to number.
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  polizaId: number
+  policyId: number
 }

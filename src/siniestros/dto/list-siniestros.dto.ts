@@ -7,7 +7,7 @@ export { ClaimStatus }
 export class ListSiniestrosDto {
   @IsOptional()
   @IsEnum(ClaimStatus)
-  estado?: ClaimStatus
+  status?: ClaimStatus
 
   // Matches client first/last name, DNI or poliza certificado
   @IsOptional()

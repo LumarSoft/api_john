@@ -886,7 +886,7 @@ Returns aggregate debt stats across all clients for the authenticated producer. 
 
 ## Admin — Siniestros
 
-Triunfo's API has no claims endpoint, so claims filed through the bot or the client portal are stored locally with `estado: "pendiente"`. The admin reviews them here, files them manually in Triunfo's web, and records the official claim number via `PATCH`.
+Triunfo's API has no claims endpoint, so claims filed through the bot or the client portal are stored locally with `status: "pending"`. The admin reviews them here, files them manually in Triunfo's web, and records the official claim number via `PATCH`.
 
 All endpoints require an employee/admin JWT (`type: "user"`). A client token returns `403`.
 
@@ -900,7 +900,7 @@ Paginated list of the producer's claims, newest first.
 
 | Param    | Type   | Required | Constraints                                              |
 |----------|--------|----------|----------------------------------------------------------|
-| estado   | string | No       | `pendiente`, `en_proceso` or `resuelto`                  |
+| status   | string | No       | `pending`, `in_progress` or `resolved`                   |
 | search   | string | No       | Matches client name, DNI, certificado or official number |
 | page     | number | No       | Default 1                                                |
 | pageSize | number | No       | Default 20, max 100                                      |
@@ -913,16 +913,16 @@ Paginated list of the producer's claims, newest first.
   "data": [
     {
       "id": 6,
-      "tipo": "auto",
-      "descripcion": "Granizo, daños en capot y techo",
-      "fecha": "2026-06-11T00:00:00.000Z",
-      "estado": "pendiente",
-      "nroSiniestroCompania": null,
-      "adjuntos": null,
+      "type": "auto",
+      "description": "Granizo, daños en capot y techo",
+      "occurredAt": "2026-06-11T00:00:00.000Z",
+      "status": "pending",
+      "insurerClaimNumber": null,
+      "attachments": null,
       "createdAt": "2026-06-12T13:05:00.000Z",
       "updatedAt": "2026-06-12T13:05:00.000Z",
       "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456", "email": "evelyn@example.com", "phone": "5491155556666" },
-      "poliza": {
+      "policy": {
         "id": 12,
         "certificado": "334455",
         "company": "triunfo",
@@ -969,7 +969,7 @@ Detail of a single claim (same shape as the list items).
 
 ### PATCH /admin/siniestros/:id
 
-Progresses the claim and/or records the official Triunfo number after filing it manually. Sending an empty `nroSiniestroCompania` clears it.
+Progresses the claim and/or records the official Triunfo number after filing it manually. Sending an empty `insurerClaimNumber` clears it.
 
 **Auth required:** Yes (user JWT)
 
@@ -977,13 +977,13 @@ Progresses the claim and/or records the official Triunfo number after filing it 
 
 | Field                | Type   | Required | Constraints                              |
 |----------------------|--------|----------|------------------------------------------|
-| estado               | string | No*      | `pendiente`, `en_proceso` or `resuelto`  |
-| nroSiniestroCompania | string | No*      | Max 50 chars                             |
+| status               | string | No*      | `pending`, `in_progress` or `resolved`   |
+| insurerClaimNumber   | string | No*      | Max 50 chars                             |
 
 *At least one field is required.
 
 ```json
-{ "estado": "en_proceso", "nroSiniestroCompania": "SIN-884213" }
+{ "status": "in_progress", "insurerClaimNumber": "SIN-884213" }
 ```
 
 **Responses**
@@ -1454,13 +1454,13 @@ Claims filed by the identified client, newest first, with their internal trackin
 [
   {
     "id": 5,
-    "tipo": "auto",
-    "descripcion": "Choque en Av. Corrientes",
-    "fecha": "2026-06-10T00:00:00.000Z",
-    "estado": "en_proceso",
-    "nroSiniestroCompania": "SIN-884213",
+    "type": "auto",
+    "description": "Choque en Av. Corrientes",
+    "occurredAt": "2026-06-10T00:00:00.000Z",
+    "status": "in_progress",
+    "insurerClaimNumber": "SIN-884213",
     "createdAt": "2026-06-10T15:00:00.000Z",
-    "poliza": { "id": 12, "certificado": "334455", "riskType": "auto" }
+    "policy": { "id": 12, "certificado": "334455", "riskType": "auto" }
   }
 ]
 ```
@@ -1477,13 +1477,13 @@ Files a new claim for one of the identified client's policies and notifies the a
 
 | Field       | Type   | Required | Constraints            |
 |-------------|--------|----------|------------------------|
-| polizaId    | number | Yes      | Policy of the client   |
-| tipo        | string | Yes      | Max 50 chars           |
-| fecha       | string | Yes      | ISO date (incident)    |
-| descripcion | string | Yes      | Max 5000 chars         |
+| policyId    | number | Yes      | Policy of the client   |
+| type        | string | Yes      | Max 50 chars           |
+| occurredAt  | string | Yes      | ISO date (incident)    |
+| description | string | Yes      | Max 5000 chars         |
 
 ```json
-{ "polizaId": 12, "tipo": "auto", "fecha": "2026-06-11", "descripcion": "Granizo, daños en capot y techo" }
+{ "policyId": 12, "type": "auto", "occurredAt": "2026-06-11", "description": "Granizo, daños en capot y techo" }
 ```
 
 **Responses**
@@ -1492,13 +1492,13 @@ Files a new claim for one of the identified client's policies and notifies the a
 ```json
 {
   "id": 6,
-  "tipo": "auto",
-  "descripcion": "Granizo, daños en capot y techo",
-  "fecha": "2026-06-11T00:00:00.000Z",
-  "estado": "pendiente",
-  "nroSiniestroCompania": null,
+  "type": "auto",
+  "description": "Granizo, daños en capot y techo",
+  "occurredAt": "2026-06-11T00:00:00.000Z",
+  "status": "pending",
+  "insurerClaimNumber": null,
   "createdAt": "2026-06-12T13:05:00.000Z",
-  "poliza": { "id": 12, "certificado": "334455", "riskType": "auto" }
+  "policy": { "id": 12, "certificado": "334455", "riskType": "auto" }
 }
 ```
 
@@ -1509,8 +1509,8 @@ Files a new claim for one of the identified client's policies and notifies the a
 ### POST /bot/conversation/:conversationId/adjuntos
 
 Attaches photos (received by the bot over WhatsApp) to the conversation's most
-recent open claim — the latest siniestro of the identified client whose `estado`
-is not `resuelto`. A photo sent without `tipo` (outside the guided claim steps)
+recent open claim — the latest claim of the identified client whose `status`
+is not `resolved`. A photo sent without `tipo` (outside the guided claim steps)
 only joins a claim filed in the last 48 hours; otherwise it is stored for the
 inbox and the response says `attached: false`. The total per claim is capped at
 5 attachments, keeping the most recent. Sent as `multipart/form-data`.

@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express'
-import { isValidAdjuntoSignature, requireSignedAdjunto, signAdjuntoUrl, withSignedAdjuntos } from './adjunto-url'
+import { isValidAdjuntoSignature, requireSignedAdjunto, signAdjuntoUrl, withSignedAttachments } from './adjunto-url'
 
 describe('signed attachment URLs', () => {
   const now = Date.UTC(2026, 8, 28, 21, 30)
@@ -67,24 +67,24 @@ describe('signed attachment URLs', () => {
   it('signs every attachment of a row and leaves the rest of the row alone', () => {
     const row = {
       id: 3,
-      adjuntos: [
+      attachments: [
         { filename: 'a.webp', url: '/uploads/siniestros/a.webp', mimeType: 'image/webp' },
         { filename: 'b.pdf', url: '/uploads/siniestros/b.pdf', mimeType: 'application/pdf' },
       ],
     }
 
-    const signed = withSignedAdjuntos(row)
-    const adjuntos = signed.adjuntos as { url: string; filename: string }[]
+    const signed = withSignedAttachments(row)
+    const adjuntos = signed.attachments as { url: string; filename: string }[]
 
     expect(signed.id).toBe(3)
     expect(adjuntos.map(a => a.filename)).toEqual(['a.webp', 'b.pdf'])
     expect(adjuntos.every(a => /\?exp=\d+&sig=/.test(a.url))).toBe(true)
     // The stored row is not mutated.
-    expect(row.adjuntos[0].url).toBe('/uploads/siniestros/a.webp')
+    expect(row.attachments[0].url).toBe('/uploads/siniestros/a.webp')
   })
 
   it('handles rows without attachments', () => {
-    expect(withSignedAdjuntos({ adjuntos: null })).toEqual({ adjuntos: null })
+    expect(withSignedAttachments({ attachments: null })).toEqual({ attachments: null })
   })
 
   describe('requireSignedAdjunto middleware', () => {

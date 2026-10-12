@@ -7,22 +7,22 @@ import { CreateSiniestroDto } from './dto/create-siniestro.dto'
 import { ListSiniestrosDto } from './dto/list-siniestros.dto'
 import { UpdateSiniestroDto } from './dto/update-siniestro.dto'
 import { toStoredAdjuntos } from './siniestro-upload.config'
-import { withSignedAdjuntos } from './adjunto-url'
+import { withSignedAttachments } from './adjunto-url'
 
 const DEFAULT_PAGE_SIZE = 20
 
 // Shape returned to the client — omits internal/tenant fields, includes basic poliza info.
 const SINIESTRO_SELECT = {
   id: true,
-  tipo: true,
-  descripcion: true,
-  fecha: true,
-  estado: true,
-  nroSiniestroCompania: true,
-  adjuntos: true,
+  type: true,
+  description: true,
+  occurredAt: true,
+  status: true,
+  insurerClaimNumber: true,
+  attachments: true,
   createdAt: true,
   updatedAt: true,
-  poliza: {
+  policy: {
     select: {
       id: true,
       certificado: true,
@@ -46,7 +46,7 @@ const ADMIN_SINIESTRO_SELECT = {
       phone: true,
     },
   },
-  poliza: {
+  policy: {
     select: {
       id: true,
       certificado: true,
@@ -68,24 +68,24 @@ export class SiniestrosService {
   async create(clientId: number, producerId: number, dto: CreateSiniestroDto, files: Express.Multer.File[]) {
     // The policy must belong to the authenticated client in this tenant.
     const poliza = await this.prisma.policy.findFirst({
-      where: { id: dto.polizaId, clientId, producerId, deletedAt: null },
+      where: { id: dto.policyId, clientId, producerId, deletedAt: null },
       select: { id: true, certificado: true, company: true, producerCodeId: true },
     })
     if (!poliza) {
-      throw new NotFoundException(`Policy ${dto.polizaId} not found`)
+      throw new NotFoundException(`Policy ${dto.policyId} not found`)
     }
 
     const adjuntos = await toStoredAdjuntos(files)
 
     const siniestro = await this.prisma.claim.create({
       data: {
-        tipo: dto.tipo,
-        descripcion: dto.descripcion,
-        fecha: new Date(dto.fecha),
-        estado: 'pendiente',
-        adjuntos: adjuntos.length ? (adjuntos as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+        type: dto.type,
+        description: dto.description,
+        occurredAt: new Date(dto.occurredAt),
+        status: 'pending',
+        attachments: adjuntos.length ? (adjuntos as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
         clientId,
-        polizaId: poliza.id,
+        policyId: poliza.id,
         producerId,
         // Inherit the policy's producer code so admin scoping works.
         producerCodeId: poliza.producerCodeId,
@@ -103,11 +103,11 @@ export class SiniestrosService {
       siniestroId: siniestro.id,
       clientId,
       clienteNombre: cliente ? `${cliente.firstName} ${cliente.lastName}`.trim() : `Cliente #${clientId}`,
-      descripcion: siniestro.descripcion,
+      descripcion: siniestro.description,
       producerCodeId: poliza.producerCodeId,
     })
 
-    return withSignedAdjuntos(siniestro)
+    return withSignedAttachments(siniestro)
   }
 
   async findAll(clientId: number, producerId: number) {
@@ -116,7 +116,7 @@ export class SiniestrosService {
       select: SINIESTRO_SELECT,
       orderBy: { createdAt: 'desc' },
     })
-    return siniestros.map(withSignedAdjuntos)
+    return siniestros.map(withSignedAttachments)
   }
 
   async findOne(id: number, clientId: number, producerId: number) {
@@ -127,7 +127,7 @@ export class SiniestrosService {
     if (!siniestro) {
       throw new NotFoundException(`Siniestro ${id} not found`)
     }
-    return withSignedAdjuntos(siniestro)
+    return withSignedAttachments(siniestro)
   }
 
   // ─── Admin (panel web) ─────────────────────────────────
@@ -149,7 +149,7 @@ export class SiniestrosService {
     ])
 
     return {
-      data: data.map(withSignedAdjuntos),
+      data: data.map(withSignedAttachments),
       total,
       page,
       pageSize,
@@ -159,14 +159,14 @@ export class SiniestrosService {
 
   async getAdminStats(producerId: number, codeIds: number[]) {
     const code = { producerCodeId: { in: codeIds } }
-    const countByEstado = (estado: ClaimStatus) =>
-      this.prisma.claim.count({ where: { producerId, deletedAt: null, ...code, estado } })
+    const countByStatus = (status: ClaimStatus) =>
+      this.prisma.claim.count({ where: { producerId, deletedAt: null, ...code, status } })
 
     const [pendientes, enProceso, resueltos, sinNroCompania] = await this.prisma.$transaction([
-      countByEstado('pendiente'),
-      countByEstado('en_proceso'),
-      countByEstado('resuelto'),
-      this.prisma.claim.count({ where: { producerId, deletedAt: null, ...code, nroSiniestroCompania: null } }),
+      countByStatus('pending'),
+      countByStatus('in_progress'),
+      countByStatus('resolved'),
+      this.prisma.claim.count({ where: { producerId, deletedAt: null, ...code, insurerClaimNumber: null } }),
     ])
 
     return { pendientes, enProceso, resueltos, sinNroCompania }
@@ -180,13 +180,13 @@ export class SiniestrosService {
     if (!siniestro) {
       throw new NotFoundException(`Siniestro ${id} not found`)
     }
-    return withSignedAdjuntos(siniestro)
+    return withSignedAttachments(siniestro)
   }
 
   /** Admin progresses the claim and/or records the official Triunfo number after manual filing. */
   async updateForAdmin(id: number, producerId: number, codeIds: number[], dto: UpdateSiniestroDto) {
-    if (dto.estado === undefined && dto.nroSiniestroCompania === undefined) {
-      throw new BadRequestException('Nothing to update — send estado and/or nroSiniestroCompania')
+    if (dto.status === undefined && dto.insurerClaimNumber === undefined) {
+      throw new BadRequestException('Nothing to update — send status and/or insurerClaimNumber')
     }
 
     await this.findOneForAdmin(id, producerId, codeIds)
@@ -194,20 +194,20 @@ export class SiniestrosService {
     const updated = await this.prisma.claim.update({
       where: { id },
       data: {
-        ...(dto.estado !== undefined && { estado: dto.estado }),
-        ...(dto.nroSiniestroCompania !== undefined && {
-          nroSiniestroCompania: dto.nroSiniestroCompania.trim() || null,
+        ...(dto.status !== undefined && { status: dto.status }),
+        ...(dto.insurerClaimNumber !== undefined && {
+          insurerClaimNumber: dto.insurerClaimNumber.trim() || null,
         }),
       },
       select: ADMIN_SINIESTRO_SELECT,
     })
-    return withSignedAdjuntos(updated)
+    return withSignedAttachments(updated)
   }
 
   private buildAdminWhere(producerId: number, codeIds: number[], query: ListSiniestrosDto): Prisma.ClaimWhereInput {
     const where: Prisma.ClaimWhereInput = { producerId, deletedAt: null, producerCodeId: { in: codeIds } }
 
-    if (query.estado) where.estado = query.estado
+    if (query.status) where.status = query.status
 
     if (query.search) {
       const search = query.search.trim()
@@ -215,8 +215,8 @@ export class SiniestrosService {
         { client: { firstName: { contains: search } } },
         { client: { lastName: { contains: search } } },
         { client: { dni: { contains: search } } },
-        { poliza: { certificado: { contains: search } } },
-        { nroSiniestroCompania: { contains: search } },
+        { policy: { certificado: { contains: search } } },
+        { insurerClaimNumber: { contains: search } },
       ]
     }
 
@@ -238,9 +238,9 @@ export class SiniestrosService {
 
     await this.mail.sendSiniestroNotification({
       siniestroId,
-      tipo: dto.tipo,
-      descripcion: dto.descripcion,
-      fecha: new Date(dto.fecha),
+      tipo: dto.type,
+      descripcion: dto.description,
+      fecha: new Date(dto.occurredAt),
       cliente: client,
       poliza: { certificado: poliza.certificado, company: poliza.company },
       adjuntosCount,

@@ -714,13 +714,13 @@ export class BotService {
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
-        tipo: true,
-        descripcion: true,
-        fecha: true,
-        estado: true,
-        nroSiniestroCompania: true,
+        type: true,
+        description: true,
+        occurredAt: true,
+        status: true,
+        insurerClaimNumber: true,
         createdAt: true,
-        poliza: { select: { id: true, certificado: true, riskType: true } },
+        policy: { select: { id: true, certificado: true, riskType: true } },
       },
     })
   }
@@ -729,40 +729,40 @@ export class BotService {
     const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
 
     const poliza = await this.prisma.policy.findFirst({
-      where: { AND: [this.polizaRefWhere(dto.polizaId, clientId, producerId), inForcePolizaWhere()] },
+      where: { AND: [this.polizaRefWhere(dto.policyId, clientId, producerId), inForcePolizaWhere()] },
       select: { id: true, certificado: true, company: true, producerCodeId: true },
     })
-    if (!poliza) throw new NotFoundException(`Policy ${dto.polizaId} not found or not in force`)
+    if (!poliza) throw new NotFoundException(`Policy ${dto.policyId} not found or not in force`)
 
     const siniestro = await this.prisma.claim.create({
       data: {
-        tipo: dto.tipo,
-        descripcion: dto.descripcion,
-        fecha: new Date(dto.fecha),
-        estado: 'pendiente',
+        type: dto.type,
+        description: dto.description,
+        occurredAt: new Date(dto.occurredAt),
+        status: 'pending',
         clientId,
-        polizaId: poliza.id,
+        policyId: poliza.id,
         producerId,
         producerCodeId: poliza.producerCodeId,
       },
       select: {
         id: true,
-        tipo: true,
-        descripcion: true,
-        fecha: true,
-        estado: true,
-        nroSiniestroCompania: true,
+        type: true,
+        description: true,
+        occurredAt: true,
+        status: true,
+        insurerClaimNumber: true,
         createdAt: true,
-        poliza: { select: { id: true, certificado: true, riskType: true } },
+        policy: { select: { id: true, certificado: true, riskType: true } },
       },
     })
 
     // Never blocks the response — MailService swallows its own errors.
     await this.mail.sendSiniestroNotification({
       siniestroId: siniestro.id,
-      tipo: siniestro.tipo,
-      descripcion: siniestro.descripcion,
-      fecha: siniestro.fecha,
+      tipo: siniestro.type,
+      descripcion: siniestro.description,
+      fecha: siniestro.occurredAt,
       cliente: { firstName: client.firstName, lastName: client.lastName, dni: client.dni, email: client.email },
       poliza: { certificado: poliza.certificado, company: poliza.company },
       adjuntosCount: 0,
@@ -772,7 +772,7 @@ export class BotService {
       siniestroId: siniestro.id,
       clientId,
       clienteNombre: `${client.firstName} ${client.lastName}`.trim(),
-      descripcion: siniestro.descripcion,
+      descripcion: siniestro.description,
       producerCodeId: poliza.producerCodeId,
     })
 
@@ -806,25 +806,25 @@ export class BotService {
         clientId,
         producerId,
         deletedAt: null,
-        estado: { not: 'resuelto' },
+        status: { not: 'resolved' },
         // The guided claim steps label their photos (tipo); a loose photo only
         // joins a claim filed recently. A moto photo sent to get a quote ended
         // up inside the client's old, still-open claim.
         ...(tipo ? {} : { createdAt: { gte: new Date(Date.now() - LOOSE_PHOTO_CLAIM_WINDOW_MS) } }),
       },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, adjuntos: true },
+      select: { id: true, attachments: true },
     })
     if (!siniestro) {
       return { siniestroId: null, adjuntosCount: 0, attached: false, attachments }
     }
 
-    const existing = Array.isArray(siniestro.adjuntos) ? (siniestro.adjuntos as unknown as AdjuntoMeta[]) : []
+    const existing = Array.isArray(siniestro.attachments) ? (siniestro.attachments as unknown as AdjuntoMeta[]) : []
     const merged = [...existing, ...attachments].slice(-MAX_FILES)
 
     await this.prisma.claim.update({
       where: { id: siniestro.id },
-      data: { adjuntos: merged as unknown as Prisma.InputJsonValue },
+      data: { attachments: merged as unknown as Prisma.InputJsonValue },
     })
 
     return { siniestroId: siniestro.id, adjuntosCount: merged.length, attached: true, attachments }

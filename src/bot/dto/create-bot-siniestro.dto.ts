@@ -2,18 +2,18 @@ import { IsDateString, IsInt, IsNotEmpty, IsString, MaxLength } from 'class-vali
 
 export class CreateBotSiniestroDto {
   @IsInt()
-  polizaId: number
+  policyId: number
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(50)
-  tipo: string
+  type: string
 
   @IsDateString()
-  fecha: string
+  occurredAt: string
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(5000)
-  descripcion: string
+  description: string
 }
