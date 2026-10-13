@@ -1013,7 +1013,7 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 
 **Responses**
 
-`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf.
+`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat.
 ```json
 [
   {
@@ -1029,7 +1029,13 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
     "phoneNumberId": "1234567890",
     "contactName": "Evelyn",
     "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456" },
-    "clientIsContact": true
+    "clientIsContact": true,
+    "lastMessage": {
+      "role": "assistant",
+      "content": "Hola Evelyn, ¿en qué te puedo ayudar?",
+      "mediaType": null,
+      "createdAt": "2026-06-22T19:39:00.000Z"
+    }
   }
 ]
 ```

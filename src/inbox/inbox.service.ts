@@ -73,11 +73,13 @@ function withContact<T extends ConversationContact>(conversation: T, agendaName?
 const CONVERSATION_LIST_SELECT = {
   ...CONVERSATION_SUMMARY_SELECT,
   producer: { select: { botEnabled: true } },
+  // The latest message of any role feeds the list preview; the latest inbound
+  // one is read separately (see lastInboundByConversation).
   messages: {
-    where: { role: 'user', deletedAt: null },
+    where: { deletedAt: null },
     orderBy: { createdAt: 'desc' as const },
     take: 1,
-    select: { createdAt: true },
+    select: { role: true, content: true, rawData: true, createdAt: true },
   },
   _count: {
     select: { messages: { where: { role: 'user', deletedAt: null } } },
@@ -96,6 +98,29 @@ function messageMedia(rawData: Prisma.JsonValue | null) {
     originalName: typeof value.originalName === 'string' ? value.originalName : 'imagen',
     size: typeof value.size === 'number' ? value.size : null,
     tipo: typeof value.tipo === 'string' ? value.tipo : null,
+  }
+}
+
+const PREVIEW_MAX_LENGTH = 120
+
+/** What the conversation list shows under the contact name, like WhatsApp. */
+function lastMessagePreview(
+  message: { role: string; content: string; rawData: Prisma.JsonValue | null; createdAt: Date } | undefined,
+) {
+  if (!message) return null
+  const mimeType = messageMedia(message.rawData)?.mimeType ?? null
+  const content = message.content.replace(/\s+/g, ' ').trim()
+  return {
+    role: message.role,
+    content: content.length > PREVIEW_MAX_LENGTH ? `${content.slice(0, PREVIEW_MAX_LENGTH)}…` : content,
+    mediaType: mimeType?.startsWith('image/')
+      ? 'image'
+      : mimeType?.startsWith('audio/')
+        ? 'audio'
+        : mimeType
+          ? 'file'
+          : null,
+    createdAt: message.createdAt,
   }
 }
 
@@ -137,7 +162,10 @@ export class InboxService {
       select: CONVERSATION_LIST_SELECT,
     })
 
-    const agenda = await this.agendaNames(producerId, conversations)
+    const [agenda, lastInbound] = await Promise.all([
+      this.agendaNames(producerId, conversations),
+      this.lastInboundByConversation(conversations.map(c => c.id)),
+    ])
 
     return conversations.map(({ messages, producer, _count, ...conversation }) => ({
       ...withContact(conversation, agenda.get(`${conversation.phoneNumberId}:${conversation.waId}`)),
@@ -145,8 +173,19 @@ export class InboxService {
       customerMessageCount: _count.messages,
       // `lastMessageAt` can point at a bot/agent reply. The dedicated inbound
       // timestamp lets the web panel notify only when the customer wrote.
-      lastInboundMessageAt: messages[0]?.createdAt ?? null,
+      lastInboundMessageAt: lastInbound.get(conversation.id) ?? null,
+      lastMessage: lastMessagePreview(messages[0]),
     }))
+  }
+
+  private async lastInboundByConversation(conversationIds: number[]): Promise<Map<number, Date>> {
+    if (!conversationIds.length) return new Map()
+    const rows = await this.prisma.message.groupBy({
+      by: ['conversationId'],
+      where: { conversationId: { in: conversationIds }, role: 'user', deletedAt: null },
+      _max: { createdAt: true },
+    })
+    return new Map(rows.flatMap(row => (row._max.createdAt ? [[row.conversationId, row._max.createdAt]] : [])))
   }
 
   async getMessages(conversationId: number, producerId: number, codeIds: number[]) {

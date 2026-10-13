@@ -15,11 +15,23 @@ describe('InboxService.listConversations', () => {
         client: null,
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
         producer: { botEnabled: false },
-        messages: [{ createdAt: lastInboundMessageAt }],
+        messages: [
+          {
+            role: 'assistant',
+            content: 'Hola,\n¿en qué te ayudo?',
+            rawData: null,
+            createdAt: new Date('2026-09-30T12:00:01.000Z'),
+          },
+        ],
         _count: { messages: 4 },
       },
     ])
-    const prisma = { conversation: { findMany }, whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) } }
+    const groupBy = jest.fn().mockResolvedValue([{ conversationId: 7, _max: { createdAt: lastInboundMessageAt } }])
+    const prisma = {
+      conversation: { findMany },
+      message: { groupBy },
+      whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },
+    }
     const notifier = {}
     const service = new InboxService(prisma as unknown as PrismaService, notifier as BotNotifierService)
 
@@ -35,12 +47,24 @@ describe('InboxService.listConversations', () => {
         globalBotDisabled: true,
         customerMessageCount: 4,
         lastInboundMessageAt,
+        lastMessage: {
+          role: 'assistant',
+          content: 'Hola, ¿en qué te ayudo?',
+          mediaType: null,
+          createdAt: new Date('2026-09-30T12:00:01.000Z'),
+        },
       },
     ])
+    expect(groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { conversationId: { in: [7] }, role: 'user', deletedAt: null },
+        _max: { createdAt: true },
+      }),
+    )
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         select: expect.objectContaining({
-          messages: expect.objectContaining({ where: { role: 'user', deletedAt: null }, take: 1 }),
+          messages: expect.objectContaining({ where: { deletedAt: null }, take: 1 }),
           _count: { select: { messages: { where: { role: 'user', deletedAt: null } } } },
           producer: { select: { botEnabled: true } },
         }),
@@ -60,6 +84,7 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
             { producer: { botEnabled: true }, messages: [], _count: { messages: 1 }, ...conversation },
           ]),
       },
+      message: { groupBy: jest.fn().mockResolvedValue([]) },
       whatsAppContact: { findMany: jest.fn().mockResolvedValue(contacts) },
     }
     return new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService)
