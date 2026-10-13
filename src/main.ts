@@ -35,12 +35,13 @@ async function bootstrap() {
   // before the static handler.
   for (const prefix of PROTECTED_UPLOAD_PREFIXES) app.use(prefix, requireSignedAdjunto)
 
-  // Serve uploaded files (siniestro attachments, etc.) with CORS headers so the
-  // front can fetch/render them without being blocked by the browser.
+  // Serve uploaded files (siniestro attachments, voice notes…). The CORS
+  // middleware above already answers with the caller's allowed origin, which the
+  // inbox needs to read a voice note and draw its waveform; overriding it here
+  // with the whole list sent several values and browsers rejected the fetch.
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads',
     setHeaders: (res: ServerResponse) => {
-      res.setHeader('Access-Control-Allow-Origin', corsOrigin)
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
     },
   })
