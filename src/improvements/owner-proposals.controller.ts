@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Query, UseGuards } from '@nestjs/common'
 import { Role } from 'generated/prisma/client'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
+import { ListOwnerProposalsDto } from './dto/list-improvements.dto'
 import { UpdateProposalDto } from './dto/proposal.dto'
 import { ProposalsService } from './proposals.service'
 
@@ -14,8 +15,8 @@ export class OwnerProposalsController {
   constructor(private readonly proposals: ProposalsService) {}
 
   @Get()
-  list() {
-    return this.proposals.listAll()
+  list(@Query() query: ListOwnerProposalsDto) {
+    return this.proposals.listAll(query)
   }
 
   @Get('new-count')

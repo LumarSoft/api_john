@@ -1,7 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { ImprovementArea, Prisma } from 'generated/prisma/client'
+import { Page, pageWindow, toPage } from '../common/pagination'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateImprovementDto, UpdateImprovementDto } from './dto/improvement.dto'
+import { ListImprovementsDto, ListOwnerImprovementsDto, OwnerImprovementFilter } from './dto/list-improvements.dto'
+
+export const IMPROVEMENTS_PAGE_SIZE = 10
 
 const PUBLIC_SELECT = {
   id: true,
@@ -22,6 +26,37 @@ const OWNER_SELECT = {
   createdAt: true,
   updatedAt: true,
 } as const
+
+/** A page of published improvements plus how many there are per area (ignoring the area filter), for the chips. */
+export interface ImprovementsPage extends Page<ImprovementView> {
+  areaCounts: Record<ImprovementArea, number>
+}
+
+/** The editor's page plus the size of each status list (ignoring the status filter), for the chips. */
+export interface OwnerImprovementsPage extends Page<OwnerImprovementView> {
+  counts: { all: number; drafts: number; published: number }
+}
+
+type OwnerImprovementView = Prisma.ImprovementGetPayload<{ select: typeof OWNER_SELECT }>
+
+const PUBLIC_ORDER: Prisma.ImprovementOrderByWithRelationInput[] = [
+  // By the date of the change: an older improvement published today stays in its place.
+  { releasedOn: 'desc' },
+  { publishedAt: 'desc' },
+  { id: 'desc' },
+]
+
+// Same order the organizations read them in, drafts without a date first.
+const OWNER_ORDER: Prisma.ImprovementOrderByWithRelationInput[] = [
+  { releasedOn: { sort: 'desc', nulls: 'first' } },
+  { id: 'desc' },
+]
+
+const OWNER_FILTER_WHERE: Record<OwnerImprovementFilter, Prisma.ImprovementWhereInput> = {
+  all: {},
+  drafts: { publishedAt: null },
+  published: { publishedAt: { not: null } },
+}
 
 export interface ImprovementView {
   id: number
@@ -67,13 +102,38 @@ export class ImprovementsService {
     }
   }
 
-  async listPublished(producerId: number): Promise<ImprovementView[]> {
-    return this.prisma.improvement.findMany({
-      where: this.visibleTo(producerId),
-      // By the date of the change: an older improvement published today stays in its place.
-      orderBy: [{ releasedOn: 'desc' }, { publishedAt: 'desc' }, { id: 'desc' }],
-      select: PUBLIC_SELECT,
-    })
+  /**
+   * Published improvements for the caller's organization. With `page` it answers one
+   * page (optionally of one area); without it, the full array the panel read before paginating.
+   */
+  async listPublished(
+    producerId: number,
+    query: ListImprovementsDto = {},
+  ): Promise<ImprovementView[] | ImprovementsPage> {
+    const visible = this.visibleTo(producerId)
+    if (query.page === undefined) {
+      return this.prisma.improvement.findMany({ where: visible, orderBy: PUBLIC_ORDER, select: PUBLIC_SELECT })
+    }
+
+    const { page, pageSize, skip, take } = pageWindow(query, IMPROVEMENTS_PAGE_SIZE)
+    const where: Prisma.ImprovementWhereInput = query.area ? { ...visible, area: query.area } : visible
+    const [total, data, byArea] = await Promise.all([
+      this.prisma.improvement.count({ where }),
+      this.prisma.improvement.findMany({ where, orderBy: PUBLIC_ORDER, select: PUBLIC_SELECT, skip, take }),
+      this.prisma.improvement.groupBy({ by: ['area'], where: visible, _count: { _all: true } }),
+    ])
+    const areaCounts = Object.fromEntries(Object.values(ImprovementArea).map(area => [area, 0])) as Record<
+      ImprovementArea,
+      number
+    >
+    for (const row of byArea) areaCounts[row.area] = row._count._all
+    return { ...toPage(data, total, page, pageSize), areaCounts }
+  }
+
+  /** What counts as new for a user: published after their last visit (everything before the first one). */
+  private unseenWhere(producerId: number, lastVisit: Date | null): Prisma.ImprovementWhereInput {
+    const where = this.visibleTo(producerId)
+    return lastVisit ? { ...where, publishedAt: { not: null, gt: lastVisit } } : where
   }
 
   /** Published improvements this user hasn't seen yet (all of them before their first visit). */
@@ -82,40 +142,54 @@ export class ImprovementsService {
       where: { id: userId },
       select: { lastImprovementsVisitAt: true },
     })
-    const where = this.visibleTo(producerId)
     const count = await this.prisma.improvement.count({
-      where: user.lastImprovementsVisitAt
-        ? { ...where, publishedAt: { not: null, gt: user.lastImprovementsVisitAt } }
-        : where,
+      where: this.unseenWhere(producerId, user.lastImprovementsVisitAt),
     })
     return { count }
   }
 
   /**
    * Marks "Mejoras" as seen now and returns the previous visit, so the page can
-   * still badge as new what was published since then.
+   * still badge as new what was published since then, plus how many those are
+   * (the page only holds one page of the list, so it can't count them itself).
    */
-  async registerVisit(userId: number): Promise<{ previousVisitAt: Date | null; visitedAt: Date }> {
+  async registerVisit(
+    userId: number,
+    producerId: number,
+  ): Promise<{ previousVisitAt: Date | null; visitedAt: Date; newCount: number }> {
     return this.prisma.$transaction(async tx => {
       const user = await tx.user.findUniqueOrThrow({
         where: { id: userId },
         select: { lastImprovementsVisitAt: true },
       })
+      const newCount = await tx.improvement.count({ where: this.unseenWhere(producerId, user.lastImprovementsVisitAt) })
       const visitedAt = new Date()
       await tx.user.update({ where: { id: userId }, data: { lastImprovementsVisitAt: visitedAt } })
-      return { previousVisitAt: user.lastImprovementsVisitAt, visitedAt }
+      return { previousVisitAt: user.lastImprovementsVisitAt, visitedAt, newCount }
     })
   }
 
   // ── OWNER (Lumar) ─────────────────────────────────────
 
-  async listAll() {
-    return this.prisma.improvement.findMany({
-      where: { deletedAt: null },
-      // Same order the organizations read them in; the editor filters drafts apart.
-      orderBy: [{ releasedOn: { sort: 'desc', nulls: 'first' } }, { id: 'desc' }],
-      select: OWNER_SELECT,
-    })
+  /**
+   * Every improvement, drafts included. With `page` it answers one page of the
+   * chosen status list; without it, the full array the editor read before paginating.
+   */
+  async listAll(query: ListOwnerImprovementsDto = {}): Promise<OwnerImprovementView[] | OwnerImprovementsPage> {
+    const base: Prisma.ImprovementWhereInput = { deletedAt: null }
+    if (query.page === undefined) {
+      return this.prisma.improvement.findMany({ where: base, orderBy: OWNER_ORDER, select: OWNER_SELECT })
+    }
+
+    const { page, pageSize, skip, take } = pageWindow(query, IMPROVEMENTS_PAGE_SIZE)
+    const where = { ...base, ...OWNER_FILTER_WHERE[query.filter ?? 'all'] }
+    const [total, data, drafts, published] = await Promise.all([
+      this.prisma.improvement.count({ where }),
+      this.prisma.improvement.findMany({ where, orderBy: OWNER_ORDER, select: OWNER_SELECT, skip, take }),
+      this.prisma.improvement.count({ where: { ...base, ...OWNER_FILTER_WHERE.drafts } }),
+      this.prisma.improvement.count({ where: { ...base, ...OWNER_FILTER_WHERE.published } }),
+    ])
+    return { ...toPage(data, total, page, pageSize), counts: { all: drafts + published, drafts, published } }
   }
 
   async create(dto: CreateImprovementDto) {

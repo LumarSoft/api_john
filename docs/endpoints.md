@@ -2066,26 +2066,48 @@ tarjeta; si se publica sin fecha, toma la de hoy. Áreas: `BOT`, `BANDEJA`,
 ### GET /admin/improvements
 
 Mejoras publicadas para la organización del usuario (y las de todas), ordenadas
-por `releasedOn` descendente.
+por `releasedOn` descendente (más nuevas primero). Con `page` responde una página;
+sin `page` responde el array completo como antes de paginar (compatibilidad con
+paneles que todavía no paginan; `area` y `pageSize` se ignoran en ese caso).
 
 **Auth required:** Yes (Bearer, type `user`)
 
-`200 OK`
+**Query params**
+
+| Param    | Type   | Required | Constraints |
+|----------|--------|----------|-------------|
+| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
+| pageSize | int    | No       | `1..50`. Default 10 |
+| area     | string | No       | `BOT` \| `BANDEJA` \| `COTIZADOR` \| `PANEL` \| `PORTAL` |
+
+`200 OK` (con `page`). `total` y `totalPages` cuentan el área filtrada;
+`areaCounts` cuenta todas las publicadas por área, sin el filtro (para los chips).
 ```json
-[
-  {
-    "id": 2,
-    "title": "El bot responde lo que le piden desde el primer mensaje",
-    "summary": "Si el cliente arranca pidiendo algo concreto, el bot va directo a eso…",
-    "beforeText": "Ante cualquier primer mensaje el bot contestaba…",
-    "afterText": "El bot entiende qué pide el primer mensaje…",
-    "example": "Cliente: Hola, me pasás mi póliza\nNICO: ¡Hola! Soy NICO 👋 …",
-    "area": "BOT",
-    "releasedOn": "2026-10-09T00:00:00.000Z",
-    "publishedAt": "2026-10-12T15:00:00.000Z"
-  }
-]
+{
+  "data": [
+    {
+      "id": 2,
+      "title": "El bot responde lo que le piden desde el primer mensaje",
+      "summary": "Si el cliente arranca pidiendo algo concreto, el bot va directo a eso…",
+      "beforeText": "Ante cualquier primer mensaje el bot contestaba…",
+      "afterText": "El bot entiende qué pide el primer mensaje…",
+      "example": "Cliente: Hola, me pasás mi póliza\nNICO: ¡Hola! Soy NICO 👋 …",
+      "area": "BOT",
+      "releasedOn": "2026-10-09T00:00:00.000Z",
+      "publishedAt": "2026-10-12T15:00:00.000Z"
+    }
+  ],
+  "total": 29,
+  "page": 1,
+  "pageSize": 10,
+  "totalPages": 3,
+  "areaCounts": { "BOT": 14, "BANDEJA": 6, "COTIZADOR": 2, "PANEL": 7, "PORTAL": 0 }
+}
 ```
+
+`200 OK` (sin `page`) → array con los mismos objetos que `data`.
+
+`400 Bad Request` — Invalid `page`, `pageSize` or `area`
 
 `401 Unauthorized` — Missing or invalid token
 
@@ -2101,20 +2123,39 @@ Cantidad de mejoras publicadas después de la última visita del usuario a
 ### POST /admin/improvements/visit
 
 Registra que el usuario abrió "Mejoras" y devuelve la visita anterior, para
-marcar como nuevas las publicadas desde entonces.
+marcar como nuevas las publicadas desde entonces, y `newCount`: cuántas son
+(las publicadas después de la visita anterior; todas si es la primera).
 
 **Auth required:** Yes (Bearer, type `user`)
 
-`201 Created` → `{ "previousVisitAt": "2026-10-10T12:00:00.000Z", "visitedAt": "2026-10-12T15:00:00.000Z" }`
+`201 Created` → `{ "previousVisitAt": "2026-10-10T12:00:00.000Z", "visitedAt": "2026-10-12T15:00:00.000Z", "newCount": 2 }`
 
 ### GET /owner/improvements
 
-Todas las mejoras, borradores primero, con su organización.
+Todas las mejoras, borradores sin fecha primero, con su organización. Con `page`
+responde una página; sin `page`, el array completo como antes de paginar.
 
 **Auth required:** Yes (Bearer, role `OWNER`)
 
-`200 OK` → lista con los campos de `GET /admin/improvements` más
+**Query params**
+
+| Param    | Type   | Required | Constraints |
+|----------|--------|----------|-------------|
+| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
+| pageSize | int    | No       | `1..50`. Default 10 |
+| filter   | string | No       | `all` (default) \| `drafts` \| `published` |
+
+`200 OK` (con `page`) → `{ data, total, page, pageSize, totalPages, counts }`.
+Cada elemento de `data` tiene los campos de `GET /admin/improvements` más
 `producerId`, `producer: { id, name } | null`, `createdAt` y `updatedAt`.
+`counts` es el tamaño de cada lista, sin el filtro:
+```json
+{ "data": [], "total": 3, "page": 1, "pageSize": 10, "totalPages": 1, "counts": { "all": 32, "drafts": 3, "published": 29 } }
+```
+
+`200 OK` (sin `page`) → array con los mismos objetos que `data`.
+
+`400 Bad Request` — Invalid `page`, `pageSize` or `filter`
 
 `403 Forbidden` — Insufficient role
 
@@ -2181,11 +2222,20 @@ Estados: `NEW` (nueva), `REVIEWING` (en análisis), `PLANNED` (planificada),
 ### GET /admin/improvement-proposals
 
 Propuestas de la organización del usuario, más nuevas primero. `mine` indica si
-la hizo el usuario que consulta.
+la hizo el usuario que consulta. Con `page` responde
+`{ data, total, page, pageSize, totalPages }`; sin `page`, el array completo como
+antes de paginar.
 
 **Auth required:** Yes (Bearer, type `user`)
 
-`200 OK`
+**Query params**
+
+| Param    | Type | Required | Constraints |
+|----------|------|----------|-------------|
+| page     | int  | No       | ≥ 1. Si viene, la respuesta es paginada |
+| pageSize | int  | No       | `1..50`. Default 10 |
+
+`200 OK` (sin `page`; con `page`, estos objetos van en `data`)
 ```json
 [
   {
@@ -2219,11 +2269,30 @@ la hizo el usuario que consulta.
 
 ### GET /owner/improvement-proposals
 
-Todas las propuestas de todas las organizaciones, con `producer: { id, name }`.
+Todas las propuestas de todas las organizaciones, con `producer: { id, name }`,
+más nuevas primero. Con `page` responde una página de las abiertas (ni `DONE` ni
+`DISCARDED`) o de todas; sin `page`, el array completo como antes de paginar.
 
 **Auth required:** Yes (Bearer, role `OWNER`)
 
-`200 OK` → lista (formato de `GET /admin/improvement-proposals` sin `mine`, más `producer`)
+**Query params**
+
+| Param    | Type   | Required | Constraints |
+|----------|--------|----------|-------------|
+| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
+| pageSize | int    | No       | `1..50`. Default 10 |
+| filter   | string | No       | `open` (default) \| `all` |
+
+`200 OK` (con `page`) → `{ data, total, page, pageSize, totalPages, counts }`;
+cada elemento con el formato de `GET /admin/improvement-proposals` sin `mine`, más
+`producer`. `counts` es el tamaño de cada lista, sin el filtro:
+```json
+{ "data": [], "total": 4, "page": 1, "pageSize": 10, "totalPages": 1, "counts": { "open": 4, "all": 11 } }
+```
+
+`200 OK` (sin `page`) → array con los mismos objetos que `data`.
+
+`400 Bad Request` — Invalid `page`, `pageSize` or `filter`
 
 ### GET /owner/improvement-proposals/new-count
 

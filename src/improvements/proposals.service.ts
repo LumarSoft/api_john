@@ -1,9 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { Role } from 'generated/prisma/client'
+import { Prisma, ProposalStatus, Role } from 'generated/prisma/client'
+import { Page, pageWindow, toPage } from '../common/pagination'
 import { MailService } from '../mail/mail.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { ListOwnerProposalsDto, PageQueryDto } from './dto/list-improvements.dto'
 import { CreateProposalDto, UpdateProposalDto } from './dto/proposal.dto'
+
+const PROPOSALS_PAGE_SIZE = 10
 
 const PROPOSAL_SELECT = {
   id: true,
@@ -16,6 +20,24 @@ const PROPOSAL_SELECT = {
   authorId: true,
   author: { select: { email: true } },
 } as const
+
+const OWNER_PROPOSAL_SELECT = { ...PROPOSAL_SELECT, producer: { select: { id: true, name: true } } } as const
+
+const PROPOSAL_ORDER: Prisma.ImprovementProposalOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+
+/** Still waiting for something from Lumar: neither done nor discarded. */
+const OPEN_WHERE: Prisma.ImprovementProposalWhereInput = {
+  status: { notIn: [ProposalStatus.DONE, ProposalStatus.DISCARDED] },
+}
+
+type ProposalRow = Prisma.ImprovementProposalGetPayload<{ select: typeof PROPOSAL_SELECT }>
+type ProposalView = Omit<ProposalRow, 'authorId'> & { mine: boolean }
+type OwnerProposalView = Prisma.ImprovementProposalGetPayload<{ select: typeof OWNER_PROPOSAL_SELECT }>
+
+/** The owner's page plus the size of each list (ignoring the filter), for the chips. */
+export interface OwnerProposalsPage extends Page<OwnerProposalView> {
+  counts: { open: number; all: number }
+}
 
 /**
  * Improvement proposals: the organization's users send them from "Mejoras",
@@ -39,13 +61,35 @@ export class ProposalsService {
       .filter(Boolean)
   }
 
-  async listForOrganization(producerId: number, userId: number) {
-    const proposals = await this.prisma.improvementProposal.findMany({
-      where: { producerId, deletedAt: null },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: PROPOSAL_SELECT,
+  /**
+   * The organization's board. With `page` it answers one page; without it, the
+   * full array the panel read before paginating.
+   */
+  async listForOrganization(
+    producerId: number,
+    userId: number,
+    query: PageQueryDto = {},
+  ): Promise<ProposalView[] | Page<ProposalView>> {
+    const where: Prisma.ImprovementProposalWhereInput = { producerId, deletedAt: null }
+    const toView = ({ authorId, ...proposal }: ProposalRow): ProposalView => ({
+      ...proposal,
+      mine: authorId === userId,
     })
-    return proposals.map(({ authorId, ...proposal }) => ({ ...proposal, mine: authorId === userId }))
+    if (query.page === undefined) {
+      const proposals = await this.prisma.improvementProposal.findMany({
+        where,
+        orderBy: PROPOSAL_ORDER,
+        select: PROPOSAL_SELECT,
+      })
+      return proposals.map(toView)
+    }
+
+    const { page, pageSize, skip, take } = pageWindow(query, PROPOSALS_PAGE_SIZE)
+    const [total, proposals] = await Promise.all([
+      this.prisma.improvementProposal.count({ where }),
+      this.prisma.improvementProposal.findMany({ where, orderBy: PROPOSAL_ORDER, select: PROPOSAL_SELECT, skip, take }),
+    ])
+    return toPage(proposals.map(toView), total, page, pageSize)
   }
 
   async create(producerId: number, userId: number, dto: CreateProposalDto) {
@@ -63,12 +107,35 @@ export class ProposalsService {
 
   // ── OWNER (Lumar) ─────────────────────────────────────
 
-  async listAll() {
-    return this.prisma.improvementProposal.findMany({
-      where: { deletedAt: null },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { ...PROPOSAL_SELECT, producer: { select: { id: true, name: true } } },
-    })
+  /**
+   * Every organization's proposals. With `page` it answers one page of the open
+   * ones (default) or of all; without it, the full array the panel read before paginating.
+   */
+  async listAll(query: ListOwnerProposalsDto = {}): Promise<OwnerProposalView[] | OwnerProposalsPage> {
+    const base: Prisma.ImprovementProposalWhereInput = { deletedAt: null }
+    if (query.page === undefined) {
+      return this.prisma.improvementProposal.findMany({
+        where: base,
+        orderBy: PROPOSAL_ORDER,
+        select: OWNER_PROPOSAL_SELECT,
+      })
+    }
+
+    const { page, pageSize, skip, take } = pageWindow(query, PROPOSALS_PAGE_SIZE)
+    const where = query.filter === 'all' ? base : { ...base, ...OPEN_WHERE }
+    const [total, data, open, all] = await Promise.all([
+      this.prisma.improvementProposal.count({ where }),
+      this.prisma.improvementProposal.findMany({
+        where,
+        orderBy: PROPOSAL_ORDER,
+        select: OWNER_PROPOSAL_SELECT,
+        skip,
+        take,
+      }),
+      this.prisma.improvementProposal.count({ where: { ...base, ...OPEN_WHERE } }),
+      this.prisma.improvementProposal.count({ where: base }),
+    ])
+    return { ...toPage(data, total, page, pageSize), counts: { open, all } }
   }
 
   /** Proposals nobody has looked at yet: the OWNER's sidebar badge. */
@@ -93,7 +160,7 @@ export class ProposalsService {
         status: dto.status,
         ...(responseChanged ? { response, respondedAt: response ? new Date() : null } : {}),
       },
-      select: { ...PROPOSAL_SELECT, producer: { select: { id: true, name: true } } },
+      select: OWNER_PROPOSAL_SELECT,
     })
   }
 

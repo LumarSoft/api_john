@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Post, Request, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Post, Query, Request, UseGuards } from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
+import { PageQueryDto } from './dto/list-improvements.dto'
 import { CreateProposalDto } from './dto/proposal.dto'
 import { ProposalsService } from './proposals.service'
 
@@ -11,8 +12,8 @@ export class AdminProposalsController {
   constructor(private readonly proposals: ProposalsService) {}
 
   @Get()
-  list(@Request() req: AuthenticatedRequest) {
-    return this.proposals.listForOrganization(req.user.producerId, req.user.id)
+  list(@Request() req: AuthenticatedRequest, @Query() query: PageQueryDto) {
+    return this.proposals.listForOrganization(req.user.producerId, req.user.id, query)
   }
 
   @Post()

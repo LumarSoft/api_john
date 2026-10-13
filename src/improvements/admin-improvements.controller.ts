@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Request, UseGuards } from '@nestjs/common'
+import { Controller, Get, Post, Query, Request, UseGuards } from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
+import { ListImprovementsDto } from './dto/list-improvements.dto'
 import { ImprovementsService } from './improvements.service'
 
 /**
@@ -13,8 +14,8 @@ export class AdminImprovementsController {
   constructor(private readonly improvements: ImprovementsService) {}
 
   @Get()
-  list(@Request() req: AuthenticatedRequest) {
-    return this.improvements.listPublished(req.user.producerId)
+  list(@Request() req: AuthenticatedRequest, @Query() query: ListImprovementsDto) {
+    return this.improvements.listPublished(req.user.producerId, query)
   }
 
   @Get('unseen-count')
@@ -24,6 +25,6 @@ export class AdminImprovementsController {
 
   @Post('visit')
   visit(@Request() req: AuthenticatedRequest) {
-    return this.improvements.registerVisit(req.user.id)
+    return this.improvements.registerVisit(req.user.id, req.user.producerId)
   }
 }

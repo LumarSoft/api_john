@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { Role } from 'generated/prisma/client'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
 import { ImprovementsService } from './improvements.service'
 import { CreateImprovementDto, UpdateImprovementDto } from './dto/improvement.dto'
+import { ListOwnerImprovementsDto } from './dto/list-improvements.dto'
 
 /** Lumar (OWNER) writes, publishes and withdraws the improvements every organization reads. */
 @UseGuards(UserAuthGuard, RolesGuard)
@@ -14,8 +15,8 @@ export class OwnerImprovementsController {
   constructor(private readonly improvements: ImprovementsService) {}
 
   @Get()
-  list() {
-    return this.improvements.listAll()
+  list(@Query() query: ListOwnerImprovementsDto) {
+    return this.improvements.listAll(query)
   }
 
   @Post()

@@ -44,13 +44,42 @@ describe('ProposalsService', () => {
   it('shows the whole organization every proposal and marks the caller own ones', async () => {
     const { service, prisma } = setup()
 
-    const list = await service.listForOrganization(1, 4)
+    const list = (await service.listForOrganization(1, 4)) as { mine: boolean }[]
 
     expect(prisma.improvementProposal.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { producerId: 1, deletedAt: null } }),
     )
     expect(list.map(p => p.mine)).toEqual([true, false])
     expect(list[0]).not.toHaveProperty('authorId')
+  })
+
+  it('pages the organization board when a page is asked for', async () => {
+    const { service, prisma } = setup()
+    prisma.improvementProposal.count.mockResolvedValue(12)
+
+    const result = await service.listForOrganization(1, 4, { page: 2, pageSize: 10 })
+
+    expect(prisma.improvementProposal.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 10, take: 10 }))
+    expect(result).toEqual(expect.objectContaining({ total: 12, page: 2, pageSize: 10, totalPages: 2 }))
+  })
+
+  it('pages the owner list on the open proposals by default and counts both lists', async () => {
+    const { service, prisma } = setup()
+    prisma.improvementProposal.count.mockResolvedValueOnce(5).mockResolvedValueOnce(5).mockResolvedValueOnce(9)
+
+    const result = await service.listAll({ page: 1 })
+
+    expect(prisma.improvementProposal.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { deletedAt: null, status: { notIn: ['DONE', 'DISCARDED'] } },
+        skip: 0,
+        take: 10,
+      }),
+    )
+    expect(result).toEqual(expect.objectContaining({ total: 5, counts: { open: 5, all: 9 } }))
+
+    await service.listAll({ page: 1, filter: 'all' })
+    expect(prisma.improvementProposal.findMany.mock.calls[1][0].where).toEqual({ deletedAt: null })
   })
 
   it('saves the proposal for the caller and emails the owner accounts', async () => {
