@@ -147,7 +147,7 @@ export class BotService {
       producerSlug: slug,
       botName,
       botEnabled,
-      // Office people customers write to by name: the bot hands those messages over.
+      // Office people customers write to by name: the bot alerts them and keeps attending.
       staffNames: parseStaffNames(staffNames),
       attentionHours,
       systemPrompt,

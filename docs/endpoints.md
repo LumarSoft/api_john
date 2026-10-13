@@ -600,7 +600,7 @@ Configuración del bot de la organización del usuario autenticado, incluido qui
 
 ### PATCH /admin/config
 
-Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot no se presenta y le pasa el mensaje a la oficina.
+Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot le deja un aviso a la oficina y sigue atendiendo al cliente.
 
 **Auth required:** Yes (admin)
 
