@@ -151,10 +151,17 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     private readonly config: ConfigService,
   ) {}
 
-  // Runs once when the API boots — non-blocking
+  // Booting no longer syncs by default: every deploy or restart fired a full
+  // sync (all codes, several Triunfo calls each) on top of the 06:00/20:00 runs,
+  // and Triunfo slowed down for everything else, quotes included. Set
+  // TRIUNFO_CARTERA_SYNC_ON_BOOT=true to get the old behaviour — non-blocking.
   onApplicationBootstrap(): void {
     if (this.config.get<string>('TRIUNFO_CARTERA_SYNC_ENABLED') !== 'true') {
       this.logger.log('Cartera sync disabled (TRIUNFO_CARTERA_SYNC_ENABLED != true)')
+      return
+    }
+    if (this.config.get<string>('TRIUNFO_CARTERA_SYNC_ON_BOOT') !== 'true') {
+      this.logger.log('Cartera sync on boot skipped; next run at 06:00 or 20:00 (TRIUNFO_CARTERA_SYNC_ON_BOOT != true)')
       return
     }
     void this.runGuarded().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
