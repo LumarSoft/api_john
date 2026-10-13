@@ -32,7 +32,7 @@ describe('BotStatusAlertService', () => {
     expect(copy.text).toBe(
       'mili@jpmg.com desactivó el bot de WhatsApp de John Pellegrini Management Group el 06/10/2026 a las 08:12. ' +
         'Había estado activo 16 h 12 min. ' +
-        'Mientras esté desactivado, los mensajes de los clientes se guardan en la bandeja pero nadie les responde automáticamente.',
+        'Mientras esté desactivado, los mensajes de los clientes se guardan en la sección Whatsapp del panel pero nadie les responde automáticamente.',
     )
     expect(copy.templateParams).toEqual(['mili@jpmg.com', 'desactivó', '06/10/2026 08:12'])
 

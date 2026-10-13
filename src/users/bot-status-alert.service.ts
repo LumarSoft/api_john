@@ -160,7 +160,7 @@ export function buildCopy(event: BotStatusChangeEvent): AlertCopy {
     const subject = `⚠️ Bot de WhatsApp desactivado — ${event.producerName}`
     const text =
       `${who} desactivó el bot de WhatsApp de ${event.producerName} ${when}.${previous} ` +
-      'Mientras esté desactivado, los mensajes de los clientes se guardan en la bandeja pero nadie les responde automáticamente.'
+      'Mientras esté desactivado, los mensajes de los clientes se guardan en la sección Whatsapp del panel pero nadie les responde automáticamente.'
     return { subject, text, html: toHtml(subject, text), templateParams: [who, 'desactivó', `${date} ${time}`] }
   }
 
