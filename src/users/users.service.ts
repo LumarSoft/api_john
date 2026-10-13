@@ -7,7 +7,8 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import * as bcrypt from 'bcrypt'
-import { Role } from 'generated/prisma/client'
+import { Prisma, Role } from 'generated/prisma/client'
+import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
@@ -46,7 +47,7 @@ export class UsersService {
   async getProducerConfig(producerId: number) {
     const producer = await this.prisma.producer.findFirst({
       where: { id: producerId, deletedAt: null },
-      select: { botName: true, botEnabled: true },
+      select: { botName: true, botEnabled: true, staffNames: true },
     })
     if (!producer) throw new NotFoundException('Producer not found')
     const lastChange = await this.prisma.botStatusChange.findFirst({
@@ -57,6 +58,7 @@ export class UsersService {
     return {
       botName: producer.botName,
       botEnabled: producer.botEnabled,
+      staffNames: parseStaffNames(producer.staffNames),
       // Who last flipped the switch and when, so the screen can show it.
       lastBotStatusChange: lastChange
         ? { botEnabled: lastChange.botEnabled, at: lastChange.createdAt, by: lastChange.user?.email ?? null }
@@ -64,21 +66,30 @@ export class UsersService {
     }
   }
 
-  /** Updates the producer config. An empty botName clears it (bot uses fallback). */
-  async updateProducerConfig(producerId: number, dto: { botName?: string }) {
+  /**
+   * Updates the producer config; only the fields sent change. An empty botName
+   * clears it (bot uses fallback) and an empty staffNames list clears the names.
+   */
+  async updateProducerConfig(producerId: number, dto: { botName?: string; staffNames?: string[] }) {
     const producer = await this.prisma.producer.findFirst({
       where: { id: producerId, deletedAt: null },
       select: { id: true },
     })
     if (!producer) throw new NotFoundException('Producer not found')
 
-    const botName = dto.botName?.trim()
+    const data: Prisma.ProducerUpdateInput = {}
+    if (dto.botName !== undefined) data.botName = dto.botName.trim() || null
+    if (dto.staffNames !== undefined) data.staffNames = serializeStaffNames(dto.staffNames)
     const updated = await this.prisma.producer.update({
       where: { id: producerId },
-      data: { botName: botName ? botName : null },
-      select: { botName: true, botEnabled: true },
+      data,
+      select: { botName: true, botEnabled: true, staffNames: true },
     })
-    return { botName: updated.botName, botEnabled: updated.botEnabled }
+    return {
+      botName: updated.botName,
+      botEnabled: updated.botEnabled,
+      staffNames: parseStaffNames(updated.staffNames),
+    }
   }
 
   /**

@@ -26,7 +26,7 @@ describe('UsersService producer bot status', () => {
 
   it('returns the organization-wide bot status with the config and who last changed it', async () => {
     const { prisma, service } = createService()
-    prisma.producer.findFirst.mockResolvedValue({ botName: 'Nico', botEnabled: false })
+    prisma.producer.findFirst.mockResolvedValue({ botName: 'Nico', botEnabled: false, staffNames: 'Mili, Milagros' })
     prisma.botStatusChange.findFirst.mockResolvedValue({
       botEnabled: false,
       createdAt: new Date('2026-10-06T11:12:00Z'),
@@ -36,8 +36,35 @@ describe('UsersService producer bot status', () => {
     await expect(service.getProducerConfig(4)).resolves.toEqual({
       botName: 'Nico',
       botEnabled: false,
+      staffNames: ['Mili', 'Milagros'],
       lastBotStatusChange: { botEnabled: false, at: new Date('2026-10-06T11:12:00Z'), by: 'mili@jpmg.com' },
     })
+  })
+
+  it('saves the office names without touching the bot name', async () => {
+    const { prisma, service } = createService()
+    prisma.producer.findFirst.mockResolvedValue({ id: 4 })
+    prisma.producer.update.mockResolvedValue({ botName: 'Nico', botEnabled: true, staffNames: 'Mili, Milagros' })
+
+    await expect(service.updateProducerConfig(4, { staffNames: [' Mili ', 'Milagros', 'mili', ''] })).resolves.toEqual({
+      botName: 'Nico',
+      botEnabled: true,
+      staffNames: ['Mili', 'Milagros'],
+    })
+    expect(prisma.producer.update).toHaveBeenCalledWith({
+      where: { id: 4 },
+      data: { staffNames: 'Mili, Milagros' },
+      select: { botName: true, botEnabled: true, staffNames: true },
+    })
+  })
+
+  it('clears the office names with an empty list', async () => {
+    const { prisma, service } = createService()
+    prisma.producer.findFirst.mockResolvedValue({ id: 4 })
+    prisma.producer.update.mockResolvedValue({ botName: null, botEnabled: true, staffNames: null })
+
+    await expect(service.updateProducerConfig(4, { staffNames: [] })).resolves.toMatchObject({ staffNames: [] })
+    expect(prisma.producer.update).toHaveBeenCalledWith(expect.objectContaining({ data: { staffNames: null } }))
   })
 
   it('updates the requesting organization, records who did it and announces it', async () => {

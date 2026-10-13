@@ -21,6 +21,7 @@ import {
 } from '../siniestros/siniestro-upload.config'
 import { type ActiveClosure, computeStatus, formatSchedule, parseSchedule } from '../business-hours/schedule'
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
+import { parseStaffNames } from '../common/staff-names'
 
 // Inactivity window after which a chat is considered finished (see getOrCreateConversation).
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
@@ -121,6 +122,7 @@ export class BotService {
             slug: true,
             botName: true,
             botEnabled: true,
+            staffNames: true,
             businessHours: true,
             systemPrompt: true,
             isActive: true,
@@ -132,7 +134,7 @@ export class BotService {
       throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
     }
 
-    const { id, name, slug, botName, botEnabled, businessHours, systemPrompt } = phoneNumber.producer
+    const { id, name, slug, botName, botEnabled, staffNames, businessHours, systemPrompt } = phoneNumber.producer
     // The bot shows the formatted week as its general "horario" line; richer
     // open-now info comes from GET /public/hours when a user asks.
     const attentionHours = formatSchedule(parseSchedule(businessHours))
@@ -145,6 +147,8 @@ export class BotService {
       producerSlug: slug,
       botName,
       botEnabled,
+      // Office people customers write to by name: the bot hands those messages over.
+      staffNames: parseStaffNames(staffNames),
       attentionHours,
       systemPrompt,
       llmEnabled,

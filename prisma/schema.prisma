@@ -28,6 +28,10 @@ model Producer {
   // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
   // Null/empty → the bot falls back to "el asistente de JPMG".
   botName       String?   @db.VarChar(60)
+  // First names of the office people customers write to by name ("Mili,
+  // Milagros"), comma separated. A message that names one of them goes to the
+  // office instead of getting the bot's introduction.
+  staffNames    String?   @db.VarChar(255)
   // Organization-wide emergency switch. False stops every automated WhatsApp
   // response while inbound messages continue to be stored in the inbox.
   botEnabled    Boolean   @default(true)

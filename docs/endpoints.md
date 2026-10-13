@@ -587,6 +587,7 @@ Configuración del bot de la organización del usuario autenticado, incluido qui
 {
   "botName": "Nico",
   "botEnabled": false,
+  "staffNames": ["Mili", "Milagros"],
   "lastBotStatusChange": {
     "botEnabled": false,
     "at": "2026-10-06T11:12:00.000Z",
@@ -595,11 +596,11 @@ Configuración del bot de la organización del usuario autenticado, incluido qui
 }
 ```
 
-`lastBotStatusChange` es `null` cuando el switch nunca se usó desde que existe la auditoría.
+`lastBotStatusChange` es `null` cuando el switch nunca se usó desde que existe la auditoría. `staffNames` son los nombres de las personas de la oficina a las que los clientes les escriben por nombre (lista vacía si no hay).
 
 ### PATCH /admin/config
 
-Actualiza el nombre con el que se presenta el bot. Un `botName` vacío vuelve al nombre por defecto.
+Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot no se presenta y le pasa el mensaje a la oficina.
 
 **Auth required:** Yes (admin)
 
@@ -608,16 +609,17 @@ Actualiza el nombre con el que se presenta el bot. Un `botName` vacío vuelve al
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | botName | string | No | máx. 60 caracteres |
+| staffNames | string[] | No | hasta 10 nombres de máx. 30 caracteres; se descartan vacíos y repetidos |
 
 ```json
-{ "botName": "Nico" }
+{ "botName": "Nico", "staffNames": ["Mili", "Milagros"] }
 ```
 
 **Responses**
 
 `200 OK`
 ```json
-{ "botName": "Nico", "botEnabled": true }
+{ "botName": "Nico", "botEnabled": true, "staffNames": ["Mili", "Milagros"] }
 ```
 
 ### PATCH /admin/config/bot-status
@@ -1202,7 +1204,12 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
   "producerId": 1,
   "producerName": "John Pellegrini Management Group SRL",
   "producerSlug": "john",
-  "systemPrompt": "Sos el asistente virtual de..."
+  "botName": "NICO",
+  "botEnabled": true,
+  "staffNames": ["Mili", "Milagros"],
+  "attentionHours": "Lunes a viernes de 8 a 16 hs",
+  "systemPrompt": "Sos el asistente virtual de...",
+  "llmEnabled": true
 }
 ```
 
