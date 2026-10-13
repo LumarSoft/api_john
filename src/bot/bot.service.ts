@@ -599,10 +599,17 @@ export class BotService {
     let client: { id: number; producerCodeId: number | null } | null = null
 
     if (dto.dni) {
-      client = await this.prisma.client.findFirst({
-        where: { dni: dto.dni.trim(), producerId: conversation.producerId, deletedAt: null },
-        select: { id: true, producerCodeId: true },
-      })
+      // Companies are stored by CUIT; people by DNI, so a person's CUIL falls
+      // back to the DNI it carries (20-37334584-9 → 37334584).
+      const dni = dto.dni.trim()
+      const cuilDni = /^(?:20|23|24|27)\d{9}$/.test(dni) ? String(Number(dni.slice(2, 10))) : null
+      for (const candidate of cuilDni ? [dni, cuilDni] : [dni]) {
+        client = await this.prisma.client.findFirst({
+          where: { dni: candidate, producerId: conversation.producerId, deletedAt: null },
+          select: { id: true, producerCodeId: true },
+        })
+        if (client) break
+      }
     }
 
     if (!client && dto.plate) {

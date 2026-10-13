@@ -10,7 +10,7 @@ jest.mock('../siniestros/siniestro-upload.config', () => ({
 function createPrismaMock() {
   return {
     phoneNumber: { findFirst: jest.fn() },
-    policy: { findFirst: jest.fn(), update: jest.fn() },
+    policy: { findFirst: jest.fn(), update: jest.fn(), count: jest.fn().mockResolvedValue(0) },
     notification: { findFirst: jest.fn(), create: jest.fn() },
     conversation: {
       findFirst: jest.fn(),
@@ -21,6 +21,7 @@ function createPrismaMock() {
     },
     message: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
     claim: { findFirst: jest.fn(), update: jest.fn() },
+    client: { findFirst: jest.fn() },
     businessClosure: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   }
@@ -112,6 +113,40 @@ describe('BotService', () => {
       prisma.notification.findFirst.mockResolvedValue({ id: 17 })
       await expect(service.requestPolicyCancellation(3, 9)).resolves.toEqual({ id: 17 })
       expect(prisma.notification.create).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('identifyClient', () => {
+    beforeEach(() => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 2, clientId: null })
+      prisma.conversation.update.mockResolvedValue({ client: { id: 5 } })
+    })
+
+    it('finds a company by its CUIT', async () => {
+      prisma.client.findFirst.mockResolvedValueOnce({ id: 5, producerCodeId: 8 })
+      await service.identifyClient(3, { dni: '30123456781' })
+      expect(prisma.client.findFirst).toHaveBeenCalledTimes(1)
+      expect(prisma.client.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { dni: '30123456781', producerId: 2, deletedAt: null } }),
+      )
+      expect(prisma.conversation.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ clientId: 5, producerCodeId: 8 }) }),
+      )
+    })
+
+    it('falls back to the DNI inside a person CUIL', async () => {
+      prisma.client.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 5, producerCodeId: 8 })
+      await service.identifyClient(3, { dni: '20073345849' })
+      expect(prisma.client.findFirst).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: { dni: '7334584', producerId: 2, deletedAt: null } }),
+      )
+      expect(prisma.conversation.update).toHaveBeenCalled()
+    })
+
+    it('does not read a company CUIT as a DNI', async () => {
+      prisma.client.findFirst.mockResolvedValue(null)
+      await expect(service.identifyClient(3, { dni: '30123456781' })).rejects.toThrow('No client found')
+      expect(prisma.client.findFirst).toHaveBeenCalledTimes(1)
     })
   })
 
