@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  GatewayTimeoutException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -9,6 +10,7 @@ import {
 } from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
+import { isAxiosError } from 'axios'
 import { firstValueFrom } from 'rxjs'
 import { Prisma } from 'generated/prisma/client'
 import { NovedadesService } from '../novedades/novedades.service'
@@ -22,6 +24,10 @@ import { CoverageRequestDto } from './dto/coverage-request.dto'
 import { isVisiblePaymentMethod, paymentMethodLabel } from '../common/payment-methods'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import type { QuoteCoverage, QuoteAutoResult, NormalizedQuote, CoverageRequestResult } from './cotizador.types'
+
+// Triunfo answers a quote in 1–2 s. Without a cap a hung call stayed open
+// forever while the bot gave up at 20 s; 15 s returns a clear error first.
+const TRIUNFO_QUOTE_TIMEOUT_MS = 15_000
 export type { QuoteCoverage, QuotePaymentOption, QuoteAutoResult } from './cotizador.types'
 
 // ─── Triunfo raw response types ──────────────────────────
@@ -117,35 +123,42 @@ export class CotizadorService {
     let result: TriunfoCotizadorRaw
     try {
       const response = await firstValueFrom(
-        this.httpService.post<TriunfoCotizadorRaw>(`${this.triunfo.baseUrlSip}/RESTCotizadorAutV2`, {
-          SDTSrvCotizacionIn: {
-            Automotor: {
-              Accesorios: [],
-              Adicionales: [],
-              AnioFabricacion: dto.manufactureYear,
-              Bonificacion: '0',
-              Catalogo: 'IA',
-              CeroKM: 0,
-              Cobertura: dto.coverage ?? '',
-              Marca: dto.brand,
-              Modelo: triunfoModel,
-              Origen: origin,
-              Uso: 1,
-              Valor: vehicleValue ?? '0',
+        this.httpService.post<TriunfoCotizadorRaw>(
+          `${this.triunfo.baseUrlSip}/RESTCotizadorAutV2`,
+          {
+            SDTSrvCotizacionIn: {
+              Automotor: {
+                Accesorios: [],
+                Adicionales: [],
+                AnioFabricacion: dto.manufactureYear,
+                Bonificacion: '0',
+                Catalogo: 'IA',
+                CeroKM: 0,
+                Cobertura: dto.coverage ?? '',
+                Marca: dto.brand,
+                Modelo: triunfoModel,
+                Origen: origin,
+                Uso: 1,
+                Valor: vehicleValue ?? '0',
+              },
+              General: {
+                Articulo: TRIUNFO_ARTICULO[vehicleType],
+                CantidadCuotas: 1,
+                GenerarPresupuesto: true,
+                ZonaRiesgoCP: dto.postalCode,
+              },
+              Autenticacion: auth,
             },
-            General: {
-              Articulo: TRIUNFO_ARTICULO[vehicleType],
-              CantidadCuotas: 1,
-              GenerarPresupuesto: true,
-              ZonaRiesgoCP: dto.postalCode,
-            },
-            Autenticacion: auth,
           },
-        }),
+          { timeout: TRIUNFO_QUOTE_TIMEOUT_MS },
+        ),
       )
       result = response.data
     } catch (error) {
       this.logger.error(`Triunfo RESTCotizadorAutV2 request failed: ${(error as Error).message}`)
+      if (isAxiosError(error) && error.code === 'ECONNABORTED') {
+        throw new GatewayTimeoutException('El cotizador de Triunfo no respondió a tiempo')
+      }
       throw new BadGatewayException('Triunfo cotizador error')
     }
 

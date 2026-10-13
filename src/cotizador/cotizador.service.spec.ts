@@ -1,4 +1,5 @@
-import { of } from 'rxjs'
+import { AxiosError } from 'axios'
+import { of, throwError } from 'rxjs'
 import { CotizadorService } from './cotizador.service'
 import { VehicleType } from '../infoauto/infoauto.types'
 import type { HttpService } from '@nestjs/axios'
@@ -173,5 +174,46 @@ describe('CotizadorService motorcycle offers', () => {
     expect(result.coverages.map(c => c.code)).toEqual(codes.filter(c => ['A', 'B4', 'B1'].includes(c)))
     expect(settings.apply).toHaveBeenCalledWith(1, expect.any(Array), 2025, ['A', 'B4', 'B1'], VehicleType.MOTO)
     expect(result.messages.some(message => message.includes('cobertura B4.'))).toBe(!codes.includes('B4'))
+  })
+})
+
+describe('CotizadorService Triunfo timeout', () => {
+  function createService(post: jest.Mock) {
+    return new CotizadorService(
+      { post } as unknown as HttpService,
+      {} as PrismaService,
+      { getAuth: jest.fn().mockResolvedValue({}), baseUrlSip: 'https://triunfo.test' } as unknown as TriunfoService,
+      {
+        isAvailable: () => true,
+        validateVehicleYear: jest.fn().mockResolvedValue(undefined),
+        getVehicleValue: jest.fn().mockResolvedValue(null),
+        getVehicleOrigin: jest.fn().mockResolvedValue('N'),
+      } as unknown as InfoAutoService,
+      {} as CoverageSettingsService,
+      {} as ConfigService,
+      {} as NovedadesService,
+    )
+  }
+  const dto = { brand: '12', model: '120236', manufactureYear: 2009, postalCode: 2000 }
+
+  it('caps the quote request at 15 seconds', async () => {
+    const post = jest
+      .fn()
+      .mockReturnValue(throwError(() => new AxiosError('timeout of 15000ms exceeded', 'ECONNABORTED')))
+
+    await expect(createService(post).quoteVehicle(VehicleType.AUTO, dto, null, null)).rejects.toMatchObject({
+      status: 504,
+    })
+    expect(post).toHaveBeenCalledWith(expect.stringContaining('RESTCotizadorAutV2'), expect.anything(), {
+      timeout: 15_000,
+    })
+  })
+
+  it('keeps answering 502 when Triunfo fails for another reason', async () => {
+    const post = jest.fn().mockReturnValue(throwError(() => new AxiosError('socket hang up', 'ECONNRESET')))
+
+    await expect(createService(post).quoteVehicle(VehicleType.AUTO, dto, null, null)).rejects.toMatchObject({
+      status: 502,
+    })
   })
 })
