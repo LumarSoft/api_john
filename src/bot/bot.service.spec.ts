@@ -695,4 +695,14 @@ describe('BotService.attachAdjuntos', () => {
     expect(result).toMatchObject({ claimId: 9, attached: true })
     expect(prisma.claim.findFirst.mock.calls[0][0].where).not.toHaveProperty('createdAt')
   })
+
+  it('keeps a photo sent while a new claim is being filled out away from an earlier claim', async () => {
+    prisma.claim.findFirst.mockResolvedValue({ id: 9, attachments: [] })
+
+    const result = await service.attachAdjuntos(3, photo, undefined, true)
+
+    expect(result).toMatchObject({ claimId: null, attached: false })
+    expect(prisma.claim.findFirst).not.toHaveBeenCalled()
+    expect(prisma.claim.update).not.toHaveBeenCalled()
+  })
 })

@@ -1684,8 +1684,10 @@ Attaches photos (received by the bot over WhatsApp) to the conversation's most
 recent open claim — the latest claim of the identified client whose `status`
 is not `resolved`. A photo sent without `tipo` (outside the guided claim steps)
 only joins a claim filed in the last 48 hours; otherwise it is stored for the
-inbox and the response says `attached: false`. The total per claim is capped at
-5 attachments, keeping the most recent. Sent as `multipart/form-data`.
+inbox and the response says `attached: false`. With `?hold=true` (the customer
+is still filling in a new claim, not filed yet) the photo never joins an earlier
+claim: it is only stored for the inbox (`attached: false`). The total per claim
+is capped at 5 attachments, keeping the most recent. Sent as `multipart/form-data`.
 
 **Auth required:** Yes (`x-bot-secret`)
 

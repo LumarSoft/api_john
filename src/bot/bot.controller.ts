@@ -126,8 +126,9 @@ export class BotController {
     @Param('conversationId', ParseIntPipe) conversationId: number,
     @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Query('tipo') tipo?: string,
+    @Query('hold') hold?: string,
   ) {
-    return this.botService.attachAdjuntos(conversationId, files ?? [], tipo)
+    return this.botService.attachAdjuntos(conversationId, files ?? [], tipo, hold === 'true')
   }
 
   @Post('conversation/:conversationId/audio')

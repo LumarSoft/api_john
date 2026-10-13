@@ -797,7 +797,12 @@ export class BotService {
    * 48 h when the photo did not come from a guided claim step. The total is
    * capped at MAX_FILES, keeping the most recent attachments.
    */
-  async attachAdjuntos(conversationId: number, files: Express.Multer.File[], tipo?: string) {
+  /**
+   * `holdForNewClaim`: the customer is still filling in a new claim, so the
+   * photo belongs to that one (not filed yet) and must not join an earlier
+   * claim of theirs from the last 48 h — it stays in the inbox only.
+   */
+  async attachAdjuntos(conversationId: number, files: Express.Multer.File[], tipo?: string, holdForNewClaim = false) {
     if (!files.length) throw new BadRequestException('No files received')
 
     // Multer has already persisted the upload. Build its durable metadata first
@@ -808,7 +813,7 @@ export class BotService {
     // open claim this same chat filed.
     const { clientId, producerId } = await this.findConversation(conversationId)
 
-    if (!clientId) {
+    if (!clientId || holdForNewClaim) {
       return { claimId: null, attachmentCount: 0, attached: false, attachments }
     }
 
