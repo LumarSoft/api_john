@@ -114,6 +114,7 @@ describe('CotizadorService model year guard', () => {
       { isAvailable: () => true, validateVehicleYear } as unknown as InfoAutoService,
       {} as CoverageSettingsService,
       {} as ConfigService,
+      {} as NovedadesService,
     )
     await expect(
       service.quoteVehicle(
@@ -164,6 +165,7 @@ describe('CotizadorService motorcycle offers', () => {
       } as unknown as InfoAutoService,
       settings as unknown as CoverageSettingsService,
       { getOrThrow: () => 'https://triunfo.test' } as unknown as ConfigService,
+      {} as NovedadesService,
     )
     const result = await service.quoteVehicle(
       VehicleType.MOTO,
@@ -215,5 +217,90 @@ describe('CotizadorService Triunfo timeout', () => {
     await expect(createService(post).quoteVehicle(VehicleType.AUTO, dto, null, null)).rejects.toMatchObject({
       status: 502,
     })
+  })
+})
+
+describe('CotizadorService vehicle Triunfo could not value', () => {
+  const coverage = (code: string, valid: boolean) =>
+    valid
+      ? {
+          Cobertura: code,
+          Resultado: { Estado: 'S' },
+          Cotizaciones: [{ FormaPagoCod: '1', Premio: '67825', ValorCuota: '67825', Cuotas: 1 }],
+        }
+      : {
+          Cobertura: code,
+          Resultado: {
+            Estado: 'N',
+            Mensajes: [{ Id: 'CoberturaNoValida', Type: 1, Description: `Cobertura ${code} no válida` }],
+          },
+          Cotizaciones: [],
+        }
+
+  async function quote(value: string, coberturas: unknown[], vehicleType = VehicleType.AUTO) {
+    const post = jest.fn().mockReturnValue(
+      of({
+        data: {
+          SDTSrvCotizacionOut: {
+            Coberturas: coberturas,
+            DatosAdicionales: [{ Codigo: '1', Nombre: 'ValorVehiculo', Valor: value }],
+            Resultado: { Estado: 'S', Mensajes: [] },
+          },
+        },
+      }),
+    )
+    const service = new CotizadorService(
+      { post } as unknown as HttpService,
+      {} as PrismaService,
+      { getAuth: jest.fn().mockResolvedValue({}), baseUrlSip: 'https://triunfo.test' } as unknown as TriunfoService,
+      {
+        isAvailable: () => true,
+        validateVehicleYear: jest.fn().mockResolvedValue(undefined),
+        getVehicleValue: jest.fn().mockResolvedValue(null),
+        getVehicleOrigin: jest.fn().mockResolvedValue('N'),
+      } as unknown as InfoAutoService,
+      {
+        registerDiscovered: jest.fn().mockResolvedValue(undefined),
+        apply: jest.fn().mockImplementation(async (_producer, coverages) => coverages),
+      } as unknown as CoverageSettingsService,
+      {} as ConfigService,
+      {} as NovedadesService,
+    )
+    const dto =
+      vehicleType === VehicleType.AUTO
+        ? { brand: '12', model: '120236', manufactureYear: 2009, postalCode: 2000 }
+        : { brand: '881', model: '8810215', manufactureYear: 2016, postalCode: 2000 }
+    return service.quoteVehicle(vehicleType, dto, 1, null)
+  }
+
+  it('flags a quote with no vehicle value and only Responsabilidad Civil priced', async () => {
+    const result = await quote('            0.00', [
+      coverage('A', true),
+      ...['B', 'B1', 'C', 'D'].map(code => coverage(code, false)),
+    ])
+    expect(result.valuationMissing).toBe(true)
+    expect(result.coverages.map(c => c.code)).toEqual(['A'])
+    expect(result.messages.join(' ')).toContain('no pudo valuar el vehículo')
+  })
+
+  it('reports it once for a motorcycle instead of one notice per missing coverage', async () => {
+    const result = await quote(
+      '0.00',
+      [coverage('A', true), coverage('B1', false), coverage('B4', false)],
+      VehicleType.MOTO,
+    )
+    expect(result.valuationMissing).toBe(true)
+    expect(result.messages).toHaveLength(1)
+  })
+
+  it('does not flag a valued vehicle', async () => {
+    const result = await quote('      7800000.00', [coverage('A', true), coverage('B', true), coverage('D4', false)])
+    expect(result.valuationMissing).toBe(false)
+    expect(result.messages).toEqual([])
+  })
+
+  it('does not flag a zero value when other coverages were still priced', async () => {
+    const result = await quote('0.00', [coverage('A', true), coverage('B1', true), coverage('D', false)])
+    expect(result.valuationMissing).toBe(false)
   })
 })

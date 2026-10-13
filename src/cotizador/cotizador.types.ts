@@ -33,6 +33,12 @@ export interface NormalizedQuote {
 /** What the web and the bot receive: only the coverages meant to be shown. */
 export interface QuoteAutoResult extends Omit<NormalizedQuote, 'coverages'> {
   coverages: DisplayedQuoteCoverage[]
+  /**
+   * Triunfo could not value the vehicle (ValorVehiculo 0) and so priced only
+   * Responsabilidad Civil: every other coverage exists but came back invalid.
+   * Not a final answer — the office has to quote it.
+   */
+  valuationMissing: boolean
 }
 
 export interface CoverageRequestResult {

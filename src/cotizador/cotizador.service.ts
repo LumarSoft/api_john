@@ -28,6 +28,9 @@ import type { QuoteCoverage, QuoteAutoResult, NormalizedQuote, CoverageRequestRe
 // Triunfo answers a quote in 1–2 s. Without a cap a hung call stayed open
 // forever while the bot gave up at 20 s; 15 s returns a clear error first.
 const TRIUNFO_QUOTE_TIMEOUT_MS = 15_000
+
+const VALUATION_MISSING_MESSAGE =
+  'La compañía no pudo valuar el vehículo en este momento, por eso solo se cotizó Responsabilidad Civil. Las coberturas con robo, incendio y daños las cotiza un asesor.'
 export type { QuoteCoverage, QuotePaymentOption, QuoteAutoResult } from './cotizador.types'
 
 // ─── Triunfo raw response types ──────────────────────────
@@ -215,17 +218,40 @@ export class CotizadorService {
       requiredCodes,
       vehicleType,
     )
-    const missing = requiredCodes.filter(code => !coverages.some(c => c.code === code))
+    const valuationMissing = this.isValuationMissing(result, quote)
+    if (valuationMissing) {
+      this.logger.warn(
+        `Triunfo no valuó ${vehicleType} codia ${dto.model} (${dto.manufactureYear}): solo cotizó Responsabilidad Civil`,
+      )
+    }
+    const missing = valuationMissing ? [] : requiredCodes.filter(code => !coverages.some(c => c.code === code))
     return {
       ...quote,
       coverages,
+      valuationMissing,
       messages: [
         ...quote.messages,
+        ...(valuationMissing ? [VALUATION_MISSING_MESSAGE] : []),
         ...missing.map(
           code => `No se obtuvo precio para la cobertura ${code}. Consultá con un asesor para revisar esa opción.`,
         ),
       ],
     }
+  }
+
+  /**
+   * Triunfo values the vehicle itself (we send Valor "0"). When that lookup
+   * fails it still answers, but with ValorVehiculo 0 and every coverage except
+   * Responsabilidad Civil marked "Cobertura no válida" — which reads as "this
+   * car can't be insured against theft" when it only means "not valued now".
+   * A year Triunfo does not insure is rejected outright instead, so this shape
+   * is never a real answer. Seen on 32 of 80 production quotes by 13/10/2026.
+   */
+  private isValuationMissing(raw: TriunfoCotizadorRaw, quote: NormalizedQuote): boolean {
+    const value = Number.parseFloat(quote.vehicleValue ?? '')
+    if (value > 0) return false
+    const rejected = toArray(raw.SDTSrvCotizacionOut?.Coberturas).filter(c => c.Resultado?.Estado === 'N')
+    return rejected.length > 0 && quote.coverages.every(c => c.code === 'A')
   }
 
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {

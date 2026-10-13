@@ -157,11 +157,14 @@ Two rules are applied on top of what Triunfo returns:
       ]
     }
   ],
+  "valuationMissing": false,
   "messages": []
 }
 ```
 
 `messages` contains Triunfo error descriptions (e.g. `"Código de modelo no válido"`) when the quote returns no coverages.
+
+`valuationMissing` is `true` when Triunfo could not value the vehicle (`vehicleValue` 0) and therefore priced only Responsabilidad Civil, rejecting every other coverage as "no válida". It is a temporary failure, not a final answer: `messages` then explains that an advisor quotes the remaining coverages, and the bot alerts the office.
 
 `400 Bad Request` — Validation error (missing or invalid fields)
 
