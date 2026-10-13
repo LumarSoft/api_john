@@ -17,8 +17,18 @@ export const LEADS_PUBLIC_PREFIX = '/uploads/leads'
 export const AUDIOS_UPLOAD_DIR = join(process.cwd(), 'uploads', 'audios')
 export const AUDIOS_PUBLIC_PREFIX = '/uploads/audios'
 
+// Photos and PDFs the office sends from the Whatsapp section of the panel,
+// kept AUDIO_RETENTION_DAYS like voice notes (see MessageRetentionService).
+export const INBOX_UPLOAD_DIR = join(process.cwd(), 'uploads', 'inbox')
+export const INBOX_PUBLIC_PREFIX = '/uploads/inbox'
+
 /** Folders holding personal documents: served only through signed URLs. */
-export const PROTECTED_UPLOAD_PREFIXES = [SINIESTROS_PUBLIC_PREFIX, LEADS_PUBLIC_PREFIX, AUDIOS_PUBLIC_PREFIX] as const
+export const PROTECTED_UPLOAD_PREFIXES = [
+  SINIESTROS_PUBLIC_PREFIX,
+  LEADS_PUBLIC_PREFIX,
+  AUDIOS_PUBLIC_PREFIX,
+  INBOX_PUBLIC_PREFIX,
+] as const
 
 export const MAX_FILES = 5
 export const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB
@@ -80,6 +90,18 @@ export const MAX_AUDIO_SIZE = 16 * 1024 * 1024
 /** A WhatsApp voice note, one per request: uploads/audios. */
 export const audioMulterOptions = attachmentMulterOptions(AUDIOS_UPLOAD_DIR, AUDIO_MIME, {
   fileSize: MAX_AUDIO_SIZE,
+  files: 1,
+})
+
+// What WhatsApp accepts as a photo (JPEG/PNG, up to 5 MB) or a document. PDFs
+// are capped at 16 MB here, well under WhatsApp's 100 MB.
+const OUTGOING_MIME = new Set(['image/jpeg', 'image/png', 'application/pdf'])
+export const MAX_OUTGOING_IMAGE_SIZE = 5 * 1024 * 1024
+export const MAX_OUTGOING_FILE_SIZE = 16 * 1024 * 1024
+
+/** A photo or PDF an advisor sends from the panel, one per request: uploads/inbox. */
+export const outgoingMediaMulterOptions = attachmentMulterOptions(INBOX_UPLOAD_DIR, OUTGOING_MIME, {
+  fileSize: MAX_OUTGOING_FILE_SIZE,
   files: 1,
 })
 

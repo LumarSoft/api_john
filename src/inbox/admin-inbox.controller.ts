@@ -9,14 +9,19 @@ import {
   Post,
   Query,
   Request,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { ScopeService } from '../common/scope/scope.service'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
 import { InboxService } from './inbox.service'
 import { ListInboxDto } from './dto/list-inbox.dto'
 import { SendInboxMessageDto } from './dto/send-inbox-message.dto'
+import { SendInboxMediaDto } from './dto/send-inbox-media.dto'
+import { outgoingMediaMulterOptions } from '../siniestros/siniestro-upload.config'
 import { UpdateInboxContactDto } from './dto/update-inbox-contact.dto'
 
 @UseGuards(UserAuthGuard)
@@ -85,5 +90,17 @@ export class AdminInboxController {
   ) {
     const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
     return this.inbox.sendMessage(id, req.user.producerId, codeIds, req.user.id, dto.text)
+  }
+
+  @Post(':id/media')
+  @UseInterceptors(FileInterceptor('file', outgoingMediaMulterOptions))
+  async sendMedia(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body() dto: SendInboxMediaDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.inbox.sendMedia(id, req.user.producerId, codeIds, file, dto.caption)
   }
 }

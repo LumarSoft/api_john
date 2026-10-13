@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { readFile } from 'fs/promises'
 
 /**
  * Thin HTTP client from the API to the bot process.
@@ -30,6 +31,36 @@ export class BotNotifierService {
       const body = await res.text().catch(() => '')
       this.logger.error(`Bot /internal/send failed (${res.status}): ${body}`)
       throw new InternalServerErrorException('Could not deliver message via WhatsApp')
+    }
+  }
+
+  /** Delivers a stored photo or PDF; the bot uploads it to Meta and sends it. */
+  async sendMedia(params: {
+    to: string
+    phoneNumberId: string
+    path: string
+    mimeType: string
+    filename: string
+    caption?: string
+  }): Promise<void> {
+    const form = new FormData()
+    form.append('to', params.to)
+    form.append('phoneNumberId', params.phoneNumberId)
+    if (params.caption) form.append('caption', params.caption)
+    // Sent as a text field too: multipart filenames reach the bot as latin1 and
+    // would garble an accented name ("Póliza.pdf") shown to the client.
+    form.append('filename', params.filename)
+    form.append('file', new Blob([await readFile(params.path)], { type: params.mimeType }), params.filename)
+
+    const res = await fetch(`${this.botUrl}/internal/send-media`, {
+      method: 'POST',
+      headers: { 'x-bot-secret': this.botSecret },
+      body: form,
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      this.logger.error(`Bot /internal/send-media failed (${res.status}): ${body}`)
+      throw new InternalServerErrorException('Could not deliver the file via WhatsApp')
     }
   }
 

@@ -1085,6 +1085,48 @@ Full stored history of a conversation in chronological order — not limited to 
 
 `404 Not Found` — Conversation not found or outside the user's scope
 
+### POST /admin/inbox/:id/media
+
+Sends a photo or a PDF to the customer from the Whatsapp section, with an optional caption. Same rules as a text reply: the chat must be taken (or human attention active for the whole organization) and the customer must have written in the last 24 hours. The bot uploads the file to Meta and sends it; only after WhatsApp accepts it is the message stored (`role: "agent"`). The file lives in `uploads/inbox`, is served only through signed URLs and is deleted after `AUDIO_RETENTION_DAYS` (default 30) like voice notes. Without a caption the message text is `[foto]` or `[documento <name>]`.
+
+**Auth required:** Yes (user JWT)
+
+**Request body** (`multipart/form-data`)
+
+| Field   | Type   | Required | Constraints |
+|---------|--------|----------|-------------|
+| file    | file   | Yes      | `image/jpeg` or `image/png` up to 5 MB (WhatsApp's limit for photos), or `application/pdf` up to 16 MB |
+| caption | string | No       | Max 1024 characters |
+
+**Responses**
+
+`201 Created`
+```json
+{
+  "id": 87,
+  "role": "agent",
+  "content": "Tu cupón de octubre",
+  "createdAt": "2026-10-13T14:02:00.000Z",
+  "media": {
+    "url": "https://api.example.com/uploads/inbox/1791900000000-123.pdf?exp=1791986400&sig=…",
+    "mimeType": "application/pdf",
+    "originalName": "Cupon octubre.pdf",
+    "size": 48213,
+    "tipo": null
+  }
+}
+```
+
+`400 Bad Request` — No file, a file type other than JPEG/PNG/PDF, a photo over 5 MB, no phone number on the chat, or the 24-hour window expired
+
+`403 Forbidden` — The chat is still attended by the bot
+
+`413 Payload Too Large` — File over 16 MB
+
+`404 Not Found` — Conversation not found or outside the user's scope
+
+`500 Internal Server Error` — The bot or WhatsApp did not accept the file; nothing is stored
+
 ## Admin — Novedades
 
 A notifications feed for the panel. A novedad is created automatically when a new claim is filed (`type: "siniestro"`, `refId` = claim id) or when a customer asks to talk to a human advisor (`type: "handoff"`, `refId` = conversation id). `title`/`body` are denormalized at creation; open the source entity via `refId` for full detail (e.g. `GET /admin/siniestros/:refId` for claims, or the inbox for handoffs).

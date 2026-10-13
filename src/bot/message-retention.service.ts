@@ -4,7 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule'
 import { readdir, stat, unlink } from 'fs/promises'
 import { join } from 'path'
 import { PrismaService } from '../prisma/prisma.service'
-import { AUDIOS_UPLOAD_DIR } from '../siniestros/siniestro-upload.config'
+import { AUDIOS_UPLOAD_DIR, INBOX_UPLOAD_DIR } from '../siniestros/siniestro-upload.config'
 
 const DEFAULT_RETENTION_DAYS = 30
 const DEFAULT_COEXISTENCE_HISTORY_RETENTION_DAYS = 180
@@ -76,14 +76,27 @@ export class MessageRetentionService {
    * recordings never pile up on disk.
    */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async pruneOldAudios(dir: string = AUDIOS_UPLOAD_DIR, now: Date = new Date()): Promise<number> {
+  pruneOldAudios(dir: string = AUDIOS_UPLOAD_DIR, now: Date = new Date()): Promise<number> {
+    return this.pruneOldFiles(dir, 'audio', now)
+  }
+
+  /**
+   * Photos and PDFs sent from the panel follow the same window: the messages
+   * that point at them are gone by then, so the files would only pile up.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  pruneOldSentMedia(dir: string = INBOX_UPLOAD_DIR, now: Date = new Date()): Promise<number> {
+    return this.pruneOldFiles(dir, 'sent media', now)
+  }
+
+  private async pruneOldFiles(dir: string, label: string, now: Date): Promise<number> {
     const cutoff = now.getTime() - this.audioRetentionDays * 24 * 60 * 60 * 1000
     let names: string[]
     try {
       names = await readdir(dir)
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0 // no audio stored yet
-      this.logger.error(`Audio retention job failed: ${(error as Error).message}`)
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0 // nothing stored yet
+      this.logger.error(`Retention job for ${label} failed: ${(error as Error).message}`)
       return 0
     }
 
@@ -96,10 +109,10 @@ export class MessageRetentionService {
         await unlink(path)
         deleted += 1
       } catch (error) {
-        this.logger.warn(`Could not prune audio ${name}: ${(error as Error).message}`)
+        this.logger.warn(`Could not prune ${label} ${name}: ${(error as Error).message}`)
       }
     }
-    this.logger.log(`Pruned ${deleted} audio files (> ${this.audioRetentionDays} days)`)
+    this.logger.log(`Pruned ${deleted} ${label} files (> ${this.audioRetentionDays} days)`)
     return deleted
   }
 }

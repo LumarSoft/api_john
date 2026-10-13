@@ -9,6 +9,8 @@ import { ConversationStatus, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { isSamePhone } from '../common/phone-match'
 import { signAdjuntoUrl } from '../siniestros/adjunto-url'
+import { INBOX_PUBLIC_PREFIX, MAX_OUTGOING_IMAGE_SIZE } from '../siniestros/siniestro-upload.config'
+import { unlink } from 'fs/promises'
 import { BotNotifierService } from './bot-notifier.service'
 import { ListInboxDto } from './dto/list-inbox.dto'
 import { NovedadType } from '../novedades/dto/list-novedades.dto'
@@ -352,6 +354,65 @@ export class InboxService {
   }
 
   async sendMessage(conversationId: number, producerId: number, codeIds: number[], userId: number, text: string) {
+    const conversation = await this.assertCanSend(conversationId, producerId, codeIds)
+
+    // Fix #3: deliver to WhatsApp FIRST — if the bot is down this throws and
+    // nothing is persisted, so the agent sees an error instead of a ghost
+    // bubble (message appears in the thread but never reached the user).
+    await this.botNotifier.sendMessage(conversation.waId, text, conversation.phoneNumberId)
+
+    return this.persistAgentMessage(conversationId, text)
+  }
+
+  /**
+   * A photo (JPEG/PNG) or PDF sent from the panel, with an optional caption.
+   * Same rules as a text reply; the file is removed again if it can't be sent.
+   */
+  async sendMedia(
+    conversationId: number,
+    producerId: number,
+    codeIds: number[],
+    file: Express.Multer.File | undefined,
+    caption?: string,
+  ) {
+    if (!file) throw new BadRequestException('A file is required')
+    try {
+      const isImage = file.mimetype.startsWith('image/')
+      if (isImage && file.size > MAX_OUTGOING_IMAGE_SIZE) {
+        throw new BadRequestException('WhatsApp only accepts photos up to 5 MB')
+      }
+      const conversation = await this.assertCanSend(conversationId, producerId, codeIds)
+      // Multer reads multipart filenames as latin1; WhatsApp shows the name to the client.
+      const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8')
+      const text = caption?.trim() ?? ''
+
+      await this.botNotifier.sendMedia({
+        to: conversation.waId,
+        phoneNumberId: conversation.phoneNumberId,
+        path: file.path,
+        mimeType: file.mimetype,
+        filename: originalName,
+        caption: text || undefined,
+      })
+
+      const media = {
+        url: `${INBOX_PUBLIC_PREFIX}/${file.filename}`,
+        originalName,
+        mimeType: file.mimetype,
+        size: file.size,
+      }
+      // A bracketed placeholder, like the bot's, when there is no caption.
+      const content = text || (isImage ? '[foto]' : `[documento ${originalName}]`)
+      const message = await this.persistAgentMessage(conversationId, content, { media })
+      return { ...message, media: messageMedia({ media }) }
+    } catch (error) {
+      await unlink(file.path).catch(() => undefined)
+      throw error
+    }
+  }
+
+  /** Checks shared by every reply from the panel; returns the conversation. */
+  private async assertCanSend(conversationId: number, producerId: number, codeIds: number[]) {
     // Fix #2: producerId in DB query, not post-fetch check.
     const conversation = await this.findAndVerify(conversationId, producerId, codeIds)
 
@@ -373,16 +434,14 @@ export class InboxService {
     if (!lastUserMsg || Date.now() - lastUserMsg.createdAt.getTime() > TWENTY_FOUR_HOURS_MS) {
       throw new BadRequestException('The 24-hour Meta messaging window has expired')
     }
+    return { ...conversation, phoneNumberId: conversation.phoneNumberId }
+  }
 
-    // Fix #3: deliver to WhatsApp FIRST — if the bot is down this throws and
-    // nothing is persisted, so the agent sees an error instead of a ghost
-    // bubble (message appears in the thread but never reached the user).
-    await this.botNotifier.sendMessage(conversation.waId, text, conversation.phoneNumberId)
-
-    // Persist after confirmed delivery and refresh lastMessageAt atomically.
+  /** Persists a delivered reply and refreshes lastMessageAt atomically. */
+  private persistAgentMessage(conversationId: number, content: string, rawData?: Prisma.InputJsonValue) {
     return this.prisma.$transaction(async tx => {
       const msg = await tx.message.create({
-        data: { conversationId, role: 'agent', content: text },
+        data: { conversationId, role: 'agent', content, ...(rawData ? { rawData } : {}) },
         select: { id: true, role: true, content: true, createdAt: true },
       })
       await tx.conversation.update({

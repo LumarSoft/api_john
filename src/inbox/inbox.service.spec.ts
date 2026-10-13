@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { BotNotifierService } from './bot-notifier.service'
 import type { ListInboxDto } from './dto/list-inbox.dto'
@@ -410,5 +413,110 @@ describe('InboxService.deleteConversations', () => {
     await expect(service.deleteConversations(1, [2], 7)).rejects.toThrow('database unavailable')
     expect(tx.conversation.deleteMany).not.toHaveBeenCalled()
     expect(notifier.resetFlow).not.toHaveBeenCalled()
+  })
+})
+
+describe('InboxService.sendMedia', () => {
+  const now = new Date()
+  const conversation = {
+    id: 7,
+    waId: '549341',
+    producerId: 1,
+    botPaused: true,
+    producer: { botEnabled: true },
+    phoneNumberId: 'P1',
+    sessionStartedAt: now,
+  }
+
+  function setup(sendMedia = jest.fn().mockResolvedValue(undefined)) {
+    const tx = {
+      message: {
+        create: jest
+          .fn()
+          .mockImplementation(({ data }: { data: { content: string } }) =>
+            Promise.resolve({ id: 3, role: 'agent', content: data.content, createdAt: now }),
+          ),
+      },
+      conversation: { update: jest.fn().mockResolvedValue({}) },
+    }
+    const prisma = {
+      conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
+      message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
+      $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    }
+    const notifier = { sendMedia }
+    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    return { service, tx, notifier }
+  }
+
+  function upload(mimetype: string, size: number, originalname: string): Express.Multer.File {
+    const path = join(mkdtempSync(join(tmpdir(), 'inbox-media-')), 'upload')
+    writeFileSync(path, 'x')
+    return { path, filename: 'upload', mimetype, size, originalname } as Express.Multer.File
+  }
+
+  it('sends a PDF through the bot and stores it with a placeholder', async () => {
+    const { service, tx, notifier } = setup()
+    // Multer hands the multipart filename over as latin1.
+    const file = upload('application/pdf', 1000, Buffer.from('Póliza.pdf', 'utf8').toString('latin1'))
+
+    const result = await service.sendMedia(7, 1, [2], file)
+
+    expect(notifier.sendMedia).toHaveBeenCalledWith({
+      to: '549341',
+      phoneNumberId: 'P1',
+      path: file.path,
+      mimeType: 'application/pdf',
+      filename: 'Póliza.pdf',
+      caption: undefined,
+    })
+    expect(tx.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          role: 'agent',
+          content: '[documento Póliza.pdf]',
+          rawData: {
+            media: {
+              url: '/uploads/inbox/upload',
+              originalName: 'Póliza.pdf',
+              mimeType: 'application/pdf',
+              size: 1000,
+            },
+          },
+        }),
+      }),
+    )
+    expect(result.media).toMatchObject({ originalName: 'Póliza.pdf', mimeType: 'application/pdf' })
+    expect(existsSync(file.path)).toBe(true)
+  })
+
+  it('keeps the caption as the message text', async () => {
+    const { service, tx, notifier } = setup()
+    const file = upload('image/jpeg', 1000, 'foto.jpg')
+
+    await service.sendMedia(7, 1, [2], file, '  Tu cupón de octubre  ')
+
+    expect(notifier.sendMedia).toHaveBeenCalledWith(expect.objectContaining({ caption: 'Tu cupón de octubre' }))
+    expect(tx.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ content: 'Tu cupón de octubre' }) }),
+    )
+  })
+
+  it('rejects a photo over WhatsApp’s 5 MB and removes the upload', async () => {
+    const { service, notifier } = setup()
+    const file = upload('image/png', 6 * 1024 * 1024, 'grande.png')
+
+    await expect(service.sendMedia(7, 1, [2], file)).rejects.toThrow('5 MB')
+    expect(notifier.sendMedia).not.toHaveBeenCalled()
+    expect(existsSync(file.path)).toBe(false)
+  })
+
+  it('removes the upload and stores nothing when WhatsApp delivery fails', async () => {
+    const { service, tx } = setup(jest.fn().mockRejectedValue(new Error('bot down')))
+    const file = upload('application/pdf', 1000, 'poliza.pdf')
+
+    await expect(service.sendMedia(7, 1, [2], file)).rejects.toThrow('bot down')
+    expect(tx.message.create).not.toHaveBeenCalled()
+    expect(existsSync(file.path)).toBe(false)
   })
 })
