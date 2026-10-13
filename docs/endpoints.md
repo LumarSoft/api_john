@@ -410,6 +410,7 @@ Updates the authenticated user's own email and/or password (settings screen).
 |----------|--------|----------|----------------------|
 | email    | string | No       | Valid email format   |
 | password | string | No       | Minimum 6 characters |
+| name     | string | No       | Max 80 characters; how the office calls the person ("Mili"). Empty string clears it |
 
 ```json
 {
@@ -479,6 +480,7 @@ Creates a new administrator (sub-admin) under the authenticated user's producer.
 |----------|--------|----------|----------------------|
 | email    | string | Yes      | Valid email format   |
 | password | string | Yes      | Minimum 6 characters |
+| name     | string | No       | Max 80 characters; how the office calls the person ("Mili") |
 
 ```json
 {
@@ -522,6 +524,7 @@ Updates an administrator's email and/or password.
 |----------|--------|----------|----------------------|
 | email    | string | No       | Valid email format   |
 | password | string | No       | Minimum 6 characters |
+| name     | string | No       | Max 80 characters; how the office calls the person ("Mili"). Empty string clears it |
 
 **Responses**
 
@@ -1231,6 +1234,117 @@ Marks a single novedad as read (idempotent — re-marking a read novedad is a no
 `200 OK` — Updated novedad object
 
 `404 Not Found` — Novedad not found in this tenant
+
+## Admin — Tareas
+
+Internal tasks the office leaves each other, outside the bot ("Tareas" in the panel): a call to return, a document to send. Someone creates a task for a person of the same organization, who works it, moves it between `PENDING`, `IN_PROGRESS` and `DONE`, and can reply in its comments. A task is visible to whoever created it, whoever has it assigned and any SuperAdmin of the organization; tasks are not scoped by producer code. All endpoints require a user JWT.
+
+A task in every response:
+```json
+{
+  "id": 12,
+  "title": "Llamar a Pérez por la renovación",
+  "description": "Llamó a las 10, quiere cambiar la cobertura del Gol.",
+  "status": "PENDING",
+  "dueDate": "2026-10-14T00:00:00.000Z",
+  "contactName": "Juan Pérez",
+  "contactPhone": "341 555-1234",
+  "seenAt": null,
+  "completedAt": null,
+  "createdAt": "2026-10-13T12:00:00.000Z",
+  "updatedAt": "2026-10-13T12:00:00.000Z",
+  "createdBy": { "id": 1, "name": "John", "email": "john@example.com" },
+  "assignedTo": { "id": 2, "name": "Mili", "email": "mili@example.com" },
+  "comments": [
+    { "id": 4, "body": "Le dejé mensaje", "createdAt": "2026-10-13T15:00:00.000Z", "user": { "id": 2, "name": "Mili", "email": "mili@example.com" } }
+  ]
+}
+```
+`seenAt` is null while the assignee has not seen the task, or when someone else replied after they last looked.
+
+### GET /admin/tasks
+
+**Auth required:** Yes (user JWT)
+
+| Query  | Values | Default | Meaning |
+|--------|--------|---------|---------|
+| view   | `mine`, `created`, `all` | `mine` | Assigned to me, created by me, or the whole office (`all` returns everything only to a SuperAdmin; anyone else gets the tasks they created or have assigned) |
+| status | `open`, `done` | `open` | Pending + in progress (soonest due date first), or the latest 100 finished |
+
+`200 OK` — Array of tasks.
+
+### GET /admin/tasks/stats
+
+`200 OK` — Open tasks assigned to the user and how many of them are unseen, for the menu badge.
+```json
+{ "open": 3, "unseen": 1 }
+```
+
+### GET /admin/tasks/people
+
+People a task can be assigned to: the organization's users (the platform OWNER excluded).
+
+`200 OK`
+```json
+[{ "id": 2, "name": "Mili", "email": "mili@example.com", "role": "ADMIN" }]
+```
+
+### POST /admin/tasks/seen
+
+Marks every task assigned to the user as seen (the panel calls it when the user opens their tasks).
+
+`201 Created`
+```json
+{ "seen": 2 }
+```
+
+### POST /admin/tasks
+
+**Request body**
+
+| Field            | Type   | Required | Constraints |
+|------------------|--------|----------|-------------|
+| title            | string | Yes      | 1–200 characters |
+| description      | string | No       | Max 5000 characters |
+| assignedToUserId | number | Yes      | A user of the same organization (not the OWNER) |
+| dueDate          | string | No       | `YYYY-MM-DD` |
+| contactName      | string | No       | Max 120 characters |
+| contactPhone     | string | No       | Max 40 characters |
+
+`201 Created` — The task. A task someone assigns to themselves is created as seen.
+
+`400 Bad Request` — Validation error, or the person is not part of the organization
+
+### PATCH /admin/tasks/:id
+
+Any field of `POST /admin/tasks`, plus `status` (`PENDING`, `IN_PROGRESS`, `DONE`). Allowed to the creator, the assignee and SuperAdmins. Moving to `DONE` sets `completedAt`; leaving it clears it. Reassigning marks the task as unseen for the new person.
+
+`200 OK` — The task.
+
+`403 Forbidden` — The task does not involve the user · `404 Not Found` — No such task in the organization
+
+### DELETE /admin/tasks/:id
+
+Soft-deletes the task. Only its creator or a SuperAdmin.
+
+`200 OK`
+```json
+{ "ok": true }
+```
+
+`403 Forbidden` — Not the creator · `404 Not Found` — No such task
+
+### POST /admin/tasks/:id/comments
+
+**Request body**
+
+| Field | Type   | Required | Constraints |
+|-------|--------|----------|-------------|
+| body  | string | Yes      | 1–2000 characters |
+
+`201 Created` — The task with its comments. A reply from anyone but the assignee marks the task as unseen for the assignee.
+
+`403 Forbidden` — The task does not involve the user · `404 Not Found` — No such task
 
 ## Bot (WhatsApp)
 

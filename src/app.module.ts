@@ -29,6 +29,7 @@ import { PhoneNumbersModule } from './phone-numbers/phone-numbers.module'
 import { OwnerModule } from './owner/owner.module'
 import { WhatsappOnboardingModule } from './whatsapp-onboarding/whatsapp-onboarding.module'
 import { ImprovementsModule } from './improvements/improvements.module'
+import { TasksModule } from './tasks/tasks.module'
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { ImprovementsModule } from './improvements/improvements.module'
     OwnerModule,
     WhatsappOnboardingModule,
     ImprovementsModule,
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

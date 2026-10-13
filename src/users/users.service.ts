@@ -24,6 +24,7 @@ export interface BotStatusActor {
 const SAFE_SELECT = {
   id: true,
   email: true,
+  name: true,
   role: true,
   producerId: true,
   createdAt: true,
@@ -162,7 +163,7 @@ export class UsersService {
 
     const password = await bcrypt.hash(dto.password, 10)
     const user = await this.prisma.user.create({
-      data: { email: dto.email, password, role, producerId },
+      data: { email: dto.email, name: dto.name?.trim() || null, password, role, producerId },
       select: { id: true },
     })
 
@@ -187,6 +188,7 @@ export class UsersService {
       where: { id },
       data: {
         ...(dto.email ? { email: dto.email } : {}),
+        ...(dto.name !== undefined ? { name: dto.name.trim() || null } : {}),
         ...(dto.password ? { password: await bcrypt.hash(dto.password, 10) } : {}),
         ...(dto.role ? { role: dto.role } : {}),
       },
@@ -228,6 +230,7 @@ export class UsersService {
       where: { id: userId },
       data: {
         ...(dto.email ? { email: dto.email } : {}),
+        ...(dto.name !== undefined ? { name: dto.name.trim() || null } : {}),
         ...(dto.password ? { password: await bcrypt.hash(dto.password, 10) } : {}),
       },
       select: SAFE_SELECT,

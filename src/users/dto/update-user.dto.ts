@@ -1,4 +1,14 @@
-import { ArrayUnique, IsArray, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator'
+import {
+  ArrayUnique,
+  IsArray,
+  IsEmail,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  MinLength,
+  MaxLength,
+} from 'class-validator'
 import { Role } from 'generated/prisma/client'
 
 export class UpdateUserDto {
@@ -21,4 +31,10 @@ export class UpdateUserDto {
   @ArrayUnique()
   @IsInt({ each: true })
   producerCodeIds?: number[]
+
+  /** How the office calls this person ("Mili"); empty = show the email. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  name?: string
 }

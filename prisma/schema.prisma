@@ -64,6 +64,7 @@ model Producer {
   botStatusChanges BotStatusChange[]
   improvements     Improvement[]
   proposals        ImprovementProposal[]
+  tasks            Task[]
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
@@ -424,6 +425,8 @@ model User {
   lastImprovementsVisitAt  DateTime?
   id                       Int       @id @default(autoincrement())
   email                    String    @unique
+  // How the office calls this person ("Mili"). Optional: falls back to the email.
+  name                     String?   @db.VarChar(80)
   password                 String
   role                     Role      @default(ADMIN)
   createdAt                DateTime  @default(now())
@@ -438,6 +441,9 @@ model User {
   assignedConversations Conversation[]        @relation("assigned_conversations")
   botStatusChanges      BotStatusChange[]
   proposals             ImprovementProposal[]
+  tasksCreated          Task[]                @relation("tasks_created")
+  tasksAssigned         Task[]                @relation("tasks_assigned")
+  taskComments          TaskComment[]
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
@@ -944,4 +950,56 @@ model IntegrationToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+}
+
+/// Internal to-dos the office leaves each other, outside the bot: a call to
+/// return, a document to send. Someone creates it for a person, who works it
+/// and can reply in its comments.
+model Task {
+  id           Int        @id @default(autoincrement())
+  title        String     @db.VarChar(200)
+  description  String?    @db.Text
+  status       TaskStatus @default(PENDING)
+  // Day it should be done by (no time of day).
+  dueDate      DateTime?  @db.Date
+  // Who to call back, when the task comes from a phone call.
+  contactName  String?    @db.VarChar(120)
+  contactPhone String?    @db.VarChar(40)
+  // When the assignee first saw it: before that the panel marks it as new.
+  seenAt       DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  producerId   Int
+  producer     Producer      @relation(fields: [producerId], references: [id])
+  createdById  Int
+  createdBy    User          @relation("tasks_created", fields: [createdById], references: [id])
+  assignedToId Int
+  assignedTo   User          @relation("tasks_assigned", fields: [assignedToId], references: [id])
+  comments     TaskComment[]
+
+  @@index([producerId, assignedToId, status])
+  @@index([producerId, createdById, status])
+}
+
+model TaskComment {
+  id        Int       @id @default(autoincrement())
+  body      String    @db.Text
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  taskId Int
+  task   Task @relation(fields: [taskId], references: [id])
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  @@index([taskId, createdAt])
 }
