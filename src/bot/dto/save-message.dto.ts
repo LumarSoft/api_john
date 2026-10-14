@@ -1,5 +1,15 @@
 import { Type } from 'class-transformer'
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 
 export class MessageMediaDto {
   @IsString()
@@ -46,4 +56,10 @@ export class SaveMessageDto {
   @IsString()
   @MaxLength(191)
   contactName?: string
+
+  // Stored for the transcript without touching the chat's activity (the
+  // inactivity goodbye): no new session, no new warning, no unread badge.
+  @IsOptional()
+  @IsBoolean()
+  keepActivity?: boolean
 }

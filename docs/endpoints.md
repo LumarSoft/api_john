@@ -1467,7 +1467,7 @@ Persists the bot's deterministic flow state for a conversation (the serialized `
 
 Sweep used by the bot's inactivity job (runs every minute). Finds the conversations that have been idle longer than `SESSION_TIMEOUT_MINUTES` and have not been warned yet, and **atomically marks them as warned** so the same silence is never warned twice. Each returned item carries the user's `waId` and the Meta `phoneNumberId` the chat came through, so the warning is sent from the same number the user wrote to.
 
-Every claimed chat is finalized, but a conversation is only **returned** (so the bot sends the goodbye) when the bot was running it and left it waiting on the customer: the organization's bot is on, no advisor has taken the chat (`botPaused` false), the last message is the bot's (`role: "assistant"`) and the silence crossed the timeout within the last 10 minutes. Anything else — chats that piled up while the bot was switched off, chats an advisor handled, chats where the customer wrote last — is finalized silently, so re-enabling the bot never sends a burst of goodbyes. Returned items carry `isOpenNow` so the notice can say the office is closed. Legacy conversations with no stored phone number are skipped until the next inbound message backfills it.
+Every claimed chat is finalized, but a conversation is only **returned** (so the bot sends the goodbye) when the bot was running it and left it waiting on the customer: the organization's bot is on, no advisor has taken the chat (`botPaused` false), the last message is the bot's own (`role: "assistant"`, `source: "live"`, not one the office sent from the WhatsApp app), nothing was passed to the office in the current session (an open `handoff` or `baja_poliza` notification created since `sessionStartedAt`: the customer is waiting for the office) and the silence crossed the timeout within the last 10 minutes. Anything else — chats that piled up while the bot was switched off, chats an advisor handled, chats where the customer wrote last — is finalized silently, so re-enabling the bot never sends a burst of goodbyes. Returned items carry `isOpenNow` so the notice can say the office is closed. Legacy conversations with no stored phone number are skipped until the next inbound message backfills it.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1494,6 +1494,7 @@ Persists a message in the conversation.
 | content | string | Yes      | Non-empty, max 10000 chars |
 | media   | object | No       | Upload metadata (`url`, `originalName`, `mimeType`, `size`, `tipo?`) |
 | contactName | string | No   | Sender's WhatsApp profile name (inbound only), max 191 chars; stored on the conversation |
+| keepActivity | boolean | No | `true` stores the message for the transcript without counting it as activity (no `lastMessageAt`/`warnedAt`/unread change). Used for the inactivity goodbye. |
 
 ```json
 { "role": "user", "content": "Quiero cotizar mi auto" }

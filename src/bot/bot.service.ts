@@ -483,11 +483,12 @@ export class BotService {
         phoneNumberId: true,
         botPaused: true,
         lastMessageAt: true,
+        sessionStartedAt: true,
         messages: {
           where: { deletedAt: null },
           orderBy: { createdAt: 'desc' },
           take: 1,
-          select: { role: true },
+          select: { role: true, source: true },
         },
         producer: { select: { id: true, businessHours: true } },
       },
@@ -506,12 +507,19 @@ export class BotService {
     // timeout. Re-enabling the bot used to send it to every chat that piled up
     // while it was off — days-old ones and chats it never answered included —
     // and an advisor's chat got the bot's goodbye mid-conversation.
+    // The bot's own message (not one the office sent from the WhatsApp app) and
+    // nothing passed to the office in this session: a customer told "ya le pasé
+    // tu pedido" is waiting for the office, and "damos por finalizada esta
+    // conversación" there read as if the request had been dropped.
+    const waiting = await this.waitingForOffice(claimed)
     const candidates = claimed.filter(
       c =>
         !c.botPaused &&
         c.lastMessageAt !== null &&
         c.lastMessageAt >= windowStart &&
-        c.messages[0]?.role === 'assistant',
+        c.messages[0]?.role === 'assistant' &&
+        c.messages[0]?.source === 'live' &&
+        !waiting.has(c.id),
     )
     if (candidates.length === 0) return []
 
@@ -551,6 +559,24 @@ export class BotService {
     return out
   }
 
+  /**
+   * Conversations among `chats` with a request for the office (advisor, coupons,
+   * documents, a cancellation) still open from their current session.
+   */
+  private async waitingForOffice(chats: { id: number; sessionStartedAt: Date | null }[]): Promise<Set<number>> {
+    const open = await this.prisma.notification.findMany({
+      where: {
+        type: { in: ['handoff', 'baja_poliza'] },
+        refId: { in: chats.map(c => c.id) },
+        status: { not: 'resolved' },
+        deletedAt: null,
+      },
+      select: { refId: true, createdAt: true },
+    })
+    const since = new Map(chats.map(c => [c.id, c.sessionStartedAt]))
+    return new Set(open.filter(n => n.createdAt >= (since.get(n.refId) ?? new Date(0))).map(n => n.refId))
+  }
+
   async saveMessage(conversationId: number, dto: SaveMessageDto) {
     await this.findConversation(conversationId)
 
@@ -578,6 +604,10 @@ export class BotService {
         },
         select: { id: true, role: true, content: true, createdAt: true },
       })
+
+      // The goodbye that closes an idle chat is kept for the inbox, but it is
+      // not activity: counting it would reopen the session and warn it again.
+      if (dto.keepActivity) return message
 
       await tx.conversation.update({
         where: { id: conversationId },

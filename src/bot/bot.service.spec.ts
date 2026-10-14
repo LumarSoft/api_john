@@ -11,7 +11,7 @@ function createPrismaMock() {
   return {
     phoneNumber: { findFirst: jest.fn() },
     policy: { findFirst: jest.fn(), update: jest.fn(), count: jest.fn().mockResolvedValue(0) },
-    notification: { findFirst: jest.fn(), create: jest.fn() },
+    notification: { findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     conversation: {
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -556,7 +556,8 @@ describe('BotService', () => {
       phoneNumberId: 'P1',
       botPaused: false,
       lastMessageAt: justIdle(),
-      messages: [{ role: 'assistant' }],
+      sessionStartedAt: new Date(Date.now() - 20 * 60_000),
+      messages: [{ role: 'assistant', source: 'live' }],
       producer: { id: 1, businessHours },
       ...overrides,
     })
@@ -600,6 +601,7 @@ describe('BotService', () => {
       ['an advisor has the chat', { botPaused: true }],
       ['the customer wrote last and got no answer', { messages: [{ role: 'user' }] }],
       ['an advisor wrote last', { messages: [{ role: 'agent' }] }],
+      ['the office wrote last from the WhatsApp app', { messages: [{ role: 'assistant', source: 'app_echo' }] }],
     ])('finalizes silently, without a goodbye, a chat that %s', async (_case, overrides) => {
       prisma.conversation.findMany.mockResolvedValue([candidateWith(alwaysOpen, overrides)])
 
@@ -609,6 +611,31 @@ describe('BotService', () => {
         expect.objectContaining({ where: { id: { in: [7] } }, data: { warnedAt: expect.any(Date) } }),
       )
       expect(result).toEqual([])
+    })
+
+    it('finalizes silently a chat whose request is waiting for the office', async () => {
+      // "Ya les pasé tu pedido" and, half an hour later, "damos por finalizada
+      // esta conversación": the customer read it as their request dropped.
+      prisma.conversation.findMany.mockResolvedValue([candidateWith(alwaysOpen)])
+      prisma.notification.findMany.mockResolvedValue([{ refId: 7, createdAt: new Date(Date.now() - 10 * 60_000) }])
+
+      const result = await service.claimPendingWarnings()
+
+      expect(prisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ refId: { in: [7] }, status: { not: 'resolved' }, deletedAt: null }),
+        }),
+      )
+      expect(result).toEqual([])
+    })
+
+    it('still says goodbye when the open request is from an earlier session', async () => {
+      prisma.conversation.findMany.mockResolvedValue([candidateWith(alwaysOpen)])
+      prisma.notification.findMany.mockResolvedValue([{ refId: 7, createdAt: new Date(Date.now() - 3 * 86_400_000) }])
+
+      const result = await service.claimPendingWarnings()
+
+      expect(result).toHaveLength(1)
     })
 
     it('only says goodbye to the chats that qualify when re-enabling sweeps a backlog', async () => {
@@ -653,6 +680,22 @@ describe('BotService', () => {
         where: { id: 7 },
         data: { lastMessageAt: created.createdAt, warnedAt: null, unreadCount: { increment: 1 } },
       })
+      expect(result).toBe(created)
+    })
+
+    it('stores the inactivity goodbye without counting it as activity', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 7, producerId: 1, clientId: null })
+      const created = { id: 101, role: 'assistant', content: 'chau', createdAt: new Date() }
+      const tx = {
+        message: { create: jest.fn().mockResolvedValue(created) },
+        conversation: { update: jest.fn().mockResolvedValue({}) },
+      }
+      prisma.$transaction.mockImplementation(async (cb: any) => cb(tx))
+
+      const result = await service.saveMessage(7, { role: 'assistant', content: 'chau', keepActivity: true } as any)
+
+      expect(tx.message.create).toHaveBeenCalled()
+      expect(tx.conversation.update).not.toHaveBeenCalled()
       expect(result).toBe(created)
     })
 
