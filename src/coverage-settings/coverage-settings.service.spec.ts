@@ -193,7 +193,11 @@ describe('car coverage wording', () => {
 
     expect(result.map(c => c.code)).toEqual(['A', 'C2', 'D3'])
     expect(result.find(c => c.code === 'C2')?.benefits.join(' ')).toMatch(/Parabrisas y luneta hasta \$500\.000/)
-    expect(result.find(c => c.code === 'D3')?.exclusions.join(' ')).toMatch(/10% del siniestro, mínimo \$550\.000/)
+    // The franquicia is its own field: under "No incluye" it read as "sin franquicia".
+    const d3 = result.find(c => c.code === 'D3')
+    expect(d3?.deductible).toMatch(/10% de cada daño por accidente, mínimo \$550\.000/)
+    expect(d3?.exclusions.join(' ')).not.toMatch(/franquicia/i)
+    expect(result.find(c => c.code === 'A')?.deductible).toBeNull()
   })
 
   it('offers a code an admin described, with the admin wording', async () => {

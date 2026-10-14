@@ -18,6 +18,8 @@ export interface DisplayedQuoteCoverage extends QuoteCoverage {
   benefits: string[]
   /** What it does not include, so the client can tell similar coverages apart. */
   exclusions: string[]
+  /** What the client pays on each claim (franquicia), or null when there is none. */
+  deductible: string | null
   highlighted: boolean
 }
 

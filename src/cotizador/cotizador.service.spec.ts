@@ -304,3 +304,94 @@ describe('CotizadorService vehicle Triunfo could not value', () => {
     expect(result.valuationMissing).toBe(false)
   })
 })
+
+describe('CotizadorService 0 km and GNC', () => {
+  function createService() {
+    const post = jest.fn().mockReturnValue(
+      of({
+        data: {
+          SDTSrvCotizacionOut: {
+            Coberturas: [
+              {
+                Cobertura: 'A',
+                Resultado: { Estado: 'S' },
+                Cotizaciones: [{ FormaPagoCod: '1', Premio: '67825', ValorCuota: '67825', Cuotas: 1 }],
+              },
+            ],
+            DatosAdicionales: [{ Codigo: '1', Nombre: 'ValorVehiculo', Valor: '25000000.00' }],
+            Resultado: { Estado: 'S', Mensajes: [] },
+          },
+        },
+      }),
+    )
+    const validateVehicleYear = jest.fn().mockResolvedValue(undefined)
+    const service = new CotizadorService(
+      { post } as unknown as HttpService,
+      {} as PrismaService,
+      { getAuth: jest.fn().mockResolvedValue({}), baseUrlSip: 'https://triunfo.test' } as unknown as TriunfoService,
+      {
+        isAvailable: () => true,
+        validateVehicleYear,
+        getVehicleValue: jest.fn().mockResolvedValue(null),
+        getVehicleOrigin: jest.fn().mockResolvedValue('N'),
+      } as unknown as InfoAutoService,
+      {
+        registerDiscovered: jest.fn().mockResolvedValue(undefined),
+        apply: jest.fn().mockImplementation(async (_producer, coverages) => coverages),
+      } as unknown as CoverageSettingsService,
+      {} as ConfigService,
+      {} as NovedadesService,
+    )
+    return { service, post, validateVehicleYear }
+  }
+  const year = new Date().getFullYear()
+  const sentAutomotor = (post: jest.Mock) =>
+    (post.mock.calls[0][1] as { SDTSrvCotizacionIn: { Automotor: Record<string, unknown> } }).SDTSrvCotizacionIn
+      .Automotor
+
+  it('tells Triunfo the vehicle is 0 km only when it is', async () => {
+    const zero = createService()
+    await zero.service.quoteVehicle(
+      VehicleType.AUTO,
+      { brand: '17', model: '170908', manufactureYear: year, postalCode: 2000, zeroKm: true },
+      1,
+      null,
+    )
+    expect(sentAutomotor(zero.post).CeroKM).toBe(1)
+
+    const used = createService()
+    await used.service.quoteVehicle(
+      VehicleType.AUTO,
+      { brand: '17', model: '170908', manufactureYear: year, postalCode: 2000 },
+      1,
+      null,
+    )
+    expect(sentAutomotor(used.post).CeroKM).toBe(0)
+  })
+
+  it('rejects a 0 km of an older model year before asking Triunfo', async () => {
+    const { service, post, validateVehicleYear } = createService()
+    await expect(
+      service.quoteVehicle(
+        VehicleType.AUTO,
+        { brand: '17', model: '170908', manufactureYear: year - 3, postalCode: 2000, zeroKm: true },
+        1,
+        null,
+      ),
+    ).rejects.toMatchObject({ status: 400 })
+    expect(validateVehicleYear).not.toHaveBeenCalled()
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('says the price leaves the GNC equipment out, without sending a guessed accessory', async () => {
+    const { service, post } = createService()
+    const result = await service.quoteVehicle(
+      VehicleType.AUTO,
+      { brand: '17', model: '170908', manufactureYear: year, postalCode: 2000, hasGnc: true },
+      1,
+      null,
+    )
+    expect(result.messages.join(' ')).toContain('no incluye el equipo de GNC')
+    expect(sentAutomotor(post).Accesorios).toEqual([])
+  })
+})

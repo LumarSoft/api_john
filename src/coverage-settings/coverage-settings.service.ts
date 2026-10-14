@@ -40,6 +40,8 @@ export interface CoverageDisplay {
   tagline: string | null
   benefits: string[]
   exclusions: string[]
+  /** The franquicia: a fact of the Triunfo product, not wording the admin edits. */
+  deductible: string | null
   highlighted: boolean
 }
 
@@ -159,6 +161,7 @@ export class CoverageSettingsService {
               tagline: copy.tagline || null,
               benefits: copy.benefits,
               exclusions: copy.exclusions,
+              deductible: copy.deductible ?? null,
               highlighted: false,
             }) as T & CoverageDisplay,
         )
@@ -186,6 +189,7 @@ export class CoverageSettingsService {
         return {
           ...c,
           ...(setting ? this.wordingOf(setting) : this.defaultWording(c.code)),
+          deductible: defaultCopyFor(c.code).deductible ?? null,
           highlighted:
             !!setting?.highlighted && inYearRange(vehicleYear, setting.highlightYearFrom, setting.highlightYearTo),
           _order: setting?.sortOrder ?? defaultCopyFor(c.code).sortOrder,

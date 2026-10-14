@@ -18,6 +18,12 @@ export interface CoverageCopy {
   benefits: string[]
   /** What the coverage does not include, so the client sees the difference. */
   exclusions: string[]
+  /**
+   * What the client pays out of pocket on each claim. Kept apart from the
+   * exclusions: listed under "No incluye", the D3 franchise read as "sin
+   * franquicia" — the opposite of the product.
+   */
+  deductible?: string
   /** Base ordering so newly discovered codes land in a sane position. */
   sortOrder: number
   /**
@@ -206,9 +212,9 @@ const CAR_COPY: Record<string, CoverageCopy> = {
       'Cristales, cerraduras, granizo e inundación sin franquicia',
       'Reposición de ruedas robadas: 2 por evento, 2 eventos por año',
     ],
-    exclusions: [
-      'Una franquicia fija por cada daño por accidente: según la opción, desde $400.000 (autos nacionales o del Mercosur) o $600.000 (importados)',
-    ],
+    exclusions: [],
+    deductible:
+      'Fija por cada daño por accidente: según la opción, desde $400.000 (autos nacionales o del Mercosur) o $600.000 (importados)',
     sortOrder: 402,
     offered: false,
   },
@@ -221,7 +227,8 @@ const CAR_COPY: Record<string, CoverageCopy> = {
       'Cristales, cerraduras y granizo sin franquicia',
       'Reposición de ruedas robadas: 2 por evento, 2 eventos por año',
     ],
-    exclusions: ['La franquicia de cada daño por accidente: 10% del siniestro, mínimo $550.000'],
+    exclusions: [],
+    deductible: '10% de cada daño por accidente, mínimo $550.000',
     sortOrder: 403,
     offered: true,
   },
@@ -234,7 +241,8 @@ const CAR_COPY: Record<string, CoverageCopy> = {
       'Cristales, cerraduras, granizo e inundación sin franquicia',
       'Reposición de ruedas robadas: 2 por evento, 2 eventos por año',
     ],
-    exclusions: ['La franquicia de cada daño por accidente: 5% de la suma asegurada'],
+    exclusions: [],
+    deductible: '5% de la suma asegurada por cada daño por accidente',
     sortOrder: 404,
     offered: false,
   },

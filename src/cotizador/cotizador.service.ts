@@ -29,6 +29,15 @@ import type { QuoteCoverage, QuoteAutoResult, NormalizedQuote, CoverageRequestRe
 // forever while the bot gave up at 20 s; 15 s returns a clear error first.
 const TRIUNFO_QUOTE_TIMEOUT_MS = 15_000
 
+/**
+ * Triunfo's quote takes the GNC equipment as an accessory whose code we do not
+ * have yet, and a wrong code changes every price. Liability is the same with
+ * or without it (a real 465 policy with GNC matches the quote without any
+ * accessory to the peso), so the price is right for RC and the office adds the
+ * equipment when it issues the policy.
+ */
+const GNC_NOT_PRICED_MESSAGE = 'El precio no incluye el equipo de GNC: un asesor lo suma al emitir la póliza.'
+
 const VALUATION_MISSING_MESSAGE =
   'La compañía no pudo valuar el vehículo en este momento, por eso solo se cotizó Responsabilidad Civil. Las coberturas con robo, incendio y daños las cotiza un asesor.'
 export type { QuoteCoverage, QuotePaymentOption, QuoteAutoResult } from './cotizador.types'
@@ -110,6 +119,10 @@ export class CotizadorService {
     if (!this.infoAuto.isAvailable(vehicleType)) {
       throw new ServiceUnavailableException(`El catálogo de InfoAuto para ${vehicleType} no está disponible`)
     }
+    // A 0km is this year's model (or last year's still unsold), never older.
+    if (dto.zeroKm && dto.manufactureYear < new Date().getFullYear() - 1) {
+      throw new BadRequestException(`Un 0 km no puede ser del año ${dto.manufactureYear}. Revisá el año o si es usado.`)
+    }
     await this.infoAuto.validateVehicleYear(vehicleType, brandNumber, codiaNumber, dto.manufactureYear)
     const auth = await this.triunfo.getAuth()
 
@@ -136,7 +149,7 @@ export class CotizadorService {
                 AnioFabricacion: dto.manufactureYear,
                 Bonificacion: '0',
                 Catalogo: 'IA',
-                CeroKM: 0,
+                CeroKM: dto.zeroKm ? 1 : 0,
                 Cobertura: dto.coverage ?? '',
                 Marca: dto.brand,
                 Modelo: triunfoModel,
@@ -232,6 +245,7 @@ export class CotizadorService {
       messages: [
         ...quote.messages,
         ...(valuationMissing ? [VALUATION_MISSING_MESSAGE] : []),
+        ...(dto.hasGnc && vehicleType === VehicleType.AUTO && coverages.length > 0 ? [GNC_NOT_PRICED_MESSAGE] : []),
         ...missing.map(
           code => `No se obtuvo precio para la cobertura ${code}. Consultá con un asesor para revisar esa opción.`,
         ),

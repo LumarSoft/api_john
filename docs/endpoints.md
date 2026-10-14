@@ -123,8 +123,10 @@ Two rules are applied on top of what Triunfo returns:
 | brand           | string | Yes      | InfoAuto brand id                        |
 | model           | string | Yes      | InfoAuto CODIA                           |
 | manufactureYear | number | Yes      | Integer between 1900 and current year +1 |
-| postalCode      | number | Yes      | Integer                                  |
+| postalCode      | number | Yes      | Integer between 1000 and 9499 (Argentine postal code) |
 | coverage        | string | No       | Triunfo coverage code — empty quotes all |
+| zeroKm          | boolean | No      | Brand new, not registered: sent as `CeroKM` 1. Only for the current or previous model year |
+| hasGnc          | boolean | No      | Cars: the vehicle has GNC. Not priced yet (the accessory code is unknown): `messages` says the price leaves the equipment out |
 
 ```json
 {
@@ -150,6 +152,7 @@ Two rules are applied on top of what Triunfo returns:
       "tagline": "La cobertura obligatoria para circular",
       "benefits": ["Daños a terceros, personas y cosas", "Asistencia y defensa legal"],
       "exclusions": ["Robo, incendio o daños de tu propio auto"],
+      "deductible": null,
       "highlighted": false,
       "paymentOptions": [
         { "code": "1", "name": "Débito Automático", "premium": 67825, "installmentValue": 67825, "installments": 1 },
@@ -162,7 +165,11 @@ Two rules are applied on top of what Triunfo returns:
 }
 ```
 
-`messages` contains Triunfo error descriptions (e.g. `"Código de modelo no válido"`) when the quote returns no coverages.
+`messages` contains Triunfo error descriptions (e.g. `"Código de modelo no válido"`) when the quote returns no coverages, and notices the client must read with the prices (valuation missing, a motorcycle coverage without price, GNC not included).
+
+`deductible` is the franquicia the client pays on each claim (D2, D3, D4), or `null`. It is not an exclusion.
+
+Prices are monthly: with `CantidadCuotas` 1, `premium` equals `installmentValue`, the amount of each monthly installment.
 
 `valuationMissing` is `true` when Triunfo could not value the vehicle (`vehicleValue` 0) and therefore priced only Responsabilidad Civil, rejecting every other coverage as "no válida". It is a temporary failure, not a final answer: `messages` then explains that an advisor quotes the remaining coverages, and the bot alerts the office.
 
