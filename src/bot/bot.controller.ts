@@ -92,6 +92,11 @@ export class BotController {
     return this.botService.identifyClient(conversationId, dto)
   }
 
+  @Post('conversation/:conversationId/identify-by-phone')
+  identifyByPhone(@Param('conversationId', ParseIntPipe) conversationId: number) {
+    return this.botService.identifyByPhone(conversationId)
+  }
+
   @Get('conversation/:conversationId/polizas')
   getPolizas(@Param('conversationId', ParseIntPipe) conversationId: number) {
     return this.botService.getPolizas(conversationId)

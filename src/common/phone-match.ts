@@ -29,3 +29,14 @@ export function isSamePhone(waId: string | null | undefined, phone: string | nul
   const stored = new Set(nationalCandidates(phone))
   return wa.some(candidate => stored.has(candidate))
 }
+
+/**
+ * The last digits every stored form of this WhatsApp line ends with (`15`,
+ * `0`, punctuation and area codes all sit before them), to narrow a database
+ * search before comparing with `isSamePhone`. Null when the id isn't an
+ * Argentine number we can read.
+ */
+export function phoneSuffix(waId: string | null | undefined): string | null {
+  const [national] = nationalCandidates(waId)
+  return national ? national.slice(-6) : null
+}

@@ -21,7 +21,7 @@ function createPrismaMock() {
     },
     message: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
     claim: { findFirst: jest.fn(), update: jest.fn() },
-    client: { findFirst: jest.fn() },
+    client: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     businessClosure: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
   }
@@ -150,6 +150,30 @@ describe('BotService', () => {
     })
   })
 
+  describe('identifyByPhone', () => {
+    beforeEach(() => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 2, clientId: null, waId: '5493413404951' })
+      prisma.conversation.update.mockResolvedValue({ client: { id: 5 } })
+    })
+
+    it('links the client whose phone is the number writing', async () => {
+      prisma.client.findMany.mockResolvedValue([{ id: 5, firstName: 'JUAN', phone: '341153404951', producerCodeId: 8 }])
+      await service.identifyByPhone(3)
+      expect(prisma.conversation.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 3 },
+          data: expect.objectContaining({ clientId: 5, producerCodeId: 8 }),
+        }),
+      )
+    })
+
+    it('refuses when no single client has the number', async () => {
+      prisma.client.findMany.mockResolvedValue([])
+      await expect(service.identifyByPhone(3)).rejects.toThrow('No client has this phone number')
+      expect(prisma.conversation.update).not.toHaveBeenCalled()
+    })
+  })
+
   describe('getContext', () => {
     it('exposes the organization-wide bot switch', async () => {
       prisma.phoneNumber.findFirst.mockResolvedValue({
@@ -270,6 +294,62 @@ describe('BotService', () => {
       })
     })
 
+    describe('phone match', () => {
+      const recent = new Date()
+      beforeEach(() => {
+        prisma.conversation.findFirst.mockResolvedValue({
+          id: 7,
+          sessionStartedAt: recent,
+          lastMessageAt: recent,
+          phoneNumberId: 'P1',
+          client: null,
+        })
+      })
+
+      it('offers the first name of the one client whose phone is this number', async () => {
+        prisma.client.findMany.mockResolvedValue([
+          { id: 5, firstName: 'JUAN CARLOS', phone: '341153404951', producerCodeId: 8 },
+          { id: 6, firstName: 'OTRA', phone: '341152404951', producerCodeId: 8 },
+        ])
+
+        const result = await service.getOrCreateConversation('P1', '5493413404951')
+
+        expect(result.phoneMatch).toEqual({ firstName: 'JUAN CARLOS' })
+        expect(prisma.client.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { producerId: 1, deletedAt: null, phone: { endsWith: '404951' } } }),
+        )
+        // Nothing is linked until the person confirms.
+        expect(prisma.conversation.update).not.toHaveBeenCalled()
+      })
+
+      it('offers nobody when several clients share the number', async () => {
+        prisma.client.findMany.mockResolvedValue([
+          { id: 5, firstName: 'JUAN', phone: '341153404951', producerCodeId: 8 },
+          { id: 6, firstName: 'ANA', phone: '0341-3404951', producerCodeId: 8 },
+        ])
+
+        await expect(service.getOrCreateConversation('P1', '5493413404951')).resolves.toMatchObject({
+          phoneMatch: null,
+        })
+      })
+
+      it('does not look when the chat already has its client', async () => {
+        prisma.conversation.findFirst.mockResolvedValue({
+          id: 7,
+          sessionStartedAt: recent,
+          lastMessageAt: recent,
+          phoneNumberId: 'P1',
+          clientLinkedAt: new Date(),
+          client: { id: 5, firstName: 'Juan', lastName: 'Pérez', dni: '20111222', phone: null },
+        })
+
+        await expect(service.getOrCreateConversation('P1', '5493413404951')).resolves.toMatchObject({
+          phoneMatch: null,
+        })
+        expect(prisma.client.findMany).not.toHaveBeenCalled()
+      })
+    })
+
     it('tells the bot what a person from the office said last, even in an earlier session', async () => {
       const old = new Date(Date.now() - 3 * 60 * 60_000)
       prisma.conversation.findFirst.mockResolvedValue({
@@ -290,8 +370,8 @@ describe('BotService', () => {
       expect(result.previousActivityAt).toBe(old.toISOString())
       const where = prisma.message.findFirst.mock.calls[0][0].where
       expect(where.OR).toEqual([{ role: 'agent' }, { source: 'app_echo' }])
-      // Looks back a day, not just into the current session.
-      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThan(23 * 60 * 60_000)
+      // Looks back three days, not just into the current session.
+      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThan(71 * 60 * 60_000)
     })
 
     it('drops the human reply once the bot answered after it', async () => {

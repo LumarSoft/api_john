@@ -1,4 +1,4 @@
-import { isSamePhone } from './phone-match'
+import { isSamePhone, phoneSuffix } from './phone-match'
 
 describe('isSamePhone', () => {
   it('matches a WhatsApp id against the cartera mobile format with 15', () => {
@@ -17,5 +17,18 @@ describe('isSamePhone', () => {
     expect(isSamePhone('5493413404951', null)).toBe(false)
     expect(isSamePhone('5493413404951', '')).toBe(false)
     expect(isSamePhone('', '341153404951')).toBe(false)
+  })
+})
+
+describe('phoneSuffix', () => {
+  it('returns the subscriber digits every stored form ends with', () => {
+    expect(phoneSuffix('5493413404951')).toBe('404951')
+    expect('341153404951'.endsWith(phoneSuffix('5493413404951')!)).toBe(true)
+    expect('341-15-3404951'.endsWith(phoneSuffix('5493413404951')!)).toBe(true)
+  })
+
+  it('has nothing to search for an unreadable id', () => {
+    expect(phoneSuffix('')).toBeNull()
+    expect(phoneSuffix('12345')).toBeNull()
   })
 })

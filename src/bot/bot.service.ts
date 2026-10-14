@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere } from '../common/poliza-vigencia'
-import { isSamePhone } from '../common/phone-match'
+import { isSamePhone, phoneSuffix } from '../common/phone-match'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
@@ -32,7 +32,8 @@ const WARNING_WINDOW_MS = 10 * 60_000
 // How far back the bot is told that a person from the office wrote to this
 // chat. A session lasts minutes, so a customer who answers that person a few
 // hours later starts a fresh session the bot would otherwise greet from zero.
-const HUMAN_REPLY_LOOKBACK_MS = 24 * 60 * 60_000
+// Three days: a claim taken by hand on a Friday is asked about on Monday.
+const HUMAN_REPLY_LOOKBACK_MS = 72 * 60 * 60_000
 // A photo sent outside the guided claim steps only joins an open claim filed
 // this recently; an older claim is not where an unrelated photo belongs.
 const LOOSE_PHOTO_CLAIM_WINDOW_MS = 48 * 60 * 60_000
@@ -376,11 +377,17 @@ export class BotService {
       client: conversation.client,
     })
 
+    // Not identified, but this number is a client's phone in the cartera: the
+    // bot asks "¿hablo con Juan?" instead of the DNI. Only the first name goes
+    // out, and nothing is linked until the person confirms.
+    const phoneMatch = clientActive ? null : await this.findClientByPhone(producerId, waId)
+
     return {
       conversationId: conversation.id,
       // The stored link may belong to an earlier session about someone else's
       // policy; the bot then treats the writer as unidentified and asks again.
       client: clientActive ? conversation.client : null,
+      phoneMatch: phoneMatch ? { firstName: phoneMatch.firstName } : null,
       newSession,
       // BUGFIX: botPaused was selected above but never returned, so the bot
       // received `undefined` and kept replying even after an admin took over the
@@ -629,6 +636,39 @@ export class BotService {
       throw new NotFoundException('No client found for the given dni/plate')
     }
 
+    return this.linkClient(conversationId, client)
+  }
+
+  /**
+   * Links the conversation to the client whose stored phone is the number
+   * writing, after the person confirmed it is them. The bot offers this only
+   * when getOrCreateConversation returned a `phoneMatch`.
+   */
+  async identifyByPhone(conversationId: number) {
+    const conversation = await this.findConversation(conversationId)
+    const client = await this.findClientByPhone(conversation.producerId, conversation.waId)
+    if (!client) throw new NotFoundException('No client has this phone number')
+    return this.linkClient(conversationId, client)
+  }
+
+  /**
+   * The one client of the organization whose cartera phone is this WhatsApp
+   * number, or null — also when several share it, since then we can't tell
+   * who is writing.
+   */
+  private async findClientByPhone(producerId: number, waId: string) {
+    const suffix = phoneSuffix(waId)
+    if (!suffix) return null
+    const candidates = await this.prisma.client.findMany({
+      where: { producerId, deletedAt: null, phone: { endsWith: suffix } },
+      select: { id: true, firstName: true, phone: true, producerCodeId: true },
+      take: 20,
+    })
+    const matches = candidates.filter(c => isSamePhone(waId, c.phone))
+    return matches.length === 1 ? matches[0] : null
+  }
+
+  private async linkClient(conversationId: number, client: { id: number; producerCodeId: number | null }) {
     // Resolve the chat to the client's producer code so inbox/novedades scoping
     // routes it to the right admin even when the number serves several codes.
     const updated = await this.prisma.conversation.update({
@@ -683,6 +723,7 @@ export class BotService {
         riskType: true,
         lastMovement: true,
         paymentMethod: true,
+        validTo: true,
         vehicle: { select: { licensePlate: true, brand: true, model: true } },
         installments: {
           where: { deletedAt: null },
@@ -694,8 +735,12 @@ export class BotService {
 
     return polizas.map(poliza => {
       const { installments, ...rest } = poliza
+      const last = installments[installments.length - 1]
       return {
         ...rest,
+        // The latest installment issued so far: the next one is not in the
+        // cartera until Triunfo bills it, which is why "no me aparece la cuota".
+        lastInstallment: last ? { number: last.number, dueDate: last.dueDate } : null,
         paidInstallments: installments.filter(c => c.status === 'paid').length,
         unpaidInstallments: installments.filter(c => c.status !== 'paid'),
         hasRejectedInstallments: installments.some(c => c.status === 'rejected'),
@@ -961,7 +1006,7 @@ export class BotService {
   private async findConversation(conversationId: number) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
-      select: { id: true, producerId: true, clientId: true },
+      select: { id: true, producerId: true, clientId: true, waId: true },
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
     return conversation
