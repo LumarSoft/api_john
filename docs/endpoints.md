@@ -1595,7 +1595,7 @@ Policies of the identified client **in force today**, with vehicle summary.
 
 ### GET /bot/conversation/:conversationId/estado-cuenta
 
-Account status per policy: unpaid installments (pending / overdue / rejected), paid count, a `hasRejectedInstallments` flag for debit-rejection detection, the policy's `validTo` and `lastInstallment` (the latest installment Triunfo has billed so far, `null` when none), from which the bot tells when the next one is due.
+Account status per policy: unpaid installments (pending / overdue / rejected), paid count, a `hasRejectedInstallments` flag for debit-rejection detection, the policy's `validTo` and `nextDueDate`: when the installment after the latest one billed is due, estimated from the policy's cadence (`null` without due dates or past `validTo`). Triunfo bills a few installments at a time, so the bot uses it to say when the next one shows up.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1612,7 +1612,7 @@ Account status per policy: unpaid installments (pending / overdue / rejected), p
     "paymentMethod": "Débito Automático",
     "validTo": "2027-01-01T00:00:00.000Z",
     "vehicle": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" },
-    "lastInstallment": { "number": 5, "dueDate": "2026-06-10T00:00:00.000Z" },
+    "nextDueDate": "2026-07-10T00:00:00.000Z",
     "paidInstallments": 4,
     "unpaidInstallments": [
       { "number": 5, "amount": "45200.00", "dueDate": "2026-06-10T00:00:00.000Z", "status": "rejected" }

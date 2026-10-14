@@ -4,6 +4,7 @@ import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere } from '../common/poliza-vigencia'
 import { isSamePhone, phoneSuffix } from '../common/phone-match'
+import { estimateNextDueDate } from '../common/next-installment'
 import { TriunfoService } from '../triunfo/triunfo.service'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
@@ -735,12 +736,13 @@ export class BotService {
 
     return polizas.map(poliza => {
       const { installments, ...rest } = poliza
-      const last = installments[installments.length - 1]
       return {
         ...rest,
-        // The latest installment issued so far: the next one is not in the
-        // cartera until Triunfo bills it, which is why "no me aparece la cuota".
-        lastInstallment: last ? { number: last.number, dueDate: last.dueDate } : null,
+        // Not in the cartera until Triunfo bills it: "no me aparece la cuota".
+        nextDueDate: estimateNextDueDate(
+          installments.map(c => c.dueDate),
+          poliza.validTo,
+        ),
         paidInstallments: installments.filter(c => c.status === 'paid').length,
         unpaidInstallments: installments.filter(c => c.status !== 'paid'),
         hasRejectedInstallments: installments.some(c => c.status === 'rejected'),
