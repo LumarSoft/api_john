@@ -7,6 +7,9 @@ import { classifyMatter } from './classify-matter'
 
 const DEFAULT_PAGE_SIZE = 20
 
+/** How long an open advisor request keeps absorbing what the customer adds. */
+const HANDOFF_JOIN_WINDOW_MS = 24 * 60 * 60_000
+
 // Shape returned to the admin panel. The full detail of the referenced entity
 // is fetched separately (e.g. GET /admin/siniestros/:refId) when opened.
 const NOVEDAD_SELECT = {
@@ -63,6 +66,7 @@ export class NovedadesService {
     },
   ): Promise<void> {
     const body = input.reason?.trim() || null
+    const category = classifyMatter(body ?? undefined)
     // Exact repeats share a pending matter; a different request remains separate.
     const existing = await this.prisma.notification
       .findFirst({
@@ -78,8 +82,9 @@ export class NovedadesService {
       })
       .catch(() => null)
     if (existing) return
+    if (await this.joinOpenHandoff(input.conversationId, producerId, body, category)) return
     await this.safeCreate(producerId, {
-      category: classifyMatter(body ?? undefined),
+      category,
       type: NovedadType.HANDOFF,
       refId: input.conversationId,
       clientId: input.clientId,
@@ -87,6 +92,55 @@ export class NovedadesService {
       title: `Pedido de asesor · ${input.clienteNombre}`,
       body,
     })
+  }
+
+  /**
+   * The customer adding to what they already asked in this chat — the reason
+   * typed after "asesor", a second message for Mili, "consultar por los
+   * certificados" after asking for them — joins that open matter instead of
+   * opening another one: one chat got three alerts for the same papers. Only
+   * within HANDOFF_JOIN_WINDOW_MS and the same kind of matter (a generic one
+   * takes any), so a payment and a cancellation still stay apart. The joined
+   * matter is marked unread and moved up so the office sees the addition.
+   */
+  private async joinOpenHandoff(
+    conversationId: number,
+    producerId: number,
+    body: string | null,
+    category: MatterCategory,
+  ): Promise<boolean> {
+    try {
+      const open = await this.prisma.notification.findFirst({
+        where: {
+          producerId,
+          type: NovedadType.HANDOFF,
+          refId: conversationId,
+          status: { not: MatterStatus.RESOLVED },
+          deletedAt: null,
+          createdAt: { gte: new Date(Date.now() - HANDOFF_JOIN_WINDOW_MS) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, body: true, category: true },
+      })
+      if (!open) return false
+      const openCategory = open.category as MatterCategory
+      if (openCategory !== category && openCategory !== MatterCategory.OTHER && category !== MatterCategory.OTHER)
+        return false
+      if (!body || open.body?.includes(body)) return true
+      await this.prisma.notification.update({
+        where: { id: open.id },
+        data: {
+          body: open.body ? `${open.body}\n\n${body}` : body,
+          category: openCategory === MatterCategory.OTHER ? category : openCategory,
+          readAt: null,
+          createdAt: new Date(),
+        },
+      })
+      return true
+    } catch (error) {
+      this.logger.error(`Failed to join handoff of conversation #${conversationId}`, error as Error)
+      return false
+    }
   }
 
   // A failed notification must never break the originating action (claim

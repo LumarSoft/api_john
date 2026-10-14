@@ -284,12 +284,69 @@ describe('NovedadesService', () => {
     })
 
     it('avoids exact repeats but preserves a different matter in the same chat', async () => {
-      prisma.notification.findFirst.mockResolvedValueOnce({ id: 8 }).mockResolvedValueOnce(null)
       const input = { conversationId: 1, clientId: null, clienteNombre: 'Ana' }
+      prisma.notification.findFirst.mockResolvedValueOnce({ id: 8 })
       await service.recordHandoff(5, { ...input, reason: 'ya pagué' })
       expect(prisma.notification.create).not.toHaveBeenCalled()
+      // No exact repeat; the open matter is about payments, the new one a cancellation.
+      prisma.notification.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 8, body: 'ya pagué', category: 'pagos' })
       await service.recordHandoff(5, { ...input, reason: 'quiero dar de baja mi póliza' })
+      expect(prisma.notification.update).not.toHaveBeenCalled()
       expect(prisma.notification.create).toHaveBeenCalledTimes(1)
+    })
+
+    it('adds what the customer says next to the open matter of the same kind', async () => {
+      prisma.notification.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 8, body: 'Pide los comprobantes de pago', category: 'pagos' })
+      await service.recordHandoff(5, {
+        conversationId: 1,
+        clientId: null,
+        clienteNombre: 'Ana',
+        reason: 'Consultar por certificados de pago',
+      })
+      expect(prisma.notification.create).not.toHaveBeenCalled()
+      expect(prisma.notification.findFirst.mock.calls[1][0].where).toEqual(
+        expect.objectContaining({ refId: 1, status: { not: 'resolved' }, createdAt: { gte: expect.any(Date) } }),
+      )
+      expect(prisma.notification.update).toHaveBeenCalledWith({
+        where: { id: 8 },
+        data: {
+          body: 'Pide los comprobantes de pago\n\nConsultar por certificados de pago',
+          category: 'pagos',
+          readAt: null,
+          createdAt: expect.any(Date),
+        },
+      })
+    })
+
+    it('gives a generic open matter the kind of the reason that follows it', async () => {
+      prisma.notification.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        id: 8,
+        body: 'Pidió hablar con un asesor. Todavía no contó el motivo.',
+        category: 'other',
+      })
+      await service.recordHandoff(5, {
+        conversationId: 1,
+        clientId: null,
+        clienteNombre: 'Ana',
+        reason: 'Motivo: quiero dar de baja mi póliza',
+      })
+      expect(prisma.notification.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ category: 'baja' }) }),
+      )
+      expect(prisma.notification.create).not.toHaveBeenCalled()
+    })
+
+    it('does not add an empty request to an open matter', async () => {
+      prisma.notification.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 8, body: 'Pide cupones', category: 'pagos' })
+      await service.recordHandoff(5, { conversationId: 1, clientId: null, clienteNombre: 'Ana' })
+      expect(prisma.notification.update).not.toHaveBeenCalled()
+      expect(prisma.notification.create).not.toHaveBeenCalled()
     })
 
     it('refreshes a resubmitted quote instead of duplicating its matter', async () => {
