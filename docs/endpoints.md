@@ -1634,7 +1634,9 @@ Account status per policy: unpaid installments (pending / overdue / rejected), p
 
 ### GET /bot/conversation/:conversationId/polizas/:polizaId/documentos
 
-Documents of a policy (tarjeta de circulación, certificado de cobertura, cupón de pago) fetched on demand from Triunfo. The policy must belong to the identified client.
+Documents of a policy fetched on demand from Triunfo (`RESTDocumentosV2`, see `docs/triunfo-services.md`), most requested first. The policy must belong to the identified client. An empty list means Triunfo has nothing for that policy.
+
+Codes: `1050` Tarjeta verde (Mercosur), `1000` Certificado de cobertura, `1040` Constancia de pago, `1060` Cuponera de pago (only some Plan de Pago policies), `1020` Póliza, `1030` Cláusulas. `url` is Triunfo's link: it opens in a browser, but a server must follow its redirect carrying the session cookies (use the endpoint below).
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1643,14 +1645,30 @@ Documents of a policy (tarjeta de circulación, certificado de cobertura, cupón
 `200 OK`
 ```json
 [
-  { "code": "1001", "name": "Tarjeta de Circulación", "url": "https://..." },
-  { "code": "1000", "name": "Certificado de Cobertura", "url": "https://..." }
+  { "code": "1050", "name": "Tarjeta verde (Mercosur)", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..." },
+  { "code": "1000", "name": "Certificado de cobertura", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/hcertificadoau?..." }
 ]
 ```
 
 `403 Forbidden` — Conversation has no identified client
 
 `404 Not Found` — Policy not found or not owned by the client
+
+### GET /bot/conversation/:conversationId/polizas/:polizaId/documentos/:code
+
+One document of a policy as a PDF, downloaded from Triunfo at the moment, for the bot to send it in the chat. `code` is one of the codes listed above.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK` — `Content-Type: application/pdf`, `Content-Disposition: inline; filename*=UTF-8''Tarjeta%20verde%20(Mercosur)%20-%20AB123CD.pdf`. The file name carries the plate, or the certificate number when the policy has no vehicle.
+
+`403 Forbidden` — Conversation has no identified client
+
+`404 Not Found` — Policy not found, not owned by the client, or Triunfo has no document with that code for it
+
+`502 Bad Gateway` — Triunfo did not hand over the PDF
 
 ### GET /bot/conversation/:conversationId/siniestros
 

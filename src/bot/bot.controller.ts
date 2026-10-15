@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UploadedFiles,
   UseGuards,
@@ -113,6 +114,20 @@ export class BotController {
     @Param('polizaId', ParseIntPipe) polizaId: number,
   ) {
     return this.botService.getDocumentos(conversationId, polizaId)
+  }
+
+  @Get('conversation/:conversationId/polizas/:polizaId/documentos/:code')
+  async getDocumentoPdf(
+    @Param('conversationId', ParseIntPipe) conversationId: number,
+    @Param('polizaId', ParseIntPipe) polizaId: number,
+    @Param('code', ParseIntPipe) code: number,
+  ) {
+    const { filename, buffer } = await this.botService.getDocumentoPdf(conversationId, polizaId, String(code))
+    return new StreamableFile(buffer, {
+      type: 'application/pdf',
+      disposition: `inline; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      length: buffer.length,
+    })
   }
 
   @Get('conversation/:conversationId/siniestros')

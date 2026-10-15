@@ -7,5 +7,6 @@ import { DocumentosService } from './documentos.service'
   imports: [TriunfoModule],
   controllers: [DocumentosController],
   providers: [DocumentosService],
+  exports: [DocumentosService],
 })
 export class DocumentosModule {}

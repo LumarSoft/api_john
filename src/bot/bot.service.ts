@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere } from '../common/poliza-vigencia'
 import { isSamePhone, phoneSuffix } from '../common/phone-match'
 import { estimateNextDueDate } from '../common/next-installment'
-import { TriunfoService } from '../triunfo/triunfo.service'
+import { DocumentosService } from '../documentos/documentos.service'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
 import { UsageService } from '../usage/usage.service'
@@ -100,7 +100,7 @@ export class BotService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly triunfo: TriunfoService,
+    private readonly documentos: DocumentosService,
     private readonly mail: MailService,
     private readonly novedades: NovedadesService,
     private readonly usage: UsageService,
@@ -780,18 +780,16 @@ export class BotService {
     })
   }
 
-  /** Documents of a policy (tarjeta de circulación, certificado, cupón) fetched live from Triunfo. */
+  /** Documents of a policy (tarjeta verde, certificado, constancia de pago…) fetched live from Triunfo. */
   async getDocumentos(conversationId: number, polizaId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
+    return this.documentos.listForPolicy(this.polizaRefWhere(polizaId, clientId, producerId))
+  }
 
-    const poliza = await this.prisma.policy.findFirst({
-      where: this.polizaRefWhere(polizaId, clientId, producerId),
-      select: { certificateNumber: true },
-    })
-    if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
-
-    const documentos = await this.triunfo.getDocumentos(poliza.certificateNumber)
-    return documentos.map(doc => ({ code: doc.Codigo, name: doc.Nombre, url: doc.Url }))
+  /** One document of a policy as a PDF, for the bot to send it in the chat. */
+  async getDocumentoPdf(conversationId: number, polizaId: number, code: string) {
+    const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
+    return this.documentos.downloadForPolicy(this.polizaRefWhere(polizaId, clientId, producerId), code)
   }
 
   async getSiniestros(conversationId: number) {

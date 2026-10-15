@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common'
-import { TriunfoModule } from '../triunfo/triunfo.module'
+import { DocumentosModule } from '../documentos/documentos.module'
 import { NovedadesModule } from '../novedades/novedades.module'
 import { UsageModule } from '../usage/usage.module'
 import { BotController } from './bot.controller'
@@ -8,7 +8,7 @@ import { MessageRetentionService } from './message-retention.service'
 import { CoexistenceSyncService } from './coexistence-sync.service'
 
 @Module({
-  imports: [TriunfoModule, NovedadesModule, UsageModule],
+  imports: [DocumentosModule, NovedadesModule, UsageModule],
   controllers: [BotController],
   providers: [BotService, MessageRetentionService, CoexistenceSyncService],
 })

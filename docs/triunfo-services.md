@@ -24,11 +24,11 @@ desde el servidor. No tenemos credenciales de test.
 | `getTokenRest` | JWT para los demás servicios | Funciona | Sí |
 | `RESTCotizadorAutV2` | Cotizar autos y motos | Funciona | Sí (`cotizador.service.ts`) |
 | `RESTNovedadesCartera` | Cartera: pólizas, cuotas, vehículos | Funciona | Sí (sync 06:00 y 20:00) |
-| `RESTDocumentosV2` | PDF de una póliza (certificado, tarjeta, póliza, constancia de pago, cuponera…) | Funciona | **Todavía no** |
+| `RESTDocumentosV2` | PDF de una póliza (certificado, tarjeta, póliza, constancia de pago, cuponera…) | Funciona | Sí (`documentos.service.ts`: portal y bot) |
 | `RESTPreInspV2` | Estado de la inspección de un presupuesto | Funciona con el formato nuevo | No |
 | `RESTInspeccionPFV2` | Generar una inspección | Formato recibido, sin probar: crea una inspección | No |
 | `RESTSolicitudAutomotoresV2` | Emitir una póliza | Sin probar: emite una póliza real | No |
-| `RESTConsultaInspV2` | Documentación de una **inspección** | Responde, pero no sirve para las pólizas de la cartera | Sí, por error (`TriunfoService.getDocumentos`) |
+| `RESTConsultaInspV2` | Documentación de una **inspección** | Responde, pero no sirve para las pólizas de la cartera | No (la usó hasta el 15/10/2026) |
 | `RESTCotizadorTHV2` | Cotizador de otro ramo, sin identificar | — | No |
 
 Lo que Triunfo **no** ofrece por servicio web:
@@ -121,10 +121,16 @@ La URL de cada link no es el PDF:
    ellas responde `200` con el PDF (`%PDF-`, entre 2 y 150 KB).
 
 Para bajarlo hay que seguir la redirección a mano y mandar las cookies, por ejemplo
-con `fetch(url, { redirect: 'manual' })` y el header `Cookie`. Desde un
-navegador debería funcionar solo, pero no está probado desde fuera del servidor,
-y no sabemos cuánto dura cada link. Lo seguro es que la API baje el PDF y se lo
-mande ella al cliente.
+con `fetch(url, { redirect: 'manual' })` y el header `Cookie`. Así lo hace
+`TriunfoService.downloadDocumento`, y el bot lo pide por
+`GET /bot/conversation/:id/polizas/:polizaId/documentos/:code`.
+
+- Un navegador maneja solo las cookies: abrir el link desde cualquier IP baja el
+  PDF (probado el 15/10). Por eso el portal muestra el link directo.
+- Cloudflare responde 403 a algunos clientes que no son navegadores, como `curl`.
+  Por eso la descarga manda un `User-Agent` de navegador.
+- No sabemos cuánto dura cada link: antes de bajar un PDF, la API vuelve a pedir
+  la lista sin usar el cache.
 
 ## `RESTPreInspV2` — estado de la inspección
 
@@ -183,8 +189,8 @@ indexa **inspecciones** de operaciones hechas por API:
   con número de certificado, de póliza o artículo + certificado, y con cualquier
   código de productor. Así se probó en julio, el 8/10 y el 13/10.
 
-`TriunfoService.getDocumentos` todavía lo usa, y por eso el bot y el portal
-nunca obtienen documentos. Hay que reemplazarlo por `RESTDocumentosV2`.
+Hasta el 15/10/2026 `TriunfoService.getDocumentos` lo usaba, y por eso el bot y
+el portal nunca obtenían documentos. Ahora usa `RESTDocumentosV2`.
 
 ## `RESTNovedadesCartera` — cartera
 

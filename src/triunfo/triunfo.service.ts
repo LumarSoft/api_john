@@ -1,4 +1,4 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common'
+import { BadGatewayException, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { firstValueFrom } from 'rxjs'
@@ -92,11 +92,22 @@ export function splitDateRange(desde: string, hasta: string, days: number): Arra
   return out
 }
 
-// Document returned by RESTConsultaInspV2 for a policy.
+// What RESTDocumentosV2 needs to find a policy, as the cartera reports it.
+export interface TriunfoPolicyRef {
+  // Producer code the policy belongs to. Triunfo answers "Operación inexistente
+  // o no asociada al productor" when asked with any other code.
+  productor?: string
+  empresa: string
+  sucursal: string
+  articulo: string
+  certificado: string
+}
+
+// Document link returned by RESTDocumentosV2 for a policy.
 export interface TriunfoDocumento {
   Codigo: string
   Nombre: string
-  Url: string
+  URL: string
 }
 
 @Injectable()
@@ -119,17 +130,16 @@ export class TriunfoService {
   // consecutive windows: a 30-day request never came back in testing.
   private static readonly NOVEDADES_CHUNK_DAYS = 7
 
-  // Short-lived in-memory cache of policy documents, keyed by certificado.
+  // Short-lived in-memory cache of policy documents, keyed by producer, artículo and certificado.
   private readonly documentosCache = new Map<string, { data: TriunfoDocumento[]; expiresAt: number }>()
   private static readonly DOCUMENTOS_TTL_MS = 10 * 60 * 1000 // 10 minutes
-
-  // Fallback display names for known Triunfo document codes, used when the
-  // provider returns an empty `Nombre`.
-  private static readonly DOCUMENTO_NOMBRES: Record<string, string> = {
-    '1000': 'Certificado de Cobertura',
-    '1001': 'Tarjeta de Circulación',
-    '1002': 'Cupón de Pago',
-  }
+  private static readonly DOCUMENTOS_TIMEOUT_MS = 15_000
+  // A document link redirects once to the PDF; more hops than this is not Triunfo.
+  private static readonly DOCUMENTO_MAX_REDIRECTS = 5
+  private static readonly DOCUMENTO_TIMEOUT_MS = 30_000
+  // Cloudflare in front of TriunfoNet answers 403 to some non-browser clients.
+  private static readonly BROWSER_USER_AGENT =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36'
 
   private readonly baseUrlAuth: string
   readonly baseUrlSip: string
@@ -355,78 +365,121 @@ export class TriunfoService {
   }
 
   /**
-   * Fetches the available documents of an emitted policy (certificado) on demand
-   * via RESTConsultaInspV2. Requires a JWT, so the token is requested first.
-   * Results are cached in memory for a few minutes per certificado.
+   * Lists the documents Triunfo has for a policy via RESTDocumentosV2: links to
+   * the certificado, póliza, constancia de pago, tarjeta Mercosur and, for some
+   * Plan de Pago policies, the cuponera. Requires a JWT. Results are cached in
+   * memory for a few minutes; `fresh` skips the cache when the link itself is
+   * about to be used, because how long a link lives is not documented.
    */
-  async getDocumentos(certificado: string): Promise<TriunfoDocumento[]> {
-    const cached = this.documentosCache.get(certificado)
-    if (cached && Date.now() < cached.expiresAt) {
+  async getDocumentos(ref: TriunfoPolicyRef, { fresh = false } = {}): Promise<TriunfoDocumento[]> {
+    const productor = ref.productor ?? this.productor
+    const key = `${productor}:${ref.articulo}:${ref.certificado}`
+    const cached = this.documentosCache.get(key)
+    if (!fresh && cached && Date.now() < cached.expiresAt) {
       return cached.data
     }
 
-    this.logger.log(`Consultando documentos de la póliza ${certificado}`)
+    this.logger.log(`Consultando documentos de la póliza ${ref.articulo}-${ref.certificado} (productor ${productor})`)
 
+    const { JWT } = await this.getAuth()
     const response = await firstValueFrom(
-      this.httpService.post(`${this.baseUrlSip}/RESTConsultaInspV2`, {
-        Autenticacion: await this.getAuth(),
-        TipoOperacion: 'C', // C = Certificado (emitted policy)
-        Operacion: certificado,
-      }),
+      this.httpService.post(
+        `${this.baseUrlSip}/RESTDocumentosV2`,
+        {
+          SDTWSDocumentosIn: {
+            Autenticacion: { JWT, Productor: productor },
+            Empresa: ref.empresa,
+            Sucursal: ref.sucursal,
+            Articulo: ref.articulo,
+            Certificado: ref.certificado,
+          },
+        },
+        { timeout: TriunfoService.DOCUMENTOS_TIMEOUT_MS },
+      ),
     )
 
-    // Triunfo's real shape differs from the Postman sample: the wrapper is
-    // `SDTConsultaInsp` (not `...Out`), the result is `SDTResultado` (not `Resultado`),
-    // and documents may come as a `Documentos[]` array OR as a single `URL` string.
-    // We parse both shapes defensively.
-    const out = response.data?.SDTConsultaInsp ?? response.data?.SDTConsultaInspOut
-
+    const out = response.data?.SDTWSDocumentosOut
     if (!out) {
-      throw new Error(`Triunfo ConsultaInsp: respuesta inesperada — ${JSON.stringify(response.data)}`)
+      throw new BadGatewayException('Triunfo RESTDocumentosV2 returned an unexpected response')
     }
 
-    const resultado = out.SDTResultado ?? out.Resultado
-    const estado: string | undefined = resultado?.Estado
-    const mensajes: Array<{ Description?: string; Id?: string; Type?: number }> = resultado?.Mensajes ?? []
-
-    // Estado 'S' = success. Anything else (e.g. 'N' — "no hay documentos" or
-    // "no se encuentra esa operación") is a valid empty result for the portal,
-    // not a hard error. Common in the sandbox where test certificados don't exist.
-    if (estado !== 'S') {
-      const msg = mensajes.map(m => m.Description ?? m.Id ?? '?').join('; ')
-      this.logger.debug(`ConsultaInsp ${certificado}: sin documentos (${estado ?? '?'})${msg ? ` — ${msg}` : ''}`)
-      this.documentosCache.set(certificado, { data: [], expiresAt: Date.now() + TriunfoService.DOCUMENTOS_TTL_MS })
+    // Estado 'N' (e.g. "Operación inexistente o no asociada al productor") is an
+    // empty result for the caller, not a failure: the office still has the portal.
+    if (out.Resultado?.Estado !== 'S') {
+      const mensajes: Array<{ Description?: string; Id?: string }> = out.Resultado?.Mensajes ?? []
+      this.logger.warn(
+        `RESTDocumentosV2 ${ref.articulo}-${ref.certificado}: sin documentos — ${mensajes.map(m => m.Description ?? m.Id).join('; ') || out.Resultado?.Estado}`,
+      )
+      this.documentosCache.set(key, { data: [], expiresAt: Date.now() + TriunfoService.DOCUMENTOS_TTL_MS })
       return []
     }
 
-    const documentos = this.parseDocumentos(out)
+    // Triunfo returns a single object instead of an array when there is one link,
+    // and some links come broken (the Solicitud one starts with "nullcom.sip…").
+    const links = ([] as TriunfoDocumento[]).concat((out.Links ?? []) as TriunfoDocumento | TriunfoDocumento[])
+    const documentos = links.filter(link => this.isTriunfoUrl(link?.URL))
 
-    this.documentosCache.set(certificado, {
-      data: documentos,
-      expiresAt: Date.now() + TriunfoService.DOCUMENTOS_TTL_MS,
-    })
-
+    this.documentosCache.set(key, { data: documentos, expiresAt: Date.now() + TriunfoService.DOCUMENTOS_TTL_MS })
     return documentos
   }
 
-  // Normalizes the documents payload, which Triunfo returns either as a
-  // `Documentos` array of { Codigo, Nombre, Url } or as a single `URL` string.
-  private parseDocumentos(out: {
-    Documentos?: TriunfoDocumento | TriunfoDocumento[]
-    URL?: string
-  }): TriunfoDocumento[] {
-    if (out.Documentos) {
-      const raw = Array.isArray(out.Documentos) ? out.Documentos : [out.Documentos]
-      return raw
-        .filter(doc => doc?.Url)
-        .map(doc => ({
-          ...doc,
-          Nombre: doc.Nombre?.trim() || TriunfoService.DOCUMENTO_NOMBRES[doc.Codigo] || 'Documento de póliza',
-        }))
+  /**
+   * Downloads the PDF behind a RESTDocumentosV2 link. The link answers 302 to
+   * the real file and opens the session with cookies in that same response;
+   * following the redirect without them gets a 403, so the hops are followed
+   * by hand carrying the cookies.
+   */
+  async downloadDocumento(url: string): Promise<Buffer> {
+    if (!this.isTriunfoUrl(url)) throw new BadGatewayException('Triunfo returned a document link outside triunfonet')
+
+    const cookies = new Map<string, string>()
+    let next = url
+    for (let hop = 0; hop <= TriunfoService.DOCUMENTO_MAX_REDIRECTS; hop++) {
+      const response = await firstValueFrom(
+        this.httpService.get<ArrayBuffer>(next, {
+          responseType: 'arraybuffer',
+          maxRedirects: 0,
+          validateStatus: () => true,
+          timeout: TriunfoService.DOCUMENTO_TIMEOUT_MS,
+          headers: {
+            'User-Agent': TriunfoService.BROWSER_USER_AGENT,
+            Accept: 'application/pdf,*/*',
+            ...(cookies.size > 0 ? { Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; ') } : {}),
+          },
+        }),
+      )
+
+      const setCookie = response.headers['set-cookie'] as string[] | undefined
+      for (const header of setCookie ?? []) {
+        const [pair] = header.split(';')
+        const separator = pair.indexOf('=')
+        if (separator > 0) cookies.set(pair.slice(0, separator).trim(), pair.slice(separator + 1))
+      }
+
+      const location = response.headers.location as string | undefined
+      if (response.status >= 300 && response.status < 400 && location) {
+        next = new URL(location, next).toString()
+        if (!this.isTriunfoUrl(next)) throw new BadGatewayException('Triunfo redirected a document outside triunfonet')
+        continue
+      }
+
+      const body = Buffer.from(response.data)
+      if (response.status !== 200 || body.subarray(0, 5).toString('latin1') !== '%PDF-') {
+        throw new BadGatewayException(`Triunfo document download failed (HTTP ${response.status})`)
+      }
+      return body
     }
-    if (out.URL) {
-      return [{ Codigo: '', Nombre: 'Documento de póliza', Url: out.URL }]
+    throw new BadGatewayException('Triunfo document download redirected too many times')
+  }
+
+  // Document links are only ever followed on Triunfo's own site.
+  private isTriunfoUrl(url: string | undefined): url is string {
+    if (!url) return false
+    try {
+      const { protocol, hostname } = new URL(url)
+      return protocol === 'https:' && (hostname === 'triunfonet.com.ar' || hostname.endsWith('.triunfonet.com.ar'))
+    } catch {
+      return false
     }
-    return []
   }
 }

@@ -1,11 +1,25 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import type { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { TriunfoService } from '../triunfo/triunfo.service'
+import { TriunfoService, type TriunfoPolicyRef } from '../triunfo/triunfo.service'
+import { documentFilename, documentName, documentOrder } from './document-types'
 
 export interface DocumentoResponse {
   code: string
   name: string
   url: string
+}
+
+export interface DocumentoFile {
+  filename: string
+  buffer: Buffer
+}
+
+// Fields RESTDocumentosV2 needs, as RESTNovedadesCartera left them in Policy.rawData.
+interface CarteraPolicyData {
+  Articulo?: string | number
+  Empresa?: string
+  Sucursal?: string
 }
 
 @Injectable()
@@ -19,21 +33,61 @@ export class DocumentosService {
    * Returns the documents of a policy, fetched on demand from Triunfo.
    * The policy must belong to the authenticated client in this tenant.
    */
-  async findByPoliza(polizaId: number, clientId: number, producerId: number): Promise<DocumentoResponse[]> {
-    const poliza = await this.prisma.policy.findFirst({
-      where: { id: polizaId, clientId, producerId, deletedAt: null },
-      select: { certificateNumber: true },
+  findByPoliza(polizaId: number, clientId: number, producerId: number): Promise<DocumentoResponse[]> {
+    return this.listForPolicy({ id: polizaId, clientId, producerId, deletedAt: null })
+  }
+
+  /** Documents of the policy matched by `where`, most requested first. */
+  async listForPolicy(where: Prisma.PolicyWhereInput): Promise<DocumentoResponse[]> {
+    const { ref } = await this.resolvePolicy(where)
+    if (!ref) return []
+
+    const documentos = await this.triunfo.getDocumentos(ref)
+    return documentos
+      .map(doc => ({ code: doc.Codigo, name: documentName(doc.Codigo, doc.Nombre), url: doc.URL }))
+      .sort((a, b) => documentOrder(a.code) - documentOrder(b.code))
+  }
+
+  /** Downloads one document (by Triunfo code) of the policy matched by `where`. */
+  async downloadForPolicy(where: Prisma.PolicyWhereInput, code: string): Promise<DocumentoFile> {
+    const { ref, reference } = await this.resolvePolicy(where)
+    // A fresh list: the link is about to be followed and its lifetime is unknown.
+    const documento = ref ? (await this.triunfo.getDocumentos(ref, { fresh: true })).find(d => d.Codigo === code) : null
+    if (!documento) throw new NotFoundException(`Document ${code} is not available for this policy`)
+
+    const buffer = await this.triunfo.downloadDocumento(documento.URL)
+    return { filename: documentFilename(documentName(code, documento.Nombre), reference), buffer }
+  }
+
+  /**
+   * Finds the policy and builds what Triunfo needs to locate it. `ref` is null
+   * for a policy the cartera never described with an artículo.
+   */
+  private async resolvePolicy(where: Prisma.PolicyWhereInput) {
+    const policy = await this.prisma.policy.findFirst({
+      where,
+      select: {
+        certificateNumber: true,
+        rawData: true,
+        producerCode: { select: { code: true } },
+        vehicle: { select: { licensePlate: true } },
+      },
     })
-    if (!poliza) {
-      throw new NotFoundException(`Policy ${polizaId} not found`)
-    }
+    if (!policy) throw new NotFoundException('Policy not found')
 
-    const documentos = await this.triunfo.getDocumentos(poliza.certificateNumber)
-
-    return documentos.map(doc => ({
-      code: doc.Codigo,
-      name: doc.Nombre,
-      url: doc.Url,
-    }))
+    const data = (policy.rawData ?? {}) as CarteraPolicyData
+    const ref: TriunfoPolicyRef | null =
+      data.Articulo == null
+        ? null
+        : {
+            productor: policy.producerCode?.code,
+            // Every policy of the cartera is T / CC; the default covers the few without them.
+            empresa: data.Empresa ?? 'T',
+            sucursal: data.Sucursal ?? 'CC',
+            articulo: String(data.Articulo),
+            certificado: policy.certificateNumber,
+          }
+    const reference = policy.vehicle?.licensePlate || `póliza ${policy.certificateNumber}`
+    return { ref, reference }
   }
 }
