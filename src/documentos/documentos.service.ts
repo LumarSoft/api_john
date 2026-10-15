@@ -37,6 +37,26 @@ export class DocumentosService {
     return this.listForPolicy({ id: polizaId, clientId, producerId, deletedAt: null })
   }
 
+  /**
+   * A policy an admin may see: it belongs to the client and producer, and the
+   * client is visible to the admin's codes (same rule as the asegurados list).
+   */
+  adminPolicyWhere(clientId: number, polizaId: number, producerId: number, codeIds: number[]): Prisma.PolicyWhereInput {
+    return {
+      id: polizaId,
+      clientId,
+      producerId,
+      deletedAt: null,
+      client: {
+        deletedAt: null,
+        OR: [
+          { producerCodeId: { in: codeIds } },
+          { policies: { some: { deletedAt: null, producerCodeId: { in: codeIds } } } },
+        ],
+      },
+    }
+  }
+
   /** Documents of the policy matched by `where`, most requested first. */
   async listForPolicy(where: Prisma.PolicyWhereInput): Promise<DocumentoResponse[]> {
     const { ref } = await this.resolvePolicy(where)

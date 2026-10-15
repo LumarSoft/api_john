@@ -759,6 +759,42 @@ Returns the full detail of a single insured client, including every policy with 
 { "statusCode": 404, "message": "Client 99 not found", "error": "Not Found" }
 ```
 
+### GET /admin/clients/:id/polizas/:polizaId/documentos
+
+Documents Triunfo has for one policy of the client, fetched live (`RESTDocumentosV2`, see `docs/triunfo-services.md`), most requested first. Same codes as the bot endpoint: `1050` Tarjeta verde (Mercosur), `1000` Certificado de cobertura, `1040` Constancia de pago, `1060` Cuponera de pago, `1020` Póliza, `1030` Cláusulas. The client must be visible to the admin's producer codes, as in `GET /admin/clients`.
+
+**Auth required:** Yes (Bearer token, any panel role)
+
+**Responses**
+
+`200 OK`
+```json
+[
+  { "code": "1050", "name": "Tarjeta verde (Mercosur)", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..." },
+  { "code": "1020", "name": "Póliza", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/hpolizap?..." }
+]
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+`404 Not Found` — The policy is not the client's or the client is not visible to the admin
+
+### GET /admin/clients/:id/polizas/:polizaId/documentos/:code
+
+One of those documents as a PDF download, fetched from Triunfo at the moment.
+
+**Auth required:** Yes (Bearer token, any panel role)
+
+**Responses**
+
+`200 OK` — `Content-Type: application/pdf`, `Content-Disposition: attachment; filename*=UTF-8''Constancia%20de%20pago%20-%20AB123CD.pdf`
+
+`401 Unauthorized` — Missing or invalid token
+
+`404 Not Found` — Policy not visible to the admin, or Triunfo has no document with that code for it
+
+`502 Bad Gateway` — Triunfo did not hand over the PDF
+
 ---
 
 ## Admin — Dashboard

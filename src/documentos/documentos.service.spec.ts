@@ -74,6 +74,23 @@ describe('DocumentosService', () => {
     expect(file.filename).toBe('Póliza - póliza 1234567.pdf')
   })
 
+  it('only lets an admin reach policies of clients visible to their codes', () => {
+    const { service } = createService()
+    expect(service.adminPolicyWhere(7, 12, 1, [2, 3])).toEqual({
+      id: 12,
+      clientId: 7,
+      producerId: 1,
+      deletedAt: null,
+      client: {
+        deletedAt: null,
+        OR: [
+          { producerCodeId: { in: [2, 3] } },
+          { policies: { some: { deletedAt: null, producerCodeId: { in: [2, 3] } } } },
+        ],
+      },
+    })
+  })
+
   it('answers 404 for a document Triunfo does not have', async () => {
     const { service } = createService()
     await expect(service.downloadForPolicy({ id: 1 }, '1060')).rejects.toMatchObject({ status: 404 })
