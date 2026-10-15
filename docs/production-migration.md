@@ -251,22 +251,23 @@ Falta `/pub/search/` (búsqueda libre por texto, con `query_mode=similarity` par
 tolerar errores de tipeo) y `/brands/{brandId}/models/`. Para el buscador del
 front, `search` es el endpoint natural.
 
-### Endpoints de Triunfo bloqueados
+### Estado de los servicios de Triunfo
 
-Sin relación con el código, pero condicionan qué se puede construir:
+El detalle de cada servicio (formato, respuestas reales y particularidades) está
+en [`triunfo-services.md`](triunfo-services.md). Resumen al 15/10/2026:
 
 | Endpoint | Estado |
 |---|---|
-| `RESTCotizadorAutV2` | contrato previamente verificado; revalidación de moto bloqueada por credencial de Triunfo rechazada |
+| `RESTCotizadorAutV2` | OK |
 | `RESTNovedadesCartera` | OK — 225 novedades en 7 días |
-| `RESTConsultaInspV2` | responde, pero **no es un servicio de documentos de póliza**: devuelve la URL de la documentación de una *inspección*. Sonda del 2026-10-08 (ver §6) |
-| `RESTInspeccionPFV2` | **500** — `Unrecognized field "Autenticacion"`, contrato desconocido |
-| `RESTPreInspV2` | **500** — ídem |
+| `RESTDocumentosV2` | OK — PDF de certificado, póliza, constancia de pago, tarjeta Mercosur y, solo en algunos Plan de Pago, cuponera. La API todavía no lo usa |
+| `RESTConsultaInspV2` | responde, pero **no es un servicio de documentos de póliza**: devuelve la documentación de una *inspección* |
+| `RESTPreInspV2` | OK con el formato que mandó Triunfo el 15/10 (`NroPresupuesto`) |
+| `RESTInspeccionPFV2` | formato recibido el 15/10, sin probar completo: crea una inspección |
 | `RESTSolicitudAutomotoresV2` | sin probar — emite póliza real y facturable |
 
-El circuito de emisión está **cortado en la inspección**: sin `RESTInspeccionPFV2`
-ni `RESTPreInspV2` no hay inspección aprobada, y sin eso la emisión
-probablemente rebote. Depende de que Triunfo mande el contrato correcto.
+El circuito de emisión sigue sin probar: primero hay que generar una inspección
+con `RESTInspeccionPFV2` y emitir una póliza de prueba.
 
 ---
 
@@ -346,9 +347,17 @@ cuando haga falta; en el servidor va en `true`.
 
 ## 6. Pendientes con terceros
 
-**Triunfo** (consultas ya enviadas por mail):
-- Contrato correcto de `RESTInspeccionPFV2` y `RESTPreInspV2` (consulta 2).
-- Si `RESTConsultaInspV2` puede ver pólizas de cartera o solo operaciones
+**Triunfo** (respuesta del 15/10/2026, detalle en [`triunfo-services.md`](triunfo-services.md)):
+- ~~Contrato correcto de `RESTInspeccionPFV2` y `RESTPreInspV2` (consulta 2).~~
+  Recibido el 15/10. `RESTPreInspV2` verificado. `RESTInspeccionPFV2` sin probar
+  completo porque crea una inspección.
+- ~~Qué servicio entrega los PDF de una póliza (consulta 6).~~ Es `RESTDocumentosV2`,
+  verificado el 15/10. Según Triunfo, la cuponera no está disponible por servicio
+  web: en la práctica aparece en algunos Plan de Pago y nunca en Convenio. Tampoco
+  devuelve el certificado de otros riesgos.
+- Servicios de anulaciones: Triunfo dijo que los está analizando. Siniestros y
+  endosos: sin respuesta.
+- Antecedente — si `RESTConsultaInspV2` podía ver pólizas de cartera o solo operaciones
   nacidas por API (consulta 6). **Sonda 2026-10-08, con una póliza emitida el
   día anterior (art. 128, cert. 1203782) y un presupuesto creado ese mismo día
   por `RESTCotizadorAutV2`:**
