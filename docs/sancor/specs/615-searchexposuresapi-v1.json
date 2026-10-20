@@ -1,0 +1,267 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Api Consulta Reclamos Siniestro",
+    "description": "Consulta de estado de reclamos",
+    "contact": {
+      "name": "Contact Title",
+      "email": "contactemailaddress@domain.com"
+    },
+    "version": "2.0",
+    "x-ibm-name": "searchexposuresapi-v1",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/claims/searchexposure/status": {
+      "post": {
+        "tags": [
+          "SearchExposures"
+        ],
+        "summary": "Obtener la información sobre reclamos",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchExposuresRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiResponseModel`1": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/T"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TMessageError"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClaimRequestModel": {
+        "type": "object",
+        "properties": {
+          "complainantBUPID": {
+            "type": "string",
+            "nullable": true
+          },
+          "claimNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "occurredDateSince": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "occurredDateUntil": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reportedDateSince": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reportedDateUntil": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ExposureRequestModel": {
+        "type": "object",
+        "properties": {
+          "exposureStatus": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentRequestModel": {
+        "type": "object",
+        "properties": {
+          "damagedTypeCode": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PolicyRequestModel": {
+        "type": "object",
+        "properties": {
+          "referenceNumber": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "officialNumber": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "branchCode": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "producerCode": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SearchExposuresRequest": {
+        "type": "object",
+        "properties": {
+          "claim": {
+            "$ref": "#/components/schemas/ClaimRequestModel"
+          },
+          "exposure": {
+            "$ref": "#/components/schemas/ExposureRequestModel"
+          },
+          "incident": {
+            "$ref": "#/components/schemas/IncidentRequestModel"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/PolicyRequestModel"
+          },
+          "vehicle": {
+            "$ref": "#/components/schemas/VehicleRequestModel"
+          }
+        },
+        "additionalProperties": false
+      },
+      "T": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TMessageError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "text": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "VehicleRequestModel": {
+        "type": "object",
+        "properties": {
+          "certificateNumber": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "licensePlate": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "clientID": {
+        "type": "apiKey",
+        "name": "gss_apiclient_id",
+        "x-key-type": "client_id",
+        "in": "header"
+      }
+    },
+    "parameters": [],
+    "headers": []
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog"
+    }
+  ],
+  "x-ibm-endpoints": [
+    {
+      "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+      "type": [
+        "production",
+        "development"
+      ]
+    }
+  ]
+}

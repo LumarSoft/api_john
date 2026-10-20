@@ -8,6 +8,7 @@ import { ScopeModule } from './common/scope/scope.module'
 import { AuthModule } from './auth/auth.module'
 import { UsersModule } from './users/users.module'
 import { TriunfoModule } from './triunfo/triunfo.module'
+import { SancorModule } from './sancor/sancor.module'
 import { CotizadorModule } from './cotizador/cotizador.module'
 import { CoverageSettingsModule } from './coverage-settings/coverage-settings.module'
 import { InfoAutoModule } from './infoauto/infoauto.module'
@@ -40,6 +41,7 @@ import { TasksModule } from './tasks/tasks.module'
     AuthModule,
     UsersModule,
     TriunfoModule,
+    SancorModule,
     CotizadorModule,
     CoverageSettingsModule,
     InfoAutoModule,

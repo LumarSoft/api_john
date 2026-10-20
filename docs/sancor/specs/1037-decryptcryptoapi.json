@@ -1,0 +1,57 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "version": "1.0.0",
+    "x-ibm-name": "decryptcryptoapi",
+    "description": "API para descifrar usando RSA-OAEP / AES-256-GCM.",
+    "title": "API de pólizas con mensajes cifrados",
+    "x-ibm-summary": ""
+  },
+  "servers": [
+    {
+      "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog/secure/cipher"
+    }
+  ],
+  "paths": {
+    "/issuance": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "clientID": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "gss_apiclient_id",
+        "x-key-type": "client_id"
+      }
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ],
+  "x-ibm-endpoints": [
+    {
+      "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog/secure/cipher",
+      "type": [
+        "production",
+        "development"
+      ]
+    }
+  ]
+}

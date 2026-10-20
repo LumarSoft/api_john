@@ -1,0 +1,197 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "API de Parametrización de Siniestros",
+    "x-ibm-name": "api-parametrizacion-claim",
+    "version": "1.0.0",
+    "description": "Servicio de parametrización con valores canónicos para la carga de siniestros.",
+    "x-ibm-summary": ""
+  },
+  "basePath": "/apissa/pre-catalog/parameters/claims",
+  "paths": {
+    "/companies/insurance/data": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Authorization",
+            "required": true,
+            "in": "header",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "/vehicles/types/data": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/parameters/Authorization"
+          }
+        ]
+      }
+    },
+    "/vehicles/impactpoints": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/parameters/Authorization"
+          }
+        ]
+      }
+    },
+    "/vehicles/damagepoints": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/parameters/Authorization"
+          }
+        ]
+      }
+    },
+    "/complainant/relation": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/parameters/Authorization"
+          }
+        ]
+      }
+    },
+    "/documents/type": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/parameters/Authorization"
+          }
+        ]
+      }
+    },
+    "/motorcycle/causes": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "/automotive/causes": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/parameters/Authorization"
+          }
+        ]
+      }
+    },
+    "/driver/relation": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Endpoint para obtener la relación del conductor con el asegurado/de pasajeros con el asegurado/del lesionado con el asegurado.",
+        "parameters": [
+          {
+            "$ref": "#/parameters/Authorization"
+          }
+        ]
+      }
+    }
+  },
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id",
+      "in": "header"
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ],
+  "schemes": [
+    "https"
+  ],
+  "parameters": {
+    "Authorization": {
+      "name": "Authorization",
+      "required": true,
+      "in": "header",
+      "type": "string"
+    }
+  },
+  "host": "external-pre-api.gruposancorseguros.com"
+}

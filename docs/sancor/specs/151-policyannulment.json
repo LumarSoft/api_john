@@ -1,0 +1,245 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Anulación de Poliza",
+    "version": "1.0.0",
+    "description": "Servicio de anulación de póliza/certificado (individual y colectiva), el mismo es apto para todos los ramos.",
+    "x-ibm-name": "policyannulment",
+    "x-ibm-summary": ""
+  },
+  "basePath": "/apissa/pre-catalog/policies/annulment",
+  "paths": {
+    "/certificate": {
+      "delete": {
+        "operationId": "Annul Certificate",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/ModCertificate"
+            }
+          },
+          "204": {
+            "description": "No Content",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "401": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "403": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ]
+      },
+      "parameters": [
+        {
+          "name": "officialNumber",
+          "in": "query",
+          "type": "integer",
+          "format": "int64",
+          "description": "Nro. Oficial de póliza",
+          "allowEmptyValue": true
+        },
+        {
+          "name": "branchCode",
+          "in": "query",
+          "type": "integer",
+          "description": "Código de ramo",
+          "format": "int64",
+          "required": true
+        },
+        {
+          "name": "productCode",
+          "in": "query",
+          "type": "integer",
+          "format": "int32",
+          "description": "Código de producto",
+          "allowEmptyValue": true
+        },
+        {
+          "name": "effectDate",
+          "in": "query",
+          "type": "string",
+          "format": "date-time",
+          "description": "Fecha de efecto"
+        },
+        {
+          "name": "cancelationCauseId",
+          "in": "query",
+          "type": "integer",
+          "format": "int32",
+          "description": "ID causa de anulación. 4 (Por Decisión del Tomador/Asegurado)",
+          "required": true,
+          "x-example": 4
+        },
+        {
+          "name": "referenceNumber",
+          "in": "query",
+          "type": "integer",
+          "allowEmptyValue": true,
+          "format": "int64",
+          "description": "Nro de referencia - SANCOR"
+        },
+        {
+          "name": "certificateNumber",
+          "in": "query",
+          "type": "integer",
+          "format": "int64",
+          "description": "Numero de certificado",
+          "allowEmptyValue": true
+        },
+        {
+          "name": "anullType",
+          "in": "query",
+          "type": "integer"
+        },
+        {
+          "name": "Authorization",
+          "required": true,
+          "in": "header",
+          "type": "string",
+          "description": "Token de usuario"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/message"
+          }
+        }
+      }
+    },
+    "message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "ModCertificate": {
+      "type": "object",
+      "properties": {
+        "managementData": {
+          "type": "object",
+          "description": "Dato de tramite",
+          "properties": {
+            "status": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            },
+            "number": {
+              "type": "string"
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/Paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Messages"
+          }
+        }
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ]
+}

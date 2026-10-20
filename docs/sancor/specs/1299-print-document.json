@@ -1,0 +1,418 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Impresión de Documentos",
+    "version": "1.0.0",
+    "description": "Servicio para impresión de documentos, para todos los ramos",
+    "x-ibm-name": "print-document",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/get": {
+      "post": {
+        "operationId": "postFile",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/fileResponse"
+            }
+          },
+          "204": {
+            "description": "No Content",
+            "schema": {
+              "$ref": "#/definitions/fileResponse204"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "401": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "403": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "Servicio para obtener documentos relacionados a la póliza.",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/file_body"
+            },
+            "description": "body",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    },
+    "/claim": {
+      "get": {
+        "operationId": "getClaimFile",
+        "description": "Servicio para obtener documentos relacionados a un siniestro.",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/claimFileResponse"
+            }
+          },
+          "204": {
+            "description": "No Content",
+            "schema": {
+              "$ref": "#/definitions/fileResponse204"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "401": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "403": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "claimNumber",
+            "in": "query",
+            "description": "Identificador del siniestro",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    }
+  },
+  "basePath": "/apissa/pre-catalog/policies/document/file",
+  "definitions": {
+    "file_body": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "object",
+          "properties": {
+            "branchCode": {
+              "type": "integer"
+            },
+            "officialNumber": {
+              "type": "string"
+            },
+            "referenceNumber": {
+              "type": "string"
+            },
+            "certificateNumber": {
+              "type": "integer"
+            },
+            "reportName": {
+              "type": "string",
+              "enum": [
+                "Carátula",
+                "NuevaFacturaCuota",
+                "NuevaFactura",
+                "Mercosur",
+                "ConstanciaDeCoberturaPE",
+                "ConstanciaPolizaArgentina",
+                "Tarjetasplásticas",
+                "CertificadoIncorporación",
+                "MercosurPolizaElectronica",
+                "ConstanciaCoberturaRC",
+                "TarjetaAutomotorPolizaElectronica",
+                "CaratulaAnulacionDePoliza",
+                "Factura",
+                "CertificadoPago",
+                "CertificadoSOA",
+                "DocumentoUnificadoAPF"
+              ]
+            },
+            "postalCode": {
+              "type": "integer"
+            },
+            "policyMovNumber": {
+              "type": "integer"
+            },
+            "contractNumber": {
+              "type": "string"
+            },
+            "identificationNumber": {
+              "type": "integer"
+            },
+            "engineNumber": {
+              "type": "string"
+            },
+            "quoteNumber": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "fileResponse": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "reportName": {
+                "type": "string"
+              },
+              "urlFile": {
+                "type": "string"
+              },
+              "fileAttachment": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "message": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/messages"
+          }
+        }
+      }
+    },
+    "claimFileResponse": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/claimFileItem"
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/messages"
+          }
+        }
+      }
+    },
+    "claimFileItem": {
+      "type": "object",
+      "properties": {
+        "reportName": {
+          "type": "string",
+          "example": "filename.pdf"
+        },
+        "urlFile": {
+          "type": "string",
+          "example": "http://reporting.gruposancorseguros.com/DocumentsExternalBrokers/filename.pdf"
+        }
+      }
+    },
+    "fileResponse204": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "message": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/messages"
+          }
+        }
+      }
+    },
+    "paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "messages": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/messages"
+          }
+        }
+      }
+    },
+    "DocumentType": {
+      "type": "object",
+      "properties": {
+        "documentType": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/documentType"
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/messages"
+          }
+        }
+      }
+    },
+    "documentType": {
+      "type": "object",
+      "properties": {
+        "canonicalCode": {
+          "type": "integer"
+        },
+        "canonicalDescription": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "security": [
+    {
+      "client_id": []
+    }
+  ],
+  "securityDefinitions": {
+    "client_id": {
+      "type": "apiKey",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id",
+      "in": "header"
+    }
+  }
+}

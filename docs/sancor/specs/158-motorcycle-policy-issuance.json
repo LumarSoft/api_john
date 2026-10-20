@@ -1,0 +1,832 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "version": "1.0.0",
+    "description": "Servicio para emitir pólizas del ramo moto vehículos",
+    "x-ibm-name": "motorcycle-policy-issuance",
+    "title": "Emisión Motovehículos",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/policies/vehicle/motorcycle": {
+      "post": {
+        "operationId": "postSinglePolicy",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "201": {
+            "description": "Created",
+            "schema": {
+              "$ref": "#/definitions/singlePolicyResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "401": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "403": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "Operación para crear una póliza de auto/moto.",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/singlePolicyRequest"
+            },
+            "description": "body",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "singlePolicyRequest": {
+      "type": "object",
+      "properties": {
+        "orgProducerCode": {
+          "type": "integer",
+          "description": "Número de Intermediario \"Organizador\""
+        },
+        "prodProducerCode": {
+          "type": "integer",
+          "description": "Número de Intermediario \"Productor\""
+        },
+        "productCode": {
+          "type": "integer",
+          "description": "Código de Producto de la póliza"
+        },
+        "policyRenewalType": {
+          "type": "integer",
+          "description": "Tipo de Renovación de la póliza"
+        },
+        "statisticalGroupCode": {
+          "type": "integer"
+        },
+        "currencyCode": {
+          "type": "integer",
+          "description": "Código de Moneda de emisión de la póliza"
+        },
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "coveragesInformation": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "coveragePremiumAmount": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "coverageName": {
+                    "type": "string"
+                  },
+                  "coverageDescription": {
+                    "type": "string"
+                  },
+                  "coverageCode": {
+                    "type": "integer"
+                  },
+                  "isObligatorySelection": {
+                    "type": "boolean"
+                  },
+                  "isSelected": {
+                    "type": "boolean"
+                  },
+                  "optionName": {
+                    "type": "string"
+                  },
+                  "optionCode": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "coverageCode"
+                ]
+              }
+            },
+            "basicInsuredCapitalItems": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "capitalId": {
+                    "type": "integer"
+                  },
+                  "capitalAmount": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "isSelected": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "branchData": {
+              "type": "object",
+              "properties": {
+                "policyAutomaticAdjustment": {
+                  "type": "number",
+                  "format": "decimal",
+                  "description": "Descuento Siniestralidad",
+                  "enum": [
+                    "Option_10",
+                    "Option_20",
+                    "Option_30",
+                    "Option_40"
+                  ]
+                },
+                "motorcycle": {
+                  "type": "object",
+                  "properties": {
+                    "chassisNumber": {
+                      "type": "string",
+                      "description": "Número de Chasis"
+                    },
+                    "licensePlate": {
+                      "type": "string",
+                      "description": "Número de Patente"
+                    },
+                    "engineNumber": {
+                      "type": "string",
+                      "description": "Número de Motor"
+                    },
+                    "modelCode": {
+                      "type": "integer",
+                      "description": "Código único de identificación del vehículo según InfoMoto. Para utilizar este dato es necesario contar con una suscripción vigente al servicio de InfoMoto"
+                    },
+                    "vehicleUseType": {
+                      "type": "integer",
+                      "description": "Código de Uso del vehículo",
+                      "example": 2,
+                      "enum": [
+                        "2 - Particular"
+                      ]
+                    },
+                    "suggestedValue": {
+                      "type": "number",
+                      "format": "decimal",
+                      "description": "Valor del vehículo"
+                    },
+                    "year": {
+                      "type": "integer",
+                      "description": "Año (modelo) de fabricación del vehículo"
+                    },
+                    "zeroKM": {
+                      "type": "boolean",
+                      "description": "Indicador de Unidad 0 Km."
+                    },
+                    "discountCode": {
+                      "type": "number",
+                      "format": "decimal"
+                    },
+                    "assistance": {
+                      "type": "object",
+                      "description": "Datos de asistencia.",
+                      "properties": {
+                        "additionalAssistance": {
+                          "type": "string",
+                          "description": "Código de asistencia adicional.",
+                          "enum": [
+                            "sa_02",
+                            "sa1_plus",
+                            "sa2_plus"
+                          ]
+                        },
+                        "assistanceProvider": {
+                          "type": "string",
+                          "description": "Código de provedor.",
+                          "enum": [
+                            "ibero (corresponde a Mawdy)",
+                            "aon",
+                            "sos",
+                            "ike",
+                            "asix"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "additionalAssistance",
+                        "assistanceProvider"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "chassisNumber",
+                    "licensePlate",
+                    "engineNumber",
+                    "year",
+                    "vehicleUseType",
+                    "modelCode"
+                  ],
+                  "description": "Etiqueta de datos del Vehículo"
+                }
+              }
+            },
+            "personRoleCode": {
+              "type": "integer",
+              "description": "Tipo de Rol del Cliente"
+            },
+            "clients": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "personRoleCode": {
+                    "type": "integer",
+                    "description": "Tipo de Rol del Cliente"
+                  },
+                  "value": {
+                    "type": "object",
+                    "properties": {
+                      "stateCode": {
+                        "type": "integer",
+                        "description": "Código de Área (Teléfono)"
+                      },
+                      "birthDate": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Fecha de Nacimiento"
+                      },
+                      "birthCity": {
+                        "type": "string",
+                        "description": "Lugar de Nacimiento"
+                      },
+                      "cityCode": {
+                        "type": "integer",
+                        "description": "ID de localidad - Ver servicio APIS Generales - Búsqueda de Localidades"
+                      },
+                      "bupId": {
+                        "type": "string"
+                      },
+                      "identificationTypeName": {
+                        "type": "string",
+                        "description": "Tipo de Documento",
+                        "enum": [
+                          "D - DNI",
+                          "C - LC",
+                          "L - LE",
+                          "I - CI",
+                          "J - CUIT"
+                        ]
+                      },
+                      "identificationType": {
+                        "type": "string",
+                        "description": "Nro. de Documento"
+                      },
+                      "email": {
+                        "type": "string",
+                        "description": "Dirección de e-mail"
+                      },
+                      "firstName": {
+                        "type": "string",
+                        "description": "Nombre/s del Cliente",
+                        "example": "Nombre del asegurado"
+                      },
+                      "gender": {
+                        "type": "integer"
+                      },
+                      "conditionCode": {
+                        "type": "integer",
+                        "description": "Condición de IVA del Cliente",
+                        "example": 4,
+                        "enum": [
+                          "1 - Responsable Inscripto",
+                          "4 - Consumidor Final"
+                        ]
+                      },
+                      "lastName": {
+                        "type": "string",
+                        "description": "Apellido del Cliente",
+                        "example": "Apellido del Cliente"
+                      },
+                      "ciiuCode": {
+                        "type": "integer",
+                        "description": "Código de Actividad Principal"
+                      },
+                      "maritalStatus": {
+                        "type": "integer"
+                      },
+                      "telephoneNumber": {
+                        "type": "string",
+                        "description": "Número de Teléfono"
+                      },
+                      "taxCategoryCode": {
+                        "type": "integer"
+                      },
+                      "streetName": {
+                        "type": "string",
+                        "description": "Dirección (Domicilio) del Cliente (Calle-Nro.)"
+                      },
+                      "cityPostalCode": {
+                        "type": "integer",
+                        "description": "Código Postal del Domicilio del Cliente"
+                      }
+                    },
+                    "required": [
+                      "identificationTypeName",
+                      "identificationType",
+                      "cityPostalCode",
+                      "telephoneNumber",
+                      "stateCode"
+                    ]
+                  }
+                },
+                "required": [
+                  "personRoleCode"
+                ]
+              },
+              "description": "Etiqueta de Datos particulares del Cliente"
+            },
+            "observations": {
+              "type": "string"
+            },
+            "offeringCode": {
+              "type": "integer",
+              "description": "Código Módulo de Cobertura"
+            },
+            "covers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "coverageInsuredSum": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "coverageCode": {
+                    "type": "integer"
+                  },
+                  "discountPercentage": {
+                    "type": "integer"
+                  },
+                  "discountType": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "coverageCode"
+                ]
+              }
+            },
+            "paymentMethodCode": {
+              "type": "integer"
+            },
+            "debitData": {
+              "type": "object",
+              "properties": {
+                "creditCardDebitType": {
+                  "type": "object",
+                  "properties": {
+                    "crediCardToValidityDate": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "creditCardBrand": {
+                      "type": "integer"
+                    },
+                    "cardNumber": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "bankDebitType": {
+                  "type": "object",
+                  "properties": {
+                    "policyHolderName": {
+                      "type": "string"
+                    },
+                    "accountNumber": {
+                      "type": "string"
+                    },
+                    "bankAccountType": {
+                      "type": "integer"
+                    },
+                    "bankAgencyCode": {
+                      "type": "integer"
+                    },
+                    "bankCode": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "cbuDebitType": {
+                  "type": "object",
+                  "properties": {
+                    "bankAgencyCode": {
+                      "type": "integer"
+                    },
+                    "bankCode": {
+                      "type": "integer"
+                    },
+                    "bankIdentificationCode": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "electronicDispatchInformation": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "description": "E-mail para el Despacho Electrónico"
+                },
+                "policyPeriodElectronicSend": {
+                  "type": "boolean",
+                  "description": "Aplica Despacho Electrónico(true/false)"
+                },
+                "whatsApp": {
+                  "type": "object",
+                  "properties": {
+                    "wppTelephoneNumber": {
+                      "type": "string",
+                      "description": "Numero de telefono."
+                    },
+                    "wppAreaCode": {
+                      "type": "string",
+                      "description": "Codigo de area."
+                    }
+                  }
+                }
+              },
+              "description": "Etiqueta Despacho electrónico"
+            },
+            "insuredBasicCapitals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "basicInsuredCapitalCode": {
+                    "type": "integer"
+                  },
+                  "vehicleInsuredSum": {
+                    "type": "number",
+                    "format": "decimal"
+                  }
+                }
+              }
+            },
+            "insuredGoods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "coveredItemDescription": {
+                    "type": "string",
+                    "description": "Descripción del bien asegurado."
+                  },
+                  "coveredItem": {
+                    "type": "integer",
+                    "description": "Código de bien asegurado."
+                  },
+                  "coveredItemInsuredSum": {
+                    "type": "number",
+                    "format": "double",
+                    "description": "Suma asegurada."
+                  }
+                }
+              }
+            },
+            "isEmission": {
+              "type": "boolean"
+            },
+            "paymentPeriodicity": {
+              "type": "integer",
+              "description": "Frecuencia de Pago de la póliza",
+              "example": 5,
+              "enum": [
+                "5 - Mensual",
+                "7 - Cuotas"
+              ]
+            },
+            "officialNumber": {
+              "type": "integer"
+            },
+            "policyQuotas": {
+              "type": "boolean"
+            },
+            "quotation": {
+              "type": "object",
+              "description": "Relacion cotizacion",
+              "properties": {
+                "proposalNumber": {
+                  "type": "integer"
+                },
+                "pricingCode": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "proposalNumber"
+              ]
+            },
+            "riskAddress": {
+              "type": "object",
+              "properties": {
+                "cardinalPointsKM": {
+                  "type": "integer"
+                },
+                "city": {
+                  "type": "object",
+                  "properties": {
+                    "cityCode": {
+                      "type": "integer"
+                    },
+                    "cityPostalCode": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "geographicalCoordinate": {
+                  "type": "integer"
+                },
+                "streetName": {
+                  "type": "string"
+                }
+              }
+            },
+            "specialOperative": {
+              "type": "object",
+              "properties": {
+                "bankCode": {
+                  "type": "integer"
+                },
+                "contractNumber": {
+                  "type": "string",
+                  "description": "ID de Operación / Identificador Único"
+                },
+                "contractStartEffectiveDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Fecha de Efecto del contrato"
+                },
+                "contractEndEffectiveDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Fecha de Vencimiento/Fin del contrato"
+                },
+                "quotaToPayDueDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Fecha de Vencimiento de la primera cuota"
+                },
+                "idOperation": {
+                  "type": "string"
+                },
+                "policyQuotas": {
+                  "type": "integer",
+                  "description": "Cantidad de Cuotas del contrato"
+                }
+              },
+              "description": "Etiqueta de Operatoria Especial"
+            },
+            "surchargeDiscounts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "discountAmount": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "discountRate": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "discountCode": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "policyPeriodEndEffectiveDate": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Vigencia HASTA de la póliza"
+            },
+            "policyPeriodStartEffectiveDate": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "offeringCode",
+            "paymentPeriodicity",
+            "policyPeriodStartEffectiveDate"
+          ]
+        }
+      },
+      "required": [
+        "orgProducerCode",
+        "prodProducerCode",
+        "productCode",
+        "policyRenewalType",
+        "statisticalGroupCode"
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "branchOfficeNumber": {
+          "type": "integer"
+        },
+        "certificateNumber": {
+          "type": "integer"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "errorMessage": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "managementNumber": {
+          "type": "string"
+        },
+        "managementStatusName": {
+          "type": "string"
+        },
+        "officialNumber": {
+          "type": "integer"
+        },
+        "receipt": {
+          "type": "object",
+          "properties": {
+            "detail": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "receiptDescription": {
+                    "type": "string"
+                  },
+                  "issueTransactionPremium": {
+                    "type": "integer",
+                    "format": "decimal"
+                  },
+                  "quotaAmount": {
+                    "type": "integer",
+                    "format": "decimal"
+                  }
+                }
+              }
+            },
+            "receiptNumber": {
+              "type": "integer"
+            }
+          }
+        },
+        "referenceNumber": {
+          "type": "integer"
+        }
+      }
+    },
+    "singlePolicyResponse": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "$ref": "#/definitions/policy"
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "message": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ],
+  "basePath": "/apissa/pre-catalog"
+}

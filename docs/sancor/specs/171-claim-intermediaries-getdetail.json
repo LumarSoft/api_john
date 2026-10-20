@@ -1,0 +1,942 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Api detalles de Siniestros",
+    "x-ibm-name": "claim-intermediaries-getdetail",
+    "version": "1.0.0",
+    "description": "Servicio de obtención de detalle de siniestro de un intermediario",
+    "x-ibm-summary": ""
+  },
+  "schemes": [
+    "https"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "security": [
+    {
+      "clientIdHeader": []
+    }
+  ],
+  "securityDefinitions": {
+    "clientIdHeader": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "definitions": {
+    "ClaimResponseError": {
+      "title": "Root Type for ClaimResponseError",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "messages": [
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          },
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          }
+        ]
+      }
+    },
+    "ClaimResponse200": {
+      "title": "Root Type for ClaimResponse200",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "claim": {
+          "type": "object",
+          "properties": {
+            "claimDescription": {
+              "type": "string",
+              "description": "Se describe la mecánica del hecho. Lo completa quien carga la denuncia."
+            },
+            "claimCauseCode": {
+              "type": "integer",
+              "description": "Código  de las causas de las pérdidas o daños sufridos en el Siniestro."
+            },
+            "claimCauseName": {
+              "type": "string",
+              "description": "Nombre o descripción de las causas de las pérdidas o daños sufridos en el Siniestro."
+            },
+            "statusConcept": {
+              "type": "string",
+              "description": "Motivo del cierre."
+            },
+            "rejectMark": {
+              "type": "boolean",
+              "description": "Marca de rechazo"
+            },
+            "rejectsReasons": {
+              "type": "object",
+              "description": "Motivos de rechazo.",
+              "properties": {
+                "rejectReasonId": {
+                  "type": "string",
+                  "description": "PublicId del motivo de rechazo."
+                },
+                "rejectReasonDescription": {
+                  "type": "string",
+                  "description": "Descripcion del motivo de rechazo."
+                }
+              }
+            },
+            "claimDate": {
+              "type": "object",
+              "description": "Estructura contenedora de las fechas relacionada al siniestro.",
+              "properties": {
+                "claimOccurredDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Fecha y hora de ocurrencia el siniestro."
+                },
+                "claimReportedDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Fecha y hora de la denuncia del Siniestro, es decir, en que el siniestro fue reportado a Sancor."
+                },
+                "claimClosingDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Fecha de cierre del siniestro."
+                }
+              }
+            },
+            "branch": {
+              "type": "object",
+              "description": "Estructura contenedora de los datos del ramo.",
+              "properties": {
+                "branchCode": {
+                  "type": "integer",
+                  "description": "Código de Ramo."
+                },
+                "branchName": {
+                  "type": "string",
+                  "description": "Nombre de Ramo."
+                },
+                "productName": {
+                  "type": "string",
+                  "description": "Nombre del producto."
+                }
+              }
+            },
+            "status": {
+              "type": "object",
+              "description": "Estructura contenedora del estado del siniestro.",
+              "properties": {
+                "claimStatusCode": {
+                  "type": "string",
+                  "description": "Identificador único del estado del siniestro."
+                },
+                "claimStatusName": {
+                  "type": "string",
+                  "description": "Nombre del estado en que se encuentra el siniestro."
+                },
+                "claimSubStatusCode": {
+                  "type": "string",
+                  "description": "Codigo del subestado del siniestro."
+                },
+                "claimSubStatusName": {
+                  "type": "string",
+                  "description": "Descripcion del subestado del siniestro."
+                }
+              }
+            },
+            "insured": {
+              "type": "object",
+              "description": "Estructura contenedora de la persona Asegurada.",
+              "properties": {
+                "bupId": {
+                  "type": "integer",
+                  "description": "Identificador del Asegurado, en la Base Única de Persona (BUP) de GSS."
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Primer nombre del Asegurado (GW)."
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del Asegurado (GW)."
+                },
+                "registeredName": {
+                  "type": "string",
+                  "description": "Nombre y apellido /Razón  Social  del asegurado."
+                },
+                "identificationTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "identificationTypeCode": {
+                        "type": "string",
+                        "description": "Código  de Tipo de identificación."
+                      },
+                      "identificationTypeName": {
+                        "type": "string",
+                        "description": "Nombre  de Tipo de identificación."
+                      },
+                      "identificationTypeNumber": {
+                        "type": "string",
+                        "description": "Número de identificación."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "claimManager": {
+              "type": "object",
+              "description": "Estructura contenedora del gestor del siniestro.",
+              "properties": {
+                "bupId": {
+                  "type": "integer",
+                  "description": "Identificador del  Gestor Siniestro en la Base Única de Persona."
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Primer nombre del  Gestor Siniestro."
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del  Gestor Siniestro."
+                },
+                "registeredName": {
+                  "type": "string",
+                  "description": "Nombre y apellido del Gestor del siniestro."
+                },
+                "telephones": {
+                  "type": "array",
+                  "description": "Listado de teléfonos del gestor del siniestro.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "emails": {
+                  "type": "array",
+                  "description": "Listado de emails del gestor del siniestro.",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "complainant": {
+              "type": "object",
+              "description": "Estructura contenedora del gestor del denunciante.",
+              "properties": {
+                "bupId": {
+                  "type": "integer",
+                  "description": "Identificador del denunciante en la Base Única de Persona."
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Primer nombre del denunciante."
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del denunciante."
+                },
+                "registeredName": {
+                  "type": "string",
+                  "description": "Nombre y apellido del denunciante."
+                },
+                "telephones": {
+                  "type": "array",
+                  "description": "Listado de teléfonos del denunciante.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "emails": {
+                  "type": "array",
+                  "description": "Listado de emails del denunciante.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "identificationTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "identificationTypeCode": {
+                        "type": "string",
+                        "description": "Código  de Tipo de identificación."
+                      },
+                      "identificationTypeName": {
+                        "type": "string",
+                        "description": "Nombre  de Tipo de identificación."
+                      },
+                      "identificationTypeNumber": {
+                        "type": "string",
+                        "description": "Número de identificación."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "address": {
+              "type": "object",
+              "description": "Estructura contenedora del lugar de ocurrencia del siniestro.",
+              "properties": {
+                "address": {
+                  "type": "string",
+                  "description": "Calle y número."
+                },
+                "streetNumber": {
+                  "type": "string",
+                  "description": "Número de calle."
+                },
+                "streetName": {
+                  "type": "string",
+                  "description": "Nombre de la calle."
+                },
+                "neighborhood": {
+                  "type": "string",
+                  "description": "Barrio."
+                },
+                "apartment": {
+                  "type": "string",
+                  "description": "Departamento."
+                },
+                "floor": {
+                  "type": "string",
+                  "description": "Piso."
+                },
+                "cpa": {
+                  "type": "integer",
+                  "description": "Código postal."
+                },
+                "stateCode": {
+                  "type": "string",
+                  "description": "Código de la provincia."
+                },
+                "stateName": {
+                  "type": "string",
+                  "description": "Descripción de la provincia."
+                },
+                "countryCode": {
+                  "type": "string",
+                  "description": "Código del país."
+                },
+                "countryName": {
+                  "type": "string",
+                  "description": "Descripción del país."
+                },
+                "cityCode": {
+                  "type": "integer",
+                  "description": "Codigo de localidad."
+                },
+                "cityName": {
+                  "type": "string",
+                  "description": "Nombre de localidad."
+                }
+              }
+            },
+            "policyHolder": {
+              "type": "object",
+              "description": "Estructura contendora del tomador titular de la póliza.",
+              "properties": {
+                "bupId": {
+                  "type": "integer",
+                  "description": "Identificador del tomador en la Base Única de Persona."
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Primer nombre del tomador."
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del tomador."
+                },
+                "registeredName": {
+                  "type": "string",
+                  "description": "Nombre y apellido del tomador."
+                },
+                "telephones": {
+                  "type": "array",
+                  "description": "Listado de teléfonos del tomador.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "emails": {
+                  "type": "array",
+                  "description": "Listado de emails del tomador.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "identificationTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "identificationTypeCode": {
+                        "type": "string",
+                        "description": "Código  de Tipo de identificación."
+                      },
+                      "identificationTypeName": {
+                        "type": "string",
+                        "description": "Nombre  de Tipo de identificación."
+                      },
+                      "identificationTypeNumber": {
+                        "type": "string",
+                        "description": "Número de identificación."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "thirdParties": {
+              "type": "array",
+              "description": "Terceros involucrados.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "bupId": {
+                    "type": "integer",
+                    "description": "BupId del tercero."
+                  },
+                  "registeredName": {
+                    "type": "string",
+                    "description": "Nombre y apellido del tercero."
+                  },
+                  "identificationTypeCode": {
+                    "type": "string",
+                    "description": "Código  de Tipo de identificación."
+                  },
+                  "identificationTypeName": {
+                    "type": "string",
+                    "description": "Nombre  de Tipo de identificación."
+                  },
+                  "identificationTypeNumber": {
+                    "type": "string",
+                    "description": "Número de identificación."
+                  },
+                  "email": {
+                    "type": "string",
+                    "description": "Email del tercero."
+                  },
+                  "telephoneNumber": {
+                    "type": "string",
+                    "description": "Numero de telefono del tercero."
+                  }
+                }
+              }
+            },
+            "autoClaim": {
+              "type": "object",
+              "description": "Siniestros de auto.",
+              "properties": {
+                "damagedGlass": {
+                  "type": "array",
+                  "description": "Listado de  daños en cristales.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "thirdParties": {
+                  "type": "array",
+                  "description": "Lista de Daños a terceros (auto).",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "brandName": {
+                        "type": "string",
+                        "description": "Marca."
+                      },
+                      "modelName": {
+                        "type": "string",
+                        "description": "Modelo."
+                      },
+                      "licensePlate": {
+                        "type": "string",
+                        "description": "Patente."
+                      },
+                      "thirdPartyInsuranceCompany": {
+                        "type": "string",
+                        "description": "Compañía aseguradora."
+                      }
+                    }
+                  }
+                },
+                "serviceOrders": {
+                  "type": "array",
+                  "description": "Ordenes de servicio.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "serviceOrderNumber": {
+                        "type": "string",
+                        "description": "Numero de orden de servicio (GW)."
+                      },
+                      "damagedGlass": {
+                        "type": "array",
+                        "description": "Listado de daños en cristales.",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "experts": {
+              "type": "object",
+              "description": "Estructura contenedora de Peritos asignados.",
+              "properties": {
+                "serviceOrderModificationDate": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Ultima actualización."
+                },
+                "serviceOrderStatusCode": {
+                  "type": "string",
+                  "description": "Código Estado de la OS."
+                },
+                "serviceOrderStatusName": {
+                  "type": "string",
+                  "description": "Descripción Estado de la OS."
+                },
+                "serviceOrderserviceType": {
+                  "type": "string",
+                  "description": "Descripción del tipo de orden de servicio."
+                },
+                "serviceOrderServiceTypeCode": {
+                  "type": "integer",
+                  "description": "Código del tipo de orden de servicio."
+                },
+                "bupId": {
+                  "type": "integer",
+                  "description": "Identificador del  Perito , en la Base Única de Persona (BUP) de GSS."
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Primer nombre del perito."
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del perito."
+                },
+                "registeredName": {
+                  "type": "string",
+                  "description": "Razón social del perito."
+                },
+                "address": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "description": "Calle y numero"
+                    },
+                    "cityName": {
+                      "type": "string",
+                      "description": "Localidad"
+                    },
+                    "stateName": {
+                      "type": "string",
+                      "description": "Provincia"
+                    },
+                    "countryName": {
+                      "type": "string",
+                      "description": "Pais."
+                    },
+                    "registeredName": {
+                      "type": "string",
+                      "description": "Nombre y apellido / Razón social."
+                    },
+                    "email": {
+                      "type": "string",
+                      "description": "Correo electrónico."
+                    }
+                  }
+                },
+                "telephones": {
+                  "type": "array",
+                  "description": "Listado de teléfonos del perito.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "telephoneNumber": {
+                        "type": "string",
+                        "description": "Número de teléfono."
+                      },
+                      "isPrincipalPhone": {
+                        "type": "boolean",
+                        "description": "Marca que indica si es el teléfono principal del profesional asociada a la orden de servicio."
+                      },
+                      "useWSP": {
+                        "type": "boolean",
+                        "description": "Marca que indica si el profesional asociada a la orden de servicio usa WhatsAap."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "damaged": {
+              "type": "object",
+              "properties": {
+                "bupId": {
+                  "type": "integer",
+                  "description": "Identificador del damnificado en la Base Única de Persona."
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Primer nombre del damnificado."
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del damnificado."
+                },
+                "registeredName": {
+                  "type": "string",
+                  "description": "Nombre y apellido del damnificado."
+                },
+                "telephones": {
+                  "type": "array",
+                  "description": "Listado de teléfonos del damnificado.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "emails": {
+                  "type": "array",
+                  "description": "Listado de emails del damnificado.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "identificationTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "identificationTypeCode": {
+                        "type": "string",
+                        "description": "Código  de Tipo de identificación."
+                      },
+                      "identificationTypeName": {
+                        "type": "string",
+                        "description": "Nombre  de Tipo de identificación."
+                      },
+                      "identificationTypeNumber": {
+                        "type": "string",
+                        "description": "Número de identificación."
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "exposures": {
+              "type": "object",
+              "properties": {
+                "injuredPerson": {
+                  "type": "object",
+                  "description": "Personas lesionadas.",
+                  "properties": {
+                    "injured": {
+                      "type": "array",
+                      "description": "Listado de personas lesionadas.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "firstName": {
+                            "type": "string",
+                            "description": "Nombre de la persona lesionada."
+                          },
+                          "lastName": {
+                            "type": "string",
+                            "description": "Apellido de la persona lesionada."
+                          },
+                          "identificationTypes": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "identificationTypeCode": {
+                                  "type": "string",
+                                  "description": "Código  de Tipo de identificación."
+                                },
+                                "identificationTypeName": {
+                                  "type": "string",
+                                  "description": "Nombre  de Tipo de identificación."
+                                },
+                                "identificationTypeNumber": {
+                                  "type": "string",
+                                  "description": "Número de identificación."
+                                }
+                              }
+                            }
+                          },
+                          "telephones": {
+                            "type": "array",
+                            "description": "Listado de teléfonos de la persona lesionada.",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "telephoneId": {
+                                  "type": "string",
+                                  "description": "PublicId del teléfono."
+                                },
+                                "countryTelephoneCode": {
+                                  "type": "string",
+                                  "description": "Código de país."
+                                },
+                                "intern": {
+                                  "type": "integer",
+                                  "description": "Interno."
+                                },
+                                "telephoneNumber": {
+                                  "type": "string",
+                                  "description": "Número de teléfono."
+                                },
+                                "telephoneUseTypeCode": {
+                                  "type": "string",
+                                  "description": "Código del tipo de uso."
+                                },
+                                "telephoneTypeCode": {
+                                  "type": "string",
+                                  "description": "Codigo de Tipo de telefono."
+                                },
+                                "isPrincipalPhone": {
+                                  "type": "boolean",
+                                  "description": "Es el telefono principal?"
+                                }
+                              }
+                            }
+                          },
+                          "emails": {
+                            "type": "array",
+                            "description": "Emails de las personas lesionadas.",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "emailAddressId": {
+                                  "type": "string",
+                                  "description": "PublicId del email."
+                                },
+                                "isPrincipal": {
+                                  "type": "boolean",
+                                  "description": "Es email principal?"
+                                },
+                                "email": {
+                                  "type": "string",
+                                  "description": "Dirección de correo electrónico."
+                                },
+                                "emailUseTypeCode": {
+                                  "type": "string",
+                                  "description": "Código de tipo de email."
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "claim": {
+          "claimDescription": "Realizando Marcha atrás en el club nacional rompo óptica trasera derecha contra un arbol y se marca abolla Portón baul",
+          "claimCauseCode": 36,
+          "claimCauseName": "Otras causas",
+          "claimDate": {
+            "claimOccurredDate": "2024-08-22 19:10:00",
+            "claimReportedDate": "2024-08-23 14:17:00",
+            "claimClosingDate": "2024-08-23 00:00:00"
+          },
+          "branch": {
+            "branchCode": 200,
+            "productName": "Operatoria normal"
+          },
+          "status": {
+            "claimStatusCode": "3",
+            "claimStatusName": "En trámite"
+          },
+          "insured": {
+            "bupId": 191156,
+            "registeredName": "URRIAGA MAXIMILIANO"
+          },
+          "claimManager": {
+            "bupId": 769982,
+            "registeredName": "CORNACHONI HERNAN ARIEL",
+            "emails": [
+              {
+                "email": "hcornachoni@sancorseguros.com"
+              }
+            ]
+          },
+          "complainant": [
+            {
+              "bupId": 191156,
+              "registeredName": "URRIAGA MAXIMILIANO"
+            }
+          ],
+          "address": {
+            "address": "14 de Julio NN",
+            "cpa": 8000,
+            "stateName": "Buenos Aires",
+            "countryCode": "AR",
+            "countryName": "Argentina",
+            "cityName": "Bahia Blanca"
+          },
+          "policyHolder": {
+            "bupId": 191156,
+            "registeredName": "URRIAGA MAXIMILIANO"
+          },
+          "thirdParties": [],
+          "experts": [
+            {
+              "serviceOrderStatusCode": 1,
+              "serviceOrderStatusName": "Pendiente de realización",
+              "serviceOrderserviceType": "Pericias Mecánicas",
+              "serviceOrderServiceTypeCode": "2",
+              "bupId": 2196918,
+              "telephones": [
+                {
+                  "telephoneNumber": 156454452,
+                  "isPrincipalPhone": true,
+                  "useWSP": true
+                }
+              ],
+              "emails": [
+                {
+                  "email": "marcospelle1978@gmail.com"
+                }
+              ]
+            }
+          ],
+          "damaged": [
+            {
+              "bupId": 191156,
+              "registeredName": "URRIAGA MAXIMILIANO"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "paths": {
+    "/intermediaries/{producerCode}/claims/{claimNumber}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "producerCode",
+            "in": "path",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "claimNumber",
+            "in": "path",
+            "required": true,
+            "type": "integer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operacion Exitosa",
+            "schema": {
+              "$ref": "#/definitions/ClaimResponse200"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ClaimResponseError"
+            }
+          },
+          "401": {
+            "description": "Auth Missing",
+            "schema": {
+              "$ref": "#/definitions/ClaimResponseError"
+            }
+          },
+          "403": {
+            "description": "Sin permisos",
+            "schema": {
+              "$ref": "#/definitions/ClaimResponseError"
+            }
+          },
+          "415": {
+            "description": "Faltan valores obligatorios",
+            "schema": {
+              "$ref": "#/definitions/ClaimResponseError"
+            }
+          },
+          "422": {
+            "description": "Valores incorrectos",
+            "schema": {
+              "$ref": "#/definitions/ClaimResponseError"
+            }
+          },
+          "500": {
+            "description": "Error interno no manejado",
+            "schema": {
+              "$ref": "#/definitions/ClaimResponseError"
+            }
+          },
+          "504": {
+            "description": "Time out",
+            "schema": {
+              "$ref": "#/definitions/ClaimResponseError"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ]
+      }
+    }
+  },
+  "host": "external-pre-api.gruposancorseguros.com",
+  "basePath": "/apissa/pre-catalog"
+}

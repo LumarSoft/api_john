@@ -1,0 +1,1182 @@
+{
+  "info": {
+    "name": "John Seguros — Sancor (preproducción)",
+    "description": "APIs de Sancor Seguros (IBM API Connect). Guía: api_john/docs/sancor-services.md. Specs: api_john/docs/sancor/specs/. Completar sancor_client_id, sancor_username, sancor_password, producer_code y organizer_code; el token se pide solo.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{sancor_access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Pide el token del intermediario cuando falta o está por vencer (lo guarda 1 h, según expires_in).",
+          "if (pm.info.requestName.startsWith('1.1 ')) return",
+          "const expiresAt = Number(pm.collectionVariables.get('sancor_token_expires_at') || 0)",
+          "if (pm.collectionVariables.get('sancor_access_token') && Date.now() < expiresAt) return",
+          "const base = pm.collectionVariables.get('sancor_base_url')",
+          "const clientId = pm.collectionVariables.get('sancor_client_id')",
+          "pm.sendRequest({",
+          "  url: base + '/v2/security/auth0/token',",
+          "  method: 'POST',",
+          "  header: { 'Content-Type': 'application/json', gss_apiclient_id: clientId, 'X-IBM-Client-Id': clientId },",
+          "  body: { mode: 'raw', raw: JSON.stringify({",
+          "    username: pm.collectionVariables.get('sancor_username'),",
+          "    password: pm.collectionVariables.get('sancor_password'),",
+          "    app_client: pm.collectionVariables.get('sancor_app_client'),",
+          "  }) },",
+          "}, (err, res) => {",
+          "  if (err || res.code !== 200) { console.error('Token de Sancor', err || res.code, res && res.text()); return }",
+          "  const body = res.json()",
+          "  pm.collectionVariables.set('sancor_access_token', body.access_token)",
+          "  pm.collectionVariables.set('sancor_token_expires_at', String(Date.now() + (Number(body.expires_in) || 3600) * 1000 - 60000))",
+          "})"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Autenticación",
+      "item": [
+        {
+          "name": "1.1 Generar token — TokenGenerator-V2",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/v2/security/auth0/token",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "v2",
+                "security",
+                "auth0",
+                "token"
+              ]
+            },
+            "description": "Token del intermediario. La colección lo pide sola antes de cada llamada si no hay uno vigente; este request sirve para verlo o forzarlo.\n\nSpec: `docs/sancor/specs/148-*.json` — TokenGenerator-V2.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{sancor_username}}\",\n  \"password\": \"{{sancor_password}}\",\n  \"app_client\": \"{{sancor_app_client}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json()",
+                  "pm.test('Devuelve access_token', () => pm.expect(body.access_token).to.be.a('string'))",
+                  "pm.collectionVariables.set('sancor_access_token', body.access_token)",
+                  "pm.collectionVariables.set('sancor_token_expires_at', String(Date.now() + (Number(body.expires_in) || 3600) * 1000 - 60000))"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 Validar token — TokenIntrospection-V2",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/v2/security/auth0/token/validate",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "v2",
+                "security",
+                "auth0",
+                "token",
+                "validate"
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/149-*.json` — TokenIntrospection-V2."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Cartera y documentos",
+      "item": [
+        {
+          "name": "2.1 Pólizas por DNI — Consulta de Cartera",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/policies?identificationNumber={{dni}}",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "policies"
+              ],
+              "query": [
+                {
+                  "key": "identificationNumber",
+                  "value": "{{dni}}"
+                },
+                {
+                  "key": "cuit",
+                  "value": "{{cuit}}",
+                  "disabled": true
+                },
+                {
+                  "key": "licensePlate",
+                  "value": "{{patente}}",
+                  "disabled": true
+                },
+                {
+                  "key": "officialNumber",
+                  "value": "{{official_number}}",
+                  "disabled": true
+                },
+                {
+                  "key": "referenceNumber",
+                  "value": "{{reference_number}}",
+                  "disabled": true
+                },
+                {
+                  "key": "branchCode",
+                  "value": "{{branch_code}}",
+                  "disabled": true
+                },
+                {
+                  "key": "isVigent",
+                  "value": "true",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Filtros opcionales: activá el que corresponda. Algunas combinaciones dan 400. Guarda la primera póliza en las variables.\n\nSpec: `docs/sancor/specs/1329-*.json` — Consulta de Cartera de Polizas."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) return",
+                  "const p = (pm.response.json().policies || [])[0]",
+                  "if (p) {",
+                  "  pm.collectionVariables.set('reference_number', p.referenceNumber || '')",
+                  "  pm.collectionVariables.set('certificate_number', p.certificateNumber || '')",
+                  "  pm.collectionVariables.set('branch_code', p.branchCode || '')",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 Pólizas por patente — Consulta de Cartera",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/policies?licensePlate={{patente}}",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "policies"
+              ],
+              "query": [
+                {
+                  "key": "licensePlate",
+                  "value": "{{patente}}"
+                }
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/1329-*.json` — Consulta de Cartera de Polizas."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code !== 200) return",
+                  "const p = (pm.response.json().policies || [])[0]",
+                  "if (p) {",
+                  "  pm.collectionVariables.set('reference_number', p.referenceNumber || '')",
+                  "  pm.collectionVariables.set('certificate_number', p.certificateNumber || '')",
+                  "  pm.collectionVariables.set('branch_code', p.branchCode || '')",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.3 Documento de una póliza — Impresión de Documentos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/policies/document/file/get",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "policies",
+                "document",
+                "file",
+                "get"
+              ]
+            },
+            "description": "report_name: Carátula, NuevaFacturaCuota, NuevaFactura, Mercosur, ConstanciaDeCoberturaPE, ConstanciaPolizaArgentina, Tarjetasplásticas, CertificadoIncorporación, MercosurPolizaElectronica, ConstanciaCoberturaRC, TarjetaAutomotorPolizaElectronica, CaratulaAnulacionDePoliza, Factura, CertificadoPago, CertificadoSOA, DocumentoUnificadoAPF.\n\nSpec: `docs/sancor/specs/1299-*.json` — Impresión de Documentos.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"file\": {\n    \"branchCode\": {{branch_code}},\n    \"officialNumber\": \"{{official_number}}\",\n    \"referenceNumber\": \"{{reference_number}}\",\n    \"certificateNumber\": {{certificate_number}},\n    \"reportName\": \"{{report_name}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "2.4 Documentos de un siniestro — Impresión de Documentos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/policies/document/file/claim?claimNumber={{claim_number}}",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "policies",
+                "document",
+                "file",
+                "claim"
+              ],
+              "query": [
+                {
+                  "key": "claimNumber",
+                  "value": "{{claim_number}}"
+                }
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/1299-*.json` — Impresión de Documentos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Cotización",
+      "item": [
+        {
+          "name": "3.1 Cotizar auto — Cotización Automotores",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/quotations/vehicle/automotive",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "quotations",
+                "vehicle",
+                "automotive"
+              ]
+            },
+            "description": "vehicleCode = CODIA de InfoAuto. productCode, currencyCode y módulos: a confirmar con Sancor.\n\nSpec: `docs/sancor/specs/143-*.json` — Cotización Automotores.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vehicleQuotation\": {\n    \"person\": {\n      \"identificationNumber\": {{dni}},\n      \"identificationType\": \"D\",\n      \"isJuridicPerson\": false\n    },\n    \"coverModuleCodes\": [],\n    \"currencyCode\": 1,\n    \"policyPeriodStartEffectiveDate\": \"{{vigencia_desde}}\",\n    \"conditionCode\": 4,\n    \"intermediary\": {\n      \"prodProducerCode\": {{producer_code}},\n      \"upperProducerCode\": {{organizer_code}}\n    },\n    \"policyVigencyCode\": 1,\n    \"policyPaymentPeriodicityCode\": 5,\n    \"policyQuotas\": 12,\n    \"productCode\": {{product_code}},\n    \"zone\": {\n      \"postalCode\": {{cp}}\n    },\n    \"vehicle\": {\n      \"vehicleCode\": \"{{codia}}\",\n      \"vehicleYear\": {{anio}},\n      \"yearSuggestedValue\": {{valor}},\n      \"vehicleUseTypeCode\": 2,\n      \"vehicleTrackingEquipment\": false,\n      \"gncInformation\": {\n        \"hasGNC\": false\n      },\n      \"assistance\": {\n        \"assistance\": \"sa_02\",\n        \"assistanceProvider\": \"ibero\"\n      },\n      \"zeroKM\": false\n    },\n    \"driversUnder25\": false,\n    \"anualKM\": false,\n    \"garageParking\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3.2 Cotizar moto — Cotización Motovehículos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/quotations/vehicle/motorcycle",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "quotations",
+                "vehicle",
+                "motorcycle"
+              ]
+            },
+            "description": "Va sin el envoltorio vehicleQuotation y con la asistencia escrita \"assistence\". vehicleCode = código de InfoMoto.\n\nSpec: `docs/sancor/specs/159-*.json` — Cotización Motovehículos.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"person\": {\n    \"identificationNumber\": {{dni}},\n    \"identificationType\": \"D\",\n    \"isJuridicPerson\": false\n  },\n  \"coverModuleCodes\": [],\n  \"currencyCode\": 1,\n  \"policyPeriodStartEffectiveDate\": \"{{vigencia_desde}}\",\n  \"conditionCode\": 4,\n  \"intermediary\": {\n    \"prodProducerCode\": {{producer_code}},\n    \"upperProducerCode\": {{organizer_code}}\n  },\n  \"policyVigencyCode\": 1,\n  \"policyPaymentPeriodicityCode\": 5,\n  \"policyQuotas\": 12,\n  \"productCode\": {{product_code}},\n  \"zone\": {\n    \"postalCode\": {{cp}}\n  },\n  \"vehicle\": {\n    \"vehicleCode\": \"{{codia}}\",\n    \"vehicleYear\": {{anio}},\n    \"yearSuggestedValue\": {{valor}},\n    \"vehicleUseTypeCode\": 2,\n    \"vehicleTrackingEquipment\": false,\n    \"gncInformation\": {\n      \"hasGNC\": false\n    },\n    \"zeroKM\": false,\n    \"assistence\": {\n      \"assistence\": \"sa_02\",\n      \"assistenceProvider\": \"ibero\"\n    }\n  },\n  \"driversUnder25\": false,\n  \"anualKM\": false,\n  \"garageParking\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3.3 Módulos válidos para autos — Consulta de Módulos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/modules/automotive?organizer={{organizer_code}}&producer={{producer_code}}",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "modules",
+                "automotive"
+              ],
+              "query": [
+                {
+                  "key": "organizer",
+                  "value": "{{organizer_code}}"
+                },
+                {
+                  "key": "producer",
+                  "value": "{{producer_code}}"
+                },
+                {
+                  "key": "statistical_code",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/176-*.json` — Api de Consulta de Módulos."
+          }
+        },
+        {
+          "name": "3.4 Módulos válidos para motos — Consulta de Módulos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/modules/motorcycle?organizer={{organizer_code}}&producer={{producer_code}}",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "modules",
+                "motorcycle"
+              ],
+              "query": [
+                {
+                  "key": "organizer",
+                  "value": "{{organizer_code}}"
+                },
+                {
+                  "key": "producer",
+                  "value": "{{producer_code}}"
+                },
+                {
+                  "key": "statistical_code",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/176-*.json` — Api de Consulta de Módulos."
+          }
+        },
+        {
+          "name": "3.5 Localidades por CP — Consulta de Localidades",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/localities?zipCode={{cp}}&countryCode={{country_code}}",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "localities"
+              ],
+              "query": [
+                {
+                  "key": "zipCode",
+                  "value": "{{cp}}"
+                },
+                {
+                  "key": "countryCode",
+                  "value": "{{country_code}}"
+                }
+              ]
+            },
+            "description": "countryCode: valor a confirmar.\n\nSpec: `docs/sancor/specs/142-*.json` — Api Consulta de Localidades."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Siniestros",
+      "item": [
+        {
+          "name": "4.1 Siniestros del productor (último mes) — cartera de Siniestros",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/intermediaries/{{producer_code}}/claims/list",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "intermediaries",
+                "{{producer_code}}",
+                "claims",
+                "list"
+              ]
+            },
+            "description": "Fechas desde (ocurrencia o denuncia) en YYYY-MM-DD, como máximo un mes atrás.\n\nSpec: `docs/sancor/specs/170-*.json` — Api cartera de Siniestros.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim\": {\n    \"branchCode\": {{branch_code}},\n    \"claimReportedDateSince\": \"{{fecha_desde}}\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4.2 Detalle de un siniestro — detalles de Siniestros",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/intermediaries/{{producer_code}}/claims/{{claim_number}}",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "intermediaries",
+                "{{producer_code}}",
+                "claims",
+                "{{claim_number}}"
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/171-*.json` — Api detalles de Siniestros."
+          }
+        },
+        {
+          "name": "4.3 Estado de reclamos — Consulta Reclamos Siniestro",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/claims/searchexposure/status",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "claims",
+                "searchexposure",
+                "status"
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/615-*.json` — Api Consulta Reclamos Siniestro.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim\": {\n    \"claimNumber\": \"{{claim_number}}\"\n  },\n  \"policy\": {\n    \"producerCode\": {{producer_code}}\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "4.4 Causas de siniestro de auto — Parametrización",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/parameters/claims/automotive/causes",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "parameters",
+                "claims",
+                "automotive",
+                "causes"
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/1157-*.json` — API de Parametrización de Siniestros."
+          }
+        },
+        {
+          "name": "4.5 Causas de siniestro de moto — Parametrización",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/parameters/claims/motorcycle/causes",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "parameters",
+                "claims",
+                "motorcycle",
+                "causes"
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/1157-*.json` — API de Parametrización de Siniestros."
+          }
+        },
+        {
+          "name": "4.6 Tipos de documento — Parametrización",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/parameters/claims/documents/type",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "parameters",
+                "claims",
+                "documents",
+                "type"
+              ]
+            },
+            "description": "Spec: `docs/sancor/specs/1157-*.json` — API de Parametrización de Siniestros."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. [DESTRUCTIVO] Emisión, denuncia y anulación",
+      "item": [
+        {
+          "name": "5.1 Emitir póliza de auto — Emisión Automotores  [DESTRUCTIVO]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/vehicle/automotive/issuance/single",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "vehicle",
+                "automotive",
+                "issuance",
+                "single"
+              ]
+            },
+            "description": "EMITE UNA PÓLIZA REAL. Cuerpo armado desde la spec: completarlo con la cotización.\n\nSpec: `docs/sancor/specs/144-*.json` — Emisión Automotores.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"certificateData\": {\n    \"personRoleCode\": \"1\",\n    \"branchData\": {\n      \"discountCode\": 0,\n      \"scoringInformation\": {\n        \"garageParking\": false,\n        \"driversUnder25\": false,\n        \"anualKM\": false\n      },\n      \"vehicle\": {\n        \"chassisNumber\": \"\",\n        \"licensePlate\": \"\",\n        \"engineNumber\": \"\",\n        \"vehicleTrackingEquipment\": false,\n        \"vehicleCode\": \"\",\n        \"vehicleUseType\": 2,\n        \"suggestedValue\": 10000000,\n        \"year\": 2025,\n        \"zeroKM\": false,\n        \"previousInspection\": {\n          \"priorInspectionDescription\": \"\",\n          \"filesAttachment\": [\n            {}\n          ],\n          \"fuelTypeCode\": 1,\n          \"priorInspectionCode\": 1,\n          \"priorInspectionCrystals\": \"1\",\n          \"priorInspectionDate\": \"2026-11-01T00:00:00\",\n          \"priorInspectioResultCode\": 1,\n          \"anualKM\": 4000,\n          \"paintAspectCode\": \"1\",\n          \"paintTypeCode\": 1,\n          \"sheetMetalAspectCode\": 1,\n          \"tiresAspectCode\": 1,\n          \"upholsteryAspectCode\": 1,\n          \"upholsteryColorCode\": 1,\n          \"upholsteryTypeCode\": 1,\n          \"vehicleColour\": \"negro\",\n          \"wheelTypeCode\": 1\n        },\n        \"assistance\": {\n          \"additionalAssistance\": \"sa_02\",\n          \"assistanceProvider\": \"ibero\"\n        },\n        \"gncEquipment\": {\n          \"componentBrandCylinderOne\": \"\",\n          \"componentBrandCylinderTwo\": \"\",\n          \"componentBrandCylinderThree\": \"\",\n          \"componentBrandCylinderFour\": \"\",\n          \"componentNumberCylinderOne\": \"\",\n          \"componentNumberCylinderTwo\": \"\",\n          \"componentNumberCylinderThree\": \"\",\n          \"componentNumberCylinderFour\": \"\",\n          \"accesoryInsuredSum\": \"\",\n          \"componentBrandRegulator\": \"\",\n          \"componentNumberRegulator\": \"\"\n        }\n      },\n      \"policyAutomaticAdjustment\": \"Option_10\",\n      \"type\": \"con:AutomotiveBranchData\"\n    },\n    \"clients\": [\n      {\n        \"personRoleCode\": \"1\",\n        \"value\": {\n          \"birthCity\": \"\",\n          \"birthDate\": \"2026-11-01T00:00:00\",\n          \"stateCode\": \"\",\n          \"cityCode\": 0,\n          \"identificationNumber\": \"\",\n          \"identificationTypeName\": \"D\",\n          \"email\": \"\",\n          \"conditionCode\": \"1\",\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"ciiuCode\": 0,\n          \"telephoneNumber\": \"\",\n          \"streetName\": \"\",\n          \"cityPostalCode\": 0,\n          \"gender\": \"1\"\n        }\n      }\n    ],\n    \"offeringCode\": 55,\n    \"paymentMethodCode\": \"0\",\n    \"electronicDispatchInformation\": {\n      \"email\": \"\",\n      \"policyPeriodElectronicSend\": false,\n      \"whatsApp\": {\n        \"wppTelephoneNumber\": \"\",\n        \"wppAreaCode\": \"\"\n      }\n    },\n    \"paymentPeriodicity\": \"5\",\n    \"policyQuotas\": 0,\n    \"policyPeriodStartEffectiveDate\": \"\",\n    \"specialOperative\": {\n      \"bankCode\": 0,\n      \"contractNumber\": \"\",\n      \"divisionCode\": 0,\n      \"contractStartEffectiveDate\": \"\",\n      \"contractEndEffectiveDate\": \"\",\n      \"quotaToPayDueDate\": \"\",\n      \"idOperation\": \"\",\n      \"officeBanckCode\": 0,\n      \"policyQuotas\": 0\n    },\n    \"policyPeriodEndEffectiveDate\": \"\",\n    \"surchargeDiscounts\": [\n      {\n        \"discountRate\": 0,\n        \"discountCode\": 58\n      }\n    ],\n    \"observations\": \"\",\n    \"insuredGoods\": [\n      {\n        \"coveredItemDescription\": \"\",\n        \"coveredItem\": 0,\n        \"coveredItemInsuredSum\": 0\n      }\n    ],\n    \"debitData\": {\n      \"type\": \"CreditCardDebit\",\n      \"cbuAccount\": \"\",\n      \"creditCardToValidityDate\": \"\",\n      \"creditCardBrand\": 1,\n      \"creditCardNumber\": \"\",\n      \"accountNumber\": \"\",\n      \"accountTypeId\": \"1\",\n      \"bankAgencyCode\": \"\",\n      \"bankCode\": \"\"\n    },\n    \"quotation\": {\n      \"pricingIds\": [\n        \"\"\n      ]\n    },\n    \"familyContinuityConsent\": false\n  },\n  \"currencyCode\": 0,\n  \"orgProducerCode\": 0,\n  \"prodProducerCode\": 0,\n  \"productCode\": 0,\n  \"policyRenewalType\": 0,\n  \"statisticalGroupCode\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Crea, anula o denuncia de verdad en Sancor. Solo corre con permitir_destructivo = true.",
+                  "if (pm.collectionVariables.get('permitir_destructivo') !== 'true') {",
+                  "  console.warn('Salteado: poné permitir_destructivo = true para enviarlo')",
+                  "  pm.execution.skipRequest()",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.2 Emitir póliza de moto — Emisión Motovehículos  [DESTRUCTIVO]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/policies/vehicle/motorcycle",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "policies",
+                "vehicle",
+                "motorcycle"
+              ]
+            },
+            "description": "EMITE UNA PÓLIZA REAL. Cuerpo armado desde la spec.\n\nSpec: `docs/sancor/specs/158-*.json` — Emisión Motovehículos.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgProducerCode\": 0,\n  \"prodProducerCode\": 0,\n  \"productCode\": 0,\n  \"policyRenewalType\": 0,\n  \"statisticalGroupCode\": 0,\n  \"currencyCode\": 0,\n  \"certificateData\": {\n    \"coveragesInformation\": [\n      {\n        \"coveragePremiumAmount\": 0,\n        \"coverageName\": \"\",\n        \"coverageDescription\": \"\",\n        \"coverageCode\": 0,\n        \"isObligatorySelection\": false,\n        \"isSelected\": false,\n        \"optionName\": \"\",\n        \"optionCode\": 0\n      }\n    ],\n    \"basicInsuredCapitalItems\": [\n      {\n        \"capitalId\": 0,\n        \"capitalAmount\": 0,\n        \"isSelected\": false\n      }\n    ],\n    \"branchData\": {\n      \"policyAutomaticAdjustment\": \"Option_10\",\n      \"motorcycle\": {\n        \"chassisNumber\": \"\",\n        \"licensePlate\": \"\",\n        \"engineNumber\": \"\",\n        \"modelCode\": 0,\n        \"vehicleUseType\": 2,\n        \"suggestedValue\": 0,\n        \"year\": 0,\n        \"zeroKM\": false,\n        \"discountCode\": 0,\n        \"assistance\": {\n          \"additionalAssistance\": \"sa_02\",\n          \"assistanceProvider\": \"ibero\"\n        }\n      }\n    },\n    \"personRoleCode\": 0,\n    \"clients\": [\n      {\n        \"personRoleCode\": 0,\n        \"value\": {\n          \"stateCode\": 0,\n          \"birthDate\": \"2026-11-01T00:00:00\",\n          \"birthCity\": \"\",\n          \"cityCode\": 0,\n          \"bupId\": \"\",\n          \"identificationTypeName\": \"D\",\n          \"identificationType\": \"\",\n          \"email\": \"\",\n          \"firstName\": \"Nombre del asegurado\",\n          \"gender\": 0,\n          \"conditionCode\": 1,\n          \"lastName\": \"Apellido del Cliente\",\n          \"ciiuCode\": 0,\n          \"maritalStatus\": 0,\n          \"telephoneNumber\": \"\",\n          \"taxCategoryCode\": 0,\n          \"streetName\": \"\",\n          \"cityPostalCode\": 0\n        }\n      }\n    ],\n    \"observations\": \"\",\n    \"offeringCode\": 0,\n    \"covers\": [\n      {\n        \"coverageInsuredSum\": 0,\n        \"coverageCode\": 0,\n        \"discountPercentage\": 0,\n        \"discountType\": 0\n      }\n    ],\n    \"paymentMethodCode\": 0,\n    \"debitData\": {\n      \"creditCardDebitType\": {\n        \"crediCardToValidityDate\": \"2026-11-01T00:00:00\",\n        \"creditCardBrand\": 0,\n        \"cardNumber\": \"\"\n      },\n      \"bankDebitType\": {\n        \"policyHolderName\": \"\",\n        \"accountNumber\": \"\",\n        \"bankAccountType\": 0,\n        \"bankAgencyCode\": 0,\n        \"bankCode\": 0\n      },\n      \"cbuDebitType\": {\n        \"bankAgencyCode\": 0,\n        \"bankCode\": 0,\n        \"bankIdentificationCode\": \"\"\n      }\n    },\n    \"electronicDispatchInformation\": {\n      \"email\": \"\",\n      \"policyPeriodElectronicSend\": false,\n      \"whatsApp\": {\n        \"wppTelephoneNumber\": \"\",\n        \"wppAreaCode\": \"\"\n      }\n    },\n    \"insuredBasicCapitals\": [\n      {\n        \"basicInsuredCapitalCode\": 0,\n        \"vehicleInsuredSum\": 0\n      }\n    ],\n    \"insuredGoods\": [\n      {\n        \"coveredItemDescription\": \"\",\n        \"coveredItem\": 0,\n        \"coveredItemInsuredSum\": 0\n      }\n    ],\n    \"isEmission\": false,\n    \"paymentPeriodicity\": 5,\n    \"officialNumber\": 0,\n    \"policyQuotas\": false,\n    \"quotation\": {\n      \"proposalNumber\": 0,\n      \"pricingCode\": 0\n    },\n    \"riskAddress\": {\n      \"cardinalPointsKM\": 0,\n      \"city\": {\n        \"cityCode\": 0,\n        \"cityPostalCode\": 0\n      },\n      \"geographicalCoordinate\": 0,\n      \"streetName\": \"\"\n    },\n    \"specialOperative\": {\n      \"bankCode\": 0,\n      \"contractNumber\": \"\",\n      \"contractStartEffectiveDate\": \"2026-11-01T00:00:00\",\n      \"contractEndEffectiveDate\": \"2026-11-01T00:00:00\",\n      \"quotaToPayDueDate\": \"2026-11-01T00:00:00\",\n      \"idOperation\": \"\",\n      \"policyQuotas\": 0\n    },\n    \"surchargeDiscounts\": [\n      {\n        \"discountAmount\": 0,\n        \"discountRate\": 0,\n        \"discountCode\": 0\n      }\n    ],\n    \"policyPeriodEndEffectiveDate\": \"2026-11-01T00:00:00\",\n    \"policyPeriodStartEffectiveDate\": \"2026-11-01T00:00:00\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Crea, anula o denuncia de verdad en Sancor. Solo corre con permitir_destructivo = true.",
+                  "if (pm.collectionVariables.get('permitir_destructivo') !== 'true') {",
+                  "  console.warn('Salteado: poné permitir_destructivo = true para enviarlo')",
+                  "  pm.execution.skipRequest()",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.3 Denunciar siniestro de auto — Siniestros Automotores  [DESTRUCTIVO]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/claims/vehicle/data",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "claims",
+                "vehicle",
+                "data"
+              ]
+            },
+            "description": "CREA UNA DENUNCIA REAL. Causas en 4.4.\n\nSpec: `docs/sancor/specs/152-*.json` — Siniestros Automotores.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim\": {\n    \"certificateNumber\": 0,\n    \"claimReportedDate\": \"2026-11-01T00:00:00\",\n    \"claimOccurredDate\": \"2026-11-01T00:00:00\",\n    \"claimDescription\": \"\",\n    \"claimCauseCode\": \"\",\n    \"policeReport\": false,\n    \"claimObservations\": \"\",\n    \"hasWitness\": false,\n    \"address\": {\n      \"countryName\": \"\",\n      \"cityName\": \"\",\n      \"stateName\": \"\",\n      \"cityPostalCode\": 0,\n      \"cityCode\": \"\",\n      \"streetName\": \"\",\n      \"streetNumber\": \"\"\n    },\n    \"complainant\": {\n      \"firstName\": \"\",\n      \"lastName\": \"\",\n      \"relationCode\": \"\",\n      \"identificationTypes\": {\n        \"identificationTypeCode\": \"AR-89\",\n        \"identificationNumber\": \"\"\n      },\n      \"telephones\": [\n        {\n          \"areaTelephoneCode\": \"\",\n          \"countryTelephoneCode\": \"\",\n          \"telephoneNumber\": \"\",\n          \"telephoneTypeCode\": 0\n        }\n      ],\n      \"emails\": [\n        {\n          \"email\": \"\"\n        }\n      ]\n    },\n    \"witnesses\": [\n      {\n        \"firstName\": \"\",\n        \"lastName\": \"\",\n        \"comentary\": \"\",\n        \"identificationTypes\": {\n          \"identificationTypeCode\": \"AR-89\",\n          \"identificationTypeNumber\": \"\"\n        },\n        \"telephones\": [\n          {\n            \"areaTelephoneCode\": \"\",\n            \"countryTelephoneCode\": \"\",\n            \"telephoneNumber\": \"\",\n            \"telephoneTypeCode\": 0\n          }\n        ],\n        \"emails\": [\n          {\n            \"email\": \"\"\n          }\n        ]\n      }\n    ],\n    \"vehicleIncidents\": [\n      {\n        \"damagedTypeCode\": \"\",\n        \"vehicleSituationCode\": \"\",\n        \"firstImpactPointCode\": 0,\n        \"hasDamage\": false,\n        \"damageDescription\": \"\",\n        \"totalLoss\": false,\n        \"theftFittedWheels\": false,\n        \"theftFittedWheelsNumber\": 0,\n        \"theftSparetire\": false,\n        \"hasOtherTheft\": false,\n        \"appearanceDate\": \"2026-11-01T00:00:00\",\n        \"hasDamagedLocks\": false,\n        \"hasDamagedGlass\": false,\n        \"hasOtherDamage\": false,\n        \"otherDamageDescription\": \"\",\n        \"damagedGlass\": {\n          \"hasDamagedBackGlass\": false,\n          \"hasDamagedLeftBackDoor\": false,\n          \"hasDamagedLeftFrontDoor\": false,\n          \"hasDamagedRightBackDoor\": false,\n          \"hasDamagedRightFrontDoor\": false,\n          \"hasDamagedRoof\": false,\n          \"hasDamagedWindshield\": false\n        },\n        \"vehicle\": {\n          \"licensePlate\": \"\",\n          \"engineNumber\": \"\",\n          \"chasisNumber\": \"\",\n          \"brand\": \"\",\n          \"model\": \"\",\n          \"manufacturingYear\": 0,\n          \"vehicleTypeCode\": \"\",\n          \"insurance\": {\n            \"insuranceCompanyCode\": 0\n          }\n        },\n        \"driver\": {\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"insuredRelationCode\": 0,\n          \"identificationTypes\": {\n            \"identificationTypeCode\": \"AR-89\",\n            \"identificationTypeNumber\": \"\"\n          },\n          \"telephones\": [\n            {\n              \"areaTelephoneCode\": \"\",\n              \"countryTelephoneCode\": \"\",\n              \"telephoneNumber\": \"\",\n              \"telephoneTypeCode\": 0\n            }\n          ],\n          \"emails\": [\n            {\n              \"email\": \"\"\n            }\n          ]\n        },\n        \"passengers\": [\n          {\n            \"firstName\": \"\",\n            \"lastName\": \"\",\n            \"insuredRelationCode\": 0,\n            \"identificationTypes\": {\n              \"identificationTypeCode\": \"AR-89\",\n              \"passengerIdentificationTypeNumber\": \"\"\n            },\n            \"telephones\": [\n              {\n                \"areaTelephoneCode\": \"\",\n                \"countryTelephoneCode\": \"\",\n                \"telephoneNumber\": \"\",\n                \"telephoneTypeCode\": 0\n              }\n            ],\n            \"emails\": [\n              {\n                \"email\": \"\"\n              }\n            ]\n          }\n        ],\n        \"incidentOwner\": {\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"registeredName\": 0,\n          \"identificationTypes\": {\n            \"identificationTypeCode\": \"AR-89\",\n            \"identificationNumber\": \"\"\n          },\n          \"telephones\": [\n            {\n              \"areaTelephoneCode\": \"\",\n              \"countryTelephoneCode\": \"\",\n              \"telephoneNumber\": \"\",\n              \"telephoneTypeCode\": 0\n            }\n          ],\n          \"emails\": [\n            {\n              \"email\": \"\"\n            }\n          ]\n        }\n      }\n    ],\n    \"propertyIncidents\": [\n      {\n        \"damageDescription\": \"\",\n        \"damagedObjectTypeCode\": \"1\\t\",\n        \"incidentOwner\": {\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"registeredName\": \"\",\n          \"identificationTypes\": {\n            \"identificationTypeCode\": \"AR-89\",\n            \"identificationTypeNumber\": \"\"\n          },\n          \"telephones\": [\n            {\n              \"areaTelephoneCode\": \"\",\n              \"countryTelephoneCode\": \"\",\n              \"telephoneNumber\": \"\",\n              \"telephoneTypeCode\": 0\n            }\n          ],\n          \"emails\": [\n            {\n              \"email\": \"\"\n            }\n          ]\n        }\n      }\n    ],\n    \"peopleIncidents\": [\n      {\n        \"damagedTypeCode\": \"1\",\n        \"severityCode\": 1,\n        \"damageDescription\": \"\",\n        \"ambulanceUsed\": false,\n        \"isReferredToHospital\": false,\n        \"hospital\": \"\",\n        \"isOccupationalAccident\": false,\n        \"injured\": {\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"identificationTypes\": {\n            \"identificationTypeCode\": \"AR-89\",\n            \"identificationTypeNumber\": \"\"\n          },\n          \"telephones\": [\n            {\n              \"areaTelephoneCode\": \"\",\n              \"countryTelephoneCode\": \"\",\n              \"telephoneNumber\": \"\",\n              \"telephoneTypeCode\": 0\n            }\n          ],\n          \"emails\": [\n            {\n              \"email\": \"\"\n            }\n          ]\n        }\n      }\n    ],\n    \"policy\": {\n      \"referenceNumber\": \"\",\n      \"officialNumber\": \"\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Crea, anula o denuncia de verdad en Sancor. Solo corre con permitir_destructivo = true.",
+                  "if (pm.collectionVariables.get('permitir_destructivo') !== 'true') {",
+                  "  console.warn('Salteado: poné permitir_destructivo = true para enviarlo')",
+                  "  pm.execution.skipRequest()",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.4 Denunciar siniestro de moto — Siniestros Motovehículos  [DESTRUCTIVO]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/claims/motorcycle/data",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "claims",
+                "motorcycle",
+                "data"
+              ]
+            },
+            "description": "CREA UNA DENUNCIA REAL. Causas en 4.5.\n\nSpec: `docs/sancor/specs/160-*.json` — Siniestros Motovehículos.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"claim\": {\n    \"certificateNumber\": 0,\n    \"claimReportedDate\": \"2026-11-01T00:00:00\",\n    \"claimOccurredDate\": \"2026-11-01T00:00:00\",\n    \"claimDescription\": \"\",\n    \"claimCauseCode\": \"\",\n    \"policeReport\": false,\n    \"claimObservations\": \"\",\n    \"hasWitness\": false,\n    \"address\": {\n      \"countryName\": \"\",\n      \"cityName\": \"\",\n      \"stateName\": \"\",\n      \"cityPostalCode\": 0,\n      \"cityCode\": \"\",\n      \"streetName\": \"\",\n      \"streetNumber\": \"\"\n    },\n    \"complainant\": {\n      \"firstName\": \"\",\n      \"lastName\": \"\",\n      \"relationCode\": \"\",\n      \"identificationTypes\": {\n        \"identificationTypeCode\": \"AR-89\",\n        \"identificationNumber\": \"\"\n      },\n      \"telephones\": [\n        {\n          \"areaTelephoneCode\": \"\",\n          \"countryTelephoneCode\": \"\",\n          \"telephoneNumber\": \"\",\n          \"telephoneTypeCode\": 0\n        }\n      ],\n      \"emails\": [\n        {\n          \"email\": \"\"\n        }\n      ]\n    },\n    \"witnesses\": [\n      {\n        \"firstName\": \"\",\n        \"lastName\": \"\",\n        \"comentary\": \"\",\n        \"identificationTypes\": {\n          \"identificationTypeCode\": \"AR-89\",\n          \"identificationTypeNumber\": \"\"\n        },\n        \"telephones\": [\n          {\n            \"areaTelephoneCode\": \"\",\n            \"countryTelephoneCode\": \"\",\n            \"telephoneNumber\": \"\",\n            \"telephoneTypeCode\": 0\n          }\n        ],\n        \"emails\": [\n          {\n            \"email\": \"\"\n          }\n        ]\n      }\n    ],\n    \"vehicleIncidents\": [\n      {\n        \"damagedTypeCode\": \"\",\n        \"vehicleSituationCode\": \"\",\n        \"firstImpactPointCode\": 0,\n        \"hasDamage\": false,\n        \"damageDescription\": \"\",\n        \"totalLoss\": false,\n        \"theftFittedWheels\": false,\n        \"theftFittedWheelsNumber\": 0,\n        \"theftSparetire\": false,\n        \"hasOtherTheft\": false,\n        \"appearanceDate\": \"2026-11-01T00:00:00\",\n        \"hasDamagedLocks\": false,\n        \"hasDamagedGlass\": false,\n        \"hasOtherDamage\": false,\n        \"otherDamageDescription\": \"\",\n        \"damagedGlass\": {\n          \"hasDamagedBackGlass\": false,\n          \"hasDamagedLeftBackDoor\": false,\n          \"hasDamagedLeftFrontDoor\": false,\n          \"hasDamagedRightBackDoor\": false,\n          \"hasDamagedRightFrontDoor\": false,\n          \"hasDamagedRoof\": false,\n          \"hasDamagedWindshield\": false\n        },\n        \"vehicle\": {\n          \"licensePlate\": \"\",\n          \"engineNumber\": \"\",\n          \"chasisNumber\": \"\",\n          \"brand\": \"\",\n          \"model\": \"\",\n          \"manufacturingYear\": 0,\n          \"vehicleTypeCode\": \"\",\n          \"insurance\": {\n            \"insuranceCompanyCode\": 0\n          }\n        },\n        \"driver\": {\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"insuredRelationCode\": 0,\n          \"identificationTypes\": {\n            \"identificationTypeCode\": \"AR-89\",\n            \"identificationTypeNumber\": \"\"\n          },\n          \"telephones\": [\n            {\n              \"areaTelephoneCode\": \"\",\n              \"countryTelephoneCode\": \"\",\n              \"telephoneNumber\": \"\",\n              \"telephoneTypeCode\": 0\n            }\n          ],\n          \"emails\": [\n            {\n              \"email\": \"\"\n            }\n          ]\n        },\n        \"passengers\": [\n          {\n            \"firstName\": \"\",\n            \"lastName\": \"\",\n            \"insuredRelationCode\": 0,\n            \"identificationTypes\": {\n              \"identificationTypeCode\": \"AR-89\",\n              \"passengerIdentificationTypeNumber\": \"\"\n            },\n            \"telephones\": [\n              {\n                \"areaTelephoneCode\": \"\",\n                \"countryTelephoneCode\": \"\",\n                \"telephoneNumber\": \"\",\n                \"telephoneTypeCode\": 0\n              }\n            ],\n            \"emails\": [\n              {\n                \"email\": \"\"\n              }\n            ]\n          }\n        ],\n        \"incidentOwner\": {\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"registeredName\": 0,\n          \"identificationTypes\": {\n            \"identificationTypeCode\": \"AR-89\",\n            \"identificationNumber\": \"\"\n          },\n          \"telephones\": [\n            {\n              \"areaTelephoneCode\": \"\",\n              \"countryTelephoneCode\": \"\",\n              \"telephoneNumber\": \"\",\n              \"telephoneTypeCode\": 0\n            }\n          ],\n          \"emails\": [\n            {\n              \"email\": \"\"\n            }\n          ]\n        }\n      }\n    ],\n    \"propertyIncidents\": [\n      {\n        \"damageDescription\": \"\",\n        \"damagedObjectTypeCode\": \"1\\t\",\n        \"incidentOwner\": {\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"registeredName\": \"\",\n          \"identificationTypes\": {\n            \"identificationTypeCode\": \"AR-89\",\n            \"identificationTypeNumber\": \"\"\n          },\n          \"telephones\": [\n            {\n              \"areaTelephoneCode\": \"\",\n              \"countryTelephoneCode\": \"\",\n              \"telephoneNumber\": \"\",\n              \"telephoneTypeCode\": 0\n            }\n          ],\n          \"emails\": [\n            {\n              \"email\": \"\"\n            }\n          ]\n        }\n      }\n    ],\n    \"peopleIncidents\": [\n      {\n        \"damagedTypeCode\": \"1\",\n        \"severityCode\": 1,\n        \"damageDescription\": \"\",\n        \"ambulanceUsed\": false,\n        \"isReferredToHospital\": false,\n        \"hospital\": \"\",\n        \"isOccupationalAccident\": false,\n        \"injured\": {\n          \"firstName\": \"\",\n          \"lastName\": \"\",\n          \"identificationTypes\": {\n            \"identificationTypeCode\": \"AR-89\",\n            \"identificationTypeNumber\": \"\"\n          },\n          \"telephones\": [\n            {\n              \"areaTelephoneCode\": \"\",\n              \"countryTelephoneCode\": \"\",\n              \"telephoneNumber\": \"\",\n              \"telephoneTypeCode\": 0\n            }\n          ],\n          \"emails\": [\n            {\n              \"email\": \"\"\n            }\n          ]\n        }\n      }\n    ],\n    \"policy\": {\n      \"referenceNumber\": \"\",\n      \"officialNumber\": \"\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Crea, anula o denuncia de verdad en Sancor. Solo corre con permitir_destructivo = true.",
+                  "if (pm.collectionVariables.get('permitir_destructivo') !== 'true') {",
+                  "  console.warn('Salteado: poné permitir_destructivo = true para enviarlo')",
+                  "  pm.execution.skipRequest()",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5.5 Anular póliza — Anulación de Póliza  [DESTRUCTIVO]",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "gss_apiclient_id",
+                "value": "{{sancor_client_id}}"
+              },
+              {
+                "key": "X-IBM-Client-Id",
+                "value": "{{sancor_client_id}}"
+              }
+            ],
+            "url": {
+              "raw": "{{sancor_base_url}}/policies/annulment/certificate?branchCode={{branch_code}}&officialNumber={{official_number}}&certificateNumber={{certificate_number}}&cancelationCauseId=4",
+              "host": [
+                "{{sancor_base_url}}"
+              ],
+              "path": [
+                "policies",
+                "annulment",
+                "certificate"
+              ],
+              "query": [
+                {
+                  "key": "branchCode",
+                  "value": "{{branch_code}}"
+                },
+                {
+                  "key": "officialNumber",
+                  "value": "{{official_number}}"
+                },
+                {
+                  "key": "certificateNumber",
+                  "value": "{{certificate_number}}"
+                },
+                {
+                  "key": "cancelationCauseId",
+                  "value": "4"
+                }
+              ]
+            },
+            "description": "ANULA DE VERDAD. cancelationCauseId 4 = decisión del tomador/asegurado.\n\nSpec: `docs/sancor/specs/151-*.json` — Anulación de Poliza."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Crea, anula o denuncia de verdad en Sancor. Solo corre con permitir_destructivo = true.",
+                  "if (pm.collectionVariables.get('permitir_destructivo') !== 'true') {",
+                  "  console.warn('Salteado: poné permitir_destructivo = true para enviarlo')",
+                  "  pm.execution.skipRequest()",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "sancor_base_url",
+      "value": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+      "description": "Preproducción. Producción: a confirmar."
+    },
+    {
+      "key": "sancor_client_id",
+      "value": "",
+      "description": "Clave de la aplicación del Developer Portal."
+    },
+    {
+      "key": "sancor_username",
+      "value": "",
+      "description": "Usuario del intermediario (lo da Sancor)."
+    },
+    {
+      "key": "sancor_password",
+      "value": "",
+      "description": "Contraseña del intermediario."
+    },
+    {
+      "key": "sancor_app_client",
+      "value": "",
+      "description": "Nombre de la aplicación (app_client), opcional."
+    },
+    {
+      "key": "sancor_access_token",
+      "value": "",
+      "description": "Lo completa la colección."
+    },
+    {
+      "key": "sancor_token_expires_at",
+      "value": "",
+      "description": "Lo completa la colección (ms)."
+    },
+    {
+      "key": "producer_code",
+      "value": "",
+      "description": "Código de productor en Sancor."
+    },
+    {
+      "key": "organizer_code",
+      "value": "",
+      "description": "Código de organizador en Sancor."
+    },
+    {
+      "key": "dni",
+      "value": "",
+      "description": "Ficticio o de la cuenta de pruebas: nunca de un cliente real en la colección compartida."
+    },
+    {
+      "key": "cuit",
+      "value": ""
+    },
+    {
+      "key": "patente",
+      "value": ""
+    },
+    {
+      "key": "official_number",
+      "value": ""
+    },
+    {
+      "key": "reference_number",
+      "value": ""
+    },
+    {
+      "key": "certificate_number",
+      "value": ""
+    },
+    {
+      "key": "branch_code",
+      "value": "",
+      "description": "Ramo (a confirmar el de autos y motos)."
+    },
+    {
+      "key": "report_name",
+      "value": "Mercosur"
+    },
+    {
+      "key": "claim_number",
+      "value": ""
+    },
+    {
+      "key": "fecha_desde",
+      "value": "2026-10-01",
+      "description": "YYYY-MM-DD, máx. 1 mes atrás."
+    },
+    {
+      "key": "codia",
+      "value": "",
+      "description": "CODIA de InfoAuto / InfoMoto."
+    },
+    {
+      "key": "anio",
+      "value": "2020"
+    },
+    {
+      "key": "valor",
+      "value": "0"
+    },
+    {
+      "key": "cp",
+      "value": "2000"
+    },
+    {
+      "key": "country_code",
+      "value": "",
+      "description": "A confirmar."
+    },
+    {
+      "key": "product_code",
+      "value": "24",
+      "description": "Ejemplo de la spec, a confirmar."
+    },
+    {
+      "key": "vigencia_desde",
+      "value": "2026-11-01T00:00:00"
+    },
+    {
+      "key": "permitir_destructivo",
+      "value": "false",
+      "description": "true habilita la carpeta 5 (emite, denuncia o anula de verdad)."
+    }
+  ]
+}

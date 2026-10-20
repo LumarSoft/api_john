@@ -1,0 +1,200 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Consulta de Cartera de Polizas",
+    "version": "1.0.0",
+    "description": "Servicio para consulta de pólizas de intermediario/cliente.",
+    "x-ibm-name": "policies-id",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/policies": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "$ref": "#/definitions/policiesIdsResponse"
+            }
+          },
+          "400": {
+            "description": "Las combinaciones de busqueda no son compatibles.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "415": {
+            "description": "Faltan valores de entrada obligatorios",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "422": {
+            "description": "Parámetros de entrada con valores incorrectos",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "name": "Authorization",
+          "in": "header",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "name": "referenceNumber",
+          "in": "query",
+          "type": "integer",
+          "description": "Nro de referencia"
+        },
+        {
+          "name": "identificationNumber",
+          "in": "query",
+          "type": "integer",
+          "description": "Numero de identificacion del cliente"
+        },
+        {
+          "name": "officialNumber",
+          "in": "query",
+          "type": "integer",
+          "description": "Nro oficial de poliza"
+        },
+        {
+          "name": "licensePlate",
+          "in": "query",
+          "type": "string",
+          "description": "Patente"
+        },
+        {
+          "name": "branchCode",
+          "in": "query",
+          "type": "integer",
+          "description": "Ramo"
+        },
+        {
+          "name": "isVigent",
+          "in": "query",
+          "type": "boolean",
+          "description": "Indicador de vigencia"
+        },
+        {
+          "name": "cuit",
+          "in": "query",
+          "type": "integer",
+          "description": "Numero de cuit del cliente"
+        }
+      ]
+    }
+  },
+  "basePath": "/apissa/pre-catalog",
+  "definitions": {
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "policiesIdsResponse": {
+      "type": "object",
+      "properties": {
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "referenceNumber": {
+                "type": "string"
+              },
+              "certificateNumber": {
+                "type": "string"
+              },
+              "certificateId": {
+                "type": "string"
+              },
+              "branchCode": {
+                "type": "string"
+              },
+              "branchName": {
+                "type": "string"
+              },
+              "policyTypeName": {
+                "type": "string"
+              },
+              "isVigent": {
+                "type": "string"
+              },
+              "policyGroupTypeCode": {
+                "type": "string"
+              },
+              "policyGroupTypeName": {
+                "type": "string"
+              },
+              "startDate": {
+                "type": "string"
+              },
+              "endDate": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "securityDefinitions": {
+    "clientId": {
+      "type": "apiKey",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id",
+      "in": "header"
+    }
+  },
+  "security": [
+    {
+      "clientId": []
+    }
+  ]
+}

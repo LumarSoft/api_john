@@ -1,0 +1,109 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "TokenGenerator-V2",
+    "x-ibm-name": "tokengenerator-v2",
+    "version": "1.0.0",
+    "description": "Servicio para generación de token de Auth0 con las respectivas credenciales y repositorio.",
+    "x-ibm-summary": ""
+  },
+  "schemes": [
+    "https"
+  ],
+  "basePath": "/apissa/pre-catalog",
+  "security": [
+    {
+      "client_id": []
+    }
+  ],
+  "securityDefinitions": {
+    "client_id": {
+      "type": "apiKey",
+      "name": "gss_apiclient_id",
+      "in": "header",
+      "x-key-type": "client_id"
+    }
+  },
+  "definitions": {
+    "TokenGenerateResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "access_token": {
+          "type": "string",
+          "description": "Acces token",
+          "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        },
+        "id_token": {
+          "type": "string",
+          "description": "ID Token, contiene los claims del usuario",
+          "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+        },
+        "scope": {
+          "type": "string",
+          "description": "scope de los token creados",
+          "example": "openid"
+        },
+        "expires_in": {
+          "type": "integer",
+          "description": "Tiempo de expiración",
+          "example": "3600"
+        },
+        "token_type": {
+          "description": "Tipo de token",
+          "example": "Bearer "
+        }
+      }
+    },
+    "TokenGenerateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "Nombre de usuario",
+          "example": "usuario"
+        },
+        "password": {
+          "type": "string",
+          "example": "password",
+          "description": "Contraseña del usuario"
+        },
+        "app_client": {
+          "type": "string",
+          "description": "Nombre aplicación",
+          "example": "Ceibo"
+        }
+      }
+    }
+  },
+  "paths": {
+    "/v2/security/auth0/token": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "$ref": "#/definitions/TokenGenerateResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "description": "Request Body",
+            "schema": {
+              "$ref": "#/definitions/TokenGenerateRequest"
+            }
+          }
+        ],
+        "consumes": [],
+        "produces": []
+      },
+      "parameters": []
+    }
+  },
+  "host": "external-pre-api.gruposancorseguros.com"
+}

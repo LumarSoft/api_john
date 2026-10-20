@@ -1,0 +1,1985 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Adhesion a Despacho Digital",
+    "version": "1.0.0",
+    "description": "Servicio para adherir a Despacho digital",
+    "x-ibm-name": "adhesion-a-despacho-digital",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/registers/office": {
+      "post": {
+        "operationId": "POSTIssuanceOffice",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "emisión para poder registrar el despacho",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/issuanceOfficeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "401": {
+            "description": "Authorization",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "403": {
+            "description": "Authentication",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/issuanceOfficeRequest"
+            },
+            "description": "The request body for the operation",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true
+          }
+        ]
+      },
+      "parameters": []
+    }
+  },
+  "basePath": "/apissa/pre-catalog/policies",
+  "definitions": {
+    "branchDataCollection": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "motorcycleType": {
+          "type": "object",
+          "properties": {
+            "policyAutomaticAdjustment": {
+              "type": "number",
+              "format": "decimal"
+            },
+            "motorcycle": {
+              "type": "object",
+              "properties": {
+                "chassisNumber": {
+                  "type": "string"
+                },
+                "licensePlate": {
+                  "type": "string"
+                },
+                "engineNumber": {
+                  "type": "string"
+                },
+                "modelCode": {
+                  "type": "integer"
+                },
+                "vehicleUseType": {
+                  "type": "integer"
+                },
+                "suggestedValue": {
+                  "type": "number",
+                  "format": "decimal"
+                },
+                "year": {
+                  "type": "integer"
+                },
+                "zeroKM": {
+                  "type": "boolean"
+                },
+                "discountCode": {
+                  "type": "number",
+                  "format": "decimal"
+                }
+              },
+              "required": [
+                "chassisNumber",
+                "licensePlate",
+                "engineNumber",
+                "year",
+                "vehicleUseType",
+                "modelCode"
+              ]
+            }
+          }
+        },
+        "automotiveType": {
+          "type": "object",
+          "properties": {
+            "policyAutomaticAdjustment": {
+              "type": "number",
+              "format": "decimal"
+            },
+            "fuelType": {
+              "type": "integer"
+            },
+            "discountCode": {
+              "type": "number",
+              "format": "decimal"
+            },
+            "scoringInformation": {
+              "type": "object",
+              "properties": {
+                "fuelTypeName": {
+                  "type": "integer"
+                },
+                "courtesyCar15": {
+                  "type": "boolean"
+                },
+                "courtesyCar30": {
+                  "type": "boolean"
+                },
+                "driversBetween2570": {
+                  "type": "boolean"
+                },
+                "driversUnder25": {
+                  "type": "boolean"
+                },
+                "anualKM": {
+                  "type": "boolean"
+                },
+                "garageParking": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "vehicle": {
+              "type": "object",
+              "properties": {
+                "chasisNumber": {
+                  "type": "string"
+                },
+                "gncEquipment": {
+                  "type": "object",
+                  "properties": {
+                    "componentBrandCylinderOne": {
+                      "type": "string"
+                    },
+                    "componentBrandCylindeTwo": {
+                      "type": "string"
+                    },
+                    "componentBrandCylindeThree": {
+                      "type": "string"
+                    },
+                    "componentBrandCylindeFour": {
+                      "type": "string"
+                    },
+                    "componentNumberCylindeOne": {
+                      "type": "string"
+                    },
+                    "componentNumberCylindeTwo": {
+                      "type": "string"
+                    },
+                    "componentNumberCylindeThree": {
+                      "type": "string"
+                    },
+                    "componentNumberCylindeFour": {
+                      "type": "string"
+                    },
+                    "accesoryInsuredSum": {
+                      "type": "string"
+                    },
+                    "componentBrandRegulator": {
+                      "type": "string"
+                    },
+                    "componentNumberRegulator": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "licensePlate": {
+                  "type": "string"
+                },
+                "engineNumber": {
+                  "type": "string"
+                },
+                "vehicleTrackingEquipment": {
+                  "type": "boolean"
+                },
+                "previousInspection": {
+                  "type": "object",
+                  "properties": {
+                    "priorInspectionDescription": {
+                      "type": "string"
+                    },
+                    "filesAttachment": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "file": {
+                            "type": "string"
+                          },
+                          "filename": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "fuelTypeCode": {
+                      "type": "integer"
+                    },
+                    "priorInspectionCode": {
+                      "type": "integer"
+                    },
+                    "priorInspectionCrystals": {
+                      "type": "string"
+                    },
+                    "priorInspectionDate": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "priorInspectioResultCode": {
+                      "type": "integer"
+                    },
+                    "anualKM": {
+                      "type": "number",
+                      "format": "decimal"
+                    },
+                    "paintAspectCode": {
+                      "type": "integer"
+                    },
+                    "paintTypeCode": {
+                      "type": "integer"
+                    },
+                    "sheetMetalAspectCode": {
+                      "type": "integer"
+                    },
+                    "tiresAspectCode": {
+                      "type": "integer"
+                    },
+                    "upholsteryAspectCode": {
+                      "type": "integer"
+                    },
+                    "upholsteryTypeCode": {
+                      "type": "integer"
+                    },
+                    "vehicleColour": {
+                      "type": "string"
+                    },
+                    "wheelTypeCode": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "modelCode": {
+                  "type": "string"
+                },
+                "vehicleUseType": {
+                  "type": "integer"
+                },
+                "suggestedValue": {
+                  "type": "number",
+                  "format": "decimal"
+                },
+                "year": {
+                  "type": "integer"
+                },
+                "zeroKM": {
+                  "type": "boolean"
+                },
+                "discountAccidentRate": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "licensePlate",
+                "engineNumber",
+                "modelCode",
+                "vehicleUseType",
+                "suggestedValue",
+                "year",
+                "chasisNumber"
+              ]
+            }
+          }
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "debitDataCollection": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "creditCardDebitType": {
+          "type": "object",
+          "properties": {
+            "crediCardToValidityDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "creditCardBrand": {
+              "type": "integer"
+            },
+            "cardNumber": {
+              "type": "string"
+            }
+          }
+        },
+        "bankDebitType": {
+          "type": "object",
+          "properties": {
+            "policyHolderName": {
+              "type": "string"
+            },
+            "accountNumber": {
+              "type": "string"
+            },
+            "bankAccountType": {
+              "type": "integer"
+            },
+            "bankAgencyCode": {
+              "type": "integer"
+            },
+            "bankCode": {
+              "type": "integer"
+            }
+          }
+        },
+        "cbuDebitType": {
+          "type": "object",
+          "properties": {
+            "bankAgencyCode": {
+              "type": "integer"
+            },
+            "bankCode": {
+              "type": "integer"
+            },
+            "bankIdentificationCode": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    "singlePolicy": {
+      "type": "object",
+      "properties": {
+        "orgProducerCode": {
+          "type": "integer"
+        },
+        "prodProducerCode": {
+          "type": "integer"
+        },
+        "productCode": {
+          "type": "integer"
+        },
+        "policyRenewalType": {
+          "type": "integer"
+        },
+        "statisticalGroupCode": {
+          "type": "integer"
+        },
+        "currencyCode": {
+          "type": "integer"
+        },
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "coveragesInformation": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "coveragePremiumAmount": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "coverageName": {
+                    "type": "string"
+                  },
+                  "coverageDescription": {
+                    "type": "string"
+                  },
+                  "coverageCode": {
+                    "type": "integer"
+                  },
+                  "isObligatorySelection": {
+                    "type": "boolean"
+                  },
+                  "isSelected": {
+                    "type": "boolean"
+                  },
+                  "optionName": {
+                    "type": "string"
+                  },
+                  "optionCode": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "coverageCode"
+                ]
+              }
+            },
+            "basicInsuredCapitalItems": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "capitalId": {
+                    "type": "integer"
+                  },
+                  "capitalAmount": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "isSelected": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "personRoleCode": {
+              "type": "integer"
+            },
+            "clients": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "personRoleCode": {
+                    "type": "integer"
+                  },
+                  "value": {
+                    "type": "object",
+                    "properties": {
+                      "stateCode": {
+                        "type": "integer"
+                      },
+                      "birthDate": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "birthCity": {
+                        "type": "string"
+                      },
+                      "cityCode": {
+                        "type": "integer"
+                      },
+                      "bupId": {
+                        "type": "string"
+                      },
+                      "identificationTypeName": {
+                        "type": "string"
+                      },
+                      "identificationType": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      },
+                      "firstName": {
+                        "type": "string"
+                      },
+                      "gender": {
+                        "type": "integer"
+                      },
+                      "conditionCode": {
+                        "type": "integer"
+                      },
+                      "lastName": {
+                        "type": "string"
+                      },
+                      "ciiuCode": {
+                        "type": "integer"
+                      },
+                      "maritalStatus": {
+                        "type": "integer"
+                      },
+                      "telephoneNumber": {
+                        "type": "string"
+                      },
+                      "taxCategoryCode": {
+                        "type": "integer"
+                      },
+                      "streetName": {
+                        "type": "string"
+                      },
+                      "cityPostalCode": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "identificationTypeName",
+                      "identificationType",
+                      "conditionCode",
+                      "cityPostalCode",
+                      "telephoneNumber",
+                      "stateCode"
+                    ]
+                  }
+                },
+                "required": [
+                  "personRoleCode"
+                ]
+              }
+            },
+            "observations": {
+              "type": "string"
+            },
+            "offeringCode": {
+              "type": "integer"
+            },
+            "covers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "coverageInsuredSum": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "coverageCode": {
+                    "type": "integer"
+                  },
+                  "discountPercentage": {
+                    "type": "integer"
+                  },
+                  "discountType": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "coverageCode"
+                ]
+              }
+            },
+            "paymentMethodCode": {
+              "type": "integer"
+            },
+            "electronicDispatchInformation": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "policyPeriodElectronicSend": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "insuredBasicCapitals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "basicInsuredCapitalCode": {
+                    "type": "integer"
+                  },
+                  "vehicleInsuredSum": {
+                    "type": "number",
+                    "format": "decimal"
+                  }
+                }
+              }
+            },
+            "insuredGoods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "coveredItemDescription": {
+                    "type": "string"
+                  },
+                  "coveredItem": {
+                    "type": "integer",
+                    "format": ""
+                  },
+                  "coveredItemInsuredSum": {
+                    "type": "number",
+                    "format": "decimal"
+                  }
+                }
+              }
+            },
+            "isEmission": {
+              "type": "boolean"
+            },
+            "paymentPeriodicity": {
+              "type": "integer"
+            },
+            "officialNumber": {
+              "type": "integer"
+            },
+            "policyQuotas": {
+              "type": "boolean"
+            },
+            "quotation": {
+              "type": "object",
+              "properties": {
+                "proposalNumber": {
+                  "type": "integer"
+                },
+                "pricingCode": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "proposalNumber"
+              ]
+            },
+            "riskAddress": {
+              "type": "object",
+              "properties": {
+                "cardinalPointsKM": {
+                  "type": "integer"
+                },
+                "city": {
+                  "type": "object",
+                  "properties": {
+                    "cityCode": {
+                      "type": "integer"
+                    },
+                    "cityPostalCode": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "geographicalCoordinate": {
+                  "type": "integer"
+                },
+                "streetName": {
+                  "type": "string"
+                }
+              }
+            },
+            "specialOperative": {
+              "type": "object",
+              "properties": {
+                "bankCode": {
+                  "type": "integer"
+                },
+                "contractNumber": {
+                  "type": "string"
+                },
+                "contractStartEffectiveDate": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "contractEndEffectiveDate": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "quotaToPayDueDate": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "idOperation": {
+                  "type": "string"
+                },
+                "policyQuotas": {
+                  "type": "integer"
+                }
+              }
+            },
+            "surchargeDiscounts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "discountAmount": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "discountRate": {
+                    "type": "number",
+                    "format": "decimal"
+                  },
+                  "discountCode": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "policyPeriodEndEffectiveDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "policyPeriodStartEffectiveDate": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "offeringCode",
+            "paymentPeriodicity",
+            "policyPeriodStartEffectiveDate"
+          ]
+        }
+      },
+      "required": [
+        "orgProducerCode",
+        "prodProducerCode",
+        "productCode",
+        "policyRenewalType",
+        "statisticalGroupCode"
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "branchOfficeNumber": {
+          "type": "integer"
+        },
+        "certificateNumber": {
+          "type": "integer"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "errorMessage": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "managementNumber": {
+          "type": "string"
+        },
+        "managementStatusName": {
+          "type": "string"
+        },
+        "officialNumber": {
+          "type": "integer"
+        },
+        "receipt": {
+          "type": "object",
+          "properties": {
+            "detail": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "receiptDescription": {
+                    "type": "string"
+                  },
+                  "issueTransactionPremium": {
+                    "type": "integer",
+                    "format": "decimal"
+                  },
+                  "quotaAmount": {
+                    "type": "integer",
+                    "format": "decimal"
+                  }
+                }
+              }
+            },
+            "receiptNumber": {
+              "type": "integer"
+            }
+          }
+        },
+        "referenceNumber": {
+          "type": "integer"
+        }
+      }
+    },
+    "singlePolicyResponse": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "$ref": "#/definitions/policy"
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "message": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "singlePolicyRequest": {
+      "type": "object",
+      "properties": {
+        "singlePolicy": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/singlePolicy"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "branchData": {
+                  "$ref": "#/definitions/branchDataCollection"
+                },
+                "debitData": {
+                  "$ref": "#/definitions/debitDataCollection"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "policyCancellation": {
+      "type": "object",
+      "properties": {
+        "origenCode": {
+          "type": "integer"
+        },
+        "aplicationCode": {
+          "type": "integer"
+        },
+        "bupId": {
+          "type": "integer"
+        },
+        "branchCode": {
+          "type": "integer"
+        },
+        "productCode": {
+          "type": "integer"
+        },
+        "referenceNumber": {
+          "type": "integer"
+        },
+        "areaTelephoneCode": {
+          "type": "integer"
+        },
+        "listMotive": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "motive": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "motive": {
+          "type": "string"
+        },
+        "dateSendingRequest": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "policyCancellationResponse": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/data"
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "$ref": "#/definitions/Message"
+        }
+      }
+    },
+    "electronicdispatchmethods": {
+      "type": "object",
+      "properties": {
+        "methods": {
+          "type": "object",
+          "properties": {
+            "bWhatsapp": {
+              "type": "boolean"
+            },
+            "bEmail": {
+              "type": "boolean"
+            },
+            "bSMS": {
+              "type": "boolean"
+            },
+            "bRepositorio": {
+              "type": "boolean"
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "electronicdispatchsubmitted": {
+      "type": "object",
+      "properties": {
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "branchCode": {
+                "type": "integer"
+              },
+              "productCode": {
+                "type": "integer"
+              },
+              "referenceNumber": {
+                "type": "integer"
+              },
+              "certificateNumber": {
+                "type": "integer"
+              },
+              "movementTypesCode": {
+                "type": "integer"
+              },
+              "movementTypesName": {
+                "type": "string"
+              },
+              "effectDate": {
+                "type": "string"
+              },
+              "printDate": {
+                "type": "string"
+              },
+              "sendTypeDescription": {
+                "type": "string"
+              },
+              "destination": {
+                "type": "string"
+              },
+              "sendDate": {
+                "type": "string"
+              },
+              "receiptDate": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "agrupationID": {
+                "type": "integer"
+              },
+              "agrupationIDW": {
+                "type": "integer"
+              },
+              "agrupationIDS": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "postelectronicdispatchdestinations": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "integer"
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "postelectronicdispatchdigitalshipments": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "integer"
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "electronicdispatchdocshipments": {
+      "type": "object",
+      "properties": {
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "documentId": {
+                "type": "integer"
+              },
+              "documentName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "electronicdispatchdocslink": {
+      "type": "object",
+      "properties": {
+        "URL": {
+          "type": "string"
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "clientspolicies": {
+      "type": "object",
+      "properties": {
+        "destinations": {
+          "type": "object",
+          "properties": {
+            "product": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "companyName": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "commercialName": {
+                    "type": "string"
+                  },
+                  "price": {
+                    "type": "number"
+                  },
+                  "electronicPaymentCode": {
+                    "type": "string"
+                  },
+                  "dueDate": {
+                    "type": "string"
+                  },
+                  "hasBDSPaymentMethod": {
+                    "type": "string"
+                  },
+                  "identificationData": {
+                    "type": "string"
+                  },
+                  "systemOrigin": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "suggesteddestionation": {
+      "type": "object",
+      "properties": {
+        "destinations": {
+          "type": "object",
+          "properties": {
+            "emails": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "telephones": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "telephoneNumber": {
+                    "type": "integer"
+                  },
+                  "areaTelephoneCode": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "electronicdispatchdestination": {
+      "type": "object",
+      "properties": {
+        "destinations": {
+          "type": "object",
+          "properties": {
+            "emails": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "SMS": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "telephoneNumber": {
+                    "type": "integer"
+                  },
+                  "areaTelephoneCode": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "whatsapp": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "telephoneNumber": {
+                    "type": "integer"
+                  },
+                  "areaTelephoneCode": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "electronicdispatchdocuments": {
+      "type": "object",
+      "properties": {
+        "movements": {
+          "type": "object",
+          "properties": {
+            "branchCode": {
+              "type": "integer"
+            },
+            "productCode": {
+              "type": "integer"
+            },
+            "referenceNumber": {
+              "type": "integer"
+            },
+            "certificateNumber": {
+              "type": "integer"
+            },
+            "movementTypesCode": {
+              "type": "integer"
+            },
+            "movementTypesName": {
+              "type": "integer"
+            },
+            "effectDate": {
+              "type": "string"
+            },
+            "printDate": {
+              "type": "string"
+            },
+            "clientID": {
+              "type": "integer"
+            },
+            "registeredName": {
+              "type": "string"
+            },
+            "policyStartEffectiveDate": {
+              "type": "string"
+            },
+            "policyEndEffectiveDate": {
+              "type": "string"
+            },
+            "orgProducerCode": {
+              "type": "integer"
+            },
+            "orgProducerName": {
+              "type": "string"
+            },
+            "prodProducerCode": {
+              "type": "integer"
+            },
+            "prodProducerName": {
+              "type": "string"
+            },
+            "policyStatusName": {
+              "type": "string"
+            },
+            "branchName": {
+              "type": "string"
+            },
+            "productName": {
+              "type": "string"
+            },
+            "certificateId": {
+              "type": "integer"
+            },
+            "policyPeriodDispatchType": {
+              "type": "boolean"
+            },
+            "paymentMethodName": {
+              "type": "string"
+            },
+            "licensePlate": {
+              "type": "string"
+            },
+            "officialNumber": {
+              "type": "integer"
+            },
+            "policyType": {
+              "type": "string"
+            },
+            "policyRenewalType": {
+              "type": "string"
+            },
+            "socialNumber": {
+              "type": "string"
+            },
+            "bupID": {
+              "type": "integer"
+            },
+            "policyVigency": {
+              "type": "boolean"
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "policiesIdsRequest": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "object",
+          "properties": {
+            "producerCode": {
+              "type": "string"
+            },
+            "client": {
+              "type": "object",
+              "properties": {
+                "bupId": {
+                  "type": "string"
+                },
+                "firstName": {
+                  "type": "string"
+                },
+                "lastName": {
+                  "type": "string"
+                },
+                "registeredName": {
+                  "type": "string"
+                },
+                "identificationNumber": {
+                  "type": "string"
+                }
+              }
+            },
+            "referenceNumber": {
+              "type": "string"
+            },
+            "officialNumber": {
+              "type": "string"
+            },
+            "certificateNumber": {
+              "type": "integer"
+            },
+            "certificateId": {
+              "type": "integer"
+            },
+            "policyProposalNumber": {
+              "type": "string"
+            },
+            "isVigent": {
+              "type": "boolean"
+            },
+            "branchCode": {
+              "type": "string"
+            },
+            "productCode": {
+              "type": "string"
+            },
+            "isPolicyMatrix": {
+              "type": "boolean"
+            },
+            "startDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "endDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "policyPeriodDispatchType": {
+              "type": "boolean"
+            },
+            "claimOccurredDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "personRoleCode": {
+              "type": "string"
+            },
+            "validUntil": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "policyStatusCode": {
+              "type": "integer"
+            }
+          }
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "displayStatus": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "pOffset": {
+          "type": "integer"
+        },
+        "pLimit": {
+          "type": "integer"
+        }
+      }
+    },
+    "policiesIdsResponse": {
+      "type": "object",
+      "properties": {
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "coreId": {
+                "type": "integer"
+              },
+              "bupId": {
+                "type": "string"
+              },
+              "displayStatus": {
+                "type": "string"
+              },
+              "officialNumber": {
+                "type": "string"
+              },
+              "referenceNumber": {
+                "type": "string"
+              },
+              "certificateNumber": {
+                "type": "integer"
+              },
+              "certificateId": {
+                "type": "integer"
+              },
+              "branchCode": {
+                "type": "string"
+              },
+              "branchName": {
+                "type": "string"
+              },
+              "productCode": {
+                "type": "integer"
+              },
+              "productName": {
+                "type": "string"
+              },
+              "policyTypeCode": {
+                "type": "integer"
+              },
+              "policyTypeName": {
+                "type": "string"
+              },
+              "isVigent": {
+                "type": "boolean"
+              },
+              "policyGroupTypeCode": {
+                "type": "integer"
+              },
+              "policyGroupTypeName": {
+                "type": "string"
+              },
+              "stadisticalCode": {
+                "type": "string"
+              },
+              "stadisticalGroup": {
+                "type": "integer"
+              },
+              "stadisticalGroupName": {
+                "type": "string"
+              },
+              "startDate": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endDate": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "statusCode": {
+                "type": "string"
+              },
+              "statusName": {
+                "type": "string"
+              },
+              "policyStatusCode": {
+                "type": "string"
+              },
+              "retiredDate": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "vehicleData": {
+                "type": "object",
+                "properties": {
+                  "modelBrandName": {
+                    "type": "string"
+                  },
+                  "assistanceTypeCode": {
+                    "type": "string"
+                  },
+                  "assistanceTypeDescription": {
+                    "type": "string"
+                  }
+                }
+              },
+              "insuredIdentificationNumber": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "policiesIdsNoResponse": {
+      "type": "object",
+      "properties": {
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "issuanceOfficeRequest": {
+      "type": "object",
+      "properties": {
+        "issue": {
+          "type": "object",
+          "properties": {
+            "branchCode": {
+              "type": "integer"
+            },
+            "productCode": {
+              "type": "integer"
+            },
+            "referenceNumber": {
+              "type": "object"
+            },
+            "certificateNumber": {
+              "type": "integer"
+            },
+            "sms": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "codigoArea": {
+                    "type": "integer"
+                  },
+                  "nroTelefono": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "whatsApp": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "codigoArea": {
+                    "type": "integer"
+                  },
+                  "nroTelefono": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "emails": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "repositorio": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "certificateNumber"
+          ]
+        }
+      }
+    },
+    "issuanceOfficeResponse": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "integer"
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "$ref": "#/definitions/Message"
+        }
+      }
+    },
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "electronicDispatchIdsReq": {
+      "type": "object",
+      "properties": {
+        "electronicDispatch": {
+          "type": "object",
+          "properties": {
+            "bupId": {
+              "type": "integer"
+            },
+            "referenceNumber": {
+              "type": "integer"
+            },
+            "officialNumber": {
+              "type": "integer"
+            },
+            "certificateId": {
+              "type": "integer"
+            },
+            "branchCode": {
+              "type": "integer"
+            },
+            "productCode": {
+              "type": "integer"
+            },
+            "policyStartEffectiveDate": {
+              "type": "string"
+            },
+            "policyEndEffectiveDate": {
+              "type": "string"
+            },
+            "isElectronicPolicy": {
+              "type": "boolean"
+            },
+            "isVigent": {
+              "type": "boolean"
+            },
+            "canAdhere": {
+              "type": "boolean"
+            },
+            "isPolicyMatrix": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "electronicDispatchesRes": {
+      "type": "object",
+      "properties": {
+        "electronicDispatches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "branchCode": {
+                "type": "integer"
+              },
+              "branchName": {
+                "type": "string"
+              },
+              "productCode": {
+                "type": "integer"
+              },
+              "productName": {
+                "type": "string"
+              },
+              "referenceNumber": {
+                "type": "integer"
+              },
+              "certificateNumber": {
+                "type": "integer"
+              },
+              "certificateId": {
+                "type": "integer"
+              },
+              "combinedCertificateId": {
+                "type": "string"
+              },
+              "bupId": {
+                "type": "integer"
+              },
+              "referenceAlias": {
+                "type": "string"
+              },
+              "policyStartEffectiveDate": {
+                "type": "string"
+              },
+              "policyEndEffectiveDate": {
+                "type": "string"
+              },
+              "officialNumber": {
+                "type": "integer"
+              },
+              "canAdhere": {
+                "type": "boolean"
+              },
+              "policyType": {
+                "type": "string"
+              },
+              "isElectronicPolicy": {
+                "type": "boolean"
+              },
+              "mediaAvailable": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "boolean"
+                  },
+                  "whatsApp": {
+                    "type": "boolean"
+                  },
+                  "sms": {
+                    "type": "boolean"
+                  },
+                  "repositorio": {
+                    "type": "boolean"
+                  },
+                  "fisico": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "electronicDispatchesEmpty": {
+      "type": "object",
+      "properties": {
+        "electronicDispatches": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "PUT_RenewalsPolicy_response": {
+      "type": "object",
+      "properties": {
+        "renewal": {
+          "type": "object",
+          "properties": {
+            "referenceNumber": {
+              "type": "integer"
+            },
+            "branchCode": {
+              "type": "integer"
+            },
+            "productCode": {
+              "type": "integer"
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "PUT_RenewalsPolicy_response204": {
+      "type": "object",
+      "properties": {
+        "renewal": {
+          "type": "object"
+        },
+        "paging": {
+          "$ref": "#/definitions/paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "PUT_RenewalsPolicy_body": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "object",
+          "properties": {
+            "referenceNumber": {
+              "type": "integer"
+            },
+            "branchCode": {
+              "type": "integer"
+            },
+            "productCode": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "renewalsDataResp": {
+      "type": "object",
+      "properties": {
+        "policyRenewals": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "paging": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ]
+}

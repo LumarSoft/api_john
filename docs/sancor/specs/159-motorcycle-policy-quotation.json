@@ -1,0 +1,627 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Cotización Motovehículos",
+    "version": "1.0.0",
+    "description": "Servicio de cotización del ramo moto vehículos.",
+    "x-ibm-name": "motorcycle-policy-quotation",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/quotations/vehicle/motorcycle": {
+      "post": {
+        "operationId": "quoteVehicle",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/VehicleQuotationResponse"
+            }
+          },
+          "204": {
+            "description": "No Content",
+            "schema": {
+              "$ref": "#/definitions/VehicleQuotationResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "401": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "403": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "Obtener cotizacion de automotor",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/VehicleQuotation"
+            },
+            "description": "vehicleQuotation",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    }
+  },
+  "basePath": "/apissa/pre-catalog",
+  "definitions": {
+    "VehicleQuotation": {
+      "type": "object",
+      "properties": {
+        "relationQuotationCode": {
+          "type": "integer"
+        },
+        "person": {
+          "type": "object",
+          "properties": {
+            "identificationNumber": {
+              "type": "integer",
+              "description": "Número Documento"
+            },
+            "identificationType": {
+              "type": "string",
+              "description": "Tipo documento"
+            },
+            "isJuridicPerson": {
+              "type": "boolean",
+              "description": "Persona jurídica"
+            }
+          },
+          "required": [
+            "isJuridicPerson",
+            "identificationType"
+          ]
+        },
+        "coverModuleCodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "offeringCode": {
+                "type": "integer",
+                "description": "Código numero Modulo"
+              }
+            }
+          },
+          "description": "Módulos coberturas"
+        },
+        "currencyCode": {
+          "type": "integer",
+          "description": "Código moneda"
+        },
+        "discountCustomizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "discountCode": {
+                "type": "integer",
+                "description": "Descuento Especial Comercial"
+              },
+              "percentage": {
+                "type": "number",
+                "format": "",
+                "description": "Porcentaje descuento"
+              }
+            }
+          },
+          "description": "Descuentos"
+        },
+        "policyPeriodStartEffectiveDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Vigencia desde"
+        },
+        "policyPeriodEndEffectiveDate": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "coveredItemInsuredSum": {
+          "type": "number"
+        },
+        "conditionCode": {
+          "type": "integer",
+          "description": "Condición ante el IVA",
+          "example": 4,
+          "enum": [
+            "1 - Responsable Inscripto",
+            "4 - Consumirdor Final"
+          ]
+        },
+        "respectClientIvaCondition": {
+          "type": "boolean",
+          "description": "Resétar condicion fiscal",
+          "example": true
+        },
+        "intermediary": {
+          "type": "object",
+          "properties": {
+            "prodProducerCode": {
+              "type": "integer",
+              "description": "Código Organizador"
+            },
+            "upperProducerCode": {
+              "type": "integer",
+              "description": "Código Productor"
+            },
+            "statisticCode": {
+              "type": "integer"
+            },
+            "sellerNumber": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "prodProducerCode",
+            "upperProducerCode"
+          ],
+          "description": "Intermediarios"
+        },
+        "policyVigencyCode": {
+          "type": "integer",
+          "description": "Periodo Póliza",
+          "example": 1,
+          "enum": [
+            "1 - Anual",
+            "2 - Semestral",
+            "3 - Trimestral"
+          ]
+        },
+        "policyPaymentPeriodicityCode": {
+          "type": "integer",
+          "description": "Código Frecuencia",
+          "example": 5,
+          "enum": [
+            "5 - Mensual",
+            "7 - Cuotas"
+          ]
+        },
+        "policyQuotas": {
+          "type": "integer",
+          "description": "Cantidad de cuotas"
+        },
+        "productCode": {
+          "type": "integer",
+          "description": "Código Producto"
+        },
+        "zone": {
+          "type": "object",
+          "properties": {
+            "postalCode": {
+              "type": "integer",
+              "description": "Código Postal"
+            },
+            "cityCode": {
+              "type": "integer",
+              "description": "ID Localidad"
+            }
+          },
+          "required": [
+            "postalCode"
+          ],
+          "description": "Zona"
+        },
+        "vehicle": {
+          "type": "object",
+          "properties": {
+            "vehicleCode": {
+              "type": "string",
+              "description": "Código único de identificación del vehículo según InfoMoto. Para utilizar este dato es necesario contar con una suscripción vigente al servicio de InfoMoto"
+            },
+            "vehicleYear": {
+              "type": "integer",
+              "description": "Año Vehículo"
+            },
+            "yearSuggestedValue": {
+              "type": "number",
+              "description": "Valor Vehículo"
+            },
+            "vehicleUseTypeCode": {
+              "type": "integer",
+              "description": "Uso Vehículo",
+              "example": 2,
+              "enum": [
+                "2 - Particular"
+              ]
+            },
+            "vehicleTrackingEquipment": {
+              "type": "boolean",
+              "description": "Equipo Telemática(true/false)"
+            },
+            "gncInformation": {
+              "type": "object",
+              "properties": {
+                "hasGNC": {
+                  "type": "boolean",
+                  "description": "Tiene GNC(true/false)"
+                },
+                "accesoryInsuredSum": {
+                  "type": "number",
+                  "format": "",
+                  "description": "Valor Equipo"
+                }
+              },
+              "description": "Información GNC"
+            },
+            "assistence": {
+              "type": "object",
+              "properties": {
+                "assistence": {
+                  "type": "string",
+                  "description": "Código de asistencia.",
+                  "enum": [
+                    "sa_02",
+                    "sa1_plus",
+                    "sa2_plus"
+                  ]
+                },
+                "assistenceProvider": {
+                  "type": "string",
+                  "description": "Código de provedor.",
+                  "enum": [
+                    "ibero"
+                  ]
+                }
+              },
+              "description": "Información asistencia al vehiculo."
+            },
+            "hasAuxiliaryTires": {
+              "type": "boolean"
+            },
+            "zeroKM": {
+              "type": "boolean",
+              "description": "Cero Kilómetro(true/false)"
+            },
+            "zeroKMPurchaseDate": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "vehicleClassCode": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "vehicleTrackingEquipment",
+            "vehicleCode",
+            "vehicleYear",
+            "vehicleUseTypeCode",
+            "yearSuggestedValue"
+          ],
+          "description": "Vehículo"
+        },
+        "driversUnder25": {
+          "type": "boolean",
+          "description": "Edad conductor menor a 25 años(true/false)"
+        },
+        "anualKM": {
+          "type": "boolean",
+          "description": "Mas de 25mil km anual(true/false)"
+        },
+        "garageParking": {
+          "type": "boolean",
+          "description": "Guarda en Garage(true/false)"
+        }
+      },
+      "required": [
+        "policyVigencyCode",
+        "policyPaymentPeriodicityCode",
+        "productCode",
+        "currencyCode",
+        "policyPeriodStartEffectiveDate",
+        "policyQuotas"
+      ]
+    },
+    "VehicleQuotationResponse": {
+      "type": "object",
+      "properties": {
+        "vehicleQuotation": {
+          "type": "object",
+          "properties": {
+            "quotationCode": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "relationQuotationCode": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "plans": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "details": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "chargeBasisAmount": {
+                          "type": "number"
+                        },
+                        "chargeDescription": {
+                          "type": "string"
+                        },
+                        "planDetail": {
+                          "type": "string"
+                        },
+                        "chargeCode": {
+                          "type": "integer"
+                        },
+                        "quotaAmount": {
+                          "type": "number"
+                        },
+                        "premium": {
+                          "type": "number"
+                        },
+                        "chargetype": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "module": {
+                    "type": "object",
+                    "properties": {
+                      "coverageCode": {
+                        "type": "integer"
+                      },
+                      "coverageName": {
+                        "type": "string"
+                      },
+                      "coverageAbbreviatedName": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "observations": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "quotaPremiumMonthly": {
+                    "type": "number",
+                    "description": "Premio Según Mes/Cuota."
+                  },
+                  "premium": {
+                    "type": "number",
+                    "description": "Premio Según Vigencia."
+                  },
+                  "success": {
+                    "type": "boolean"
+                  },
+                  "validationResults": {
+                    "type": "string"
+                  },
+                  "outStandard": {
+                    "type": "boolean"
+                  },
+                  "billitem": {
+                    "type": "integer"
+                  },
+                  "codeGood": {
+                    "type": "integer"
+                  },
+                  "detCode": {
+                    "type": "integer"
+                  },
+                  "id": {
+                    "type": "integer"
+                  },
+                  "print": {
+                    "type": "boolean"
+                  },
+                  "product": {
+                    "type": "integer"
+                  },
+                  "taxSeal": {
+                    "type": "integer"
+                  },
+                  "typeDetai": {
+                    "type": "integer"
+                  },
+                  "vehicleTrackingEquipment": {
+                    "type": "boolean"
+                  },
+                  "hasLoJack": {
+                    "type": "boolean"
+                  },
+                  "vehicleInsuredSum": {
+                    "type": "number"
+                  },
+                  "additionalsCalculation": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "premiumWithoutIva": {
+                          "type": "number"
+                        },
+                        "premiumWithoutIvaRate": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "pricingCode": {
+                    "type": "integer"
+                  },
+                  "pricingCodeAPF": {
+                    "type": "integer"
+                  },
+                  "taxBases": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "premiunBaseAmount": {
+                          "type": "number"
+                        },
+                        "taxAmount": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "quotes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "policyQuotas": {
+                          "type": "integer"
+                        },
+                        "coverageRate": {
+                          "type": "number"
+                        },
+                        "quotaPremium": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "premiumTotals": {
+                    "type": "object",
+                    "properties": {
+                      "quotaAmount": {
+                        "type": "number",
+                        "description": "Prima según Mes/Cuota."
+                      },
+                      "quotationPremium": {
+                        "type": "number",
+                        "description": "Prima Según Vigencia."
+                      }
+                    },
+                    "description": "Prima."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/Paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "Paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer",
+          "format": ""
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "security": [
+    {
+      "clientID": [
+        "JOsdt0agj5D1NnquA6zWZaOg5GEZZgUP"
+      ]
+    }
+  ]
+}

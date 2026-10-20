@@ -1,0 +1,633 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "version": "1.0.0",
+    "title": "Api de Consulta de Módulos",
+    "description": "Servicio para consultar módulos.",
+    "x-ibm-name": "getvalidmodules",
+    "x-ibm-summary": ""
+  },
+  "servers": [
+    {
+      "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog"
+    }
+  ],
+  "paths": {
+    "/modules/automotive": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Endpoint para obtener los modulos validos para el producto \"Vehiculo\"",
+        "parameters": [
+          {
+            "name": "organizer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "producer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "statistical_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/bicycle": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Endpoint para obtener los modulos validos para el producto \"Robo Bicicletas\"",
+        "parameters": [
+          {
+            "name": "organizer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "producer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "statistical_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/bag": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Endpoint para obtener los modulos validos para el producto \"Bolso Protegido\"",
+        "parameters": [
+          {
+            "name": "organizer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "producer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "statistical_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/technology": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Endpoint para obtener los modulos validos para el producto \"Robo Tecnologia\"",
+        "parameters": [
+          {
+            "name": "organizer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "producer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "statistical_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/motorcycle": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Endpoint para obtener los modulos validos para el producto \"Moto\"",
+        "parameters": [
+          {
+            "name": "organizer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "producer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "statistical_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/homeProtected": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Endpoint para obtener los modulos validos para el producto \"Hogar protegido\"",
+        "parameters": [
+          {
+            "name": "organizer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "producer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "statistical_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/modules/accidentespersonales/24": {
+      "get": {
+        "tags": [
+          "Modules"
+        ],
+        "summary": "Endpoint para obtener los modulos validos para el producto \"Accidentes Personales 24HS\"",
+        "parameters": [
+          {
+            "name": "organizer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "producer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "statistical_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponseModel`1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/module/hail": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success"
+          }
+        },
+        "parameters": [
+          {
+            "name": "harvestId",
+            "in": "query",
+            "description": "ID de Tipo de cultivo.",
+            "style": "form",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cityId",
+            "in": "query",
+            "description": "Id de localidad.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Token del usuario.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiResponseModel`1": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "data": {
+            "$ref": "#/components/schemas/T"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TMessageError"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ModulesRequest": {
+        "type": "object",
+        "properties": {
+          "on_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "product_id": {
+            "type": "number"
+          },
+          "organizer_number": {
+            "type": "number"
+          },
+          "producer_number": {
+            "type": "number"
+          },
+          "statistical_code": {
+            "type": "number"
+          },
+          "module_code": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleCodes"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ModuleCodes": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "type": "number"
+          }
+        }
+      },
+      "ModulesResponse": {
+        "type": "object",
+        "properties": {
+          "module_code": {
+            "type": "number"
+          },
+          "description": {
+            "type": "string"
+          },
+          "cover_services": {
+            "type": "string"
+          }
+        }
+      },
+      "T": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TMessageError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "text": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "clientID": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "gss_apiclient_id",
+        "x-key-type": "client_id"
+      }
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ],
+  "x-ibm-endpoints": [
+    {
+      "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+      "type": [
+        "production",
+        "development"
+      ]
+    }
+  ]
+}

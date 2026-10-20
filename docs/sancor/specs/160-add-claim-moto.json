@@ -1,0 +1,969 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "version": "1.0.1",
+    "description": "Servicio para alta de siniestros moto vehículos.",
+    "x-ibm-name": "add-claim-moto",
+    "title": "Siniestros Motovehículos",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/data": {
+      "post": {
+        "operationId": "POST_ClaimV2",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/createClaimRes"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "401": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "403": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          }
+        },
+        "produces": [
+          "application/json"
+        ],
+        "description": "Servicio para registrar el Alta de la Denuncia (Personas) en NOVA.",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/createClaim"
+            },
+            "description": "The request body for the operation",
+            "required": true
+          }
+        ]
+      }
+    }
+  },
+  "basePath": "/apissa/pre-catalog/claims/motorcycle",
+  "definitions": {
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "identificationTypes": {
+      "type": "object",
+      "properties": {
+        "identificationTypeCode": {
+          "type": "string",
+          "description": "Código del tipo de documento",
+          "enum": [
+            "AR-89 Libreta de Enrolamiento",
+            "AR-90 Libreta Cívica",
+            "AR-94 Pasaporte / CI Extranjero",
+            "AR-96 DNI",
+            "AR-86\tCUIL",
+            "AR-80\tCUIT"
+          ]
+        },
+        "identificationNumber": {
+          "type": "string",
+          "description": "Numero de documento del denunciante"
+        }
+      },
+      "required": [
+        "identificationTypeCode",
+        "identificationNumber"
+      ]
+    },
+    "telephones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "areaTelephoneCode": {
+            "type": "string",
+            "description": "Código de área"
+          },
+          "countryTelephoneCode": {
+            "type": "string",
+            "description": "Código de país"
+          },
+          "telephoneNumber": {
+            "type": "string",
+            "description": "Teléfono del Denunciante"
+          },
+          "telephoneTypeCode": {
+            "type": "integer",
+            "description": "Código de Tipo  de teléfono",
+            "enum": [
+              "0 - No Especificado",
+              "1 - Fijo",
+              "2 - Celular"
+            ]
+          }
+        },
+        "required": [
+          "areaTelephoneCode",
+          "telephoneNumber",
+          "telephoneTypeCode",
+          "countryTelephoneCode"
+        ]
+      },
+      "minLength": 0
+    },
+    "emails": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "email del denunciante"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      }
+    },
+    "passengers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "description": "Nombre del pasajero"
+          },
+          "lastName": {
+            "type": "string",
+            "description": "Apellido del pasajero"
+          },
+          "insuredRelationCode": {
+            "type": "integer",
+            "description": "Código Relación con el asegurado"
+          },
+          "identificationTypes": {
+            "type": "object",
+            "properties": {
+              "identificationTypeCode": {
+                "type": "string",
+                "description": "Código del tipo de documento",
+                "enum": [
+                  "AR-89 Libreta de Enrolamiento",
+                  "AR-90 Libreta Cívica",
+                  "AR-94 Pasaporte / CI Extranjero",
+                  "AR-96 DNI",
+                  "AR-86\tCUIL",
+                  "AR-80\tCUIT"
+                ]
+              },
+              "passengerIdentificationTypeNumber": {
+                "type": "string",
+                "description": "Numero de documento del denunciante"
+              }
+            },
+            "required": [
+              "identificationTypeCode",
+              "passengerIdentificationTypeNumber"
+            ]
+          },
+          "telephones": {
+            "$ref": "#/definitions/telephones",
+            "description": "Listado de Teléfonos del pasajero"
+          },
+          "emails": {
+            "$ref": "#/definitions/emails",
+            "description": "Listado de mails del pasajero"
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName"
+        ]
+      }
+    },
+    "createClaim": {
+      "type": "object",
+      "properties": {
+        "claim": {
+          "type": "object",
+          "$ref": "#/definitions/claim"
+        }
+      }
+    },
+    "createClaimRes": {
+      "type": "object",
+      "properties": {
+        "claimNumber": {
+          "type": "integer",
+          "description": "Numero de sienstro"
+        },
+        "paging": {
+          "$ref": "#/definitions/Paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Messages"
+          }
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "properties": {
+        "certificateNumber": {
+          "type": "integer",
+          "description": "Nro de certificado"
+        },
+        "claimReportedDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Fecha/hora de denuncia"
+        },
+        "claimOccurredDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Fecha/hora de ocurrencia"
+        },
+        "claimDescription": {
+          "type": "string",
+          "description": "Descripción del hecho"
+        },
+        "claimCauseCode": {
+          "type": "string",
+          "description": "Codigo causa del siniestro"
+        },
+        "policeReport": {
+          "type": "boolean",
+          "description": "Denuncia policial?"
+        },
+        "claimObservations": {
+          "type": "string",
+          "description": "Observaciones de la causa del siniestro"
+        },
+        "hasWitness": {
+          "type": "boolean",
+          "description": "Hay testigo?"
+        },
+        "address": {
+          "type": "object",
+          "description": "Lugar de ocurrencia del siniestro",
+          "properties": {
+            "countryName": {
+              "type": "string",
+              "description": "Nombre de pais"
+            },
+            "cityName": {
+              "type": "string",
+              "description": "Nombre de ciudad"
+            },
+            "stateName": {
+              "type": "string",
+              "description": "Nombre de provincia"
+            },
+            "cityPostalCode": {
+              "type": "integer",
+              "description": "Código postal"
+            },
+            "cityCode": {
+              "type": "string",
+              "description": "Código de Ciudad"
+            },
+            "streetName": {
+              "type": "string",
+              "description": "Calle/Ruta"
+            },
+            "streetNumber": {
+              "type": "string",
+              "description": "Número/Altura"
+            }
+          },
+          "required": [
+            "cityPostalCode",
+            "streetName"
+          ]
+        },
+        "complainant": {
+          "type": "object",
+          "description": "Datos del Denunciante",
+          "properties": {
+            "firstName": {
+              "type": "string",
+              "description": "Nombre del denunciante"
+            },
+            "lastName": {
+              "type": "string",
+              "description": "Apellido del denunciante"
+            },
+            "relationCode": {
+              "type": "string",
+              "description": "Relación con el asegurado"
+            },
+            "identificationTypes": {
+              "$ref": "#/definitions/identificationTypes",
+              "description": "Identificación del denunciante"
+            },
+            "telephones": {
+              "$ref": "#/definitions/telephones",
+              "description": "Listado de telefonos de denunciante"
+            },
+            "emails": {
+              "$ref": "#/definitions/emails",
+              "description": "Listado  de emails  del denunciante"
+            }
+          },
+          "required": [
+            "relationCode",
+            "firstName",
+            "lastName"
+          ]
+        },
+        "witnesses": {
+          "description": "Listado de testigos",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "firstName": {
+                "type": "string",
+                "description": "Nombre del testigo"
+              },
+              "lastName": {
+                "type": "string",
+                "description": "Apellido del testigo"
+              },
+              "comentary": {
+                "type": "string",
+                "description": "Comentario del testigo"
+              },
+              "identificationTypes": {
+                "type": "object",
+                "properties": {
+                  "identificationTypeCode": {
+                    "type": "string",
+                    "description": "Código del tipo de documento",
+                    "enum": [
+                      "AR-89 Libreta de Enrolamiento",
+                      "AR-90 Libreta Cívica",
+                      "AR-94 Pasaporte / CI Extranjero",
+                      "AR-96 DNI",
+                      "AR-86\tCUIL",
+                      "AR-80\tCUIT"
+                    ]
+                  },
+                  "identificationTypeNumber": {
+                    "type": "string",
+                    "description": "Numero de documento del denunciante"
+                  }
+                },
+                "required": [
+                  "identificationTypeCode",
+                  "identificationTypeNumber"
+                ]
+              },
+              "telephones": {
+                "$ref": "#/definitions/telephones",
+                "description": "Listado de Teléfonos del testigo"
+              },
+              "emails": {
+                "$ref": "#/definitions/emails",
+                "description": "Listado de mails del testigo"
+              }
+            }
+          },
+          "required": [
+            "firstName",
+            "lastName",
+            "comentary"
+          ]
+        },
+        "vehicleIncidents": {
+          "description": "Listados de Tipos de vehículos",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "damagedTypeCode": {
+                "type": "integer",
+                "description": "Código de Tipo de damnificado",
+                "enum": [
+                  "",
+                  "Asegurado",
+                  "Tercero"
+                ]
+              },
+              "vehicleSituationCode": {
+                "type": "integer",
+                "description": "Código de Situación del Vehículo",
+                "enum": [
+                  "",
+                  "Circulando",
+                  "Detenido",
+                  "Estacionado"
+                ]
+              },
+              "firstImpactPointCode": {
+                "type": "integer",
+                "description": "Código de Ubicación del Impacto"
+              },
+              "hasDamage": {
+                "type": "boolean",
+                "description": "Tuvo daños el vehículo?"
+              },
+              "damageDescription": {
+                "type": "string",
+                "description": "Descripción de los daños"
+              },
+              "totalLoss": {
+                "type": "boolean",
+                "description": "Posible pérdida total del vehículo?"
+              },
+              "theftFittedWheels": {
+                "type": "boolean",
+                "description": "Ruedas colocadas robadas?"
+              },
+              "theftFittedWheelsNumber": {
+                "type": "integer",
+                "description": "Cantidad de ruedas robadas"
+              },
+              "theftSparetire": {
+                "type": "boolean",
+                "description": "Rueda de auxilio robada?"
+              },
+              "hasOtherTheft": {
+                "type": "boolean",
+                "description": "Otros objetos robados"
+              },
+              "appearanceDate": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Fecha de aparición"
+              },
+              "hasDamagedLocks": {
+                "type": "boolean",
+                "description": "En cerraduras ?"
+              },
+              "hasDamagedGlass": {
+                "type": "boolean",
+                "description": "En cristales ?"
+              },
+              "hasOtherDamage": {
+                "type": "boolean",
+                "description": "Otros?"
+              },
+              "otherDamageDescription": {
+                "type": "string",
+                "description": "Descripcion de Otros"
+              },
+              "damagedGlass": {
+                "type": "object",
+                "description": "Daños en cristales",
+                "properties": {
+                  "hasDamagedBackGlass": {
+                    "type": "boolean",
+                    "description": "Luneta?"
+                  },
+                  "hasDamagedLeftBackDoor": {
+                    "type": "boolean",
+                    "description": "Puerta trasera izquierda?"
+                  },
+                  "hasDamagedLeftFrontDoor": {
+                    "type": "boolean",
+                    "description": "Puerta delantera izquierda?"
+                  },
+                  "hasDamagedRightBackDoor": {
+                    "type": "boolean",
+                    "description": "Puerta trasera derecha?"
+                  },
+                  "hasDamagedRightFrontDoor": {
+                    "type": "boolean",
+                    "description": "Puerta delantera derecha?"
+                  },
+                  "hasDamagedRoof": {
+                    "type": "boolean",
+                    "description": "Techo?"
+                  },
+                  "hasDamagedWindshield": {
+                    "type": "boolean",
+                    "description": "Parabrisas?"
+                  }
+                }
+              },
+              "vehicle": {
+                "description": "Datos del Vehículo",
+                "type": "object",
+                "properties": {
+                  "licensePlate": {
+                    "type": "string",
+                    "description": "Patente"
+                  },
+                  "engineNumber": {
+                    "type": "string",
+                    "description": "Motor"
+                  },
+                  "chasisNumber": {
+                    "type": "string",
+                    "description": "Chasis"
+                  },
+                  "brand": {
+                    "type": "string",
+                    "description": "Marca"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Modelo"
+                  },
+                  "manufacturingYear": {
+                    "type": "integer",
+                    "description": "Año"
+                  },
+                  "vehicleTypeCode": {
+                    "type": "string",
+                    "description": "Código de Tipo de Vehículo"
+                  },
+                  "insurance": {
+                    "description": "Datos de aseguradora",
+                    "type": "object",
+                    "properties": {
+                      "insuranceCompanyCode": {
+                        "type": "integer",
+                        "description": "Código de aseguradora"
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "insuranceCompanyCode"
+                ]
+              },
+              "driver": {
+                "description": "Datos del conductor",
+                "type": "object",
+                "properties": {
+                  "firstName": {
+                    "type": "string",
+                    "description": "Nombre del conductor"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "description": "Apellido del conductor"
+                  },
+                  "insuredRelationCode": {
+                    "type": "integer",
+                    "description": "Código de Relación con el asegurado"
+                  },
+                  "identificationTypes": {
+                    "type": "object",
+                    "properties": {
+                      "identificationTypeCode": {
+                        "type": "string",
+                        "description": "Código del tipo de documento",
+                        "enum": [
+                          "AR-89 Libreta de Enrolamiento",
+                          "AR-90 Libreta Cívica",
+                          "AR-94 Pasaporte / CI Extranjero",
+                          "AR-96 DNI",
+                          "AR-86\tCUIL",
+                          "AR-80\tCUIT"
+                        ]
+                      },
+                      "identificationTypeNumber": {
+                        "type": "string",
+                        "description": "Numero de documento del denunciante"
+                      }
+                    },
+                    "required": [
+                      "identificationTypeCode",
+                      "identificationTypeNumber"
+                    ]
+                  },
+                  "telephones": {
+                    "$ref": "#/definitions/telephones",
+                    "description": "Listado de Teléfonos del conductor"
+                  },
+                  "emails": {
+                    "$ref": "#/definitions/emails",
+                    "description": "Listado de mails del conductor"
+                  }
+                },
+                "required": [
+                  "lastName",
+                  "firstName"
+                ]
+              },
+              "passengers": {
+                "$ref": "#/definitions/passengers",
+                "description": "Listado de pasajeros en el vehiculo"
+              },
+              "incidentOwner": {
+                "type": "object",
+                "description": "Propietario del vehiculo de tercero",
+                "properties": {
+                  "firstName": {
+                    "type": "string",
+                    "description": "Nombre del Propietario"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "description": "Apellido del Propietario"
+                  },
+                  "registeredName": {
+                    "type": "integer",
+                    "description": "Razón Social del Propietario"
+                  },
+                  "identificationTypes": {
+                    "type": "object",
+                    "properties": {
+                      "identificationTypeCode": {
+                        "type": "string",
+                        "description": "Código del tipo de documento",
+                        "enum": [
+                          "AR-89 Libreta de Enrolamiento",
+                          "AR-90 Libreta Cívica",
+                          "AR-94 Pasaporte / CI Extranjero",
+                          "AR-96 DNI",
+                          "AR-86\tCUIL",
+                          "AR-80\tCUIT"
+                        ]
+                      },
+                      "identificationNumber": {
+                        "type": "string",
+                        "description": "Numero de documento del denunciante"
+                      }
+                    },
+                    "required": [
+                      "identificationTypeCode",
+                      "identificationTypeNumber"
+                    ]
+                  },
+                  "telephones": {
+                    "$ref": "#/definitions/telephones",
+                    "description": "Listado de Teléfonos del propietario"
+                  },
+                  "emails": {
+                    "$ref": "#/definitions/emails",
+                    "description": "Listado de mails del propietario"
+                  }
+                },
+                "required": [
+                  "lastName",
+                  "firstName"
+                ]
+              }
+            },
+            "required": [
+              "damagedTypeCode",
+              "hasDamage"
+            ]
+          }
+        },
+        "propertyIncidents": {
+          "description": "Listado de animales y cosas",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "damageDescription": {
+                "type": "string",
+                "description": "Descripc4ión de los daños"
+              },
+              "damagedObjectTypeCode": {
+                "type": "string",
+                "description": "Código de Tipo de Objeto Dañado",
+                "enum": [
+                  "1\t- Persona",
+                  "2\t- Vehículo",
+                  "3\t- Cosa",
+                  "4 - Animal"
+                ]
+              },
+              "incidentOwner": {
+                "type": "object",
+                "description": "Propietario de la cosa o animal",
+                "properties": {
+                  "firstName": {
+                    "type": "string",
+                    "description": "Nombre del Propietario"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "description": "Apellido del Propietario"
+                  },
+                  "registeredName": {
+                    "type": "string",
+                    "description": "Razón social del propietario"
+                  },
+                  "identificationTypes": {
+                    "type": "object",
+                    "properties": {
+                      "identificationTypeCode": {
+                        "type": "string",
+                        "description": "Código del tipo de documento",
+                        "enum": [
+                          "AR-89 Libreta de Enrolamiento",
+                          "AR-90 Libreta Cívica",
+                          "AR-94 Pasaporte / CI Extranjero",
+                          "AR-96 DNI",
+                          "AR-86\tCUIL",
+                          "AR-80\tCUIT"
+                        ]
+                      },
+                      "identificationTypeNumber": {
+                        "type": "string",
+                        "description": "Numero de documento del denunciante"
+                      }
+                    },
+                    "required": [
+                      "identificationTypeCode",
+                      "identificationTypeNumber"
+                    ]
+                  },
+                  "telephones": {
+                    "$ref": "#/definitions/telephones",
+                    "description": "Listado de Teléfonos del Propietario"
+                  },
+                  "emails": {
+                    "$ref": "#/definitions/emails",
+                    "description": "Listado de mails del Propietario"
+                  }
+                },
+                "required": [
+                  "firstName",
+                  "lastName"
+                ]
+              }
+            },
+            "required": [
+              "damageDescription",
+              "damagedObjectTypeCode"
+            ]
+          }
+        },
+        "peopleIncidents": {
+          "description": "Listado de personas lesionadas",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "damagedTypeCode": {
+                "type": "string",
+                "description": "Código de Tipo de damnificado",
+                "enum": [
+                  "1 - Asegurado",
+                  "2 - Tercero"
+                ]
+              },
+              "severityCode": {
+                "type": "integer",
+                "description": "Código de Nivel de daño",
+                "enum": [
+                  "1 - Lesiones leves",
+                  "2 - Lesiones graves",
+                  "8 - Muerte"
+                ]
+              },
+              "damageDescription": {
+                "type": "string",
+                "description": "Detalle sobre la lesión"
+              },
+              "ambulanceUsed": {
+                "type": "boolean",
+                "description": "Hubo 1er atención médica (ambulancia)?"
+              },
+              "isReferredToHospital": {
+                "type": "boolean",
+                "description": "Fue derivado a centro asistencial?"
+              },
+              "hospital": {
+                "type": "string",
+                "description": "Centro Asistencial"
+              },
+              "isOccupationalAccident": {
+                "type": "boolean",
+                "description": "Accidente laboral? (Persona lesionada)"
+              },
+              "injured": {
+                "type": "object",
+                "description": "Datos de la persona Lesionada",
+                "properties": {
+                  "firstName": {
+                    "type": "string",
+                    "description": "Nombre de la persona lesionada"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "description": "Apellido de la persona lesionada"
+                  },
+                  "identificationTypes": {
+                    "type": "object",
+                    "properties": {
+                      "identificationTypeCode": {
+                        "type": "string",
+                        "description": "Código del tipo de documento",
+                        "enum": [
+                          "AR-89 Libreta de Enrolamiento",
+                          "AR-90 Libreta Cívica",
+                          "AR-94 Pasaporte / CI Extranjero",
+                          "AR-96 DNI",
+                          "AR-86\tCUIL",
+                          "AR-80\tCUIT"
+                        ]
+                      },
+                      "identificationTypeNumber": {
+                        "type": "string",
+                        "description": "Numero de documento del denunciante"
+                      }
+                    },
+                    "required": [
+                      "identificationTypeCode",
+                      "identificationTypeNumber"
+                    ]
+                  },
+                  "telephones": {
+                    "$ref": "#/definitions/telephones",
+                    "description": "Listado de Teléfonos de la persona lesionada"
+                  },
+                  "emails": {
+                    "$ref": "#/definitions/emails",
+                    "description": "Listado de mails de la persona lesionada"
+                  }
+                },
+                "required": [
+                  "firstName",
+                  "lastName"
+                ]
+              }
+            },
+            "required": [
+              "damagedTypeCode",
+              "severityCode"
+            ]
+          }
+        },
+        "policy": {
+          "type": "object",
+          "description": "Datos de la póliza",
+          "properties": {
+            "referenceNumber": {
+              "type": "string",
+              "description": "Nro. de referencia"
+            },
+            "officialNumber": {
+              "type": "string",
+              "description": "Nro Oficial de poliza"
+            }
+          }
+        }
+      },
+      "required": [
+        "certificateNumber",
+        "claimOccurredDate",
+        "complainant",
+        "vehicleIncidents",
+        "claimReportedDate",
+        "claimDescription",
+        "claimCauseCode",
+        "address",
+        "policy"
+      ]
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "securityDefinitions": {
+    "clientid": {
+      "type": "apiKey",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id",
+      "in": "header"
+    }
+  },
+  "security": [
+    {
+      "clientid": []
+    }
+  ]
+}

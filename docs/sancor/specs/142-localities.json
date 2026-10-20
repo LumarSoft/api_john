@@ -1,0 +1,370 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Api Consulta de Localidades",
+    "x-ibm-name": "localities",
+    "version": "1.0.0",
+    "description": "Servicio para recuperar localidad con valores canónicos enviando el CP.",
+    "x-ibm-summary": ""
+  },
+  "schemes": [
+    "https"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "securityDefinitions": {
+    "clientId": {
+      "type": "apiKey",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id",
+      "in": "header"
+    }
+  },
+  "definitions": {
+    "LocalitiesResponse200": {
+      "title": "Root Type for LocalitiesResponse200",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "localities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "cityId": {
+                "type": "string"
+              },
+              "cityName": {
+                "type": "string"
+              },
+              "zipCode": {
+                "type": "string"
+              },
+              "stateCode": {
+                "type": "string"
+              },
+              "stateName": {
+                "type": "string"
+              },
+              "countryCode": {
+                "type": "string"
+              },
+              "countryName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "paging": {
+          "type": "object",
+          "properties": {
+            "offset": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "limit": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "total": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "localities": [
+          {
+            "zipCode": "2400",
+            "stateCode": "AR-X",
+            "stateName": "Córdoba",
+            "cityId": "1599",
+            "cityName": "La Milka",
+            "countryCode": "AR",
+            "countryName": "ARGENTINA"
+          },
+          {
+            "zipCode": "2400",
+            "stateCode": "AR-X",
+            "stateName": "Córdoba",
+            "cityId": "1600",
+            "cityName": "San Francisco",
+            "countryCode": "AR",
+            "countryName": "ARGENTINA"
+          },
+          {
+            "zipCode": "2400",
+            "stateCode": "AR-X",
+            "stateName": "Córdoba",
+            "cityId": "1601",
+            "cityName": "Villani",
+            "countryCode": "AR",
+            "countryName": "ARGENTINA"
+          },
+          {
+            "zipCode": "2400",
+            "stateCode": "AR-X",
+            "stateName": "Córdoba",
+            "cityId": "17146",
+            "cityName": "BARRIO ALBERIONE",
+            "countryCode": "AR",
+            "countryName": "ARGENTINA"
+          }
+        ],
+        "paging": {
+          "offset": 1,
+          "limit": 1,
+          "total": 1
+        },
+        "messages": [
+          {
+            "status": "",
+            "code": "GSS-200-002",
+            "text": "Ejecución exitosa.",
+            "help": ""
+          }
+        ]
+      }
+    },
+    "LocalitiesError": {
+      "title": "Root Type for LocalitiesError",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "messages": [
+          {
+            "status": "",
+            "code": "GSS-HttpErrorCode-001",
+            "text": "Texto de error",
+            "help": "Ayuda sobre el error."
+          }
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/localities": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Response Ok",
+            "schema": {
+              "$ref": "#/definitions/LocalitiesResponse200"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "",
+                    "code": "GSS-200-002",
+                    "text": "Ejecución exitosa.",
+                    "help": ""
+                  }
+                ]
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/LocalitiesError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "",
+                    "code": "GSS-400-002",
+                    "text": "Error de esquema.",
+                    "help": "Parámetros de entrada inválidos/mal escritos.."
+                  }
+                ]
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/LocalitiesError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "",
+                    "code": "GSS-401-001",
+                    "text": "No podemos procesar su pedido.",
+                    "help": "Por favor le pedimos que vuelva a intentar. O póngase en contacto con nosotros así podemos ayudarlo."
+                  }
+                ]
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/LocalitiesError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "",
+                    "code": "GSS-403-001",
+                    "text": "No podemos procesar su pedido.",
+                    "help": "Por favor le pedimos que vuelva a intentar. O póngase en contacto con nosotros así podemos ayudarlo."
+                  }
+                ]
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "schema": {
+              "$ref": "#/definitions/LocalitiesError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "",
+                    "code": "GSS-415-001",
+                    "text": "Error de esquema",
+                    "help": "Faltan parámetros de entrada obligatorios."
+                  }
+                ]
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "schema": {
+              "$ref": "#/definitions/LocalitiesError"
+            },
+            "examples": []
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/LocalitiesError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "",
+                    "code": "GSS-500-003",
+                    "text": "No podemos procesar su pedido",
+                    "help": "Por favor le pedimos que vuelva a intentar. O póngase en contacto con nosotros así podemos ayudarlo."
+                  }
+                ]
+              }
+            }
+          },
+          "504": {
+            "description": "Gateway Time-Out",
+            "schema": {
+              "$ref": "#/definitions/LocalitiesError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "",
+                    "code": "GSS-504-001",
+                    "text": "No podemos procesar su pedido",
+                    "help": "Por favor le pedimos que vuelva a intentar. O póngase en contacto con nosotros así podemos ayudarlo."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ]
+      },
+      "parameters": [
+        {
+          "name": "Authorization",
+          "in": "header",
+          "required": true,
+          "description": "Bearer Token",
+          "type": "string"
+        },
+        {
+          "name": "zipCode",
+          "in": "query",
+          "required": true,
+          "description": "codigo postal",
+          "type": "integer",
+          "format": "int32"
+        },
+        {
+          "name": "countryCode",
+          "in": "query",
+          "required": true,
+          "description": "codigo del pais",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "security": [
+    {
+      "clientId": []
+    }
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "basePath": "/apissa/pre-catalog"
+}
