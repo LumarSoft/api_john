@@ -40,3 +40,12 @@ export function phoneSuffix(waId: string | null | undefined): string | null {
   const [national] = nationalCandidates(waId)
   return national ? national.slice(-6) : null
 }
+
+/**
+ * The WhatsApp ids (`549` + area + number) a stored phone may be, to write to
+ * someone who never messaged us. More than one when the `15` split is
+ * ambiguous; none for a number we can't read ("1", a missing digit).
+ */
+export function whatsAppIds(phone: string | null | undefined): string[] {
+  return nationalCandidates(phone).map(national => `549${national}`)
+}

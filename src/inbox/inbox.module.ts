@@ -7,5 +7,6 @@ import { BotTakeoverTimeoutService } from './bot-takeover-timeout.service'
 @Module({
   controllers: [AdminInboxController],
   providers: [InboxService, BotNotifierService, BotTakeoverTimeoutService],
+  exports: [BotNotifierService],
 })
 export class InboxModule {}

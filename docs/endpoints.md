@@ -2620,3 +2620,180 @@ Cantidad de propuestas en estado `NEW`.
 `200 OK` → la propuesta actualizada
 
 `404 Not Found` — Proposal not found
+
+## Admin — Rechazos
+
+Sección "Rechazos" del panel: la oficina carga el Excel de Triunfo "Planilla de
+rechazos por débito automático" (uno para CBU y otro para tarjetas) y el bot le
+avisa a cada cliente por WhatsApp con la plantilla aprobada
+`PAYMENT_REJECTION_TEMPLATE` (6 variables: nombre, cuota, póliza, vencimiento,
+importe, motivo). El Excel se lee en el navegador; la API recibe sus filas, las
+cruza con la póliza (por certificado) y el cliente, y elige el número de
+WhatsApp: celular, si no el particular, si no el teléfono del cliente en la
+cartera. Cada aviso enviado queda en el chat del cliente como mensaje de la
+oficina (`role: "agent"`), así se ve en Whatsapp y el bot lee la respuesta del
+cliente como respuesta a ese aviso.
+
+Estados de cada fila: `READY` (para enviar), `SKIPPED` (fuera del envío por
+defecto, ver `skipReason`: `NO_PHONE` sin número usable, `ALREADY_PAID` la
+cuota ya no está pendiente, `ALREADY_NOTIFIED` ya se avisó en otra carga),
+`SENDING`, `SENT`, `FAILED` (con `error`) y `MARKED` (avisado a mano). Un admin
+solo ve las filas de sus códigos y las que no tienen código.
+
+### GET /admin/rejections
+
+Últimas 50 cargas de la organización, más nuevas primero, con la cantidad de filas por estado.
+
+**Auth required:** Yes (Bearer, admin)
+
+`200 OK`
+```json
+{
+  "templateReady": true,
+  "imports": [
+    {
+      "id": 3,
+      "fileName": "misAlertas-JHONPELL.xls",
+      "periodLabel": "Desde: 05/10/2026 Hasta: 20/10/2026",
+      "createdAt": "2026-10-20T18:30:00.000Z",
+      "createdBy": { "name": "Mili", "email": "mili@example.com" },
+      "counts": { "SENT": 4, "SKIPPED": 4 }
+    }
+  ]
+}
+```
+
+### POST /admin/rejections
+
+Guarda las filas de un Excel y devuelve la carga como `GET /admin/rejections/:id`.
+
+**Auth required:** Yes (Bearer, admin)
+
+**Request body**
+
+| Field        | Type   | Required | Constraints |
+|--------------|--------|----------|-------------|
+| fileName     | string | Yes      | ≤ 255 chars |
+| periodLabel  | string | No       | ≤ 120 chars (título del Excel) |
+| producerCode | string | No       | dígitos; código de "Intermediario: 10484 - …" |
+| rows         | array  | Yes      | 1 a 1000 filas |
+
+Cada fila:
+
+| Field             | Type    | Required | Constraints |
+|-------------------|---------|----------|-------------|
+| rowNumber         | number  | Yes      | entero ≥ 1 (fila del Excel) |
+| holderName        | string  | Yes      | ≤ 160 chars |
+| branch            | number  | No       | "Art." |
+| certificateNumber | string  | Yes      | dígitos |
+| endorsementNumber | number  | No       | |
+| installmentNumber | number  | Yes      | entero ≥ 0 |
+| dueDate           | string  | Yes      | `YYYY-MM-DD` |
+| amount            | number  | Yes      | ≥ 0 |
+| entity            | string  | Yes      | ≤ 80 chars |
+| accountLast4      | string  | No       | hasta 4 dígitos (nunca el CBU o la tarjeta completos) |
+| reason            | string  | Yes      | ≤ 120 chars |
+| stillPending      | boolean | Yes      | "¿Cuota aún pendiente?" = SI |
+| mobilePhone       | string  | No       | ≤ 40 chars |
+| homePhone         | string  | No       | ≤ 40 chars |
+
+```json
+{
+  "fileName": "misAlertas-JHONPELL.xls",
+  "periodLabel": "Desde: 05/10/2026 Hasta: 20/10/2026",
+  "producerCode": "10484",
+  "rows": [
+    {
+      "rowNumber": 5, "holderName": "PEREZ JUAN", "branch": 465, "certificateNumber": "1234567",
+      "endorsementNumber": 0, "installmentNumber": 2, "dueDate": "2026-09-28", "amount": 90315,
+      "entity": "NACION ARGENTINA", "accountLast4": "6025", "reason": "FALTA DE FONDOS",
+      "stillPending": true, "mobilePhone": "341159990001", "homePhone": "341159990001"
+    }
+  ]
+}
+```
+
+`201 Created` → la carga (ver abajo)
+
+`400 Bad Request` — Validation failed
+
+`403 Forbidden` — `No tenés acceso al código 10484 de este Excel.`
+
+### GET /admin/rejections/:id
+
+Una carga con sus filas y el texto exacto que recibe (o recibió) cada cliente.
+
+**Auth required:** Yes (Bearer, admin)
+
+`200 OK`
+```json
+{
+  "id": 3,
+  "fileName": "misAlertas-JHONPELL.xls",
+  "periodLabel": "Desde: 05/10/2026 Hasta: 20/10/2026",
+  "createdAt": "2026-10-20T18:30:00.000Z",
+  "createdBy": { "name": "Mili", "email": "mili@example.com" },
+  "templateReady": true,
+  "rows": [
+    {
+      "id": 11, "rowNumber": 5, "holderName": "PEREZ JUAN", "branch": 465,
+      "certificateNumber": "1234567", "endorsementNumber": 0, "installmentNumber": 2,
+      "dueDate": "2026-09-28", "amount": 90315, "entity": "NACION ARGENTINA", "channel": "ACCOUNT",
+      "accountLast4": "6025", "reason": "FALTA DE FONDOS", "stillPending": true,
+      "phone": "341159990001", "waId": "5493419990001", "status": "READY", "skipReason": null,
+      "error": null, "sentAt": null, "conversationId": null,
+      "client": { "id": 60, "firstName": "JUAN", "lastName": "PEREZ" }, "sentBy": null,
+      "message": "Hola Juan, te escribimos de JP Management Group, …"
+    }
+  ]
+}
+```
+
+`404 Not Found` — Rejection import not found
+
+### POST /admin/rejections/:id/send
+
+Pone en `SENDING` las filas elegidas que se pueden enviar (`READY`, `SKIPPED`
+con número o `FAILED`) y las manda de a una en segundo plano (1,5 s entre
+avisos). El panel consulta la carga hasta que ninguna quede en `SENDING`.
+
+**Auth required:** Yes (Bearer, admin)
+
+**Request body**
+
+| Field | Type     | Required | Constraints |
+|-------|----------|----------|-------------|
+| ids   | number[] | Yes      | 1 a 1000 ids de filas de la carga |
+
+`201 Created` → la carga, con las filas en `SENDING`
+
+`400 Bad Request` — `Ninguno de los avisos elegidos se puede enviar.`
+
+`404 Not Found` — Rejection import not found
+
+`409 Conflict` — `La plantilla de WhatsApp para avisar rechazos todavía no está habilitada. No se envió ningún aviso.` o `No hay un número de WhatsApp conectado para enviar los avisos. Revisalo en Números.`
+
+### POST /admin/rejections/:id/mark
+
+Marca las filas elegidas como avisadas a mano (`MARKED`): no se vuelven a
+ofrecer para enviar, tampoco en cargas posteriores del mismo vencimiento.
+
+**Auth required:** Yes (Bearer, admin)
+
+**Request body:** igual que `send`.
+
+`201 Created` → la carga actualizada
+
+`404 Not Found` — Rejection import not found
+
+### DELETE /admin/rejections/:id
+
+Borra (soft delete) la carga y sus filas. Los avisos ya enviados siguen en los chats.
+
+**Auth required:** Yes (Bearer, admin)
+
+`200 OK` → `{ "ok": true }`
+
+`404 Not Found` — Rejection import not found
+
+`409 Conflict` — `Esperá a que terminen de enviarse los avisos antes de borrar la carga.`

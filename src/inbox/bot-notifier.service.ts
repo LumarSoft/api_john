@@ -57,6 +57,28 @@ export class BotNotifierService {
   }
 
   /**
+   * An approved Meta template, the only way to write first to someone outside
+   * the 24 h window. `params` fill its body variables in order.
+   */
+  async sendTemplate(params: {
+    to: string
+    phoneNumberId: string
+    template: string
+    lang: string
+    params: string[]
+  }): Promise<void> {
+    const res = await fetch(`${this.botUrl}/internal/send-template`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-bot-secret': this.botSecret,
+      },
+      body: JSON.stringify(params),
+    })
+    if (!res.ok) await this.failDelivery(res, '/internal/send-template', 'Could not deliver the template via WhatsApp')
+  }
+
+  /**
    * The bot answers a rejected send with 502 and a message written for the agent
    * ("el número está desconectado…", "pasaron más de 24 h…"). Pass that through
    * so the panel can show why; anything else stays a generic 500.

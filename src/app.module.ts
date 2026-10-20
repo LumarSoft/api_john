@@ -30,6 +30,7 @@ import { OwnerModule } from './owner/owner.module'
 import { WhatsappOnboardingModule } from './whatsapp-onboarding/whatsapp-onboarding.module'
 import { ImprovementsModule } from './improvements/improvements.module'
 import { TasksModule } from './tasks/tasks.module'
+import { RejectionsModule } from './rejections/rejections.module'
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { TasksModule } from './tasks/tasks.module'
     WhatsappOnboardingModule,
     ImprovementsModule,
     TasksModule,
+    RejectionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

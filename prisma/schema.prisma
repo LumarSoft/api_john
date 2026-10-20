@@ -46,25 +46,27 @@ model Producer {
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  producerCodes    ProducerCode[]
-  phoneNumbers     PhoneNumber[]
-  wabaAccounts     WabaAccount[]
-  users            User[]
-  clients          Client[]
-  policies         Policy[]
-  quotes           Quote[]
-  conversations    Conversation[]
-  claims           Claim[]
-  notifications    Notification[]
-  contactLeads     ContactLead[]
-  productPlans     ProductPlan[]
-  businessClosures BusinessClosure[]
-  usageMonthly     UsageMonthly[]
-  coverageSettings CoverageSetting[]
-  botStatusChanges BotStatusChange[]
-  improvements     Improvement[]
-  proposals        ImprovementProposal[]
-  tasks            Task[]
+  producerCodes           ProducerCode[]
+  phoneNumbers            PhoneNumber[]
+  wabaAccounts            WabaAccount[]
+  users                   User[]
+  clients                 Client[]
+  policies                Policy[]
+  quotes                  Quote[]
+  conversations           Conversation[]
+  claims                  Claim[]
+  notifications           Notification[]
+  contactLeads            ContactLead[]
+  productPlans            ProductPlan[]
+  businessClosures        BusinessClosure[]
+  usageMonthly            UsageMonthly[]
+  coverageSettings        CoverageSetting[]
+  botStatusChanges        BotStatusChange[]
+  improvements            Improvement[]
+  proposals               ImprovementProposal[]
+  tasks                   Task[]
+  paymentRejectionImports PaymentRejectionImport[]
+  paymentRejections       PaymentRejection[]
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
@@ -243,6 +245,7 @@ model ProducerCode {
   // Phone numbers this code is served by (many-to-many, e.g. shared office line).
   servedByPhones       PhoneNumberProducerCode[]
   usageMonthly         UsageMonthly[]
+  paymentRejections    PaymentRejection[]
 
   @@unique([producerId, code])
   @@index([producerId, isActive])
@@ -433,17 +436,19 @@ model User {
   updatedAt                DateTime  @updatedAt
   deletedAt                DateTime?
 
-  producerId            Int
-  producer              Producer              @relation(fields: [producerId], references: [id])
+  producerId              Int
+  producer                Producer                 @relation(fields: [producerId], references: [id])
   // Producer codes this admin may access (ignored for SUPERADMIN = all codes).
-  producerCodes         UserProducerCode[]
-  quotes                Quote[]
-  assignedConversations Conversation[]        @relation("assigned_conversations")
-  botStatusChanges      BotStatusChange[]
-  proposals             ImprovementProposal[]
-  tasksCreated          Task[]                @relation("tasks_created")
-  tasksAssigned         Task[]                @relation("tasks_assigned")
-  taskComments          TaskComment[]
+  producerCodes           UserProducerCode[]
+  quotes                  Quote[]
+  assignedConversations   Conversation[]           @relation("assigned_conversations")
+  botStatusChanges        BotStatusChange[]
+  proposals               ImprovementProposal[]
+  tasksCreated            Task[]                   @relation("tasks_created")
+  tasksAssigned           Task[]                   @relation("tasks_assigned")
+  taskComments            TaskComment[]
+  paymentRejectionImports PaymentRejectionImport[]
+  paymentRejectionsSent   PaymentRejection[]
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
@@ -464,16 +469,17 @@ model Client {
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
-  producerId     Int
-  producer       Producer       @relation(fields: [producerId], references: [id])
+  producerId        Int
+  producer          Producer           @relation(fields: [producerId], references: [id])
   // Triunfo agent code that owns this client's cartera. Nullable during migration;
   // back-filled to the org master code, then refined per Triunfo cartera.
-  producerCodeId Int?
-  producerCode   ProducerCode?  @relation(fields: [producerCodeId], references: [id])
-  conversations  Conversation[]
-  policies       Policy[]
-  claims         Claim[]
-  notifications  Notification[]
+  producerCodeId    Int?
+  producerCode      ProducerCode?      @relation(fields: [producerCodeId], references: [id])
+  conversations     Conversation[]
+  policies          Policy[]
+  claims            Claim[]
+  notifications     Notification[]
+  paymentRejections PaymentRejection[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
@@ -519,9 +525,10 @@ model Policy {
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
 
-  vehicle      Vehicle?
-  installments Installment[]
-  claims       Claim[]
+  vehicle           Vehicle?
+  installments      Installment[]
+  claims            Claim[]
+  paymentRejections PaymentRejection[]
 
   @@unique([certificateNumber, producerId])
   @@index([producerCodeId])
@@ -825,25 +832,26 @@ model Conversation {
   handedOverAt     DateTime?
 
   producerId        Int
-  producer          Producer      @relation(fields: [producerId], references: [id])
+  producer          Producer           @relation(fields: [producerId], references: [id])
   // Triunfo agent code this chat resolves to. Set when the client identifies
   // (DNI/patente) — a number shared by several codes routes to the right code by
   // identification, not by the number. Drives inbox scoping for admins.
   producerCodeId    Int?
-  producerCode      ProducerCode? @relation(fields: [producerCodeId], references: [id])
+  producerCode      ProducerCode?      @relation(fields: [producerCodeId], references: [id])
   clientId          Int? // se vincula cuando el cliente se identifica por DNI
-  client            Client?       @relation(fields: [clientId], references: [id])
+  client            Client?            @relation(fields: [clientId], references: [id])
   // When the current client link was made. A chat can be about someone else's
   // policy (a relative writes with the holder's DNI): unless the client's phone
   // is this WhatsApp number, the link only lasts for the session it was made in.
   clientLinkedAt    DateTime?
   // WhatsApp profile name of whoever writes from this number (Meta `contacts`).
   // The inbox shows it instead of the linked client when they are not the same person.
-  contactName       String?       @db.VarChar(191)
+  contactName       String?            @db.VarChar(191)
   // Name an advisor set by hand in the inbox. Wins over the address book and
   // the WhatsApp profile name, which the bot refreshes on every message.
-  contactNameManual String?       @db.VarChar(191)
+  contactNameManual String?            @db.VarChar(191)
   messages          Message[]
+  paymentRejections PaymentRejection[]
 
   @@unique([waId, producerId])
   @@index([producerCodeId])
@@ -1002,4 +1010,100 @@ model TaskComment {
   user   User @relation(fields: [userId], references: [id])
 
   @@index([taskId, createdAt])
+}
+
+// ─── RECHAZOS DE PAGO ────────────────────────────────────
+
+/// Debit vs card, read from the entity Triunfo reports ("NACION ARGENTINA" vs
+/// "VISA DEBITO"): Triunfo sends one Excel for each.
+enum PaymentRejectionChannel {
+  ACCOUNT
+  CARD
+}
+
+enum PaymentRejectionStatus {
+  // Can be sent: the client still owes the installment and was not told yet.
+  READY
+  // Left out of the send by default (see skipReason); the office may still pick it.
+  SKIPPED
+  // Handed to the bot, waiting for Meta.
+  SENDING
+  SENT
+  FAILED
+  // The office told the client by other means (the CBU Excel of 20/10 went out by hand).
+  MARKED
+}
+
+/// One Excel of Triunfo's "Planilla de rechazos por débito automático" the office
+/// loaded in "Rechazos". The file itself is read in the browser; only its rows land here.
+model PaymentRejectionImport {
+  id          Int       @id @default(autoincrement())
+  fileName    String    @db.VarChar(255)
+  // "Desde: 05/10/2026 Hasta: 20/10/2026", as the Excel's title says it.
+  periodLabel String?   @db.VarChar(120)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  producerId  Int
+  producer    Producer           @relation(fields: [producerId], references: [id])
+  createdById Int
+  createdBy   User               @relation(fields: [createdById], references: [id])
+  rejections  PaymentRejection[]
+
+  @@index([producerId, createdAt])
+}
+
+/// A rejected installment from an imported Excel, and the WhatsApp notice about it.
+model PaymentRejection {
+  id                Int                     @id @default(autoincrement())
+  // Row of the Excel (1-based, as Excel numbers it), to find it in the file.
+  rowNumber         Int
+  holderName        String                  @db.VarChar(160)
+  // Triunfo's "Art." (product line, 465 = autos).
+  branch            Int?
+  certificateNumber String                  @db.VarChar(20)
+  endorsementNumber Int?
+  installmentNumber Int
+  dueDate           DateTime                @db.Date
+  amount            Decimal                 @db.Decimal(12, 2)
+  entity            String                  @db.VarChar(80)
+  channel           PaymentRejectionChannel
+  // Only the last digits of the CBU or card: enough for the office to tell them apart.
+  accountLast4      String?                 @db.VarChar(4)
+  reason            String                  @db.VarChar(120)
+  // "¿Cuota aún pendiente?": NO means it was paid after the rejection.
+  stillPending      Boolean
+  // The number as the Excel has it (mobile, else home) and the WhatsApp id it maps to.
+  phone             String?                 @db.VarChar(40)
+  waId              String?                 @db.VarChar(20)
+  status            PaymentRejectionStatus  @default(READY)
+  // NO_PHONE | ALREADY_PAID | ALREADY_NOTIFIED, when status is SKIPPED.
+  skipReason        String?                 @db.VarChar(40)
+  // Why WhatsApp did not take the notice, in the office's words.
+  error             String?                 @db.VarChar(500)
+  sentAt            DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  deletedAt         DateTime?
+
+  importId       Int
+  import         PaymentRejectionImport @relation(fields: [importId], references: [id])
+  producerId     Int
+  producer       Producer               @relation(fields: [producerId], references: [id])
+  producerCodeId Int?
+  producerCode   ProducerCode?          @relation(fields: [producerCodeId], references: [id])
+  policyId       Int?
+  policy         Policy?                @relation(fields: [policyId], references: [id])
+  clientId       Int?
+  client         Client?                @relation(fields: [clientId], references: [id])
+  // The chat the notice went to, so the panel can open it.
+  conversationId Int?
+  conversation   Conversation?          @relation(fields: [conversationId], references: [id])
+  sentById       Int?
+  sentBy         User?                  @relation(fields: [sentById], references: [id])
+
+  @@index([importId, rowNumber])
+  // Finds an earlier notice for the same installment (the Excels overlap in time).
+  @@index([producerId, certificateNumber, installmentNumber])
 }
