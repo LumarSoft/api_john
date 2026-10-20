@@ -275,11 +275,15 @@ export class SancorService {
     if (!err.response) return err.code ?? err.message
 
     // Sancor nests the list differently per API: messages[], message[] or messages[].message[].
+    // The gateway answers { httpMessage, moreInformation } and the token API { error_description }.
     type Entry = SancorMessage & { message?: SancorMessage[] }
-    const body = err.response.data as { messages?: Entry[]; message?: Entry[] } | undefined
+    const body = err.response.data as
+      | { messages?: Entry[]; message?: Entry[]; moreInformation?: string; error_description?: string }
+      | undefined
     const messages = [...(body?.messages ?? []), ...(body?.message ?? [])]
       .flatMap((m): SancorMessage[] => m.message ?? [m])
       .map(m => [m.code, m.text].filter(Boolean).join(' '))
+      .concat(body?.error_description ?? [], body?.moreInformation ?? [])
       .filter(Boolean)
     return `HTTP ${err.response.status}${messages.length ? ` — ${messages.join('; ')}` : ''}`
   }

@@ -13,10 +13,10 @@ Colección de Postman: [`docs/sancor/sancor.postman_collection.json`](sancor/san
 Pide el token sola. La carpeta 5 (emitir, denunciar, anular) no se envía salvo
 que la variable `permitir_destructivo` esté en `true`.
 
-**Estado al 20/10/2026: nada de esto se probó todavía.** Falta registrar la
-aplicación en el portal, suscribirla a los planes y que Sancor dé el usuario del
-intermediario (ver [Acceso](#acceso)). Todo lo que diga "a confirmar" se aclara
-con la primera llamada real.
+**Estado al 20/10/2026:** la aplicación está registrada y suscripta, y el
+gateway acepta la Clave. Falta que Sancor dé el usuario del intermediario (ver
+[Acceso](#acceso)) para pedir el token y hacer la primera consulta real. Todo
+lo que diga "a confirmar" se aclara con esa primera llamada.
 
 ## Ambientes
 
@@ -28,9 +28,10 @@ con la primera llamada real.
 - Developer Portal: https://web-apic-portal.gruposancorseguros.com/apissa/pre-catalog/
 - Soporte: Atención Clientes Corporativos, `atencionclientescorporativos@sancorseguros.com`,
   0800-666-2436, de 8 a 15:30 h.
-- Cada producto tiene un plan con límite de llamadas por hora: 1000/h
-  (Automotores, Motovehículos, Autenticación), 1001/h (Cartera, Módulos,
-  Localidades) y 100/h en algunos ramos (por ejemplo Granizo).
+- Cada producto tiene un plan con límite de llamadas por hora, según lo que
+  mostró el portal al suscribir: 1000/h Servicios de Autenticación y
+  Automotores; 1001/h APIs Generales (cartera, módulos, localidades); 100/h
+  Motovehiculos, Siniestro/Denuncia e Impresión documento.
 
 ## Acceso
 
@@ -112,10 +113,13 @@ gss_apiclient_id: <Clave>
 { "access_token": "eyJ…", "id_token": "eyJ…", "scope": "openid", "expires_in": 3600, "token_type": "Bearer" }
 ```
 
-- Sin Clave, el gateway contesta `401 {"httpMessage":"Unauthorized","moreInformation":"Invalid client id or secret."}`
-  (probado el 20/10/2026). Las specs solo piden la Clave. Si con la Clave sola
-  sigue el 401, probar mandando también el Secreto en `X-IBM-Client-Secret`, el
-  header estándar de API Connect.
+- Alcanza con la Clave: el Secreto no hace falta (probado el 20/10/2026). Lo que
+  contesta el gateway en cada etapa:
+  - sin Clave o con una inválida: `401 {"moreInformation":"Invalid client id or secret."}`;
+  - con la Clave pero sin suscribir la app al plan del producto:
+    `403 {"moreInformation":"Not registered to plan"}`;
+  - con la app suscripta y un usuario inexistente:
+    `403 {"error":"invalid_grant","error_description":"Usuario o contraseña incorrecta."}`.
 - Los demás servicios piden `Authorization: Bearer <access_token>`. La spec de
   Localidades lo describe como "Bearer Token". Que sea el `access_token` y no el
   `id_token` está **a confirmar**.
@@ -308,8 +312,9 @@ Están documentados en las specs y en la colección de Postman (marcados
 
 ## Pendientes
 
-1. Registrar la aplicación en el portal y guardar Clave y Secreto.
-2. Suscribirla a los planes de los productos de la tabla.
+1. ~~Registrar la aplicación en el portal y guardar Clave y Secreto.~~ Hecho el
+   20/10/2026 ("John Pellegrini Management Group").
+2. ~~Suscribirla a los planes de los productos de la tabla.~~ Hecho el 20/10/2026.
 3. Pedir el usuario del intermediario (SOLHDG) y los códigos de productor y
    organizador en Sancor.
 4. Primera llamada real: token, una póliza conocida en `/policies` y sus

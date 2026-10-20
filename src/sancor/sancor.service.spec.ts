@@ -77,6 +77,20 @@ describe('SancorService.getToken', () => {
     expect(post).toHaveBeenCalledTimes(1)
   })
 
+  it('reports why Sancor refused the intermediary user', async () => {
+    const post = jest
+      .fn()
+      .mockReturnValue(
+        throwError(() =>
+          httpError(403, { error: 'invalid_grant', error_description: 'Usuario o contraseña incorrecta.' }),
+        ),
+      )
+
+    await expect(createService({ post }).getToken()).rejects.toThrow(
+      'No se pudo obtener token de Sancor — HTTP 403 — Usuario o contraseña incorrecta.',
+    )
+  })
+
   it('refuses to call Sancor until the credentials are configured', async () => {
     const post = jest.fn()
     const service = createService({ post }, { SANCOR_BASE_URL: BASE })
