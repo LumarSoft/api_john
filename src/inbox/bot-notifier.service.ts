@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common'
+import { BadGatewayException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { readFile } from 'fs/promises'
 
@@ -27,11 +27,7 @@ export class BotNotifierService {
       },
       body: JSON.stringify({ to, text, phoneNumberId }),
     })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      this.logger.error(`Bot /internal/send failed (${res.status}): ${body}`)
-      throw new InternalServerErrorException('Could not deliver message via WhatsApp')
-    }
+    if (!res.ok) await this.failDelivery(res, '/internal/send', 'Could not deliver message via WhatsApp')
   }
 
   /** Delivers a stored photo or PDF; the bot uploads it to Meta and sends it. */
@@ -57,11 +53,19 @@ export class BotNotifierService {
       headers: { 'x-bot-secret': this.botSecret },
       body: form,
     })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      this.logger.error(`Bot /internal/send-media failed (${res.status}): ${body}`)
-      throw new InternalServerErrorException('Could not deliver the file via WhatsApp')
-    }
+    if (!res.ok) await this.failDelivery(res, '/internal/send-media', 'Could not deliver the file via WhatsApp')
+  }
+
+  /**
+   * The bot answers a rejected send with 502 and a message written for the agent
+   * ("el número está desconectado…", "pasaron más de 24 h…"). Pass that through
+   * so the panel can show why; anything else stays a generic 500.
+   */
+  private async failDelivery(res: Response, path: string, fallback: string): Promise<never> {
+    const body = await res.text().catch(() => '')
+    this.logger.error(`Bot ${path} failed (${res.status}): ${body}`)
+    const reason = res.status === 502 ? readMessage(body) : null
+    throw reason ? new BadGatewayException(reason) : new InternalServerErrorException(fallback)
   }
 
   /**
@@ -92,5 +96,15 @@ export class BotNotifierService {
         `Bot /internal/reset-flow unreachable for waId=${waId} — flow state may be stale for up to 1 h: ${(err as Error).message}`,
       )
     }
+  }
+}
+
+/** The `message` of a NestJS error body, or null when there is none. */
+function readMessage(body: string): string | null {
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown }
+    return typeof parsed.message === 'string' && parsed.message.trim() ? parsed.message : null
+  } catch {
+    return null
   }
 }

@@ -2,13 +2,14 @@ import { BadRequestException, ConflictException, Injectable, Logger } from '@nes
 import { ConfigService } from '@nestjs/config'
 import { HttpService } from '@nestjs/axios'
 import { firstValueFrom } from 'rxjs'
-import { AxiosError } from 'axios'
 import { PrismaService } from '../prisma/prisma.service'
 import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
+import { describeGraphError } from './graph-errors'
 
 interface MetaPhoneNumberStatus {
   id?: string
+  display_phone_number?: string
   is_on_biz_app?: boolean
   platform_type?: string
 }
@@ -79,13 +80,14 @@ export class WhatsappOnboardingService {
       )
     }
 
-    const existing = await this.prisma.phoneNumber.findUnique({
-      where: { phoneNumberId },
-      select: { id: true, producerId: true, deletedAt: true },
-    })
-    if (existing && !existing.deletedAt) {
-      throw new ConflictException(`El número ${phoneNumberId} ya está conectado`)
-    }
+    const displayPhoneNumber = dto.number ?? coexistenceStatus?.displayPhoneNumber ?? undefined
+    const existing = await this.findNumberToReconnect(
+      producerId,
+      dto.wabaId,
+      phoneNumberId,
+      dto.isCoexistence ?? false,
+      displayPhoneNumber,
+    )
 
     // 2 — subscribe THIS app to the customer's WABA. Without it: no webhooks.
     await this.subscribeApp(dto.wabaId, accessToken)
@@ -119,22 +121,17 @@ export class WhatsappOnboardingService {
     })
 
     const phoneNumber = existing
-      ? await this.prisma.phoneNumber.update({
-          where: { id: existing.id },
-          data: {
-            producerId,
-            wabaAccountId: waba.id,
-            number: dto.number ?? phoneNumberId,
-            isActive: true,
-            deletedAt: null,
-            responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
-          },
-          select: { id: true },
+      ? await this.reconnectNumber(existing, {
+          phoneNumberId,
+          producerId,
+          wabaAccountId: waba.id,
+          number: displayPhoneNumber,
+          responsibleProducerCodeId: dto.responsibleProducerCodeId,
         })
       : await this.prisma.phoneNumber.create({
           data: {
             phoneNumberId,
-            number: dto.number ?? phoneNumberId,
+            number: displayPhoneNumber ?? phoneNumberId,
             producerId,
             wabaAccountId: waba.id,
             responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
@@ -163,12 +160,13 @@ export class WhatsappOnboardingService {
       : false
 
     this.logger.log(
-      `WABA ${dto.wabaId} conectada al productor ${producerId} · número ${phoneNumberId} · ` +
-        `coexistence=${dto.isCoexistence ?? false} · pin=${pinSet ? 'ok' : 'omitido'}`,
+      `WABA ${dto.wabaId} ${existing ? 'reconectada' : 'conectada'} al productor ${producerId} · ` +
+        `número ${phoneNumberId} · coexistence=${dto.isCoexistence ?? false} · pin=${pinSet ? 'ok' : 'omitido'}`,
     )
 
     return {
       phoneNumberId: phoneNumber.id,
+      reconnected: existing != null,
       wabaAccountId: waba.id,
       metaPhoneNumberId: phoneNumberId,
       wabaId: dto.wabaId,
@@ -245,13 +243,102 @@ export class WhatsappOnboardingService {
     }
   }
 
-  /** Called from the webhook when Meta reports account_update → PARTNER_REMOVED. */
-  async markDisconnected(wabaId: string, reason?: string) {
-    await this.prisma.wabaAccount.updateMany({
-      where: { wabaId },
-      data: { disconnectedAt: new Date(), disconnectReason: reason?.slice(0, 64) ?? 'UNKNOWN' },
+  /**
+   * The PhoneNumber row a (re)connection reuses, so a Coexistence drop does not
+   * cost the month's usage, the budget or the producer codes:
+   *
+   *   1. the row with this Meta id, deleted or not — the usual reconnection
+   *   2. on Coexistence, when Meta hands out a NEW phone_number_id: the latest
+   *      row of the same WABA, or of any WABA with the same display number,
+   *      provided it is no longer live (deleted, or its WABA disconnected)
+   *
+   * A live row with this Meta id owned by another organization is a conflict.
+   */
+  private async findNumberToReconnect(
+    producerId: number,
+    wabaId: string,
+    phoneNumberId: string,
+    isCoexistence: boolean,
+    displayPhoneNumber: string | undefined,
+  ): Promise<{ id: number; phoneNumberId: string } | null> {
+    const sameId = await this.prisma.phoneNumber.findUnique({
+      where: { phoneNumberId },
+      select: { id: true, producerId: true, deletedAt: true, phoneNumberId: true },
     })
-    this.logger.error(`WABA ${wabaId} desconectada por Meta (${reason ?? 'sin motivo'})`)
+    if (sameId) {
+      if (!sameId.deletedAt && sameId.producerId !== producerId) {
+        throw new ConflictException(`El número ${phoneNumberId} ya está conectado a otra organización`)
+      }
+      return sameId
+    }
+    if (!isCoexistence) return null
+
+    const rows = await this.prisma.phoneNumber.findMany({
+      where: { producerId },
+      select: {
+        id: true,
+        phoneNumberId: true,
+        number: true,
+        deletedAt: true,
+        wabaAccount: { select: { wabaId: true, disconnectedAt: true } },
+      },
+      orderBy: { id: 'desc' },
+    })
+    const replaceable = rows.filter(row => row.deletedAt != null || row.wabaAccount?.disconnectedAt != null)
+    return (
+      replaceable.find(
+        row => row.wabaAccount?.wabaId === wabaId && displayNumberMatches(row, displayPhoneNumber, true),
+      ) ??
+      replaceable.find(row => displayNumberMatches(row, displayPhoneNumber, false)) ??
+      null
+    )
+  }
+
+  /**
+   * Brings a previous row back to life on the new connection. When Meta issued
+   * a new phone_number_id the chats move with it, so the inbox and the bot keep
+   * each customer's history instead of starting a second conversation.
+   */
+  private async reconnectNumber(
+    row: { id: number; phoneNumberId: string },
+    data: {
+      phoneNumberId: string
+      producerId: number
+      wabaAccountId: number
+      number?: string
+      responsibleProducerCodeId?: number
+    },
+  ): Promise<{ id: number }> {
+    const update = this.prisma.phoneNumber.update({
+      where: { id: row.id },
+      data: {
+        phoneNumberId: data.phoneNumberId,
+        producerId: data.producerId,
+        wabaAccountId: data.wabaAccountId,
+        isActive: true,
+        deletedAt: null,
+        ...(data.number ? { number: data.number } : {}),
+        // The panel's connect button sends no code: keep the one already set.
+        ...(data.responsibleProducerCodeId !== undefined
+          ? { responsibleProducerCodeId: data.responsibleProducerCodeId }
+          : {}),
+      },
+      select: { id: true },
+    })
+    if (row.phoneNumberId === data.phoneNumberId) return update
+
+    const [phone] = await this.prisma.$transaction([
+      update,
+      this.prisma.conversation.updateMany({
+        where: { phoneNumberId: row.phoneNumberId },
+        data: { phoneNumberId: data.phoneNumberId },
+      }),
+    ])
+    this.logger.warn(
+      `Meta asignó un phone_number_id nuevo (${row.phoneNumberId} → ${data.phoneNumberId}); ` +
+        `se reutilizó el número #${row.id} con sus chats y su consumo`,
+    )
+    return phone
   }
 
   // ── Graph API ──────────────────────────────────────────
@@ -372,7 +459,7 @@ export class WhatsappOnboardingService {
     try {
       const { data } = await firstValueFrom(
         this.http.get<MetaPhoneNumberStatus>(`${this.graphBase}/${phoneNumberId}`, {
-          params: { fields: 'id,is_on_biz_app,platform_type' },
+          params: { fields: 'id,display_phone_number,is_on_biz_app,platform_type' },
           headers: { Authorization: `Bearer ${accessToken}` },
           timeout: 15_000,
         }),
@@ -381,6 +468,7 @@ export class WhatsappOnboardingService {
       const platformType = data?.platform_type ?? null
       return {
         metaPhoneNumberId: phoneNumberId,
+        displayPhoneNumber: data?.display_phone_number ?? null,
         verified: isOnBizApp && platformType === 'CLOUD_API',
         isOnBizApp,
         platformType,
@@ -389,6 +477,7 @@ export class WhatsappOnboardingService {
       this.logger.error(`No se pudo verificar Coexistence para ${phoneNumberId}: ${describeGraphError(error)}`)
       return {
         metaPhoneNumberId: phoneNumberId,
+        displayPhoneNumber: null,
         verified: false,
         isOnBizApp: null,
         platformType: null,
@@ -424,11 +513,19 @@ export class WhatsappOnboardingService {
   }
 }
 
-/** Graph errors carry the useful part in body.error.message — surface that, not "Request failed". */
-function describeGraphError(error: unknown): string {
-  const axiosError = error as AxiosError<{ error?: { message?: string; code?: number } }>
-  const metaMessage = axiosError?.response?.data?.error?.message
-  if (metaMessage) return metaMessage
-  if (axiosError?.message) return axiosError.message
-  return 'error desconocido'
+/**
+ * Whether a stored row is the same line as the number Meta just connected.
+ * Older rows store the Meta id as their "number" (the display number was never
+ * sent), so an unknown side only matches when `allowUnknown` is set — used
+ * inside the same WABA, where a Coexistence account holds a single number.
+ */
+function displayNumberMatches(
+  row: { number: string; phoneNumberId: string },
+  displayPhoneNumber: string | undefined,
+  allowUnknown: boolean,
+): boolean {
+  const digits = (value: string) => value.replace(/\D/g, '')
+  const rowKnown = row.number !== row.phoneNumberId && digits(row.number).length >= 8
+  if (!displayPhoneNumber || !rowKnown) return allowUnknown
+  return digits(row.number) === digits(displayPhoneNumber)
 }

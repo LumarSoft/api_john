@@ -247,17 +247,6 @@ export class BotService {
     return { conversationId: conversation.id, botPaused: true, created }
   }
 
-  async markWabaDisconnected(wabaId: string, reason?: string) {
-    const result = await this.prisma.wabaAccount.updateMany({
-      where: { wabaId },
-      data: {
-        disconnectedAt: new Date(),
-        disconnectReason: reason?.slice(0, 64) ?? 'UNKNOWN',
-      },
-    })
-    return { updated: result.count }
-  }
-
   /**
    * Finds or creates the conversation for a WhatsApp user and returns its recent
    * history scoped to the current session.

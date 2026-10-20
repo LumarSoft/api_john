@@ -296,6 +296,7 @@ describe('InboxService.sendMessage with global human attention', () => {
     const prisma = {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
+      phoneNumber: { findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }) },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { sendMessage: jest.fn().mockResolvedValue(undefined) }
@@ -303,6 +304,52 @@ describe('InboxService.sendMessage with global human attention', () => {
 
     await expect(service.sendMessage(7, 1, [2], 9, 'Te atiendo')).resolves.toEqual(created)
     expect(notifier.sendMessage).toHaveBeenCalledWith('549341', 'Te atiendo', 'P1')
+  })
+})
+
+describe('InboxService.sendMessage on a number that is off WhatsApp', () => {
+  function setup(phone: unknown) {
+    const now = new Date()
+    const conversation = {
+      id: 7,
+      waId: '549341',
+      producerId: 1,
+      botPaused: true,
+      producer: { botEnabled: true },
+      phoneNumberId: 'P1',
+      sessionStartedAt: now,
+    }
+    const prisma = {
+      conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
+      message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
+      phoneNumber: { findUnique: jest.fn().mockResolvedValue(phone) },
+      $transaction: jest.fn(),
+    }
+    const notifier = { sendMessage: jest.fn() }
+    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    return { service, prisma, notifier }
+  }
+
+  it('tells the agent Meta dropped the number instead of pretending the reply went out', async () => {
+    const { service, prisma, notifier } = setup({
+      isActive: true,
+      deletedAt: null,
+      wabaAccount: { disconnectedAt: new Date('2026-10-19T18:29:28.000Z') },
+    })
+
+    await expect(service.sendMessage(7, 1, [2], 9, 'Hola')).rejects.toThrow('desconectado de Meta')
+    expect(prisma.phoneNumber.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { phoneNumberId: 'P1' } }),
+    )
+    expect(notifier.sendMessage).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('refuses to send through a number removed from Números', async () => {
+    const { service, notifier } = setup({ isActive: false, deletedAt: new Date(), wabaAccount: null })
+
+    await expect(service.sendMessage(7, 1, [2], 9, 'Hola')).rejects.toThrow('dado de baja')
+    expect(notifier.sendMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -442,6 +489,7 @@ describe('InboxService.sendMedia', () => {
     const prisma = {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
+      phoneNumber: { findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }) },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { sendMedia }

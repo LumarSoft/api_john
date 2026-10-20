@@ -422,6 +422,7 @@ export class InboxService {
     if (!conversation.phoneNumberId) {
       throw new BadRequestException('Conversation has no associated phone number')
     }
+    await this.assertNumberConnected(conversation.phoneNumberId)
 
     // Fix #4: validate the Meta 24-hour messaging window server-side.
     // The front disables the input as UX, but only this check guarantees
@@ -435,6 +436,28 @@ export class InboxService {
       throw new BadRequestException('The 24-hour Meta messaging window has expired')
     }
     return { ...conversation, phoneNumberId: conversation.phoneNumberId }
+  }
+
+  /**
+   * A number that is off Cloud API cannot deliver anything. Before this check the
+   * panel kept accepting replies after the 19/10 drop: Meta rejected them and the
+   * agent never knew the customer got nothing.
+   */
+  private async assertNumberConnected(phoneNumberId: string) {
+    const phone = await this.prisma.phoneNumber.findUnique({
+      where: { phoneNumberId },
+      select: { isActive: true, deletedAt: true, wabaAccount: { select: { disconnectedAt: true } } },
+    })
+    if (!phone || phone.deletedAt || !phone.isActive) {
+      throw new ConflictException(
+        'El número de WhatsApp de esta conversación está dado de baja en Números. El mensaje no se envió.',
+      )
+    }
+    if (phone.wabaAccount?.disconnectedAt) {
+      throw new ConflictException(
+        'El número de WhatsApp está desconectado de Meta: hay que reconectarlo desde Números. El mensaje no se envió.',
+      )
+    }
   }
 
   /** Persists a delivered reply and refreshes lastMessageAt atomically. */

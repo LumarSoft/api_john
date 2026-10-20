@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { UsageService, currentPeriod } from '../usage/usage.service'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
+import { describeDisconnectReason } from '../whatsapp-onboarding/whatsapp-connection-monitor.service'
 
 /**
  * SuperAdmin management of the organization's WhatsApp numbers. Billing is per
@@ -41,6 +42,7 @@ export class PhoneNumbersService {
         isActive: true,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
+        wabaAccount: { select: { disconnectedAt: true, disconnectReason: true } },
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true, holderName: true } } } },
         usageMonthly: {
@@ -74,6 +76,12 @@ export class PhoneNumbersService {
         isActive: n.isActive,
         monthlyBudgetUsd: n.monthlyBudgetUsd != null ? Number(n.monthlyBudgetUsd) : null,
         budgetExceededAt: n.budgetExceededAt,
+        // Set when Meta dropped the number off Cloud API; cleared by reconnecting.
+        disconnectedAt: n.wabaAccount?.disconnectedAt ?? null,
+        disconnectReason: n.wabaAccount?.disconnectReason ?? null,
+        disconnectReasonLabel: n.wabaAccount?.disconnectedAt
+          ? describeDisconnectReason(n.wabaAccount.disconnectReason)
+          : null,
         responsibleCode: n.responsibleProducerCode,
         servedCodes: n.servedCodes.map(s => s.producerCode),
         usage: {

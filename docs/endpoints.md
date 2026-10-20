@@ -1170,6 +1170,10 @@ Sends a photo or a PDF to the customer from the Whatsapp section, with an option
 
 `403 Forbidden` — The chat is still attended by the bot
 
+`409 Conflict` — The chat's WhatsApp number was removed in Números, or Meta disconnected it (`"El número de WhatsApp está desconectado de Meta: hay que reconectarlo desde Números. El mensaje no se envió."`). Nothing is sent or stored. The same check and messages apply to `POST /admin/inbox/:id/message`.
+
+`502 Bad Gateway` — WhatsApp rejected the send; `message` says why in the agent's words (number disconnected, 24-hour window closed, …). Nothing is stored.
+
 `413 Payload Too Large` — File over 16 MB
 
 `404 Not Found` — Conversation not found or outside the user's scope
@@ -1802,6 +1806,37 @@ is capped at 5 attachments, keeping the most recent. Sent as `multipart/form-dat
 `403 Forbidden` — Conversation has no identified client
 
 `404 Not Found` — No open siniestro to attach photos to
+
+### POST /bot/waba/:wabaId/disconnected
+
+The bot forwards an `account_update` webhook that may mean the number left Cloud API (`PARTNER_REMOVED`, `ACCOUNT_OFFBOARDED`, `PARTNER_APP_UNINSTALLED`). `PARTNER_REMOVED` on a stored WABA marks it disconnected right away. Any other event, or a WABA id that is not stored (Meta sent one on 19/10/2026), is checked against Graph: a WABA is only marked when Graph answers definitively (the number no longer exists for our token, the token lost its WhatsApp permission, or the number left `CLOUD_API`). A newly marked WABA sends an email to `WHATSAPP_ALERT_EMAIL` (falls back to `BOT_STATUS_ALERT_EMAIL`, then `ADVISOR_EMAIL`). The same Graph check runs every 30 minutes for every connected number (`WHATSAPP_CONNECTION_CHECK_ENABLED=false` turns it off). Only a new onboarding clears the mark.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field       | Type   | Required | Constraints |
+|-------------|--------|----------|-------------|
+| event       | string | No       | Meta's event, ≤ 64 chars. Missing = `PARTNER_REMOVED` (older bot builds) |
+| reason      | string | No       | `disconnection_info.reason`, e.g. `BUSINESS_DOWNGRADE`, ≤ 64 chars |
+| initiatedBy | string | No       | `USER` or `SYSTEM`, ≤ 32 chars |
+
+```json
+{ "event": "PARTNER_REMOVED", "reason": "BUSINESS_DOWNGRADE", "initiatedBy": "USER" }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{ "known": false, "checked": 1, "disconnected": 1 }
+```
+
+`401 Unauthorized` — Missing or wrong `x-bot-secret`
+
+### Reconnecting a number (`POST /admin/whatsapp/onboard`)
+
+Running Embedded Signup again for a number that Meta dropped reuses its `PhoneNumber` row, so the month's usage, the budget and the producer codes stay with it: the row with the same Meta id is revived (even if it is still listed, instead of answering `409`); on Coexistence, if Meta hands out a new `phone_number_id`, the latest deleted or disconnected row of the same WABA (or with the same display number) is re-pointed and its chats move with it. The response adds `"reconnected": true`. `409 Conflict` is only returned when the number is live in another organization. `GET /admin/phone-numbers` now includes `disconnectedAt`, `disconnectReason` and `disconnectReasonLabel` for each number.
 
 ## Cotización — Leads (productos sin cotización online)
 

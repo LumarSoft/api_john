@@ -23,6 +23,8 @@ import { IdentifyClientDto } from './dto/identify-client.dto'
 import { AgentEchoDto } from './dto/agent-echo.dto'
 import { CoexistenceContactsDto, CoexistenceHistoryDto } from './dto/coexistence-sync.dto'
 import { CoexistenceSyncService } from './coexistence-sync.service'
+import { WabaAccountUpdateDto } from './dto/waba-account-update.dto'
+import { WhatsappConnectionMonitorService } from '../whatsapp-onboarding/whatsapp-connection-monitor.service'
 import { CreateBotSiniestroDto } from './dto/create-bot-siniestro.dto'
 import { MAX_FILES, audioMulterOptions, siniestroMulterOptions } from '../siniestros/siniestro-upload.config'
 
@@ -32,6 +34,7 @@ export class BotController {
   constructor(
     private readonly botService: BotService,
     private readonly coexistenceSync: CoexistenceSyncService,
+    private readonly connectionMonitor: WhatsappConnectionMonitorService,
   ) {}
 
   @Get('context/:phoneNumberId')
@@ -62,9 +65,10 @@ export class BotController {
     return this.coexistenceSync.persistContacts(dto)
   }
 
+  /** Lifecycle notice from Meta that may mean the number dropped off Cloud API. */
   @Post('waba/:wabaId/disconnected')
-  markWabaDisconnected(@Param('wabaId') wabaId: string, @Body() body: { reason?: string }) {
-    return this.botService.markWabaDisconnected(wabaId, body.reason)
+  reportWabaAccountUpdate(@Param('wabaId') wabaId: string, @Body() dto: WabaAccountUpdateDto) {
+    return this.connectionMonitor.handleAccountUpdate(wabaId, dto)
   }
 
   @Post('conversation/:conversationId/message')
