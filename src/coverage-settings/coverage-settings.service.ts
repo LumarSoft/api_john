@@ -200,6 +200,43 @@ export class CoverageSettingsService {
   }
 
   /**
+   * What a coverage a client already has includes, for the bot to answer "¿mi
+   * póliza cubre X?". Unlike a quote, nothing is filtered out: the policy has
+   * this code whether or not the office offers it today. A code nobody
+   * described comes back with no benefits, and the bot says the office
+   * confirms it instead of guessing.
+   */
+  async describeContracted(
+    producerId: number,
+    code: string,
+    vehicleType: VehicleType = VehicleType.AUTO,
+  ): Promise<{ code: string; name: string; benefits: string[]; exclusions: string[]; deductible: string | null }> {
+    const trimmed = code.trim()
+    if (vehicleType === VehicleType.MOTO) {
+      const copy = motoCopyFor(trimmed)
+      return {
+        code: trimmed,
+        name: copy.name,
+        benefits: copy.benefits,
+        exclusions: copy.exclusions,
+        deductible: copy.deductible ?? null,
+      }
+    }
+    const setting = await this.prisma.coverageSetting.findFirst({
+      where: { producerId, code: trimmed, deletedAt: null },
+      select: SETTING_SELECT,
+    })
+    const wording = setting ? this.wordingOf(setting) : this.defaultWording(trimmed)
+    return {
+      code: trimmed,
+      name: wording.name,
+      benefits: wording.benefits,
+      exclusions: wording.exclusions,
+      deductible: defaultCopyFor(trimmed).deductible ?? null,
+    }
+  }
+
+  /**
    * Registers coverage codes seen in a quote so the admin screen can list real
    * codes. Fire-and-forget from the quote path: a failure here must never cost a
    * quote, and the code will be picked up on the next one anyway.

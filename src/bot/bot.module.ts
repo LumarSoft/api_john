@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { CoverageSettingsModule } from '../coverage-settings/coverage-settings.module'
 import { DocumentosModule } from '../documentos/documentos.module'
 import { NovedadesModule } from '../novedades/novedades.module'
 import { UsageModule } from '../usage/usage.module'
@@ -9,7 +10,7 @@ import { MessageRetentionService } from './message-retention.service'
 import { CoexistenceSyncService } from './coexistence-sync.service'
 
 @Module({
-  imports: [DocumentosModule, NovedadesModule, UsageModule, WhatsappOnboardingModule],
+  imports: [CoverageSettingsModule, DocumentosModule, NovedadesModule, UsageModule, WhatsappOnboardingModule],
   controllers: [BotController],
   providers: [BotService, MessageRetentionService, CoexistenceSyncService],
 })

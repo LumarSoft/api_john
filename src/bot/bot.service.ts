@@ -5,7 +5,10 @@ import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere } from '../common/poliza-vigencia'
 import { isSamePhone, phoneSuffix } from '../common/phone-match'
 import { estimateNextDueDate } from '../common/next-installment'
+import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
+import { VehicleType } from '../infoauto/infoauto.types'
 import { DocumentosService } from '../documentos/documentos.service'
+import { placeOf, productOf, riesgosOf } from './poliza-detail'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
 import { UsageService } from '../usage/usage.service'
@@ -91,7 +94,10 @@ const POLIZA_SUMMARY_SELECT = {
       coverage: true,
     },
   },
+  rawData: true,
 } as const
+
+type RawPolicy = Record<string, unknown> | null
 
 @Injectable()
 export class BotService {
@@ -104,6 +110,7 @@ export class BotService {
     private readonly mail: MailService,
     private readonly novedades: NovedadesService,
     private readonly usage: UsageService,
+    private readonly coverages: CoverageSettingsService,
     config: ConfigService,
   ) {
     const minutes = Number(config.get<string>('SESSION_TIMEOUT_MINUTES'))
@@ -717,11 +724,35 @@ export class BotService {
   async getPolizas(conversationId: number) {
     const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
 
-    return this.prisma.policy.findMany({
+    const polizas = await this.prisma.policy.findMany({
       where: { clientId, producerId, ...inForcePolizaWhere() },
       orderBy: { validTo: 'desc' },
       select: POLIZA_SUMMARY_SELECT,
     })
+
+    // What each policy covers goes along, for "¿mi póliza cubre X?": the
+    // wording of a vehicle's coverage code, or the list Triunfo sent for a
+    // home, shop or other policy. The raw cartera row stays here.
+    return Promise.all(
+      polizas.map(async ({ rawData, ...poliza }) => {
+        const raw = rawData as RawPolicy
+        const riesgos = riesgosOf(raw)
+        const code = poliza.vehicle?.coverage?.trim()
+        return {
+          ...poliza,
+          product: productOf(poliza.riskType, riesgos),
+          place: placeOf(poliza.riskType, raw, riesgos),
+          coverage: code
+            ? await this.coverages.describeContracted(
+                producerId,
+                code,
+                poliza.riskType === 'moto' ? VehicleType.MOTO : VehicleType.AUTO,
+              )
+            : null,
+          riesgos,
+        }
+      }),
+    )
   }
 
   /**
@@ -744,6 +775,7 @@ export class BotService {
         lastMovement: true,
         paymentMethod: true,
         validTo: true,
+        rawData: true,
         vehicle: { select: { licensePlate: true, brand: true, model: true } },
         installments: {
           where: { deletedAt: null },
@@ -754,9 +786,13 @@ export class BotService {
     })
 
     return polizas.map(poliza => {
-      const { installments, ...rest } = poliza
+      const { installments, rawData, ...rest } = poliza
+      const raw = rawData as RawPolicy
+      const riesgos = riesgosOf(raw)
       return {
         ...rest,
+        product: productOf(poliza.riskType, riesgos),
+        place: placeOf(poliza.riskType, raw, riesgos),
         // Not in the cartera until Triunfo bills it: "no me aparece la cuota".
         nextDueDate: estimateNextDueDate(
           installments.map(c => c.dueDate),

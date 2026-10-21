@@ -30,6 +30,7 @@ function createPrismaMock() {
 describe('BotService', () => {
   let prisma: ReturnType<typeof createPrismaMock>
   let service: BotService
+  let coverages: { describeContracted: jest.Mock }
 
   beforeEach(() => {
     prisma = createPrismaMock()
@@ -37,7 +38,16 @@ describe('BotService', () => {
     // triunfo/mail/novedades are unused by the methods under test; usage is only
     // consulted for the LLM budget flag, which these tests don't exercise.
     const usage = { isLlmEnabled: jest.fn().mockResolvedValue(true) }
-    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, config)
+    coverages = {
+      describeContracted: jest.fn().mockImplementation(async (_p: number, code: string) => ({
+        code,
+        name: 'Terceros Completo 2',
+        benefits: ['Rotura de cristales'],
+        exclusions: [],
+        deductible: null,
+      })),
+    }
+    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, coverages as any, config)
   })
 
   describe('requestPolicyCancellation', () => {
@@ -795,7 +805,7 @@ describe('BotService.attachAdjuntos', () => {
     prisma = createPrismaMock()
     const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService
     const usage = { isLlmEnabled: jest.fn().mockResolvedValue(true) }
-    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, config)
+    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, {} as any, config)
     prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: 5 })
     prisma.claim.findFirst.mockResolvedValue(null)
   })
@@ -827,5 +837,68 @@ describe('BotService.attachAdjuntos', () => {
     expect(result).toMatchObject({ claimId: null, attached: false })
     expect(prisma.claim.findFirst).not.toHaveBeenCalled()
     expect(prisma.claim.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('BotService.getPolizas', () => {
+  it('sends a readable name, the place and what each policy covers', async () => {
+    const prisma = {
+      conversation: {
+        findFirst: jest.fn().mockResolvedValue({
+          producerId: 1,
+          waId: '5493410000000',
+          sessionStartedAt: null,
+          clientLinkedAt: new Date(),
+          client: { id: 7, phone: '3410000000', deletedAt: null },
+        }),
+      },
+      policy: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 1,
+            certificateNumber: '3519342',
+            riskType: 'auto',
+            vehicle: { licensePlate: 'AB123CD', brand: 'FIAT', model: 'CRONOS', year: 2020, coverage: 'C2 ' },
+            rawData: {},
+          },
+          {
+            id: 2,
+            certificateNumber: '1044644',
+            riskType: 'home',
+            vehicle: null,
+            rawData: {
+              SDTOtrosRiesgosDatos: {
+                SDTRiesgosCoberturas: [{ Riesgo: 'CRISTALES', Cobertura: 'CRISTALES', SumaAsegurada: '300000.00' }],
+                ObjetoSeguroDescripcion: 'SAN MARTIN 4060 C.P.:2000',
+              },
+            },
+          },
+        ]),
+      },
+    }
+    const coverages = {
+      describeContracted: jest.fn().mockResolvedValue({
+        code: 'C2',
+        name: 'Terceros Completo 2',
+        benefits: ['Rotura de cristales'],
+        exclusions: [],
+        deductible: null,
+      }),
+    }
+    const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService
+    const service = new BotService(prisma as any, {} as any, {} as any, {} as any, {} as any, coverages as any, config)
+
+    const [auto, hogar] = (await service.getPolizas(1)) as any[]
+
+    expect(coverages.describeContracted).toHaveBeenCalledWith(1, 'C2', 'AUTO')
+    expect(auto).toMatchObject({ product: null, place: null, riesgos: [] })
+    expect(auto.coverage.name).toBe('Terceros Completo 2')
+    expect(auto.rawData).toBeUndefined()
+    expect(hogar).toMatchObject({
+      product: 'Hogar',
+      place: 'San Martin 4060',
+      coverage: null,
+      riesgos: [{ riesgo: 'CRISTALES', cobertura: 'CRISTALES', sumaAsegurada: 300000 }],
+    })
   })
 })
