@@ -244,16 +244,18 @@ export class InfoAutoService {
           // Brand-new models sold only as 0km carry `list_price` and Triunfo
           // prices them for the current model year only (any other year comes
           // back with ValorVehiculo 0 and no theft coverage). Discontinued
-          // models with no price at all cannot be valued by Triunfo either.
+          // models with no price at all (a 1996 Hilux) cannot be valued by
+          // Triunfo either, but it still prices Responsabilidad Civil for
+          // them, so they go through: the cotizador reports the missing
+          // valuation and the office quotes the rest (21/10).
           if (model.list_price && year === currentYear) return
           if (model.list_price) {
             throw new BadRequestException(
               `El catálogo lista esta versión solo como 0km ${currentYear}. Elegí ese año o consultá con un asesor.`,
             )
           }
-          throw new BadRequestException(
-            'El catálogo no tiene precio de referencia para esta versión, así que no se puede cotizar online. Consultá con un asesor.',
-          )
+          this.logger.debug(`Codia ${codia} has no reference price in InfoAuto — leaving the ${year} quote to Triunfo`)
+          return
         }
         if (year < from || (year > to && !recentMoto)) {
           throw new BadRequestException(

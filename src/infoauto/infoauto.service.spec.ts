@@ -127,7 +127,9 @@ describe('InfoAutoService', () => {
     [VehicleType.MOTO, 2025, true, false, 'solo como 0km 2026'],
     [VehicleType.MOTO, 2027, true, false, 'solo como 0km 2026'],
     [VehicleType.AUTO, 2026, true, true, undefined],
-    [VehicleType.MOTO, 2026, false, false, 'no tiene precio de referencia'],
+    // Discontinued versions with no price at all still get RC from Triunfo.
+    [VehicleType.MOTO, 2026, false, true, undefined],
+    [VehicleType.AUTO, 1996, false, true, undefined],
   ])(
     'validates %s year %i for a version without used-price range (list_price=%s)',
     async (type, year, listPrice, valid, message) => {
