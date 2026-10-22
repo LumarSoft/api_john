@@ -178,7 +178,7 @@ export class BotController {
     @Param('conversationId', ParseIntPipe) id: number,
     @Body() dto: RequestPolicyCancellationDto,
   ) {
-    return this.botService.requestPolicyCancellation(id, dto.policyId)
+    return this.botService.requestPolicyCancellation(id, dto.policyId, dto.reason)
   }
 
   @Post('conversation/:conversationId/request-handoff')

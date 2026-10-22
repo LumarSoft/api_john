@@ -124,6 +124,15 @@ describe('BotService', () => {
       await expect(service.requestPolicyCancellation(3, 9)).resolves.toEqual({ id: 17 })
       expect(prisma.notification.create).not.toHaveBeenCalled()
     })
+
+    it('tells the office why the client wants out', async () => {
+      await expect(service.requestPolicyCancellation(3, 9, 'Vendí el vehículo')).resolves.toEqual({ id: 17 })
+      expect(prisma.notification.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ body: expect.stringContaining('Motivo: Vendí el vehículo') }),
+        }),
+      )
+    })
   })
 
   describe('identifyClient', () => {

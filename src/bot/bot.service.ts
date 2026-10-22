@@ -1000,14 +1000,15 @@ export class BotService {
   }
 
   /** Record a request for the office; never cancel the policy automatically. */
-  async requestPolicyCancellation(conversationId: number, polizaId: number) {
+  async requestPolicyCancellation(conversationId: number, polizaId: number, reason?: string) {
     const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
     const poliza = await this.prisma.policy.findFirst({
       where: { id: polizaId, clientId, producerId, deletedAt: null },
       select: { id: true, certificateNumber: true, producerCodeId: true, vehicle: { select: { licensePlate: true } } },
     })
     if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
-    const body = `Póliza ${poliza.id}: ${poliza.certificateNumber}${poliza.vehicle?.licensePlate ? ` · Patente ${poliza.vehicle.licensePlate}` : ''}. DNI ${client.dni}. El cliente solicita gestionar la baja; pendiente de confirmación de la oficina.`
+    const motivo = reason?.trim()
+    const body = `Póliza ${poliza.id}: ${poliza.certificateNumber}${poliza.vehicle?.licensePlate ? ` · Patente ${poliza.vehicle.licensePlate}` : ''}. DNI ${client.dni}. El cliente solicita gestionar la baja${motivo ? ` — Motivo: ${motivo}` : ''}; pendiente de confirmación de la oficina.`
     return this.prisma.$transaction(async tx => {
       const existing = await tx.notification.findFirst({
         where: {

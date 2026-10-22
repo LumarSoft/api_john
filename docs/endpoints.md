@@ -1588,6 +1588,34 @@ Links the conversation to a `Client` found by DNI or license plate within the pr
 
 `404 Not Found` — No client matches the given dni/plate
 
+### POST /bot/conversation/:conversationId/request-policy-cancellation
+
+Leaves a `baja_poliza` notification for the office with the policy, the client's DNI and, when the bot collected it, the reason the client gave (sale, cost, no longer needed, change of insurer or free text). The policy is never cancelled here; the conversation is flagged `pending` for the office.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field    | Type   | Required | Constraints              |
+|----------|--------|----------|--------------------------|
+| policyId | number | Yes      | Integer ≥ 1, the client's |
+| reason   | string | No       | ≤ 300 chars              |
+
+```json
+{ "policyId": 833, "reason": "Vendí el vehículo" }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{ "id": 17 }
+```
+
+`400 Bad Request` — The conversation has no identified client
+
+`404 Not Found` — The policy is not the identified client's
+
 ### POST /bot/conversation/:conversationId/identify-by-phone
 
 Links the conversation to the one client of the producer whose cartera phone is the number writing (the `phoneMatch` of the conversation), after the person confirmed in the chat that it is them. Same response as `identify`.
