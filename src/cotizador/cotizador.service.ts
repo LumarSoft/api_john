@@ -218,10 +218,10 @@ export class CotizadorService {
       )
       .catch(err => this.logger.warn(`No se pudieron registrar las coberturas: ${(err as Error).message}`))
 
-    // Motorcycles are offered exactly as Triunfo's own cotizador does: RC (A),
-    // RC + incendio (B4) and RC + incendio + robo (B1). Triunfo also prices B
-    // ("todo total") for motos but does not show it, and neither do we.
-    const requiredCodes = vehicleType === VehicleType.MOTO ? ['A', 'B4', 'B1'] : []
+    // Motorcycles are offered as Triunfo's own cotizador does — RC (A),
+    // RC + incendio (B4) and RC + incendio + robo (B1) — plus B ("todo total"),
+    // which Triunfo prices but hides on its web and the office sells (22/10).
+    const requiredCodes = vehicleType === VehicleType.MOTO ? ['A', 'B4', 'B1', 'B'] : []
     const offered =
       vehicleType === VehicleType.MOTO ? quote.coverages.filter(c => requiredCodes.includes(c.code)) : quote.coverages
     const coverages = await this.coverageSettings.apply(
