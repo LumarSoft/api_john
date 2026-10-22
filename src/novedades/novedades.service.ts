@@ -94,6 +94,57 @@ export class NovedadesService {
     })
   }
 
+  /** Matters that live in a chat and are settled by answering it. */
+  private static readonly CHAT_MATTER_TYPES = [NovedadType.HANDOFF, NovedadType.BAJA_POLIZA]
+
+  /**
+   * The office wrote in the chat (from the panel or the WhatsApp Business app):
+   * the matters it was asked for are being handled. The administrator works
+   * from the app and never came back to mark them, so 60 of 64 pending
+   * requests had already been answered (22/10). Never throws.
+   */
+  async markConversationAnswered(conversationId: number, answeredAt = new Date()): Promise<number> {
+    try {
+      const { count } = await this.prisma.notification.updateMany({
+        where: {
+          type: { in: NovedadesService.CHAT_MATTER_TYPES },
+          refId: conversationId,
+          status: MatterStatus.PENDING,
+          createdAt: { lte: answeredAt },
+          deletedAt: null,
+        },
+        data: { status: MatterStatus.IN_PROGRESS },
+      })
+      return count
+    } catch (error) {
+      this.logger.error(`Failed to mark matters of conversation #${conversationId} as answered`, error as Error)
+      return 0
+    }
+  }
+
+  /**
+   * The chat went back to the bot (manually or by the takeover timeout): what
+   * the office was handling there is done. Matters nobody answered stay
+   * pending so they are not lost. Never throws.
+   */
+  async resolveAnsweredMatters(conversationId: number): Promise<number> {
+    try {
+      const { count } = await this.prisma.notification.updateMany({
+        where: {
+          type: { in: NovedadesService.CHAT_MATTER_TYPES },
+          refId: conversationId,
+          status: MatterStatus.IN_PROGRESS,
+          deletedAt: null,
+        },
+        data: { status: MatterStatus.RESOLVED, resolvedAt: new Date() },
+      })
+      return count
+    } catch (error) {
+      this.logger.error(`Failed to resolve matters of conversation #${conversationId}`, error as Error)
+      return 0
+    }
+  }
+
   /**
    * The customer adding to what they already asked in this chat — the reason
    * typed after "asesor", a second message for Mili, "consultar por los
@@ -132,6 +183,8 @@ export class NovedadesService {
         data: {
           body: open.body ? `${open.body}\n\n${body}` : body,
           category: openCategory === MatterCategory.OTHER ? category : openCategory,
+          // The customer wrote again: the matter waits for the office once more.
+          status: MatterStatus.PENDING,
           readAt: null,
           createdAt: new Date(),
         },

@@ -251,6 +251,9 @@ export class BotService {
       return true
     })
 
+    // The employee answered from the app: her pending matters are in progress.
+    if (created) await this.novedades.markConversationAnswered(conversation.id)
+
     return { conversationId: conversation.id, botPaused: true, created }
   }
 

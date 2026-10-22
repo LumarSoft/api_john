@@ -316,6 +316,7 @@ describe('NovedadesService', () => {
         data: {
           body: 'Pide los comprobantes de pago\n\nConsultar por certificados de pago',
           category: 'pagos',
+          status: 'pending',
           readAt: null,
           createdAt: expect.any(Date),
         },
@@ -420,6 +421,39 @@ describe('NovedadesService', () => {
         data: { readAt: expect.any(Date) },
       })
       expect(result).toEqual({ updated: 4 })
+    })
+  })
+
+  describe('chat matters answered by the office', () => {
+    it('moves pending requests and cancellations of the chat to in progress once the office writes', async () => {
+      prisma.notification.updateMany.mockResolvedValue({ count: 2 })
+      const answeredAt = new Date('2026-10-22T15:00:00Z')
+      await expect(service.markConversationAnswered(7, answeredAt)).resolves.toBe(2)
+      expect(prisma.notification.updateMany).toHaveBeenCalledWith({
+        where: {
+          type: { in: ['handoff', 'baja_poliza'] },
+          refId: 7,
+          status: 'pending',
+          createdAt: { lte: answeredAt },
+          deletedAt: null,
+        },
+        data: { status: 'in_progress' },
+      })
+    })
+
+    it('resolves only what the office was handling when the chat goes back to the bot', async () => {
+      prisma.notification.updateMany.mockResolvedValue({ count: 1 })
+      await expect(service.resolveAnsweredMatters(7)).resolves.toBe(1)
+      expect(prisma.notification.updateMany).toHaveBeenCalledWith({
+        where: { type: { in: ['handoff', 'baja_poliza'] }, refId: 7, status: 'in_progress', deletedAt: null },
+        data: { status: 'resolved', resolvedAt: expect.any(Date) },
+      })
+    })
+
+    it('never throws into the chat path', async () => {
+      prisma.notification.updateMany.mockRejectedValue(new Error('db down'))
+      await expect(service.markConversationAnswered(7)).resolves.toBe(0)
+      await expect(service.resolveAnsweredMatters(7)).resolves.toBe(0)
     })
   })
 })

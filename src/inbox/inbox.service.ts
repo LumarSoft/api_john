@@ -12,6 +12,7 @@ import { signAdjuntoUrl } from '../siniestros/adjunto-url'
 import { INBOX_PUBLIC_PREFIX, MAX_OUTGOING_IMAGE_SIZE } from '../siniestros/siniestro-upload.config'
 import { unlink } from 'fs/promises'
 import { BotNotifierService } from './bot-notifier.service'
+import { NovedadesService } from '../novedades/novedades.service'
 import { ListInboxDto } from './dto/list-inbox.dto'
 import { NovedadType } from '../novedades/dto/list-novedades.dto'
 import { UpdateInboxContactDto } from './dto/update-inbox-contact.dto'
@@ -131,6 +132,7 @@ export class InboxService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly botNotifier: BotNotifierService,
+    private readonly novedades: NovedadesService,
   ) {}
 
   async listConversations(producerId: number, codeIds: number[], dto: ListInboxDto, metaPhoneNumberId?: string | null) {
@@ -323,6 +325,7 @@ export class InboxService {
       // own reset-flow only clears an in-memory cache, not this snapshot).
       data: { botPaused: false, assignedToUserId: null, handedOverAt: null, status: 'open', flowState: null },
     })
+    await this.novedades.resolveAnsweredMatters(conversationId)
 
     if (conversation.phoneNumberId) {
       await this.botNotifier.resetFlow(conversation.phoneNumberId, conversation.waId)
@@ -346,6 +349,7 @@ export class InboxService {
       data: { botPaused: false, assignedToUserId: null, handedOverAt: null, status: 'open', flowState: null },
     })
     if (count === 0) return false
+    await this.novedades.resolveAnsweredMatters(conversation.id)
 
     if (conversation.phoneNumberId) {
       await this.botNotifier.resetFlow(conversation.phoneNumberId, conversation.waId)
@@ -461,18 +465,21 @@ export class InboxService {
   }
 
   /** Persists a delivered reply and refreshes lastMessageAt atomically. */
-  private persistAgentMessage(conversationId: number, content: string, rawData?: Prisma.InputJsonValue) {
-    return this.prisma.$transaction(async tx => {
-      const msg = await tx.message.create({
+  private async persistAgentMessage(conversationId: number, content: string, rawData?: Prisma.InputJsonValue) {
+    const msg = await this.prisma.$transaction(async tx => {
+      const created = await tx.message.create({
         data: { conversationId, role: 'agent', content, ...(rawData ? { rawData } : {}) },
         select: { id: true, role: true, content: true, createdAt: true },
       })
       await tx.conversation.update({
         where: { id: conversationId },
-        data: { lastMessageAt: msg.createdAt },
+        data: { lastMessageAt: created.createdAt },
       })
-      return msg
+      return created
     })
+    // The office answered from the panel: its pending matters are in progress.
+    await this.novedades.markConversationAnswered(conversationId, msg.createdAt)
+    return msg
   }
 
   // ─── Helpers ───────────────────────────────────────────

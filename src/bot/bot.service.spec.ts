@@ -31,6 +31,7 @@ describe('BotService', () => {
   let prisma: ReturnType<typeof createPrismaMock>
   let service: BotService
   let coverages: { describeContracted: jest.Mock }
+  let novedades: { markConversationAnswered: jest.Mock }
 
   beforeEach(() => {
     prisma = createPrismaMock()
@@ -47,7 +48,16 @@ describe('BotService', () => {
         deductible: null,
       })),
     }
-    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, coverages as any, config)
+    novedades = { markConversationAnswered: jest.fn().mockResolvedValue(0) }
+    service = new BotService(
+      prisma as any,
+      {} as any,
+      {} as any,
+      novedades as any,
+      usage as any,
+      coverages as any,
+      config,
+    )
   })
 
   describe('requestPolicyCancellation', () => {
@@ -505,6 +515,8 @@ describe('BotService', () => {
       expect(tx.conversation.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ botPaused: true }) }),
       )
+      // Her reply from the app is the office handling what the chat asked for.
+      expect(novedades.markConversationAnswered).toHaveBeenCalledWith(7)
       expect(result.created).toBe(true)
     })
 
@@ -556,6 +568,7 @@ describe('BotService', () => {
       })
 
       expect(tx.conversation.update).not.toHaveBeenCalled()
+      expect(novedades.markConversationAnswered).not.toHaveBeenCalled()
       expect(result.created).toBe(false)
     })
   })

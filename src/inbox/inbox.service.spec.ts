@@ -6,6 +6,14 @@ import type { BotNotifierService } from './bot-notifier.service'
 import type { ListInboxDto } from './dto/list-inbox.dto'
 import { InboxService } from './inbox.service'
 
+import type { NovedadesService } from '../novedades/novedades.service'
+
+const novedadesMock = () =>
+  ({
+    markConversationAnswered: jest.fn().mockResolvedValue(0),
+    resolveAnsweredMatters: jest.fn().mockResolvedValue(0),
+  }) as unknown as NovedadesService
+
 describe('InboxService.listConversations', () => {
   it('returns the latest inbound timestamp without exposing the messages helper relation', async () => {
     const lastInboundMessageAt = new Date('2026-09-30T12:00:00.000Z')
@@ -36,7 +44,11 @@ describe('InboxService.listConversations', () => {
       whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const notifier = {}
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as BotNotifierService)
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as BotNotifierService,
+      novedadesMock(),
+    )
 
     await expect(service.listConversations(1, [2], {} as ListInboxDto)).resolves.toEqual([
       {
@@ -90,7 +102,7 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
       message: { groupBy: jest.fn().mockResolvedValue([]) },
       whatsAppContact: { findMany: jest.fn().mockResolvedValue(contacts) },
     }
-    return new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService)
+    return new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedadesMock())
   }
   const adriana = { id: 5, firstName: 'Adriana', lastName: 'Gómez', dni: '20111222' }
 
@@ -183,7 +195,10 @@ describe('InboxService.updateContact', () => {
         ),
       },
     }
-    return { prisma, service: new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService) }
+    return {
+      prisma,
+      service: new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedadesMock()),
+    }
   }
 
   it('shows the name set by hand and unlinks a client attached by mistake', async () => {
@@ -257,7 +272,7 @@ describe('InboxService.getMessages', () => {
         ]),
       },
     }
-    const service = new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService)
+    const service = new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedadesMock())
 
     const result = await service.getMessages(7, 1, [2])
 
@@ -300,10 +315,17 @@ describe('InboxService.sendMessage with global human attention', () => {
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    const novedades = novedadesMock()
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedades,
+    )
 
     await expect(service.sendMessage(7, 1, [2], 9, 'Te atiendo')).resolves.toEqual(created)
     expect(notifier.sendMessage).toHaveBeenCalledWith('549341', 'Te atiendo', 'P1')
+    // The reply from the panel is the office handling what the chat asked for.
+    expect(novedades.markConversationAnswered).toHaveBeenCalledWith(7, now)
   })
 })
 
@@ -326,7 +348,11 @@ describe('InboxService.sendMessage on a number that is off WhatsApp', () => {
       $transaction: jest.fn(),
     }
     const notifier = { sendMessage: jest.fn() }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedadesMock(),
+    )
     return { service, prisma, notifier }
   }
 
@@ -357,8 +383,13 @@ describe('InboxService.autoReleaseToBot', () => {
   function setup(updated: number) {
     const prisma = { conversation: { updateMany: jest.fn().mockResolvedValue({ count: updated }) } }
     const notifier = { resetFlow: jest.fn().mockResolvedValue(undefined) }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
-    return { service, prisma, notifier }
+    const novedades = novedadesMock()
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedades,
+    )
+    return { service, prisma, notifier, novedades }
   }
 
   const conversation = { id: 7, phoneNumberId: 'P1', waId: '549341' }
@@ -375,11 +406,18 @@ describe('InboxService.autoReleaseToBot', () => {
     expect(notifier.resetFlow).toHaveBeenCalledWith('P1', '549341')
   })
 
+  it('closes what the office was handling once the chat is back with the bot', async () => {
+    const { service, novedades } = setup(1)
+    await service.autoReleaseToBot(conversation)
+    expect(novedades.resolveAnsweredMatters).toHaveBeenCalledWith(7)
+  })
+
   it('does nothing when someone already released it', async () => {
-    const { service, notifier } = setup(0)
+    const { service, notifier, novedades } = setup(0)
 
     await expect(service.autoReleaseToBot(conversation)).resolves.toBe(false)
     expect(notifier.resetFlow).not.toHaveBeenCalled()
+    expect(novedades.resolveAnsweredMatters).not.toHaveBeenCalled()
   })
 })
 
@@ -395,7 +433,11 @@ describe('InboxService.deleteConversations', () => {
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { resetFlow: jest.fn().mockResolvedValue(undefined) }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedadesMock(),
+    )
     return { service, tx, notifier }
   }
 
@@ -493,7 +535,11 @@ describe('InboxService.sendMedia', () => {
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { sendMedia }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedadesMock(),
+    )
     return { service, tx, notifier }
   }
 
