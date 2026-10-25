@@ -1,7 +1,8 @@
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { TriunfoService } from '../triunfo/triunfo.service'
-import { CarteraSyncService } from './cartera-sync.service'
+import { riesgosOf } from '../common/poliza-detail'
+import { CarteraSyncService, resolveRiskType } from './cartera-sync.service'
 
 describe('CarteraSyncService on boot', () => {
   function setup(env: Record<string, string>) {
@@ -40,5 +41,26 @@ describe('CarteraSyncService on boot', () => {
     service.onApplicationBootstrap()
 
     expect(runGuarded).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveRiskType', () => {
+  const covering = (...items: Array<[string, string]>) =>
+    riesgosOf({
+      SDTOtrosRiesgosDatos: { SDTRiesgosCoberturas: items.map(([Riesgo, Cobertura]) => ({ Riesgo, Cobertura })) },
+    })
+
+  it('goes by the article Triunfo sends', () => {
+    expect(resolveRiskType(null, 128, [])).toBe('life')
+    expect(resolveRiskType(null, '267', covering(['ADICIONAL DE VIDA', 'TITULAR'], ['INCENDIO', 'EDIFICIO']))).toBe(
+      'home',
+    )
+    expect(resolveRiskType(null, 657, covering(['ROBO', 'BICICLETA']))).toBe('other')
+  })
+
+  it('puts personal accidents under another article with the policies on a person', () => {
+    expect(
+      resolveRiskType(null, 194, covering(['CATEGORIA 1', 'MUERTE'], ['CATEGORIA 1', 'INCAP.TOTAL/PARCIAL'])),
+    ).toBe('life')
   })
 })

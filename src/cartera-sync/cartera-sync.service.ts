@@ -4,6 +4,7 @@ import * as bcrypt from 'bcrypt'
 import { ConfigService } from '@nestjs/config'
 import { InstallmentStatus, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { insuresAPerson, riesgosOf, RiesgoCubierto } from '../common/poliza-detail'
 import {
   TriunfoService,
   type TriunfoNovedad,
@@ -25,9 +26,15 @@ import {
  *   - 267, 264           → home  (hogar — incendio + robo + contenido)
  *   - 170, 802           → commercial (comercio / edificio / RC)
  *   - 657                → other (bicicleta — robo, incendio, RC)
- *   - rest               → other
+ *   - rest               → life when it covers a person (sepelio, muerte,
+ *                          incapacidad: other articles of accidentes
+ *                          personales), else other
  */
-function resolveRiskType(vehiculoDatos: TriunfoVehiculoDato | null, articulo: number | string): RiskType {
+export function resolveRiskType(
+  vehiculoDatos: TriunfoVehiculoDato | null,
+  articulo: number | string,
+  riesgos: RiesgoCubierto[],
+): RiskType {
   if (vehiculoDatos) {
     const tipo = (vehiculoDatos.Tipo ?? '').toUpperCase()
     if (tipo.includes('MOTO') || tipo === 'MOTOCICLETA') return RiskType.moto
@@ -37,6 +44,7 @@ function resolveRiskType(vehiculoDatos: TriunfoVehiculoDato | null, articulo: nu
   if (code === 197 || code === 128 || code === 124 || code === 195) return RiskType.life
   if (code === 267 || code === 264) return RiskType.home
   if (code === 170 || code === 802) return RiskType.commercial
+  if (insuresAPerson(riesgos)) return RiskType.life
   return RiskType.other
 }
 
@@ -344,7 +352,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         ? novedad.SDTVehiculoDatos[0]
         : null
 
-    const riskType = resolveRiskType(vehiculoDatos, novedad.Articulo)
+    const riskType = resolveRiskType(vehiculoDatos, novedad.Articulo, riesgosOf(novedad))
 
     const cuotasDatos: TriunfoCuotaDato[] = Array.isArray(novedad.SDTCuota) ? novedad.SDTCuota : []
 
@@ -449,6 +457,9 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       },
       update: {
         endorsementNumber,
+        // Follows the article and coverages Triunfo sends now: a policy first
+        // stored with another type (a hogar kept as 'life') gets fixed.
+        riskType,
         lastMovement,
         validTo: vigHasta,
         premium,
