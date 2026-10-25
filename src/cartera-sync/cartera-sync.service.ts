@@ -458,8 +458,10 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       update: {
         endorsementNumber,
         // Follows the article and coverages Triunfo sends now: a policy first
-        // stored with another type (a hogar kept as 'life') gets fixed.
-        riskType,
+        // stored with another type (a hogar kept as 'life', a moto as 'auto')
+        // gets fixed. A row without vehicle data that tells nothing else
+        // leaves the type alone, so a car never turns into 'other'.
+        ...(vehiculoDatos || riskType !== RiskType.other ? { riskType } : {}),
         lastMovement,
         validTo: vigHasta,
         premium,
