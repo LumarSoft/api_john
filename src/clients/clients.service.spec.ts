@@ -61,4 +61,22 @@ describe('ClientsService.findPolizas (portal)', () => {
       { id: 11, estado: 'vencida' },
     ])
   })
+
+  it('names a personal accident policy as such, not as Vida', async () => {
+    const ap = {
+      ...poliza(20, null, 'REFACTURACION', '2026-01-01', '2027-01-01'),
+      riskType: 'life',
+      rawData: {
+        Articulo: 128,
+        SDTOtrosRiesgosDatos: { SDTRiesgosCoberturas: [{ Riesgo: 'CATEGORIA 4', Cobertura: 'MUERTE' }] },
+      },
+    }
+    const prisma = { policy: { findMany: jest.fn().mockResolvedValue([ap]) } }
+    const service = new ClientsService(prisma as unknown as PrismaService)
+
+    const [res] = await service.findPolizas(1, 1)
+
+    expect(res.product).toBe('Acc. personales')
+    expect(res).not.toHaveProperty('rawData')
+  })
 })

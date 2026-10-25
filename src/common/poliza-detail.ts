@@ -19,10 +19,11 @@ export interface RiesgoCubierto {
   sumaAsegurada: number | null
 }
 
-type Raw = Record<string, unknown> | null | undefined
+/** The cartera row as stored (rawData) or as Triunfo just sent it. */
+type Raw = object | null | undefined
 
 function otrosRiesgos(raw: Raw): Record<string, unknown> | null {
-  const value = raw?.SDTOtrosRiesgosDatos
+  const value = (raw as Record<string, unknown> | null | undefined)?.SDTOtrosRiesgosDatos
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
@@ -52,12 +53,28 @@ export function riesgosOf(raw: Raw): RiesgoCubierto[] {
 
 const has = (riesgos: RiesgoCubierto[], re: RegExp) => riesgos.some(r => re.test(`${r.riesgo} ${r.cobertura}`))
 
+/** Sepelio or personal accident coverages: the policy insures a person, not a thing. */
+export const insuresAPerson = (riesgos: RiesgoCubierto[]): boolean => has(riesgos, /SEPELIO|MUERTE|INCAP/)
+
 /**
- * A short name for a policy that is not a vehicle, read from what it covers.
- * Kept short: it is the title of a WhatsApp list row (24 characters at most).
+ * Triunfo's articles for policies on a person, for the rows that list no
+ * coverages: 197 is sepelio, the rest personal accidents. None is a life
+ * policy, although they share the 'life' risk type.
+ */
+const PERSON_ARTICLES: Record<number, string> = {
+  197: 'Sepelio',
+  128: 'Acc. personales',
+  124: 'Acc. personales',
+  195: 'Acc. personales',
+}
+
+/**
+ * A short name for a policy that is not a vehicle, read from what it covers
+ * (or, for a policy on a person that lists nothing, from its article). Kept
+ * short: it is the title of a WhatsApp list row (24 characters at most).
  * Null for vehicles, which go by brand and model.
  */
-export function productOf(riskType: string, riesgos: RiesgoCubierto[]): string | null {
+export function productOf(riskType: string, riesgos: RiesgoCubierto[], articulo?: unknown): string | null {
   switch (riskType) {
     case 'auto':
     case 'moto':
@@ -74,7 +91,7 @@ export function productOf(riskType: string, riesgos: RiesgoCubierto[]): string |
   if (has(riesgos, /MUERTE|INCAP|A\.M\.F|ITINERE/)) return 'Acc. personales'
   if (has(riesgos, /EQUIPOS? CONTRATISTA/)) return 'Equipos'
   if (has(riesgos, /TERRESTRE|TRANSPORT|VEHICULOS TRAN/)) return 'Transporte'
-  if (riskType === 'life') return 'Vida'
+  if (riskType === 'life') return PERSON_ARTICLES[Number(articulo)] ?? 'Vida'
   if (riesgos.length && riesgos.every(r => /RESPONSABILIDAD CIVIL/.test(r.riesgo))) return 'Resp. civil'
   if (riesgos.length && riesgos.every(r => /INCENDIO/.test(r.riesgo))) return 'Incendio'
   return null

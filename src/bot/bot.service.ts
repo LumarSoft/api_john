@@ -8,7 +8,7 @@ import { estimateNextDueDate } from '../common/next-installment'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import { VehicleType } from '../infoauto/infoauto.types'
 import { DocumentosService } from '../documentos/documentos.service'
-import { placeOf, productOf, riesgosOf } from './poliza-detail'
+import { placeOf, productOf, riesgosOf } from '../common/poliza-detail'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
 import { UsageService } from '../usage/usage.service'
@@ -743,7 +743,7 @@ export class BotService {
         const code = poliza.vehicle?.coverage?.trim()
         return {
           ...poliza,
-          product: productOf(poliza.riskType, riesgos),
+          product: productOf(poliza.riskType, riesgos, raw?.Articulo),
           place: placeOf(poliza.riskType, raw, riesgos),
           coverage: code
             ? await this.coverages.describeContracted(
@@ -794,7 +794,7 @@ export class BotService {
       const riesgos = riesgosOf(raw)
       return {
         ...rest,
-        product: productOf(poliza.riskType, riesgos),
+        product: productOf(poliza.riskType, riesgos, raw?.Articulo),
         place: placeOf(poliza.riskType, raw, riesgos),
         // Not in the cartera until Triunfo bills it: "no me aparece la cuota".
         nextDueDate: estimateNextDueDate(

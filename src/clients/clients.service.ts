@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { validityStatus, expiringPolizaWhere, inForcePolizaWhere } from '../common/poliza-vigencia'
+import { productOf, riesgosOf } from '../common/poliza-detail'
 import { ClientStatusFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
 import { CollectionStatusFilter, ListCobranzasDto } from './dto/list-cobranzas.dto'
 
@@ -18,6 +19,16 @@ export interface InsuredItemCoverage {
 export interface InsuredItem {
   description: string | null
   coverages: InsuredItemCoverage[]
+}
+
+/**
+ * What the panel and the portal call a non-vehicle policy ("Acc. personales",
+ * "Sepelio", "Bicicleta"…), the same name the bot uses. Null for vehicles and
+ * when nothing tells it apart: the screen falls back to the risk type.
+ */
+function productName(riskType: RiskType, rawData: Prisma.JsonValue): string | null {
+  const raw = rawData && typeof rawData === 'object' && !Array.isArray(rawData) ? rawData : null
+  return productOf(riskType, riesgosOf(raw), raw?.Articulo)
 }
 
 function extractInsuredItem(rawData: Prisma.JsonValue): InsuredItem | null {
@@ -110,6 +121,8 @@ const ADMIN_CLIENT_DETAIL_SELECT = {
       validTo: true,
       premium: true,
       paymentMethod: true,
+      // Only to name the policy; dropped from the response.
+      rawData: true,
       vehicle: {
         select: {
           id: true,
@@ -238,7 +251,11 @@ export class ClientsService {
         seenInactivePlate.add(licensePlate)
         return true
       })
-      .map(({ rawData, ...rest }) => ({ ...rest, insuredItem: extractInsuredItem(rawData) }))
+      .map(({ rawData, ...rest }) => ({
+        ...rest,
+        product: productName(rest.riskType, rawData),
+        insuredItem: extractInsuredItem(rawData),
+      }))
   }
 
   async findAllForAdmin(producerId: number, codeIds: number[], query: ListClientsDto) {
@@ -384,7 +401,14 @@ export class ClientsService {
       select: ADMIN_CLIENT_DETAIL_SELECT,
     })
     if (!client) throw new NotFoundException(`Client ${id} not found`)
-    return { ...client, policies: client.policies.map(p => ({ ...p, validityStatus: validityStatus(p) })) }
+    return {
+      ...client,
+      policies: client.policies.map(({ rawData, ...p }) => ({
+        ...p,
+        product: productName(p.riskType, rawData),
+        validityStatus: validityStatus(p),
+      })),
+    }
   }
 
   async findPolizaById(id: number, clientId: number, producerId: number) {
@@ -396,7 +420,12 @@ export class ClientsService {
     if (!poliza) throw new NotFoundException(`Policy ${id} not found`)
 
     const { rawData, ...rest } = poliza
-    return { ...rest, validityStatus: validityStatus(poliza), insuredItem: extractInsuredItem(rawData) }
+    return {
+      ...rest,
+      product: productName(rest.riskType, rawData),
+      validityStatus: validityStatus(poliza),
+      insuredItem: extractInsuredItem(rawData),
+    }
   }
 
   async findCobranzasForAdmin(producerId: number, codeIds: number[], query: ListCobranzasDto) {

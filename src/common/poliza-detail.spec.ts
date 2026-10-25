@@ -1,4 +1,4 @@
-import { placeOf, productOf, riesgosOf } from './poliza-detail'
+import { insuresAPerson, placeOf, productOf, riesgosOf } from './poliza-detail'
 
 const raw = (items: Array<[string, string, string?]>, place?: string) => ({
   SDTOtrosRiesgosDatos: {
@@ -47,6 +47,29 @@ describe('poliza detail', () => {
     expect(productOf('commercial', r([]))).toBe('Comercio')
     expect(productOf('auto', r([]))).toBeNull()
     expect(productOf('other', r([]))).toBeNull()
+  })
+
+  it('names a policy on a person by its article when it lists no coverages, never as Vida', () => {
+    expect(productOf('life', [], 128)).toBe('Acc. personales')
+    expect(productOf('life', [], '195')).toBe('Acc. personales')
+    expect(productOf('life', [], 197)).toBe('Sepelio')
+    expect(productOf('life', [])).toBe('Vida')
+  })
+
+  it('tells a policy on a person from one on a thing', () => {
+    expect(insuresAPerson(riesgosOf(raw([['CATEGORIA 4', 'MUERTE']])))).toBe(true)
+    expect(insuresAPerson(riesgosOf(raw([['SEPELIO', 'TITULAR']])))).toBe(true)
+    expect(
+      insuresAPerson(
+        riesgosOf(
+          raw([
+            ['ADICIONAL DE VIDA', 'TITULAR'],
+            ['INCENDIO', 'EDIFICIO'],
+          ]),
+        ),
+      ),
+    ).toBe(false)
+    expect(insuresAPerson([])).toBe(false)
   })
 
   it('gives the insured address of a home, never a person', () => {
