@@ -1995,6 +1995,18 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 
 Running Embedded Signup again for a number that Meta dropped reuses its `PhoneNumber` row, so the month's usage, the budget and the producer codes stay with it: the row with the same Meta id is revived (even if it is still listed, instead of answering `409`); on Coexistence, if Meta hands out a new `phone_number_id`, the latest deleted or disconnected row of the same WABA (or with the same display number) is re-pointed and its chats move with it. The response adds `"reconnected": true`. `409 Conflict` is only returned when the number is live in another organization. `GET /admin/phone-numbers` now includes `disconnectedAt`, `disconnectReason` and `disconnectReasonLabel` for each number.
 
+### What each role gets from `GET /admin/phone-numbers`
+
+Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). The month's `usage` depends on the role, and no tenant role receives an amount in USD:
+
+| Role | `usage` fields | Number fields |
+|---|---|---|
+| ADMIN | `period`, `tokens` (one per message sent) | no budget fields |
+| SUPERADMIN | plus `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
+| OWNER | plus `pricing`, `plan`, `prorated`, `billedUsd`, `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` | `monthlyBudgetUsd`, `budgetExceededAt` |
+
+`monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
+
 ## Cotización — Leads (productos sin cotización online)
 
 Para los productos cuyo precio no se cotiza online (bici, comercio, praxis,

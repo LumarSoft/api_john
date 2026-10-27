@@ -132,6 +132,7 @@ export class OwnerService {
       numbers,
       billing: {
         period: currentPeriod(),
+        pricing: this.usage.commercialPricing,
         activeNumbers: numbers.filter(n => n.isActive).length,
         ...round2(billing),
       },

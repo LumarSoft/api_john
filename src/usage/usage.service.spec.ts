@@ -45,18 +45,18 @@ function setup(phoneOverrides: Record<string, unknown> = {}) {
 const live = { isActive: true, serviceStartedAt: new Date('2026-08-10T15:00:00Z') }
 
 describe('token plans', () => {
-  it('picks the smallest plan that covers the tokens, in blocks of 1,000 at USD 50', () => {
+  it('picks the smallest plan that covers the tokens, in blocks of 1,000 at USD 60', () => {
     const { service } = setup()
-    expect(service.planFor(0)).toEqual({ blocks: 1, name: 'Inicial', includedTokens: 1000, priceUsd: 50 })
-    expect(service.planFor(1000)).toMatchObject({ name: 'Inicial', priceUsd: 50 })
-    expect(service.planFor(1001)).toMatchObject({ blocks: 2, name: 'Estándar', includedTokens: 2000, priceUsd: 100 })
-    expect(service.planFor(2001)).toMatchObject({ name: 'Profesional', priceUsd: 150 })
-    expect(service.planFor(4000)).toMatchObject({ name: 'Avanzado', priceUsd: 200 })
+    expect(service.planFor(0)).toEqual({ blocks: 1, name: 'Inicial', includedTokens: 1000, priceUsd: 60 })
+    expect(service.planFor(1000)).toMatchObject({ name: 'Inicial', priceUsd: 60 })
+    expect(service.planFor(1001)).toMatchObject({ blocks: 2, name: 'Estándar', includedTokens: 2000, priceUsd: 120 })
+    expect(service.planFor(2001)).toMatchObject({ name: 'Profesional', priceUsd: 180 })
+    expect(service.planFor(4000)).toMatchObject({ name: 'Avanzado', priceUsd: 240 })
     expect(service.planFor(4500)).toEqual({
       blocks: 5,
       name: 'Avanzado + 1.000',
       includedTokens: 5000,
-      priceUsd: 250,
+      priceUsd: 300,
     })
   })
 
@@ -65,16 +65,16 @@ describe('token plans', () => {
     expect(service.billFor(live, { metaMessages: 1430, openaiInputTokens: 5_000_000 }, '2026-10')).toMatchObject({
       tokens: 1430,
       plan: { name: 'Estándar' },
-      billedUsd: 100,
+      billedUsd: 120,
       prorated: false,
     })
   })
 
   it('charges the Inicial plan for a quiet month and recalculates the plan every month', () => {
     const { service } = setup()
-    expect(service.billFor(live, undefined, '2026-09').billedUsd).toBe(50)
-    expect(service.billFor(live, { metaMessages: 2150 }, '2026-09').billedUsd).toBe(150)
-    expect(service.billFor(live, { metaMessages: 820 }, '2026-10').billedUsd).toBe(50)
+    expect(service.billFor(live, undefined, '2026-09').billedUsd).toBe(60)
+    expect(service.billFor(live, { metaMessages: 2150 }, '2026-09').billedUsd).toBe(180)
+    expect(service.billFor(live, { metaMessages: 820 }, '2026-10').billedUsd).toBe(60)
   })
 
   it('does not bill a number before it goes live, nor a switched-off number that sent nothing', () => {
@@ -82,7 +82,7 @@ describe('token plans', () => {
     expect(service.billFor({ isActive: true, serviceStartedAt: null }, undefined, '2026-10').billedUsd).toBe(0)
     expect(service.billFor(live, undefined, '2026-07').billedUsd).toBe(0)
     expect(service.billFor({ ...live, isActive: false }, undefined, '2026-10').billedUsd).toBe(0)
-    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 1500 }, '2026-10').billedUsd).toBe(100)
+    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 1500 }, '2026-10').billedUsd).toBe(120)
   })
 
   it('prorates only the Inicial plan of the first month, from the day the number went live', () => {
@@ -90,18 +90,18 @@ describe('token plans', () => {
     // 21 October in Argentina: 11 of 31 days in service.
     const startedOct21 = { isActive: true, serviceStartedAt: new Date('2026-10-21T13:00:00Z') }
     expect(service.billFor(startedOct21, { metaMessages: 300 }, '2026-10')).toMatchObject({
-      billedUsd: 17.74,
+      billedUsd: 21.29,
       prorated: true,
     })
     expect(service.billFor(startedOct21, { metaMessages: 1500 }, '2026-10')).toMatchObject({
-      billedUsd: 100,
+      billedUsd: 120,
       prorated: false,
     })
-    expect(service.billFor(startedOct21, { metaMessages: 300 }, '2026-11').billedUsd).toBe(50)
+    expect(service.billFor(startedOct21, { metaMessages: 300 }, '2026-11').billedUsd).toBe(60)
     // 30 September 22:00 in Argentina is still September: October is a full month.
     const startedSep30 = { isActive: true, serviceStartedAt: new Date('2026-10-01T01:00:00Z') }
-    expect(service.billFor(startedSep30, undefined, '2026-10').billedUsd).toBe(50)
-    expect(service.billFor(startedSep30, undefined, '2026-09')).toMatchObject({ billedUsd: 1.67, prorated: true })
+    expect(service.billFor(startedSep30, undefined, '2026-10').billedUsd).toBe(60)
+    expect(service.billFor(startedSep30, undefined, '2026-09')).toMatchObject({ billedUsd: 2, prorated: true })
   })
 
   it('dates the start of service from the first event of the first month, or that month when it has none', async () => {
@@ -153,7 +153,7 @@ describe('monthly usage recording', () => {
       metaBillableMessages: 1,
       totalCostUsd: 0.026,
     })
-    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 50 } })
+    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 60 } })
   })
 
   it('stores the next plan once a month passes the tokens of its plan', async () => {
@@ -167,7 +167,7 @@ describe('monthly usage recording', () => {
       timestamp: Date.parse('2026-10-20T12:00:00Z') / 1000,
       billable: true,
     })
-    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 100 } })
+    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 120 } })
   })
 
   it('deduplicates status retries durably by phone/message id', async () => {
@@ -244,8 +244,8 @@ describe('monthly usage recording', () => {
       },
     ])
     const report = await service.getSummary(2, [8], '2026-10')
-    expect(report.rows[0]).toMatchObject({ tokens: 1430, plan: { name: 'Estándar' }, billedUsd: 100, marginUsd: 90 })
-    expect(report.totals).toMatchObject({ billedUsd: 100, marginUsd: 90 })
+    expect(report.rows[0]).toMatchObject({ tokens: 1430, plan: { name: 'Estándar' }, billedUsd: 120, marginUsd: 110 })
+    expect(report.totals).toMatchObject({ billedUsd: 120, marginUsd: 110 })
   })
 })
 

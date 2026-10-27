@@ -10,9 +10,10 @@ con mínimo USD 50 y máximo USD 100.
   y mensajes de la oficina desde el panel. Es el contador `metaMessages`. Los
   mensajes que escriben los clientes y los que se envían desde la app WhatsApp
   Business del celular no cuentan.
-- Los tokens se venden en bloques de 1.000 a USD 50: Inicial (hasta 1.000,
-  USD 50), Estándar (hasta 2.000, USD 100), Profesional (hasta 3.000, USD 150),
-  Avanzado (hasta 4.000, USD 200) y luego USD 50 por cada 1.000 más.
+- Los tokens se venden en bloques de 1.000 a USD 60: Inicial (hasta 1.000,
+  USD 60), Estándar (hasta 2.000, USD 120), Profesional (hasta 3.000, USD 180),
+  Avanzado (hasta 4.000, USD 240) y luego USD 60 por cada 1.000 más. El precio
+  del bloque pasó de USD 50 a USD 60 el 27 de octubre de 2026.
 - El plan se elige cada mes con los tokens de ese mes: si se pasa de su plan,
   ese mes se factura el siguiente; si baja, vuelve al que corresponda.
 - Un número activo paga al menos el plan Inicial, aunque no envíe mensajes.
@@ -26,17 +27,23 @@ El inicio de servicio es el primer evento de consumo del primer mes con
 registros del número (`UsageEvent` dentro del primer `UsageMonthly.period`).
 Los meses registrados antes de que existieran eventos toman el día 1.
 
-`COMMERCIAL_TOKEN_BLOCK_SIZE` (1000) y `COMMERCIAL_TOKEN_BLOCK_PRICE_USD` (50)
+`COMMERCIAL_TOKEN_BLOCK_SIZE` (1000) y `COMMERCIAL_TOKEN_BLOCK_PRICE_USD` (60)
 configuran los bloques. Las variables `COMMERCIAL_MONTHLY_MIN_USD`,
 `COMMERCIAL_MONTHLY_MAX_USD`, `COMMERCIAL_TOKEN_PRICE_PER_1000` y
 `COMMERCIAL_META_MESSAGE_PRICE_USD` ya no se usan.
 
 El costo estimado de los proveedores se registra por separado y se muestra
 únicamente al propietario, junto con la ganancia: importe comercial menos costo.
-El panel del cliente muestra tokens, plan e importe, sin el costo de proveedores.
+
+Qué ve cada rol del consumo del mes (pantalla Números):
+
+- Admin: los tokens de cada número. Ningún importe en dólares.
+- SuperAdmin: además, los mensajes enviados y las llamadas y tokens de OpenAI.
+- Owner: además, el plan en el que se factura cada número, su precio, el costo
+  de los proveedores y la ganancia (detalle de cada organización).
 
 El presupuesto por número (`monthlyBudgetUsd`, por defecto
-`DEFAULT_MONTHLY_BUDGET_USD`) limita solo el gasto de OpenAI: al alcanzarlo el
+`DEFAULT_MONTHLY_BUDGET_USD`; solo lo fija el Owner) limita solo el gasto de OpenAI: al alcanzarlo el
 bot deja de usar el LLM. El costo de Meta ya no cuenta, porque cada mensaje es
 un token que paga el cliente; con el criterio anterior un número del plan
 Estándar superaba USD 20 de Meta y perdía el LLM.

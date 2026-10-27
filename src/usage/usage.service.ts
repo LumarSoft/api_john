@@ -126,7 +126,7 @@ export class UsageService {
     this.defaultBudget = Number(config.get('DEFAULT_MONTHLY_BUDGET_USD') ?? 20)
     this.commercialPricing = {
       blockTokens: Number(config.get('COMMERCIAL_TOKEN_BLOCK_SIZE') ?? 1000),
-      blockPriceUsd: Number(config.get('COMMERCIAL_TOKEN_BLOCK_PRICE_USD') ?? 50),
+      blockPriceUsd: Number(config.get('COMMERCIAL_TOKEN_BLOCK_PRICE_USD') ?? 60),
     }
     if (
       Object.values(this.commercialPricing).some(value => !Number.isFinite(value) || value <= 0) ||

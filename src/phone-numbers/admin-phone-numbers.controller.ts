@@ -26,14 +26,16 @@ import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 export class AdminPhoneNumbersController {
   constructor(private readonly service: PhoneNumbersService) {}
 
+  // Admins may read the month's tokens; managing numbers stays with the SuperAdmin.
   @Get()
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   list(@Request() req: AuthenticatedRequest, @Query('period') period?: string) {
     return this.service.list(req.user.producerId, req.user.role, period)
   }
 
   @Post()
   create(@Request() req: AuthenticatedRequest, @Body() dto: CreatePhoneNumberDto) {
-    return this.service.create(req.user.producerId, dto)
+    return this.service.create(req.user.producerId, dto, req.user.role)
   }
 
   @Patch(':id')
@@ -42,7 +44,7 @@ export class AdminPhoneNumbersController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: UpdatePhoneNumberDto,
   ) {
-    return this.service.update(id, req.user.producerId, dto)
+    return this.service.update(id, req.user.producerId, dto, req.user.role)
   }
 
   @Delete(':id')

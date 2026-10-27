@@ -7,6 +7,8 @@ describe('monthly phone number report', () => {
   function setup() {
     const prisma = {
       phoneNumber: {
+        findFirst: jest.fn().mockResolvedValue({ id: 1 }),
+        update: jest.fn().mockResolvedValue({}),
         findMany: jest.fn().mockResolvedValue([
           {
             id: 1,
@@ -38,33 +40,57 @@ describe('monthly phone number report', () => {
     return { prisma, service: new PhoneNumbersService(prisma as any, usage as any) }
   }
 
-  it('selects one month within the organization and shows its tokens, plan and activity', async () => {
+  const ownerOnly = ['pricing', 'plan', 'prorated', 'billedUsd', 'totalCostUsd', 'marginUsd', 'metaBillableMessages']
+
+  it('shows an admin only the tokens of the month, never an amount in USD', async () => {
     const { service, prisma } = setup()
-    const rows = await service.list(2, Role.SUPERADMIN, '2026-09')
+    const [row] = await service.list(2, Role.ADMIN, '2026-09')
     expect(prisma.phoneNumber.findMany.mock.calls[0][0]).toMatchObject({
       where: { producerId: 2, deletedAt: null },
       select: { usageMonthly: { where: { period: '2026-09' } } },
     })
-    expect(rows[0].usage).toMatchObject({
-      period: '2026-09',
-      tokens: 1200,
-      plan: { name: 'Estándar', includedTokens: 2000 },
-      billedUsd: 100,
-      openaiCalls: 80,
-      metaMessages: 1200,
-    })
-    expect(rows[0].usage).not.toHaveProperty('totalCostUsd')
-    expect(rows[0].usage).not.toHaveProperty('marginUsd')
-    expect(rows[0].usage).not.toHaveProperty('metaBillableMessages')
+    expect(row.usage).toEqual({ period: '2026-09', tokens: 1200 })
+    expect(row).not.toHaveProperty('monthlyBudgetUsd')
+    expect(row).not.toHaveProperty('budgetExceededAt')
   })
 
-  it('exposes provider cost and profit only to the owner', async () => {
+  it('shows a superadmin the messages and the OpenAI calls and tokens, without plan or USD', async () => {
     const { service } = setup()
-    expect((await service.list(2, Role.OWNER, '2026-09'))[0].usage).toMatchObject({
+    const [row] = await service.list(2, Role.SUPERADMIN, '2026-09')
+    expect(row.usage).toMatchObject({
+      tokens: 1200,
+      metaMessages: 1200,
+      openaiCalls: 80,
+      inputTokens: 10000,
+      outputTokens: 1000,
+    })
+    for (const field of ownerOnly) expect(row.usage).not.toHaveProperty(field)
+    expect(row).not.toHaveProperty('monthlyBudgetUsd')
+    expect(row).toHaveProperty('budgetExceededAt')
+  })
+
+  it('shows the owner the plan it bills, its price, the provider cost and the profit', async () => {
+    const { service } = setup()
+    const [row] = await service.list(2, Role.OWNER, '2026-09')
+    expect(row.usage).toMatchObject({
+      tokens: 1200,
+      openaiCalls: 80,
+      pricing: { blockTokens: 1000, blockPriceUsd: 60 },
+      plan: { name: 'Estándar', includedTokens: 2000, priceUsd: 120 },
+      billedUsd: 120,
       totalCostUsd: 5.21,
-      marginUsd: 94.79,
+      marginUsd: 114.79,
       metaBillableMessages: 200,
     })
+    expect(row).toHaveProperty('monthlyBudgetUsd')
+  })
+
+  it('lets only the owner set the AI budget of a number', async () => {
+    const { service, prisma } = setup()
+    await service.update(1, 2, { number: '+5493416000001', monthlyBudgetUsd: 500 }, Role.SUPERADMIN)
+    expect(prisma.phoneNumber.update.mock.calls[0][0].data).toEqual({ number: '+5493416000001' })
+    await service.update(1, 2, { monthlyBudgetUsd: 30 }, Role.OWNER)
+    expect(prisma.phoneNumber.update.mock.calls[1][0].data).toEqual({ monthlyBudgetUsd: 30 })
   })
 
   it('rejects invalid and future month selectors', async () => {

@@ -9,8 +9,8 @@ import { describeDisconnectReason } from '../whatsapp-onboarding/whatsapp-connec
 /**
  * SuperAdmin management of the organization's WhatsApp numbers. Billing is per
  * active number, on token plans; each carries a responsible code + the codes it
- * serves + a monthly OpenAI budget. The list embeds the month's tokens and plan
- * so the admin sees the charge at a glance.
+ * serves + a monthly OpenAI budget. The list embeds the month's tokens so the
+ * office sees its consumption at a glance.
  */
 @Injectable()
 export class PhoneNumbersService {
@@ -23,16 +23,17 @@ export class PhoneNumbersService {
    * Numbers of an organization with the running month's figures.
    *
    * What the caller sees depends on the role:
-   *   - SUPERADMIN/ADMIN (the client) get what they are being charged
-   *   - OWNER (Lumar) additionally gets the provider cost and the margin
+   *   - ADMIN: the tokens of the month (one per message sent), what the client pays for
+   *   - SUPERADMIN: also the messages and the OpenAI calls and tokens
+   *   - OWNER (Lumar): also the plan, its price, the provider cost and the margin
    *
-   * The provider cost is deliberately withheld from tenants: it is our cost
-   * structure, not part of their invoice.
+   * Amounts in USD are withheld from tenants: the client is billed in tokens.
    */
   async list(producerId: number, role?: Role, period = currentPeriod()) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || period > currentPeriod())
       throw new BadRequestException('Mes inválido')
     const isOwner = role === Role.OWNER
+    const seesActivity = isOwner || role === Role.SUPERADMIN
     const numbers = await this.prisma.phoneNumber.findMany({
       where: { producerId, deletedAt: null },
       select: {
@@ -79,8 +80,9 @@ export class PhoneNumbersService {
         phoneNumberId: n.phoneNumberId,
         number: n.number,
         isActive: n.isActive,
-        monthlyBudgetUsd: n.monthlyBudgetUsd != null ? Number(n.monthlyBudgetUsd) : null,
-        budgetExceededAt: n.budgetExceededAt,
+        // The AI budget guards our OpenAI cost: the SuperAdmin only learns that the AI paused.
+        ...(isOwner ? { monthlyBudgetUsd: n.monthlyBudgetUsd != null ? Number(n.monthlyBudgetUsd) : null } : {}),
+        ...(seesActivity ? { budgetExceededAt: n.budgetExceededAt } : {}),
         // Set when Meta dropped the number off Cloud API; cleared by reconnecting.
         disconnectedAt: n.wabaAccount?.disconnectedAt ?? null,
         disconnectReason: n.wabaAccount?.disconnectReason ?? null,
@@ -91,21 +93,24 @@ export class PhoneNumbersService {
         servedCodes: n.servedCodes.map(s => s.producerCode),
         usage: {
           period,
-          pricing: this.usage.commercialPricing,
-          // Activity is not sensitive: the client may see its own volume.
-          openaiCalls: usage?.openaiCalls ?? 0,
-          metaMessages: usage?.metaMessages ?? 0,
-          inputTokens: usage?.openaiInputTokens ?? 0,
-          outputTokens: usage?.openaiOutputTokens ?? 0,
-          metaConversations: usage?.metaConversations ?? 0,
-          // What the client is being charged: one token per message sent.
+          // What the client pays for: one token per message sent.
           tokens: bill.tokens,
-          plan: bill.plan,
-          prorated: bill.prorated,
-          billedUsd: bill.billedUsd,
-          // Our cost and margin: owner only.
+          ...(seesActivity
+            ? {
+                metaMessages: usage?.metaMessages ?? 0,
+                metaConversations: usage?.metaConversations ?? 0,
+                openaiCalls: usage?.openaiCalls ?? 0,
+                inputTokens: usage?.openaiInputTokens ?? 0,
+                outputTokens: usage?.openaiOutputTokens ?? 0,
+              }
+            : {}),
+          // The plan it is billed on, our cost and margin: owner only.
           ...(isOwner
             ? {
+                pricing: this.usage.commercialPricing,
+                plan: bill.plan,
+                prorated: bill.prorated,
+                billedUsd: bill.billedUsd,
                 metaBillableMessages: usage?.metaBillableMessages ?? 0,
                 openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
                 metaCostUsd: Number(usage?.metaCostUsd ?? 0),
@@ -118,7 +123,12 @@ export class PhoneNumbersService {
     })
   }
 
-  async create(producerId: number, dto: CreatePhoneNumberDto) {
+  /** The AI budget is our cost guard: only the owner sets it, other roles' value is ignored. */
+  private budgetFrom(dto: { monthlyBudgetUsd?: number }, role?: Role) {
+    return role === Role.OWNER ? dto.monthlyBudgetUsd : undefined
+  }
+
+  async create(producerId: number, dto: CreatePhoneNumberDto, role?: Role) {
     const existing = await this.prisma.phoneNumber.findUnique({
       where: { phoneNumberId: dto.phoneNumberId },
       select: { id: true },
@@ -136,7 +146,7 @@ export class PhoneNumbersService {
         number: dto.number,
         producerId,
         responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
-        monthlyBudgetUsd: dto.monthlyBudgetUsd ?? null,
+        monthlyBudgetUsd: this.budgetFrom(dto, role) ?? null,
       },
       select: { id: true },
     })
@@ -145,8 +155,9 @@ export class PhoneNumbersService {
     return { id: phone.id }
   }
 
-  async update(id: number, producerId: number, dto: UpdatePhoneNumberDto) {
+  async update(id: number, producerId: number, dto: UpdatePhoneNumberDto, role?: Role) {
     await this.findOneOrThrow(id, producerId)
+    const budget = this.budgetFrom(dto, role)
 
     const codesToCheck = [dto.responsibleProducerCodeId, ...(dto.servedCodeIds ?? [])].filter(
       (x): x is number => x != null,
@@ -160,7 +171,7 @@ export class PhoneNumbersService {
         ...(dto.responsibleProducerCodeId !== undefined
           ? { responsibleProducerCodeId: dto.responsibleProducerCodeId }
           : {}),
-        ...(dto.monthlyBudgetUsd !== undefined ? { monthlyBudgetUsd: dto.monthlyBudgetUsd } : {}),
+        ...(budget !== undefined ? { monthlyBudgetUsd: budget } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     })
