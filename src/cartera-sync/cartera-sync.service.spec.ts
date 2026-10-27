@@ -44,6 +44,45 @@ describe('CarteraSyncService on boot', () => {
   })
 })
 
+describe('CarteraSyncService per organization', () => {
+  it("asks each organization's codes with its own credentials and skips one without them", async () => {
+    const prisma = {
+      producer: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, masterCode: '11425', producerCodes: [{ id: 10, code: '11425', lastCarteraSyncAt: new Date() }] },
+          { id: 2, masterCode: '20001', producerCodes: [{ id: 20, code: '20001', lastCarteraSyncAt: null }] },
+          { id: 3, masterCode: '30001', producerCodes: [{ id: 30, code: '30001', lastCarteraSyncAt: null }] },
+        ]),
+      },
+      producerCode: { update: jest.fn().mockResolvedValue({}) },
+    }
+    const jpmg = { productor: '10484', usuario: 'JPMG', password: 'a' }
+    const norte = { productor: '20001', usuario: 'NORTE', password: 'b' }
+    const triunfo = {
+      credentialsFor: jest.fn(async (id: number) => {
+        if (id === 1) return jpmg
+        if (id === 2) return norte
+        throw new Error('La organización 3 no tiene configurada la integración con Triunfo')
+      }),
+      getNovedadesCartera: jest.fn().mockResolvedValue([]),
+    }
+    const service = new CarteraSyncService(
+      prisma as unknown as PrismaService,
+      triunfo as unknown as TriunfoService,
+      { get: () => undefined } as unknown as ConfigService,
+    )
+
+    const result = await service.syncCartera()
+
+    expect(triunfo.getNovedadesCartera.mock.calls.map(call => [call[2], call[3]])).toEqual([
+      [jpmg, '11425'],
+      [norte, '20001'],
+    ])
+    expect(prisma.producerCode.update).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 30 } }))
+    expect(result.codesProcessed).toBe(2)
+  })
+})
+
 describe('resolveRiskType', () => {
   const covering = (...items: Array<[string, string]>) =>
     riesgosOf({

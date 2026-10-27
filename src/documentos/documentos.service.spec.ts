@@ -5,6 +5,7 @@ import type { TriunfoService } from '../triunfo/triunfo.service'
 const LINK = (name: string) => `https://www.triunfonet.com.ar/gauswebtriunfo/servlet/${name}?abc`
 
 const POLICY = {
+  producerId: 3,
   certificateNumber: '1234567',
   rawData: { Articulo: 458, Empresa: 'T', Sucursal: 'CC' },
   producerCode: { code: '6088' },
@@ -32,6 +33,7 @@ describe('DocumentosService', () => {
     await service.listForPolicy({ id: 1 })
 
     expect(triunfo.getDocumentos).toHaveBeenCalledWith({
+      producerId: 3,
       productor: '6088',
       empresa: 'T',
       sucursal: 'CC',

@@ -124,7 +124,8 @@ export class CotizadorService {
       throw new BadRequestException(`Un 0 km no puede ser del año ${dto.manufactureYear}. Revisá el año o si es usado.`)
     }
     await this.infoAuto.validateVehicleYear(vehicleType, brandNumber, codiaNumber, dto.manufactureYear)
-    const auth = await this.triunfo.getAuth()
+    // Quoted with the organization's own Triunfo account (null = the default org's).
+    const auth = await this.triunfo.getAuth(producerId)
 
     // Vehicle value comes from InfoAuto when valuation is contracted. It is not
     // today (403), so this resolves to null and Valor "0" tells Triunfo to look
@@ -266,6 +267,24 @@ export class CotizadorService {
     if (value > 0) return false
     const rejected = toArray(raw.SDTSrvCotizacionOut?.Coberturas).filter(c => c.Resultado?.Estado === 'N')
     return rejected.length > 0 && quote.coverages.every(c => c.code === 'A')
+  }
+
+  /**
+   * A quote the WhatsApp bot asks for on a number: it belongs to the number's
+   * organization and goes out with its Triunfo account, instead of falling to
+   * the default organization like an anonymous web quote.
+   */
+  async quoteVehicleForNumber(
+    phoneNumberId: string,
+    vehicleType: VehicleType,
+    dto: QuoteVehicleDto,
+  ): Promise<QuoteAutoResult> {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { phoneNumberId, isActive: true, deletedAt: null },
+      select: { producerId: true },
+    })
+    if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
+    return this.quoteVehicle(vehicleType, dto, phone.producerId, null)
   }
 
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {

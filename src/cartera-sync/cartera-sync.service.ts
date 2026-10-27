@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { insuresAPerson, riesgosOf, RiesgoCubierto } from '../common/poliza-detail'
 import {
   TriunfoService,
+  type TriunfoCredentials,
   type TriunfoNovedad,
   type TriunfoCuotaDato,
   type TriunfoVehiculoDato,
@@ -227,6 +228,16 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     let codesProcessed = 0
 
     for (const producer of producers) {
+      // Each organization's cartera is asked with its own Triunfo credentials.
+      // One without them is skipped: its codes cannot be read with another's.
+      let credentials: TriunfoCredentials
+      try {
+        credentials = await this.triunfo.credentialsFor(producer.id)
+      } catch (err) {
+        this.logger.warn(`Producer ${producer.id}: cartera sync skipped — ${err instanceof Error ? err.message : err}`)
+        continue
+      }
+
       // Defensive fallback: if no ProducerCode rows are loaded yet (migration/seed
       // not applied), fall back to a single query with the env master code so the
       // sync isn't silently empty. Attributes to null (back-fill to master later).
@@ -254,8 +265,8 @@ export class CarteraSyncService implements OnApplicationBootstrap {
 
         let novedades: TriunfoNovedad[] = []
         try {
-          // code undefined → TriunfoService defaults to TRIUNFO_PRODUCTOR (env master).
-          novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, target.code)
+          // code undefined → TriunfoService uses the credential's own code.
+          novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, credentials, target.code)
           this.logger.log(
             `Code ${label}: ${novedades.length} novedades (${months}m: ${fechaDesde} → ${fechaHasta}${target.lastSyncAt ? '' : ', backfill inicial'})`,
           )

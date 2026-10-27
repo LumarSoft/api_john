@@ -222,6 +222,59 @@ describe('BotService', () => {
         expect.objectContaining({ producerId: 1, botEnabled: false }),
       )
     })
+
+    const producer = (over: Record<string, unknown>) => ({
+      producer: {
+        id: 2,
+        name: 'Seguros Norte SRL',
+        slug: 'seguros-norte',
+        botName: null,
+        botEnabled: true,
+        businessHours: null,
+        botProfile: null,
+        systemPrompt: 'x',
+        isActive: true,
+        ...over,
+      },
+    })
+
+    it("gives the bot the organization's own name and data", async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue(
+        producer({
+          botProfile: {
+            orgName: 'Seguros Norte',
+            towTruckPhone: '0800-111-2222',
+            cashPaymentPlaces: 'Rapipago o Pago Fácil',
+            claimsEmail: 'siniestros@norte.test',
+          },
+        }),
+      )
+
+      const { profile } = await service.getContext('P2')
+
+      expect(profile).toEqual({
+        orgName: 'Seguros Norte',
+        orgShortName: null,
+        orgLegalName: null,
+        towTruckPhone: '0800-111-2222',
+        claimsPhone: null,
+        cashPaymentPlaces: 'Rapipago o Pago Fácil',
+        transfer: null,
+      })
+      expect(profile).not.toHaveProperty('claimsEmail')
+    })
+
+    it('names an organization without a profile by its own name, never JPMG', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue(producer({}))
+      await expect(service.getContext('P2')).resolves.toMatchObject({
+        profile: { orgName: 'Seguros Norte SRL', towTruckPhone: null, transfer: null },
+      })
+    })
+
+    it('lets the default organization keep the bot values until it saves a profile', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue(producer({ id: 1, slug: 'john' }))
+      await expect(service.getContext('P1')).resolves.toMatchObject({ profile: null })
+    })
   })
 
   describe('getOrCreateConversation', () => {

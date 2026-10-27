@@ -1,8 +1,9 @@
 import { of } from 'rxjs'
-import { TriunfoService, type TriunfoPolicyRef } from './triunfo.service'
+import { TriunfoNotConfiguredException, TriunfoService, type TriunfoPolicyRef } from './triunfo.service'
 import type { HttpService } from '@nestjs/axios'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
+import { encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 
 const ENV: Record<string, string> = {
   TRIUNFO_BASE_URL_AUTH: 'https://auth.test',
@@ -13,6 +14,7 @@ const ENV: Record<string, string> = {
 }
 
 const REF: TriunfoPolicyRef = {
+  producerId: 1,
   productor: '6088',
   empresa: 'T',
   sucursal: 'CC',
@@ -22,9 +24,10 @@ const REF: TriunfoPolicyRef = {
 const LINK = 'https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?abc'
 
 function createService(http: Partial<Record<'post' | 'get', jest.Mock>>) {
-  const config = { getOrThrow: (key: string) => ENV[key] } as unknown as ConfigService
+  const config = { getOrThrow: (key: string) => ENV[key], get: (key: string) => ENV[key] } as unknown as ConfigService
   const service = new TriunfoService(http as unknown as HttpService, config, {} as PrismaService)
-  jest.spyOn(service, 'getAuth').mockResolvedValue({ Productor: '10484', JWT: 'jwt' })
+  jest.spyOn(service, 'credentialsFor').mockResolvedValue({ productor: '10484', usuario: 'USUARIO', password: 'md5' })
+  jest.spyOn(service, 'getToken').mockResolvedValue('jwt')
   return service
 }
 
@@ -134,5 +137,137 @@ describe('TriunfoService.downloadDocumento', () => {
       status: 502,
     })
     expect(get).not.toHaveBeenCalled()
+  })
+})
+
+describe('TriunfoService per-organization credentials', () => {
+  const KEY_HEX = 'a'.repeat(64)
+  const SECOND_ORG = {
+    productor: '20001',
+    username: 'OTRAORG',
+    password: encryptSecret('clave', resolveKey(KEY_HEX, 'K')),
+  }
+  const TOKEN = (exp: number) => `x.${Buffer.from(JSON.stringify({ exp })).toString('base64')}.y`
+
+  function setup(env: Record<string, string | undefined> = ENV) {
+    const producers: Record<number, { slug: string; triunfoCredential: unknown }> = {
+      1: { slug: 'john', triunfoCredential: null },
+      2: { slug: 'otra-org', triunfoCredential: { ...SECOND_ORG, deletedAt: null } },
+      3: { slug: 'sin-triunfo', triunfoCredential: null },
+      4: { slug: 'borrada', triunfoCredential: { ...SECOND_ORG, deletedAt: new Date() } },
+    }
+    const prisma = {
+      producer: {
+        findFirst: jest.fn(({ where }: { where: { id?: number; slug?: string } }) =>
+          Promise.resolve(
+            where.id !== undefined ? (producers[where.id] ?? null) : where.slug === 'john' ? { id: 1 } : null,
+          ),
+        ),
+      },
+      integrationToken: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({}) },
+    }
+    const config = {
+      getOrThrow: (key: string) => env[key],
+      get: (key: string, fallback?: string) => (key === 'WABA_TOKEN_ENCRYPTION_KEY' ? KEY_HEX : (env[key] ?? fallback)),
+    } as unknown as ConfigService
+    const post = jest.fn().mockImplementation(() => of({ data: { Token: TOKEN(Date.now() / 1000 + 86_400) } }))
+    const service = new TriunfoService({ post } as unknown as HttpService, config, prisma as unknown as PrismaService)
+    return { service, post, prisma }
+  }
+
+  it('gives an organization its own credentials, decrypted', async () => {
+    const { service } = setup()
+    await expect(service.credentialsFor(2)).resolves.toEqual({
+      productor: '20001',
+      usuario: 'OTRAORG',
+      password: 'clave',
+    })
+  })
+
+  it('keeps the default organization on the TRIUNFO_* settings while it has none of its own', async () => {
+    const { service } = setup()
+    const env = { productor: '10484', usuario: 'USUARIO', password: 'md5' }
+    await expect(service.credentialsFor(1)).resolves.toEqual(env)
+    await expect(service.credentialsFor(null)).resolves.toEqual(env)
+  })
+
+  it("never lends the default organization's credentials to another one", async () => {
+    const { service } = setup()
+    await expect(service.credentialsFor(3)).rejects.toBeInstanceOf(TriunfoNotConfiguredException)
+    await expect(service.credentialsFor(4)).rejects.toBeInstanceOf(TriunfoNotConfiguredException)
+  })
+
+  it('reads the stored credentials once and again after they change', async () => {
+    const { service, prisma } = setup()
+    await service.credentialsFor(2)
+    await service.credentialsFor(2)
+    expect(prisma.producer.findFirst).toHaveBeenCalledTimes(1)
+
+    service.forgetCredentials(2)
+    await service.credentialsFor(2)
+    expect(prisma.producer.findFirst).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports the default organization as not configured without settings or credentials of its own', async () => {
+    const { service } = setup({ TRIUNFO_BASE_URL_AUTH: 'https://auth.test', TRIUNFO_BASE_URL_SIP: 'https://sip.test' })
+    await expect(service.credentialsFor(null)).rejects.toBeInstanceOf(TriunfoNotConfiguredException)
+  })
+
+  it('keeps one token per credential set, under the key JPMG already has', async () => {
+    const { service, post, prisma } = setup()
+
+    const jpmg = await service.getAuth(1)
+    await service.getAuth(1)
+    const other = await service.getAuth(2)
+
+    expect(post).toHaveBeenCalledTimes(2)
+    expect(post).toHaveBeenCalledWith(
+      'https://auth.test/getTokenRest',
+      { SDTProductor: { Codigo: '20001', Usuario: 'OTRAORG', Password: 'clave' } },
+      expect.any(Object),
+    )
+    expect(jpmg.Productor).toBe('10484')
+    expect(other.Productor).toBe('20001')
+    expect(prisma.integrationToken.upsert.mock.calls.map(([arg]) => arg.where.key)).toEqual([
+      'triunfo:10484:USUARIO',
+      'triunfo:20001:OTRAORG',
+    ])
+  })
+
+  it("asks an organization's cartera with its own user and password", async () => {
+    const { service, post } = setup()
+    post.mockReturnValue(of({ data: { SDTWSNovedadesCarteraOut: { Resultado: { Estado: 'S' }, Novedades: [] } } }))
+
+    await service.getNovedadesCartera('2026-10-01', '2026-10-05', await service.credentialsFor(2), '20002')
+
+    expect(post).toHaveBeenCalledWith(
+      'https://sip.test/RESTNovedadesCartera',
+      expect.objectContaining({
+        SDTWSNovedadesIn: expect.objectContaining({
+          Productor: { Codigo: '20002', Usuario: 'OTRAORG', Password: 'clave' },
+        }),
+      }),
+      expect.any(Object),
+    )
+  })
+
+  it('checks new credentials with Triunfo itself, skipping the stored token', async () => {
+    const { service, post, prisma } = setup()
+    prisma.integrationToken.findUnique.mockResolvedValue({ token: 'old', expiresAt: new Date(Date.now() + 86_400_000) })
+
+    await service.verifyCredentials({ productor: '20001', usuario: 'OTRAORG', password: 'nueva' })
+
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(prisma.integrationToken.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('reports what Triunfo says when it refuses the credentials', async () => {
+    const { service, post } = setup()
+    post.mockReturnValue(
+      of({ data: { SDTResultado: { Mensajes: [{ Description: 'Usuario o contraseña incorrectos' }] } } }),
+    )
+    await expect(
+      service.verifyCredentials({ productor: '20001', usuario: 'OTRAORG', password: 'mala' }),
+    ).rejects.toThrow('Usuario o contraseña incorrectos')
   })
 })

@@ -400,9 +400,17 @@ Returns the authenticated user's profile.
   "role": "admin",
   "producerId": 1,
   "createdAt": "2026-06-08T00:00:00.000Z",
-  "updatedAt": "2026-06-08T00:00:00.000Z"
+  "updatedAt": "2026-06-08T00:00:00.000Z",
+  "organization": {
+    "slug": "john",
+    "name": "John",
+    "displayName": "John Pellegrini Management Group",
+    "shortName": "JPMG"
+  }
 }
 ```
+
+`organization` is the user's organization, so the panel shows its name: `displayName` is the bot profile's `orgName`, or `name` when it has none.
 
 `401 Unauthorized` — Missing or invalid token
 
@@ -666,6 +674,76 @@ Switch global: enciende o apaga todas las respuestas automáticas del bot de la 
 `404 Not Found`
 ```json
 { "statusCode": 404, "message": "Producer not found", "error": "Not Found" }
+```
+
+### GET /admin/config/profile
+
+What the bot says that is particular to the organization: how it names it, the grúa and claims lines, the transfer account and where to pay cash with the coupon, plus the e-mail that gets each new claim. A field never configured is `null`.
+
+**Auth required:** Yes (admin)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "orgName": "John Pellegrini Management Group",
+  "orgShortName": "JPMG",
+  "orgLegalName": "John Pellegrini Management Group SRL",
+  "towTruckPhone": "3415690470",
+  "claimsPhone": "0810-666-0302",
+  "cashPaymentPlaces": "Rapipago, Pago Fácil o Santa Fe Servicios",
+  "transferAlias": "TRUENO.VUELO.DELTA",
+  "transferCbu": "0070081820000004432793",
+  "transferHolder": "Triunfo Coop. de Seguros Ltda. (CUIT 30-50006577-6)",
+  "transferBank": "Banco Galicia",
+  "claimsEmail": null
+}
+```
+
+`404 Not Found`
+```json
+{ "statusCode": 404, "message": "Producer not found", "error": "Not Found" }
+```
+
+### PATCH /admin/config/profile
+
+Changes the fields sent; an empty string clears one. The bot reads it on its next message. Without `claimsEmail`, the default organization's claims keep going to `ADVISOR_EMAIL` and any other organization's are not e-mailed.
+
+**Auth required:** Yes (SuperAdmin)
+
+**Request body** (every field optional)
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| orgName | string | No | ≤ 120 |
+| orgShortName | string | No | ≤ 30 |
+| orgLegalName | string | No | ≤ 160 |
+| towTruckPhone | string | No | ≤ 40 |
+| claimsPhone | string | No | ≤ 40; empty → the bot gives Triunfo's line |
+| cashPaymentPlaces | string | No | ≤ 200; empty → "Rapipago o Pago Fácil" |
+| transferAlias | string | No | ≤ 60 |
+| transferCbu | string | No | ≤ 30 |
+| transferHolder | string | No | ≤ 160 |
+| transferBank | string | No | ≤ 80 |
+| claimsEmail | string | No | e-mail or empty |
+
+```json
+{ "towTruckPhone": "0800-555-1234", "transferAlias": "" }
+```
+
+**Responses**
+
+`200 OK` — the whole profile, as in `GET /admin/config/profile`
+
+`400 Bad Request`
+```json
+{ "statusCode": 400, "message": ["claimsEmail must be an email"], "error": "Bad Request" }
+```
+
+`403 Forbidden`
+```json
+{ "statusCode": 403, "message": "Forbidden resource", "error": "Forbidden" }
 ```
 
 ## Admin — Asegurados
@@ -1421,11 +1499,62 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
   "staffNames": ["Mili", "Milagros"],
   "attentionHours": "Lunes a viernes de 8 a 16 hs",
   "systemPrompt": "Sos el asistente virtual de...",
-  "llmEnabled": true
+  "llmEnabled": true,
+  "profile": {
+    "orgName": "John Pellegrini Management Group",
+    "orgShortName": "JPMG",
+    "orgLegalName": "John Pellegrini Management Group SRL",
+    "towTruckPhone": "3415690470",
+    "claimsPhone": "0810-666-0302",
+    "cashPaymentPlaces": "Rapipago, Pago Fácil o Santa Fe Servicios",
+    "transfer": {
+      "alias": "TRUENO.VUELO.DELTA",
+      "cbu": "0070081820000004432793",
+      "holder": "Triunfo Coop. de Seguros Ltda. (CUIT 30-50006577-6)",
+      "bank": "Banco Galicia"
+    }
+  }
 }
 ```
 
+`profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU. It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
+
 `404 Not Found` — Phone number not registered or producer inactive
+
+### GET /bot/numbers/:phoneNumberId/hours
+
+Live hours (formatted week, open now, today's closure) of the organization that owns the number — the same shape as `GET /public/hours`, which only knows the default organization.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK` — as `GET /public/hours`
+
+`404 Not Found`
+```json
+{ "statusCode": 404, "message": "Phone number 123 is not registered", "error": "Not Found" }
+```
+
+### POST /bot/numbers/:phoneNumberId/cotizador/:vehicleType
+
+A quote the bot asks for on a number: same body and response as `POST /cotizador/:vehicleType`, but the quote belongs to the number's organization and goes out with that organization's Triunfo account.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`201 Created` — as `POST /cotizador/:vehicleType`
+
+`404 Not Found`
+```json
+{ "statusCode": 404, "message": "Phone number 123 is not registered", "error": "Not Found" }
+```
+
+`503 Service Unavailable` — the organization has no Triunfo credentials
+```json
+{ "statusCode": 503, "message": "La organización 2 no tiene configurada la integración con Triunfo", "error": "Service Unavailable" }
+```
 
 ### GET /bot/conversation/:phoneNumberId/:waId
 
@@ -2825,3 +2954,72 @@ Borra (soft delete) la carga y sus filas. Los avisos ya enviados siguen en los c
 `404 Not Found` — Rejection import not found
 
 `409 Conflict` — `Esperá a que terminen de enviarse los avisos antes de borrar la carga.`
+
+## Owner — Integración Triunfo
+
+Each organization quotes, syncs its cartera and downloads documents with its own Triunfo web-service user. The password is stored encrypted with `WABA_TOKEN_ENCRYPTION_KEY` and never returned. The default organization (`DEFAULT_PRODUCER_SLUG`) keeps working on `TRIUNFO_PRODUCTOR` / `TRIUNFO_USUARIO` / `TRIUNFO_PASSWORD` while it has none of its own; any other organization without credentials gets `503` on quotes and documents, and is skipped by the cartera sync.
+
+### GET /owner/organizations/:id/triunfo
+
+**Auth required:** Yes (OWNER)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "configured": true,
+  "productor": "20001",
+  "username": "NORTE",
+  "verifiedAt": "2026-10-27T13:00:00.000Z",
+  "usesDefaultSettings": false
+}
+```
+
+`404 Not Found`
+```json
+{ "statusCode": 404, "message": "Organization 9 not found", "error": "Not Found" }
+```
+
+### PUT /owner/organizations/:id/triunfo
+
+Asks Triunfo for a token with the credentials and saves them only if it accepts them.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| productor | string | Yes | numeric Triunfo producer code |
+| username | string | Yes | ≤ 100 |
+| password | string | Yes | ≤ 200 |
+
+```json
+{ "productor": "20001", "username": "NORTE", "password": "••••••" }
+```
+
+**Responses**
+
+`200 OK` — as `GET /owner/organizations/:id/triunfo`
+
+`400 Bad Request` — Triunfo refused them
+```json
+{ "statusCode": 400, "message": "No se pudo obtener token de Triunfo — Usuario o contraseña incorrectos", "error": "Bad Request" }
+```
+
+`502 Bad Gateway` — Triunfo could not be reached; nothing was saved
+```json
+{ "statusCode": 502, "message": "No se pudo contactar a Triunfo para validar las credenciales. Probá de nuevo.", "error": "Bad Gateway" }
+```
+
+### DELETE /owner/organizations/:id/triunfo
+
+Removes the organization's own credentials (soft delete).
+
+**Auth required:** Yes (OWNER)
+
+**Responses**
+
+`200 OK` — as `GET /owner/organizations/:id/triunfo`, with `configured: false`
+

@@ -123,3 +123,50 @@ describe('UsersService producer bot status', () => {
     })
   })
 })
+
+describe('UsersService bot profile', () => {
+  const createService = (producer: Record<string, unknown> | null) => {
+    const prisma = {
+      producer: { findFirst: jest.fn().mockResolvedValue(producer), update: jest.fn().mockResolvedValue({}) },
+      user: { findUnique: jest.fn() },
+    }
+    const alerts = { notify: jest.fn() }
+    return {
+      prisma,
+      service: new UsersService(prisma as unknown as PrismaService, alerts as unknown as BotStatusAlertService),
+    }
+  }
+
+  it('saves the fields sent over the stored profile', async () => {
+    const { prisma, service } = createService({
+      botProfile: { orgName: 'Seguros Norte', towTruckPhone: '0800-1', transferAlias: 'NORTE.PAGOS' },
+    })
+
+    const profile = await service.updateBotProfile(2, { towTruckPhone: ' 0800-222 ', transferAlias: '' })
+
+    expect(profile).toMatchObject({ orgName: 'Seguros Norte', towTruckPhone: '0800-222', transferAlias: null })
+    expect(prisma.producer.update).toHaveBeenCalledWith({
+      where: { id: 2 },
+      data: { botProfile: expect.objectContaining({ orgName: 'Seguros Norte', towTruckPhone: '0800-222' }) },
+    })
+  })
+
+  it('answers 404 for an organization that does not exist', async () => {
+    await expect(createService(null).service.getBotProfile(9)).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('tells the panel which organization the user belongs to, by the name the bot uses', async () => {
+    const { prisma, service } = createService(null)
+    prisma.user.findUnique.mockResolvedValue({
+      id: 7,
+      email: 'admin@norte.test',
+      producer: { name: 'SEGUROS NORTE SRL', slug: 'seguros-norte', botProfile: { orgName: 'Seguros Norte' } },
+    })
+
+    await expect(service.getProfile(7)).resolves.toEqual({
+      id: 7,
+      email: 'admin@norte.test',
+      organization: { slug: 'seguros-norte', name: 'SEGUROS NORTE SRL', displayName: 'Seguros Norte', shortName: null },
+    })
+  })
+})

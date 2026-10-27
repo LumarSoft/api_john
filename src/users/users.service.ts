@@ -9,6 +9,7 @@ import {
 import * as bcrypt from 'bcrypt'
 import { Prisma, Role } from 'generated/prisma/client'
 import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
+import { type BotProfile, mergeBotProfile, parseBotProfile } from '../common/bot-profile'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
@@ -91,6 +92,32 @@ export class UsersService {
       botEnabled: updated.botEnabled,
       staffNames: parseStaffNames(updated.staffNames),
     }
+  }
+
+  /** The organization's bot profile, as stored (null fields = not configured). */
+  async getBotProfile(producerId: number): Promise<BotProfile> {
+    const producer = await this.prisma.producer.findFirst({
+      where: { id: producerId, deletedAt: null },
+      select: { botProfile: true },
+    })
+    if (!producer) throw new NotFoundException('Producer not found')
+    return parseBotProfile(producer.botProfile)
+  }
+
+  /** Changes the fields sent (an empty string clears one) and returns the whole profile. */
+  async updateBotProfile(producerId: number, changes: Partial<Record<keyof BotProfile, string>>): Promise<BotProfile> {
+    const producer = await this.prisma.producer.findFirst({
+      where: { id: producerId, deletedAt: null },
+      select: { botProfile: true },
+    })
+    if (!producer) throw new NotFoundException('Producer not found')
+
+    const profile = mergeBotProfile(producer.botProfile, changes)
+    await this.prisma.producer.update({
+      where: { id: producerId },
+      data: { botProfile: profile as unknown as Prisma.InputJsonObject },
+    })
+    return profile
   }
 
   /**
@@ -219,8 +246,24 @@ export class UsersService {
     return { id }
   }
 
-  getProfile(userId: number) {
-    return this.prisma.user.findUnique({ where: { id: userId }, select: SAFE_SELECT })
+  /** The logged-in user, with the organization the panel shows its name for. */
+  async getProfile(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { ...SAFE_SELECT, producer: { select: { name: true, slug: true, botProfile: true } } },
+    })
+    if (!user) return null
+    const { producer, ...profile } = user
+    const brand = parseBotProfile(producer.botProfile)
+    return {
+      ...profile,
+      organization: {
+        slug: producer.slug,
+        name: producer.name,
+        displayName: brand.orgName ?? producer.name,
+        shortName: brand.orgShortName,
+      },
+    }
   }
 
   async updateProfile(userId: number, dto: UpdateProfileDto) {

@@ -7,6 +7,7 @@ import { AuthenticatedRequest } from '../common/types/authenticated-request.type
 import { UsersService } from './users.service'
 import { UpdateConfigDto } from './dto/update-config.dto'
 import { SetBotStatusDto } from './dto/set-bot-status.dto'
+import { UpdateBotProfileDto } from './dto/update-bot-profile.dto'
 
 /**
  * Producer-level configuration for the admin "Configuración" screen.
@@ -26,6 +27,19 @@ export class AdminConfigController {
   @Patch()
   update(@Request() req: AuthenticatedRequest, @Body() dto: UpdateConfigDto) {
     return this.usersService.updateProducerConfig(req.user.producerId, dto)
+  }
+
+  /** How the bot names the organization and its grúa, claims and payment data. */
+  @Get('profile')
+  getProfile(@Request() req: AuthenticatedRequest) {
+    return this.usersService.getBotProfile(req.user.producerId)
+  }
+
+  /** Only a SuperAdmin changes what the bot tells customers about payments and assistance. */
+  @Patch('profile')
+  @Roles(Role.SUPERADMIN)
+  updateProfile(@Request() req: AuthenticatedRequest, @Body() dto: UpdateBotProfileDto) {
+    return this.usersService.updateBotProfile(req.user.producerId, dto)
   }
 
   /** Emergency organization-wide switch. Only a SuperAdmin may stop every chat. */

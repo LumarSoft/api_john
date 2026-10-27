@@ -26,6 +26,7 @@ import {
 import { type ActiveClosure, computeStatus, formatSchedule, parseSchedule } from '../business-hours/schedule'
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { parseStaffNames } from '../common/staff-names'
+import { toBotContextProfile } from '../common/bot-profile'
 
 // Inactivity window after which a chat is considered finished (see getOrCreateConversation).
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
@@ -103,6 +104,8 @@ type RawPolicy = Record<string, unknown> | null
 export class BotService {
   private readonly sessionTimeoutMs: number
   private readonly wabaTokenEncryptionKey: string | undefined
+  // Organization that keeps the bot's built-in values while it has no saved profile.
+  private readonly defaultProducerSlug: string
 
   constructor(
     private readonly prisma: PrismaService,
@@ -117,6 +120,7 @@ export class BotService {
     const valid = Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_SESSION_TIMEOUT_MINUTES
     this.sessionTimeoutMs = valid * 60_000
     this.wabaTokenEncryptionKey = config.get<string>('WABA_TOKEN_ENCRYPTION_KEY')
+    this.defaultProducerSlug = config.get<string>('DEFAULT_PRODUCER_SLUG') ?? 'john'
   }
 
   /** Resolves the producer (tenant) behind a Meta phone number ID. */
@@ -133,6 +137,7 @@ export class BotService {
             botEnabled: true,
             staffNames: true,
             businessHours: true,
+            botProfile: true,
             systemPrompt: true,
             isActive: true,
           },
@@ -143,7 +148,8 @@ export class BotService {
       throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
     }
 
-    const { id, name, slug, botName, botEnabled, staffNames, businessHours, systemPrompt } = phoneNumber.producer
+    const { id, name, slug, botName, botEnabled, staffNames, businessHours, botProfile, systemPrompt } =
+      phoneNumber.producer
     // The bot shows the formatted week as its general "horario" line; richer
     // open-now info comes from GET /public/hours when a user asks.
     const attentionHours = formatSchedule(parseSchedule(businessHours))
@@ -161,6 +167,8 @@ export class BotService {
       attentionHours,
       systemPrompt,
       llmEnabled,
+      // How the bot names the organization, its grúa/claims lines and payment data.
+      profile: toBotContextProfile({ name, botProfile }, slug === this.defaultProducerSlug),
     }
   }
 
@@ -874,6 +882,7 @@ export class BotService {
     // Never blocks the response — MailService swallows its own errors.
     await this.mail.sendSiniestroNotification({
       siniestroId: siniestro.id,
+      producerId,
       tipo: siniestro.type,
       descripcion: siniestro.description,
       fecha: siniestro.occurredAt,

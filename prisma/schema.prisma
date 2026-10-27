@@ -26,7 +26,7 @@ model Producer {
   // dependent code rolls up to this org. Informational/anchor for the master code.
   masterCode    String?   @db.VarChar(20)
   // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
-  // Null/empty → the bot falls back to "el asistente de JPMG".
+  // Null/empty → the bot introduces itself as "el asistente de <org>".
   botName       String?   @db.VarChar(60)
   // First names of the office people customers write to by name ("Mili,
   // Milagros"), comma separated. A message that names one of them alerts the
@@ -40,6 +40,11 @@ model Producer {
   // from the admin "Horarios" screen. JSON shape: { mon: [{from,to}], ..., sun: [] }
   // where each day holds zero or more HH:mm ranges ([] = closed). Null → app default.
   businessHours Json?
+  // How the bot names the organization and what it tells customers about
+  // assistance and payments (grúa line, claims line, transfer account, where to
+  // pay cash), edited from "Configuración". Flat JSON, see
+  // src/common/bot-profile.ts. Null → the bot's own defaults.
+  botProfile    Json?
   systemPrompt  String    @db.Text
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
@@ -67,6 +72,7 @@ model Producer {
   tasks                   Task[]
   paymentRejectionImports PaymentRejectionImport[]
   paymentRejections       PaymentRejection[]
+  triunfoCredential       TriunfoCredential?
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
@@ -947,6 +953,26 @@ model WabaAccount {
   phoneNumbers PhoneNumber[]
 
   @@index([producerId])
+}
+
+// Triunfo web-service credentials of one organization: every quote, cartera
+// sync and document request of that org goes out with them. The org named by
+// DEFAULT_PRODUCER_SLUG may have none and use TRIUNFO_PRODUCTOR/USUARIO/PASSWORD.
+model TriunfoCredential {
+  id         Int       @id @default(autoincrement())
+  producerId Int       @unique
+  producer   Producer  @relation(fields: [producerId], references: [id])
+  // "Codigo" of getTokenRest; the JWT it returns is tied to this code.
+  productor  String    @db.VarChar(20)
+  username   String    @db.VarChar(100)
+  // Encrypted at rest with WABA_TOKEN_ENCRYPTION_KEY (AES-256-GCM). Never log it
+  // and never return it from an endpoint.
+  password   String    @db.Text
+  // When Triunfo accepted them: they are only saved after getTokenRest says yes.
+  verifiedAt DateTime
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
 }
 
 model IntegrationToken {

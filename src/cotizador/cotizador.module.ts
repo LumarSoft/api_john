@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common'
 import { HttpModule } from '@nestjs/axios'
 import { CotizadorService } from './cotizador.service'
 import { CotizadorController } from './cotizador.controller'
+import { BotCotizadorController } from './bot-cotizador.controller'
 import { TriunfoModule } from '../triunfo/triunfo.module'
 import { InfoAutoModule } from '../infoauto/infoauto.module'
 import { PrismaModule } from '../prisma/prisma.module'
@@ -10,7 +11,7 @@ import { CoverageSettingsModule } from '../coverage-settings/coverage-settings.m
 
 @Module({
   imports: [NovedadesModule, HttpModule, TriunfoModule, InfoAutoModule, PrismaModule, CoverageSettingsModule],
-  controllers: [CotizadorController],
+  controllers: [CotizadorController, BotCotizadorController],
   providers: [CotizadorService],
 })
 export class CotizadorModule {}

@@ -87,6 +87,7 @@ export class DocumentosService {
     const policy = await this.prisma.policy.findFirst({
       where,
       select: {
+        producerId: true,
         certificateNumber: true,
         rawData: true,
         producerCode: { select: { code: true } },
@@ -100,6 +101,7 @@ export class DocumentosService {
       data.Articulo == null
         ? null
         : {
+            producerId: policy.producerId,
             productor: policy.producerCode?.code,
             // Every policy of the cartera is T / CC; the default covers the few without them.
             empresa: data.Empresa ?? 'T',

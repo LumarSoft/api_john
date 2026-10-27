@@ -1,8 +1,15 @@
-import { BadGatewayException, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { firstValueFrom } from 'rxjs'
 import { PrismaService } from '../prisma/prisma.service'
+import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 
 // ─── Triunfo response types ──────────────────────────────
 
@@ -94,6 +101,8 @@ export function splitDateRange(desde: string, hasta: string, days: number): Arra
 
 // What RESTDocumentosV2 needs to find a policy, as the cartera reports it.
 export interface TriunfoPolicyRef {
+  // Organization the policy belongs to: its Triunfo credentials ask for it.
+  producerId: number
   // Producer code the policy belongs to. Triunfo answers "Operación inexistente
   // o no asociada al productor" when asked with any other code.
   productor?: string
@@ -110,13 +119,31 @@ export interface TriunfoDocumento {
   URL: string
 }
 
+// One organization's access to Triunfo's web services.
+export interface TriunfoCredentials {
+  productor: string
+  usuario: string
+  password: string
+}
+
+/** The organization has no Triunfo credentials: nothing can be asked for it. */
+export class TriunfoNotConfiguredException extends ServiceUnavailableException {
+  constructor(producerId: number | null) {
+    super(`La organización ${producerId ?? '(por defecto)'} no tiene configurada la integración con Triunfo`)
+  }
+}
+
 @Injectable()
 export class TriunfoService {
   private readonly logger = new Logger(TriunfoService.name)
-  private cachedToken: string | null = null
-  private tokenExpiresAt: number | null = null
-  // Shared promise so N concurrent callers trigger ONE getTokenRest, not N.
-  private tokenInFlight: Promise<string> | null = null
+  // Live tokens per credential set (tokenKey), so two organizations never share one.
+  private readonly tokens = new Map<string, { token: string; expiresAt: number }>()
+  // Shared promise per credential set so N concurrent callers trigger ONE getTokenRest, not N.
+  private readonly tokensInFlight = new Map<string, Promise<string>>()
+  // Decrypted credentials per organization, so a quote does not read and
+  // decrypt them on every call. Dropped when the owner changes them.
+  private readonly credentialsCache = new Map<number, { credentials: TriunfoCredentials; expiresAt: number }>()
+  private static readonly CREDENTIALS_TTL_MS = 5 * 60 * 1000
 
   // Renew this long before the real expiry, so a request never travels with a
   // token that dies mid-flight.
@@ -143,9 +170,10 @@ export class TriunfoService {
 
   private readonly baseUrlAuth: string
   readonly baseUrlSip: string
-  private readonly productor: string
-  private readonly usuario: string
-  private readonly password: string
+  // TRIUNFO_PRODUCTOR/USUARIO/PASSWORD: the default organization's credentials
+  // (DEFAULT_PRODUCER_SLUG) until it has its own TriunfoCredential row.
+  private readonly envCredentials: TriunfoCredentials | null
+  private readonly defaultProducerSlug: string
 
   constructor(
     private readonly httpService: HttpService,
@@ -154,9 +182,77 @@ export class TriunfoService {
   ) {
     this.baseUrlAuth = this.configService.getOrThrow<string>('TRIUNFO_BASE_URL_AUTH')
     this.baseUrlSip = this.configService.getOrThrow<string>('TRIUNFO_BASE_URL_SIP')
-    this.productor = this.configService.getOrThrow<string>('TRIUNFO_PRODUCTOR')
-    this.usuario = this.configService.getOrThrow<string>('TRIUNFO_USUARIO')
-    this.password = this.configService.getOrThrow<string>('TRIUNFO_PASSWORD')
+    const productor = this.configService.get<string>('TRIUNFO_PRODUCTOR')?.trim()
+    const usuario = this.configService.get<string>('TRIUNFO_USUARIO')?.trim()
+    const password = this.configService.get<string>('TRIUNFO_PASSWORD')
+    this.envCredentials = productor && usuario && password ? { productor, usuario, password } : null
+    this.defaultProducerSlug = this.configService.get<string>('DEFAULT_PRODUCER_SLUG') ?? 'john'
+  }
+
+  /**
+   * The Triunfo credentials of an organization: its own (stored encrypted)
+   * or, for the default organization only, the TRIUNFO_* settings. Null asks
+   * for the default organization's. Throws TriunfoNotConfiguredException when
+   * there are none, so a second organization never quotes, syncs or downloads
+   * with another one's account.
+   */
+  async credentialsFor(producerId: number | null): Promise<TriunfoCredentials> {
+    if (producerId === null) {
+      if (this.envCredentials) return this.envCredentials
+      const fallback = await this.prisma.producer.findFirst({
+        where: { slug: this.defaultProducerSlug, deletedAt: null },
+        select: { id: true },
+      })
+      if (!fallback) throw new TriunfoNotConfiguredException(null)
+      return this.credentialsFor(fallback.id)
+    }
+
+    const cached = this.credentialsCache.get(producerId)
+    if (cached && Date.now() < cached.expiresAt) return cached.credentials
+
+    const producer = await this.prisma.producer.findFirst({
+      where: { id: producerId, deletedAt: null },
+      select: {
+        slug: true,
+        triunfoCredential: { select: { productor: true, username: true, password: true, deletedAt: true } },
+      },
+    })
+    const stored = producer?.triunfoCredential?.deletedAt === null ? producer.triunfoCredential : null
+
+    let credentials: TriunfoCredentials | null = null
+    if (stored) {
+      const key = resolveKey(this.configService.get<string>('WABA_TOKEN_ENCRYPTION_KEY'), 'WABA_TOKEN_ENCRYPTION_KEY')
+      credentials = {
+        productor: stored.productor,
+        usuario: stored.username,
+        password: decryptSecret(stored.password, key),
+      }
+    } else if (producer?.slug === this.defaultProducerSlug) {
+      credentials = this.envCredentials
+    }
+    if (!credentials) throw new TriunfoNotConfiguredException(producerId)
+
+    this.credentialsCache.set(producerId, { credentials, expiresAt: Date.now() + TriunfoService.CREDENTIALS_TTL_MS })
+    return credentials
+  }
+
+  /** Whether the default organization can use the TRIUNFO_* settings. */
+  hasEnvCredentialsFor(slug: string): boolean {
+    return slug === this.defaultProducerSlug && this.envCredentials !== null
+  }
+
+  /** Forgets an organization's cached credentials (after the owner changes them). */
+  forgetCredentials(producerId: number): void {
+    this.credentialsCache.delete(producerId)
+  }
+
+  /**
+   * Asks Triunfo for a token with these credentials right now, skipping every
+   * cache: proves a newly saved password works. The token is kept, so the
+   * check never costs an extra getTokenRest later.
+   */
+  async verifyCredentials(credentials: TriunfoCredentials): Promise<void> {
+    await this.renewToken(credentials)
   }
 
   /**
@@ -172,35 +268,32 @@ export class TriunfoService {
    *   3. in-flight promise    — concurrent callers on a cold cache share ONE
    *                             request instead of firing N in parallel
    */
-  async getToken(): Promise<string> {
-    if (this.cachedToken && this.tokenExpiresAt && Date.now() < this.tokenExpiresAt) {
-      return this.cachedToken
-    }
+  async getToken(credentials: TriunfoCredentials): Promise<string> {
+    const key = tokenKey(credentials)
+    const live = this.tokens.get(key)
+    if (live && Date.now() < live.expiresAt) return live.token
 
     // Another caller is already fetching/loading — wait for that same promise.
-    if (this.tokenInFlight) return this.tokenInFlight
+    const inFlight = this.tokensInFlight.get(key)
+    if (inFlight) return inFlight
 
-    this.tokenInFlight = this.loadOrRenewToken().finally(() => {
-      this.tokenInFlight = null
+    const request = this.loadOrRenewToken(credentials).finally(() => {
+      this.tokensInFlight.delete(key)
     })
-
-    return this.tokenInFlight
+    this.tokensInFlight.set(key, request)
+    return request
   }
 
-  /** Token key for this credential set, e.g. "triunfo:10484:JHONPELL". */
-  private get tokenKey(): string {
-    return `triunfo:${this.productor}:${this.usuario}`
-  }
-
-  private async loadOrRenewToken(): Promise<string> {
+  private async loadOrRenewToken(credentials: TriunfoCredentials): Promise<string> {
+    const key = tokenKey(credentials)
     // ── 1. Try the persisted token first (survives restarts and instances) ──
     try {
-      const stored = await this.prisma.integrationToken.findUnique({
-        where: { key: this.tokenKey },
-      })
+      const stored = await this.prisma.integrationToken.findUnique({ where: { key } })
       if (stored && stored.expiresAt.getTime() - TriunfoService.TOKEN_MARGIN_MS > Date.now()) {
-        this.cachedToken = stored.token
-        this.tokenExpiresAt = stored.expiresAt.getTime() - TriunfoService.TOKEN_MARGIN_MS
+        this.tokens.set(key, {
+          token: stored.token,
+          expiresAt: stored.expiresAt.getTime() - TriunfoService.TOKEN_MARGIN_MS,
+        })
         this.logger.debug(`Token de Triunfo reutilizado desde DB (vence ${stored.expiresAt.toISOString()})`)
         return stored.token
       }
@@ -210,16 +303,22 @@ export class TriunfoService {
     }
 
     // ── 2. No usable token — ask Triunfo ────────────────────────────────────
-    this.logger.log('Renovando token de Triunfo...')
+    return this.renewToken(credentials)
+  }
+
+  /** getTokenRest with these credentials; keeps the token in memory and in the DB. */
+  private async renewToken(credentials: TriunfoCredentials): Promise<string> {
+    const key = tokenKey(credentials)
+    this.logger.log(`Renovando token de Triunfo (productor ${credentials.productor})...`)
 
     const response = await firstValueFrom(
       this.httpService.post(
         `${this.baseUrlAuth}/getTokenRest`,
         {
           SDTProductor: {
-            Codigo: this.productor,
-            Usuario: this.usuario,
-            Password: this.password,
+            Codigo: credentials.productor,
+            Usuario: credentials.usuario,
+            Password: credentials.password,
           },
         },
         { timeout: TriunfoService.TOKEN_TIMEOUT_MS },
@@ -236,14 +335,13 @@ export class TriunfoService {
 
     const expiresAt = this.readExpiry(token)
 
-    this.cachedToken = token
-    this.tokenExpiresAt = expiresAt.getTime() - TriunfoService.TOKEN_MARGIN_MS
+    this.tokens.set(key, { token, expiresAt: expiresAt.getTime() - TriunfoService.TOKEN_MARGIN_MS })
 
     // ── 3. Persist so the next restart reuses it instead of asking again ────
     try {
       await this.prisma.integrationToken.upsert({
-        where: { key: this.tokenKey },
-        create: { key: this.tokenKey, token, expiresAt },
+        where: { key },
+        create: { key, token, expiresAt },
         update: { token, expiresAt },
       })
     } catch (err) {
@@ -270,10 +368,12 @@ export class TriunfoService {
     return new Date(Date.now() + 60 * 60 * 1000)
   }
 
-  async getAuth(): Promise<{ Productor: string; JWT: string }> {
+  /** The Autenticacion block of a JWT call, with the organization's credentials. */
+  async getAuth(producerId: number | null): Promise<{ Productor: string; JWT: string }> {
+    const credentials = await this.credentialsFor(producerId)
     return {
-      Productor: this.productor,
-      JWT: await this.getToken(),
+      Productor: credentials.productor,
+      JWT: await this.getToken(credentials),
     }
   }
 
@@ -281,7 +381,7 @@ export class TriunfoService {
   // `codigo` selects which producer-code's cartera to pull. Confirmed against
   // Postman: the same master Usuario/Password works for every dependent código,
   // varying only `Codigo` in the request — so the cron iterates codes with the
-  // org-level credential. Defaults to the org master code (TRIUNFO_PRODUCTOR).
+  // org-level credential. Defaults to the credential's own code.
   /**
    * Pulls the cartera for a date range, splitting it into windows of at most
    * NOVEDADES_CHUNK_DAYS days.
@@ -294,12 +394,13 @@ export class TriunfoService {
   async getNovedadesCartera(
     fechaDesde: string,
     fechaHasta: string,
-    codigo: string = this.productor,
+    credentials: TriunfoCredentials,
+    codigo: string = credentials.productor,
   ): Promise<TriunfoNovedad[]> {
     const ventanas = splitDateRange(fechaDesde, fechaHasta, TriunfoService.NOVEDADES_CHUNK_DAYS)
 
     if (ventanas.length === 1) {
-      return this.fetchNovedadesWindow(ventanas[0][0], ventanas[0][1], codigo)
+      return this.fetchNovedadesWindow(ventanas[0][0], ventanas[0][1], codigo, credentials)
     }
 
     this.logger.log(
@@ -310,7 +411,7 @@ export class TriunfoService {
     for (const [desde, hasta] of ventanas) {
       // Sequential on purpose: Triunfo asked us not to hammer their services,
       // and these responses are heavy enough to matter.
-      todas.push(...(await this.fetchNovedadesWindow(desde, hasta, codigo)))
+      todas.push(...(await this.fetchNovedadesWindow(desde, hasta, codigo, credentials)))
     }
     return todas
   }
@@ -320,6 +421,7 @@ export class TriunfoService {
     fechaDesde: string,
     fechaHasta: string,
     codigo: string,
+    credentials: TriunfoCredentials,
   ): Promise<TriunfoNovedad[]> {
     this.logger.log(`Consultando NovedadesCartera código=${codigo} ${fechaDesde} → ${fechaHasta}`)
 
@@ -334,8 +436,8 @@ export class TriunfoService {
             FechaHasta: fechaHasta,
             Productor: {
               Codigo: codigo,
-              Password: this.password,
-              Usuario: this.usuario,
+              Password: credentials.password,
+              Usuario: credentials.usuario,
             },
           },
         },
@@ -372,8 +474,9 @@ export class TriunfoService {
    * about to be used, because how long a link lives is not documented.
    */
   async getDocumentos(ref: TriunfoPolicyRef, { fresh = false } = {}): Promise<TriunfoDocumento[]> {
-    const productor = ref.productor ?? this.productor
-    const key = `${productor}:${ref.articulo}:${ref.certificado}`
+    const credentials = await this.credentialsFor(ref.producerId)
+    const productor = ref.productor ?? credentials.productor
+    const key = `${ref.producerId}:${productor}:${ref.articulo}:${ref.certificado}`
     const cached = this.documentosCache.get(key)
     if (!fresh && cached && Date.now() < cached.expiresAt) {
       return cached.data
@@ -381,7 +484,7 @@ export class TriunfoService {
 
     this.logger.log(`Consultando documentos de la póliza ${ref.articulo}-${ref.certificado} (productor ${productor})`)
 
-    const { JWT } = await this.getAuth()
+    const JWT = await this.getToken(credentials)
     const response = await firstValueFrom(
       this.httpService.post(
         `${this.baseUrlSip}/RESTDocumentosV2`,
@@ -482,4 +585,9 @@ export class TriunfoService {
       return false
     }
   }
+}
+
+/** Token key for a credential set, e.g. "triunfo:10484:JHONPELL" (the key JPMG's token already has). */
+function tokenKey(credentials: TriunfoCredentials): string {
+  return `triunfo:${credentials.productor}:${credentials.usuario}`
 }

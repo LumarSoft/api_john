@@ -1,9 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Resend } from 'resend'
+import { PrismaService } from '../prisma/prisma.service'
+import { parseBotProfile } from '../common/bot-profile'
 
 export interface SiniestroNotification {
   siniestroId: number
+  // Organization whose office is told: each one names its own claims e-mail.
+  producerId: number
   tipo: string
   descripcion: string
   fecha: Date
@@ -24,11 +28,16 @@ export class MailService {
   private readonly resend: Resend | null
   private readonly from: string
   private readonly advisorEmail: string | undefined
+  private readonly defaultProducerSlug: string
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY')
     this.from = this.configService.get<string>('MAIL_FROM') ?? 'onboarding@resend.dev'
     this.advisorEmail = this.configService.get<string>('ADVISOR_EMAIL')
+    this.defaultProducerSlug = this.configService.get<string>('DEFAULT_PRODUCER_SLUG') ?? 'john'
     this.resend = apiKey ? new Resend(apiKey) : null
 
     if (!this.resend) {
@@ -37,12 +46,36 @@ export class MailService {
   }
 
   /**
+   * Who hears about an organization's new claims: the claims e-mail of its
+   * profile or, for the default organization only, ADVISOR_EMAIL — another
+   * organization's claims never reach JPMG's advisor.
+   */
+  async claimsRecipient(producerId: number): Promise<string | null> {
+    try {
+      const producer = await this.prisma.producer.findFirst({
+        where: { id: producerId, deletedAt: null },
+        select: { slug: true, botProfile: true },
+      })
+      if (!producer) return null
+      const own = parseBotProfile(producer.botProfile).claimsEmail
+      if (own) return own
+      return producer.slug === this.defaultProducerSlug ? (this.advisorEmail ?? null) : null
+    } catch (err) {
+      this.logger.error(`Could not resolve the claims e-mail of producer ${producerId}`, err as Error)
+      return null
+    }
+  }
+
+  /**
    * Notifies the advisor that a new claim was filed. Never throws: a failed
    * notification must not roll back the claim that was already persisted.
    */
   async sendSiniestroNotification(data: SiniestroNotification): Promise<void> {
-    if (!this.advisorEmail) {
-      this.logger.warn(`ADVISOR_EMAIL not set — skipping notification for siniestro #${data.siniestroId}`)
+    const to = await this.claimsRecipient(data.producerId)
+    if (!to) {
+      this.logger.warn(
+        `No claims e-mail for producer ${data.producerId} — skipping notification for siniestro #${data.siniestroId}`,
+      )
       return
     }
 
@@ -50,14 +83,14 @@ export class MailService {
     const html = this.buildHtml(data)
 
     if (!this.resend) {
-      this.logger.log(`[MAIL:DRY-RUN] to=${this.advisorEmail} subject="${subject}"`)
+      this.logger.log(`[MAIL:DRY-RUN] to=${to} subject="${subject}"`)
       return
     }
 
     try {
       const { error } = await this.resend.emails.send({
         from: this.from,
-        to: this.advisorEmail,
+        to,
         subject,
         html,
       })
@@ -65,7 +98,7 @@ export class MailService {
         this.logger.error(`Resend error for siniestro #${data.siniestroId}: ${error.message}`)
         return
       }
-      this.logger.log(`Notification sent for siniestro #${data.siniestroId} to ${this.advisorEmail}`)
+      this.logger.log(`Notification sent for siniestro #${data.siniestroId} to ${to}`)
     } catch (err) {
       this.logger.error(`Failed to send notification for siniestro #${data.siniestroId}`, err as Error)
     }

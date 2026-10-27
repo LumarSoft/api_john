@@ -396,3 +396,48 @@ describe('CotizadorService 0 km and GNC', () => {
     expect(sentAutomotor(post).Accesorios).toEqual([])
   })
 })
+
+describe('CotizadorService bot quotes per organization', () => {
+  function createService(phone: { producerId: number } | null) {
+    const prisma = { phoneNumber: { findFirst: jest.fn().mockResolvedValue(phone) } }
+    const triunfo = { getAuth: jest.fn().mockRejectedValue(new Error('stop after auth')) }
+    const service = new CotizadorService(
+      {} as HttpService,
+      prisma as unknown as PrismaService,
+      triunfo as unknown as TriunfoService,
+      {
+        isAvailable: () => true,
+        validateVehicleYear: jest.fn().mockResolvedValue(undefined),
+      } as unknown as InfoAutoService,
+      {} as CoverageSettingsService,
+      {} as ConfigService,
+      {} as NovedadesService,
+    )
+    return { service, prisma, triunfo }
+  }
+  const dto = { brand: '12', model: '120236', manufactureYear: 2019, postalCode: 2000 }
+
+  it("quotes with the Triunfo account of the number's organization", async () => {
+    const { service, prisma, triunfo } = createService({ producerId: 2 })
+
+    await expect(service.quoteVehicleForNumber('555', VehicleType.AUTO, dto)).rejects.toThrow('stop after auth')
+
+    expect(prisma.phoneNumber.findFirst).toHaveBeenCalledWith({
+      where: { phoneNumberId: '555', isActive: true, deletedAt: null },
+      select: { producerId: true },
+    })
+    expect(triunfo.getAuth).toHaveBeenCalledWith(2)
+  })
+
+  it('refuses a number that is not registered', async () => {
+    const { service, triunfo } = createService(null)
+    await expect(service.quoteVehicleForNumber('999', VehicleType.AUTO, dto)).rejects.toMatchObject({ status: 404 })
+    expect(triunfo.getAuth).not.toHaveBeenCalled()
+  })
+
+  it('keeps an anonymous web quote on the default organization', async () => {
+    const { service, triunfo } = createService(null)
+    await expect(service.quoteVehicle(VehicleType.AUTO, dto, null, null)).rejects.toThrow('stop after auth')
+    expect(triunfo.getAuth).toHaveBeenCalledWith(null)
+  })
+})
