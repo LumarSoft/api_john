@@ -1,34 +1,45 @@
 # Consumo mensual por número desde octubre de 2026
 
-## Tarifa comercial del servicio
+## Tarifa comercial del servicio: planes por tokens
 
-El importe al cliente se calcula con todos los mensajes Meta entregados y la
-suma de tokens de entrada y salida, incluidos los tokens en caché:
+Desde el 27 de octubre de 2026 cada número se factura con planes por tokens,
+a mes vencido. Reemplaza la tarifa anterior por tokens de IA + mensajes Meta
+con mínimo USD 50 y máximo USD 100.
 
-- USD 0,0375 por cada 1.000 tokens.
-- USD 0,078 por cada mensaje Meta, sin excluir mensajes gratuitos del proveedor.
-- Mes completo con uso: mínimo USD 50, máximo USD 100 por número.
-- Sin tokens, llamadas ni mensajes: USD 0, aun cuando el número esté activo.
-- Durante el mes corriente, solo se prorratea el mínimo por el tiempo
-  transcurrido en Argentina. El consumo se acumula completo; no se multiplica
-  por la fracción del calendario. El máximo siempre es USD 100.
+- 1 token = 1 mensaje que la plataforma envía por WhatsApp: respuestas del bot
+  y mensajes de la oficina desde el panel. Es el contador `metaMessages`. Los
+  mensajes que escriben los clientes y los que se envían desde la app WhatsApp
+  Business del celular no cuentan.
+- Los tokens se venden en bloques de 1.000 a USD 50: Inicial (hasta 1.000,
+  USD 50), Estándar (hasta 2.000, USD 100), Profesional (hasta 3.000, USD 150),
+  Avanzado (hasta 4.000, USD 200) y luego USD 50 por cada 1.000 más.
+- El plan se elige cada mes con los tokens de ese mes: si se pasa de su plan,
+  ese mes se factura el siguiente; si baja, vuelve al que corresponda.
+- Un número activo paga al menos el plan Inicial, aunque no envíe mensajes.
+  En su primer mes de servicio ese mínimo se prorratea desde el día en que salió
+  el primer mensaje (el día de inicio cuenta). Si ese mes supera los 1.000 tokens,
+  se cobra el plan completo.
+- No se factura un número que todavía no envió nada, ni uno inactivo sin
+  mensajes en el mes.
 
-Fórmula: `min(100, max(50 × fracción del mes, tokens / 1000 × 0,0375 + mensajes × 0,078))`.
-Los meses cerrados tienen fracción 1. El redondeo a centavos ocurre al final.
+El inicio de servicio es el primer evento de consumo del primer mes con
+registros del número (`UsageEvent` dentro del primer `UsageMonthly.period`).
+Los meses registrados antes de que existieran eventos toman el día 1.
 
-Ejemplo: 62.218 tokens diarios durante 30 días suman 1.866.540 tokens,
-importe comercial de USD 70,00 sin mensajes Meta. Con 100 mensajes adicionales,
-el importe es USD 77,80. Un consumo mayor queda limitado a USD 100.
-
-Las variables `COMMERCIAL_MONTHLY_MIN_USD`, `COMMERCIAL_MONTHLY_MAX_USD`,
-`COMMERCIAL_TOKEN_PRICE_PER_1000` y `COMMERCIAL_META_MESSAGE_PRICE_USD`
-configuran estos valores. Las antiguas columnas de planes por número no se usan.
+`COMMERCIAL_TOKEN_BLOCK_SIZE` (1000) y `COMMERCIAL_TOKEN_BLOCK_PRICE_USD` (50)
+configuran los bloques. Las variables `COMMERCIAL_MONTHLY_MIN_USD`,
+`COMMERCIAL_MONTHLY_MAX_USD`, `COMMERCIAL_TOKEN_PRICE_PER_1000` y
+`COMMERCIAL_META_MESSAGE_PRICE_USD` ya no se usan.
 
 El costo estimado de los proveedores se registra por separado y se muestra
 únicamente al propietario, junto con la ganancia: importe comercial menos costo.
-El panel del cliente muestra la tarifa del servicio y el total de mensajes,
-sin detalles de bonificaciones del proveedor. El presupuesto que controla el
-acceso al LLM sigue limitando el gasto del proveedor, no el precio comercial.
+El panel del cliente muestra tokens, plan e importe, sin el costo de proveedores.
+
+El presupuesto por número (`monthlyBudgetUsd`, por defecto
+`DEFAULT_MONTHLY_BUDGET_USD`) limita solo el gasto de OpenAI: al alcanzarlo el
+bot deja de usar el LLM. El costo de Meta ya no cuenta, porque cada mensaje es
+un token que paga el cliente; con el criterio anterior un número del plan
+Estándar superaba USD 20 de Meta y perdía el LLM.
 
 ## Tarifas verificadas el 30 de septiembre
 

@@ -8,9 +8,9 @@ import { describeDisconnectReason } from '../whatsapp-onboarding/whatsapp-connec
 
 /**
  * SuperAdmin management of the organization's WhatsApp numbers. Billing is per
- * active number; each carries a responsible code + the codes it serves + a
- * monthly budget. The list embeds the current month's usage so the admin sees
- * cost at a glance.
+ * active number, on token plans; each carries a responsible code + the codes it
+ * serves + a monthly OpenAI budget. The list embeds the month's tokens and plan
+ * so the admin sees the charge at a glance.
  */
 @Injectable()
 export class PhoneNumbersService {
@@ -64,10 +64,15 @@ export class PhoneNumbersService {
       orderBy: { id: 'desc' },
     })
 
+    const starts = await this.usage.serviceStarts(numbers.map(n => n.id))
     return numbers.map(n => {
       const usage = n.usageMonthly[0]
       const cost = Number(usage?.totalCostUsd ?? 0)
-      const billed = this.usage.priceFor(n, usage, period)
+      const bill = this.usage.billFor(
+        { isActive: n.isActive, serviceStartedAt: starts.get(n.id) ?? null },
+        usage,
+        period,
+      )
 
       return {
         id: n.id,
@@ -93,9 +98,11 @@ export class PhoneNumbersService {
           inputTokens: usage?.openaiInputTokens ?? 0,
           outputTokens: usage?.openaiOutputTokens ?? 0,
           metaConversations: usage?.metaConversations ?? 0,
-          // Money the client is being charged.
-          billedUsd: billed,
-          accruedUsd: billed,
+          // What the client is being charged: one token per message sent.
+          tokens: bill.tokens,
+          plan: bill.plan,
+          prorated: bill.prorated,
+          billedUsd: bill.billedUsd,
           // Our cost and margin: owner only.
           ...(isOwner
             ? {
@@ -103,7 +110,7 @@ export class PhoneNumbersService {
                 openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
                 metaCostUsd: Number(usage?.metaCostUsd ?? 0),
                 totalCostUsd: cost,
-                marginUsd: Math.round((billed - cost) * 100) / 100,
+                marginUsd: Math.round((bill.billedUsd - cost) * 100) / 100,
               }
             : {}),
         },

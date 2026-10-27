@@ -30,12 +30,15 @@ describe('monthly phone number report', () => {
           },
         ]),
       },
+      // In service since August, so September is a full month.
+      usageMonthly: { groupBy: jest.fn().mockResolvedValue([{ phoneNumberId: 1, _min: { period: '2026-08' } }]) },
+      usageEvent: { groupBy: jest.fn().mockResolvedValue([]) },
     }
     const usage = new UsageService(prisma as any, { get: () => undefined } as unknown as ConfigService)
     return { prisma, service: new PhoneNumbersService(prisma as any, usage as any) }
   }
 
-  it('selects one month within the organization and shows the full monthly charge and activity', async () => {
+  it('selects one month within the organization and shows its tokens, plan and activity', async () => {
     const { service, prisma } = setup()
     const rows = await service.list(2, Role.SUPERADMIN, '2026-09')
     expect(prisma.phoneNumber.findMany.mock.calls[0][0]).toMatchObject({
@@ -44,7 +47,9 @@ describe('monthly phone number report', () => {
     })
     expect(rows[0].usage).toMatchObject({
       period: '2026-09',
-      billedUsd: 94.01,
+      tokens: 1200,
+      plan: { name: 'Estándar', includedTokens: 2000 },
+      billedUsd: 100,
       openaiCalls: 80,
       metaMessages: 1200,
     })
@@ -57,7 +62,7 @@ describe('monthly phone number report', () => {
     const { service } = setup()
     expect((await service.list(2, Role.OWNER, '2026-09'))[0].usage).toMatchObject({
       totalCostUsd: 5.21,
-      marginUsd: 88.8,
+      marginUsd: 94.79,
       metaBillableMessages: 200,
     })
   })

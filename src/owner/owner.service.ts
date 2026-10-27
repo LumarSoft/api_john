@@ -119,11 +119,10 @@ export class OwnerService {
       (acc, n) => {
         acc.costUsd += n.usage.totalCostUsd
         acc.billedUsd += n.usage.billedUsd
-        acc.accruedUsd += n.usage.accruedUsd
         acc.marginUsd += n.usage.marginUsd
         return acc
       },
-      { costUsd: 0, billedUsd: 0, accruedUsd: 0, marginUsd: 0 },
+      { costUsd: 0, billedUsd: 0, marginUsd: 0 },
     )
 
     return {
@@ -133,7 +132,6 @@ export class OwnerService {
       numbers,
       billing: {
         period: currentPeriod(),
-        elapsedFraction: this.usage.elapsedFractionOf(currentPeriod()),
         activeNumbers: numbers.filter(n => n.isActive).length,
         ...round2(billing),
       },
@@ -141,8 +139,8 @@ export class OwnerService {
   }
 
   /**
-   * Per-number breakdown for the running month: what it costs us, what the
-   * organization is invoiced, and how much of that has accrued so far.
+   * Per-number breakdown for the running month: what it costs us, its tokens and
+   * plan, and what the organization is invoiced for it.
    */
   private async phoneNumberDetail(producerId: number) {
     const period = currentPeriod()
@@ -176,10 +174,11 @@ export class OwnerService {
       },
     })
 
+    const starts = await this.usage.serviceStarts(phones.map(p => p.id))
     return phones.map(p => {
       const u = p.usageMonthly[0]
       const cost = Number(u?.totalCostUsd ?? 0)
-      const billed = this.usage.priceFor(p, u, period)
+      const bill = this.usage.billFor({ isActive: p.isActive, serviceStartedAt: starts.get(p.id) ?? null }, u, period)
 
       return {
         id: p.id,
@@ -203,9 +202,11 @@ export class OwnerService {
           metaConversations: u?.metaConversations ?? 0,
           metaCostUsd: Number(u?.metaCostUsd ?? 0),
           totalCostUsd: cost,
-          billedUsd: billed,
-          accruedUsd: billed,
-          marginUsd: Math.round((billed - cost) * 100) / 100,
+          tokens: bill.tokens,
+          plan: bill.plan,
+          prorated: bill.prorated,
+          billedUsd: bill.billedUsd,
+          marginUsd: Math.round((bill.billedUsd - cost) * 100) / 100,
         },
       }
     })
