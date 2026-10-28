@@ -472,6 +472,41 @@ Updates the authenticated user's own email and/or password (settings screen).
 
 ---
 
+### GET /users/producer-codes
+
+The organization's producer codes (branches), masters first, to grant them to admins and bill numbers to them.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+`200 OK`
+```json
+[{ "id": 1, "code": "11425", "holderName": "JOHN PELLEGRINI MANAGEMENT GROUP SRL", "isMaster": true, "isActive": true }]
+```
+
+---
+
+### POST /users/producer-codes
+
+Creates a branch's producer code (never a master one: that is the owner's), the first step of the new-branch onboarding in the panel (Usuarios → Nuevo usuario → Sucursal nueva: code, its admin, its WhatsApp number, its assistant, its token plan). A code that was retired comes back instead of clashing with it.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field      | Type   | Required | Constraints                          |
+|------------|--------|----------|--------------------------------------|
+| code       | string | Yes      | 1–20 characters, letters, digits and hyphens |
+| holderName | string | No       | Max 120                              |
+
+`201 Created`
+```json
+{ "id": 27, "code": "14831", "holderName": "Sucursal Pueblo Esther", "isMaster": false, "isActive": true }
+```
+
+`409 Conflict` — The code already exists in the organization
+
+---
+
 ### GET /users
 
 Lists all (non-deleted) administrators of the authenticated user's producer.

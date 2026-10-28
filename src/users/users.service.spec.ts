@@ -180,3 +180,47 @@ describe('UsersService bot profile', () => {
     })
   })
 })
+
+describe('UsersService branch codes', () => {
+  function setup(existing: { id: number; deletedAt: Date | null } | null) {
+    const prisma = {
+      producerCode: {
+        findFirst: jest.fn().mockResolvedValue(existing),
+        create: jest
+          .fn()
+          .mockImplementation(({ data }) => Promise.resolve({ id: 9, isMaster: false, isActive: true, ...data })),
+        update: jest
+          .fn()
+          .mockImplementation(({ data }) => Promise.resolve({ id: 3, code: '14831', isMaster: false, ...data })),
+      },
+    }
+    const service = new UsersService(prisma as unknown as PrismaService, {} as BotStatusAlertService)
+    return { service, prisma }
+  }
+
+  it('creates the branch code of the organization, never a master one', async () => {
+    const { service, prisma } = setup(null)
+
+    const code = await service.createProducerCode(1, { code: ' 14831 ', holderName: ' Sucursal Pueblo Esther ' })
+
+    expect(prisma.producerCode.create.mock.calls[0][0].data).toEqual({
+      code: '14831',
+      holderName: 'Sucursal Pueblo Esther',
+      producerId: 1,
+    })
+    expect(code).toMatchObject({ code: '14831', isMaster: false })
+  })
+
+  it('brings a retired code back instead of clashing with it, and refuses a live duplicate', async () => {
+    const retired = setup({ id: 3, deletedAt: new Date('2026-01-01') })
+    await retired.service.createProducerCode(1, { code: '14831' })
+    expect(retired.prisma.producerCode.update.mock.calls[0][0].data).toEqual({
+      deletedAt: null,
+      holderName: null,
+      isActive: true,
+    })
+
+    const live = setup({ id: 3, deletedAt: null })
+    await expect(live.service.createProducerCode(1, { code: '14831' })).rejects.toThrow('ya existe')
+  })
+})

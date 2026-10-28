@@ -9,6 +9,7 @@ import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { UserIdParamDto } from './dto/user-id-param.dto'
+import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 
 @UseGuards(UserAuthGuard, RolesGuard)
 @Controller('users')
@@ -38,6 +39,13 @@ export class UsersController {
   @Roles(Role.SUPERADMIN)
   listProducerCodes(@Request() req: AuthenticatedRequest) {
     return this.usersService.listProducerCodes(req.user.producerId)
+  }
+
+  /** A new branch: its Triunfo code, so its admin, number and cartera can be scoped to it. */
+  @Post('producer-codes')
+  @Roles(Role.SUPERADMIN)
+  createProducerCode(@Request() req: AuthenticatedRequest, @Body() dto: CreateProducerCodeDto) {
+    return this.usersService.createProducerCode(req.user.producerId, dto)
   }
 
   @Post()

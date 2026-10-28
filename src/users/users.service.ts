@@ -13,6 +13,7 @@ import { type BotProfile, mergeBotProfile, parseBotProfile } from '../common/bot
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
+import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { BotStatusAlertService } from './bot-status-alert.service'
 
@@ -291,6 +292,30 @@ export class UsersService {
       },
       select: SAFE_SELECT,
     })
+  }
+
+  /**
+   * A branch's code, created by the SuperAdmin from the branch onboarding. A
+   * code that was retired comes back instead of clashing with the
+   * (producerId, code) unique; the master code stays the owner's to set.
+   */
+  async createProducerCode(producerId: number, dto: CreateProducerCodeDto) {
+    const code = dto.code.trim()
+    const holderName = dto.holderName?.trim() || null
+    const select = { id: true, code: true, holderName: true, isMaster: true, isActive: true }
+    const existing = await this.prisma.producerCode.findFirst({
+      where: { producerId, code },
+      select: { id: true, deletedAt: true },
+    })
+    if (existing && !existing.deletedAt) throw new ConflictException(`El código ${code} ya existe en la organización`)
+    if (existing) {
+      return this.prisma.producerCode.update({
+        where: { id: existing.id },
+        data: { deletedAt: null, holderName, isActive: true },
+        select,
+      })
+    }
+    return this.prisma.producerCode.create({ data: { code, holderName, producerId }, select })
   }
 
   /** All producer codes of the organization — for the user-management UI. */
