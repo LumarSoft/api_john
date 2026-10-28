@@ -12,6 +12,7 @@ import { firstValueFrom } from 'rxjs'
 import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, type ScopeUser } from '../common/scope/scope.service'
+import { readCommercialPricing, trialTokensFor } from '../usage/commercial-pricing'
 import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 import { describeGraphError } from './graph-errors'
@@ -55,6 +56,15 @@ export class WhatsappOnboardingService {
     private readonly http: HttpService,
     private readonly scope: ScopeService,
   ) {}
+
+  /** The free first-month tokens of a number of this organization (only accounts created from the trial date on). */
+  private async trialTokensFor(producerId: number): Promise<number> {
+    const organization = await this.prisma.producer.findUnique({
+      where: { id: producerId },
+      select: { createdAt: true },
+    })
+    return organization ? trialTokensFor(readCommercialPricing(this.config), organization.createdAt) : 0
+  }
 
   private get graphBase(): string {
     const version = this.config.get<string>('META_GRAPH_VERSION') ?? 'v25.0'
@@ -158,6 +168,8 @@ export class WhatsappOnboardingService {
             producerId,
             wabaAccountId: waba.id,
             responsibleProducerCodeId: billing.responsibleProducerCodeId ?? null,
+            // A new account's number starts with the trial tokens of its first month.
+            trialTokens: await this.trialTokensFor(producerId),
           },
           select: { id: true },
         })

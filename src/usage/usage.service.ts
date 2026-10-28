@@ -1,6 +1,7 @@
 import { metaMessageRate } from './meta-rates'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { CommercialPricing, readCommercialPricing, trialTokensFor } from './commercial-pricing'
 import { PrismaService } from '../prisma/prisma.service'
 
 export interface RecordOpenAiInput {
@@ -33,33 +34,57 @@ export interface MonthlyBillableUsage {
 }
 
 /** A number as billing needs it: whether it is switched on and when it went live. */
+/** A plan of the organization's catalog (TokenPlan row), as billing reads it. */
+export interface CatalogPlan {
+  id: number
+  name: string
+  tokens: number
+  priceUsd: number
+}
+
 export interface BillablePhone {
   isActive: boolean
   /** First message the number ever recorded; null = never in service. */
   serviceStartedAt: Date | null
+  /** Free tokens of the first month of service (a new account's "Prueba"); 0 otherwise. */
+  trialTokens?: number
+  /** The plan the office chose for the number; null = the smallest of the catalog. */
+  plan?: CatalogPlan | null
+  /** The organization's active plans. */
+  catalog?: CatalogPlan[]
 }
 
 export interface TokenPlan {
-  /** 1,000-token blocks billed: 1 = Inicial, 2 = Estándar… */
-  blocks: number
+  /** The catalog plan billed, or null for the trial and for a size beyond the catalog. */
+  id: number | null
   name: string
   includedTokens: number
   priceUsd: number
+  /** The free first-month plan of a new account. */
+  trial: boolean
+  /** Blocks of COMMERCIAL_TOKEN_BLOCK_SIZE the plan spans, for the owner's report. */
+  blocks: number
 }
 
 export interface MonthlyBill {
   /** Messages the platform sent: one token each. */
   tokens: number
+  /** Tokens past the trial, the ones the plan has to cover. */
+  billableTokens: number
+  /** Free tokens applied this month. */
+  trialTokens: number
   plan: TokenPlan
   billedUsd: number
-  /** True when the minimum plan was prorated for the first month of service. */
+  /** True when the number's own plan was prorated for the first month of service. */
   prorated: boolean
 }
 
 const ARGENTINA_TZ = 'America/Argentina/Cordoba'
 
-/** Plan names of the commercial proposal; beyond the last, blocks keep adding to it. */
-const PLAN_NAMES = ['Inicial', 'Estándar', 'Profesional', 'Avanzado']
+/** The free first-month plan of a new account. */
+const TRIAL_PLAN_NAME = 'Prueba'
+
+const round2 = (n: number): number => Math.round(n * 100) / 100
 
 /** Current month key in local time, e.g. "2026-06". */
 export function currentPeriod(date = new Date()): string {
@@ -108,11 +133,8 @@ export class UsageService {
   private readonly transcribePricePerMinute: number
   private readonly metaMarket: string
   private readonly defaultBudget: number
-  /** Token plans: every block of tokens (messages sent) costs the same. */
-  readonly commercialPricing: {
-    blockTokens: number
-    blockPriceUsd: number
-  }
+  /** Token plans: the fixed unit price, the block past the catalog and the trial (see commercial-pricing.ts). */
+  readonly commercialPricing: CommercialPricing
 
   constructor(
     private readonly prisma: PrismaService,
@@ -124,15 +146,27 @@ export class UsageService {
     this.transcribePricePerMinute = Number(config.get('OPENAI_TRANSCRIBE_PRICE_PER_MINUTE') ?? 0.0045)
     this.metaMarket = config.get('META_DEFAULT_MARKET') ?? 'Argentina'
     this.defaultBudget = Number(config.get('DEFAULT_MONTHLY_BUDGET_USD') ?? 20)
-    this.commercialPricing = {
-      blockTokens: Number(config.get('COMMERCIAL_TOKEN_BLOCK_SIZE') ?? 1000),
-      blockPriceUsd: Number(config.get('COMMERCIAL_TOKEN_BLOCK_PRICE_USD') ?? 60),
-    }
-    if (
-      Object.values(this.commercialPricing).some(value => !Number.isFinite(value) || value <= 0) ||
-      !Number.isInteger(this.commercialPricing.blockTokens)
-    )
-      throw new Error('Invalid commercial billing configuration')
+    this.commercialPricing = readCommercialPricing(config)
+  }
+
+  /** What a plan of `tokens` costs: the fixed unit price, whatever the size. */
+  priceOf(tokens: number): number {
+    return round2(tokens * this.commercialPricing.unitPriceUsd)
+  }
+
+  /** The free tokens a number gets in its first month: only the numbers of accounts created from the trial date on. */
+  trialTokensFor(organizationCreatedAt: Date): number {
+    return trialTokensFor(this.commercialPricing, organizationCreatedAt)
+  }
+
+  /** The organization's active plans, smallest first. */
+  async catalogFor(producerId: number): Promise<CatalogPlan[]> {
+    const plans = await this.prisma.tokenPlan.findMany({
+      where: { producerId, deletedAt: null, isActive: true },
+      orderBy: [{ tokens: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, tokens: true, priceUsd: true },
+    })
+    return plans.map(p => ({ ...p, priceUsd: Number(p.priceUsd) }))
   }
 
   private async resolvePhone(metaPhoneNumberId: string) {
@@ -145,39 +179,97 @@ export class UsageService {
         isActive: true,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
+        trialTokens: true,
+        tokenPlan: { select: { id: true, name: true, tokens: true, priceUsd: true } },
       },
     })
   }
 
-  /** The smallest plan that covers the tokens; Inicial even for a quiet month. */
-  planFor(tokens: number): TokenPlan {
-    const { blockTokens, blockPriceUsd } = this.commercialPricing
-    const blocks = Math.max(1, Math.ceil(tokens / blockTokens))
-    const last = PLAN_NAMES.length
-    const name =
-      blocks <= last
-        ? PLAN_NAMES[blocks - 1]
-        : `${PLAN_NAMES[last - 1]} + ${((blocks - last) * blockTokens).toLocaleString('es-AR')}`
-    return { blocks, name, includedTokens: blocks * blockTokens, priceUsd: blocks * blockPriceUsd }
+  private asPlan(plan: CatalogPlan): TokenPlan {
+    return {
+      id: plan.id,
+      name: plan.name,
+      includedTokens: plan.tokens,
+      priceUsd: plan.priceUsd,
+      trial: false,
+      blocks: Math.ceil(plan.tokens / this.commercialPricing.blockTokens),
+    }
+  }
+
+  private trialPlan(tokens: number): TokenPlan {
+    return { id: null, name: TRIAL_PLAN_NAME, includedTokens: tokens, priceUsd: 0, trial: true, blocks: 0 }
+  }
+
+  /**
+   * The plan a month of `tokens` is billed on: the number's own plan while it
+   * covers them, else the smallest plan of the catalog that does, and past the
+   * largest plan that same plan plus blocks of COMMERCIAL_TOKEN_BLOCK_SIZE, every
+   * token at the same unit price. With no catalog at all, plain blocks.
+   */
+  planFor(tokens: number, catalog: CatalogPlan[] = [], assigned: CatalogPlan | null = null): TokenPlan {
+    const { blockTokens } = this.commercialPricing
+    if (assigned && tokens <= assigned.tokens) return this.asPlan(assigned)
+    const sorted = [...catalog].sort((a, b) => a.tokens - b.tokens || a.id - b.id)
+    const covering = sorted.find(p => p.tokens >= tokens)
+    if (covering) return this.asPlan(covering)
+    const largest = [assigned, ...sorted].reduce<CatalogPlan | null>(
+      (best, p) => (p && (!best || p.tokens > best.tokens) ? p : best),
+      null,
+    )
+    const base = largest?.tokens ?? 0
+    const extraBlocks = Math.max(1, Math.ceil((tokens - base) / blockTokens))
+    const includedTokens = base + extraBlocks * blockTokens
+    const extra = (extraBlocks * blockTokens).toLocaleString('es-AR')
+    return {
+      id: null,
+      name: largest ? `${largest.name} + ${extra}` : `${extra} tokens`,
+      includedTokens,
+      priceUsd: this.priceOf(includedTokens),
+      trial: false,
+      blocks: Math.ceil(includedTokens / blockTokens),
+    }
   }
 
   /**
    * What the client is invoiced for a number in a month (billed in arrears).
    *
-   * One token per message sent. The plan is picked again every month from that
-   * month's tokens, so a busy month moves up a plan and a quiet one comes back
-   * down. An active number pays at least Inicial; in its first month of service
-   * that minimum is prorated from the day it went live. A number that never went
-   * live, or that was switched off and sent nothing, is not billed.
+   * One token per message sent. A new account's number sends its first
+   * COMMERCIAL_TRIAL_TOKENS of its first month free ("Prueba"); the rest of the
+   * month, and every later month, is billed on the plan that covers the tokens
+   * (planFor), so a busy month moves up and a quiet one comes back to the
+   * number's own plan. An active number pays at least its own plan (or the
+   * smallest of the catalog); in its first month of service, with no trial, that
+   * plan is prorated from the day it went live. A number that never went live,
+   * or that was switched off and sent nothing, is not billed.
    */
   billFor(phone: BillablePhone, usage: MonthlyBillableUsage | undefined, period = currentPeriod()): MonthlyBill {
     const tokens = usage?.metaMessages ?? 0
-    const plan = this.planFor(tokens)
+    const catalog = phone.catalog ?? []
+    const assigned = phone.plan ?? null
     const startPeriod = phone.serviceStartedAt ? currentPeriod(phone.serviceStartedAt) : null
-    if (!startPeriod || startPeriod > period || (!phone.isActive && tokens === 0))
-      return { tokens, plan, billedUsd: 0, prorated: false }
-    const share = plan.blocks === 1 && startPeriod === period ? serviceShareOfMonth(period, phone.serviceStartedAt!) : 1
-    return { tokens, plan, billedUsd: Math.round(plan.priceUsd * share * 100) / 100, prorated: share < 1 }
+    if (!startPeriod || startPeriod > period || (!phone.isActive && tokens === 0)) {
+      return {
+        tokens,
+        billableTokens: 0,
+        trialTokens: 0,
+        plan: this.planFor(0, catalog, assigned),
+        billedUsd: 0,
+        prorated: false,
+      }
+    }
+    const firstMonth = startPeriod === period
+    const trialTokens = firstMonth ? (phone.trialTokens ?? 0) : 0
+    const billableTokens = Math.max(0, tokens - trialTokens)
+    if (trialTokens > 0 && billableTokens === 0) {
+      return { tokens, billableTokens, trialTokens, plan: this.trialPlan(trialTokens), billedUsd: 0, prorated: false }
+    }
+    const plan = this.planFor(billableTokens, catalog, assigned)
+    const ownPlanId = assigned?.id ?? [...catalog].sort((a, b) => a.tokens - b.tokens)[0]?.id ?? null
+    const share =
+      firstMonth && trialTokens === 0 && plan.id != null && plan.id === ownPlanId
+        ? serviceShareOfMonth(period, phone.serviceStartedAt!)
+        : 1
+    return { tokens, billableTokens, trialTokens, plan, billedUsd: round2(plan.priceUsd * share), prorated: share < 1 }
   }
 
   /**
@@ -370,14 +462,30 @@ export class UsageService {
 
   /** Recomputes the invoiced amount for a period row after its activity changed. */
   private async refreshBilled(
-    phone: { id: number; isActive: boolean },
+    phone: {
+      id: number
+      producerId: number
+      isActive: boolean
+      trialTokens: number
+      tokenPlan: { id: number; name: string; tokens: number; priceUsd: unknown } | null
+    },
     rowId: number,
     usage: MonthlyBillableUsage,
     period: string,
   ): Promise<void> {
     try {
-      const serviceStartedAt = (await this.serviceStarts([phone.id])).get(phone.id) ?? null
-      const { billedUsd } = this.billFor({ isActive: phone.isActive, serviceStartedAt }, usage, period)
+      const [starts, catalog] = await Promise.all([this.serviceStarts([phone.id]), this.catalogFor(phone.producerId)])
+      const { billedUsd } = this.billFor(
+        {
+          isActive: phone.isActive,
+          serviceStartedAt: starts.get(phone.id) ?? null,
+          trialTokens: phone.trialTokens,
+          plan: phone.tokenPlan ? { ...phone.tokenPlan, priceUsd: Number(phone.tokenPlan.priceUsd) } : null,
+          catalog,
+        },
+        usage,
+        period,
+      )
       await this.prisma.usageMonthly.update({
         where: { id: rowId },
         data: { billedUsd },
@@ -445,6 +553,8 @@ export class UsageService {
             isActive: true,
             monthlyBudgetUsd: true,
             budgetExceededAt: true,
+            trialTokens: true,
+            tokenPlan: { select: { id: true, name: true, tokens: true, priceUsd: true } },
           },
         },
         producerCode: { select: { id: true, code: true, holderName: true } },
@@ -453,10 +563,21 @@ export class UsageService {
     })
 
     // Recompute the commercial plan from activity rather than trusting the stored billedUsd.
-    const starts = await this.serviceStarts(rows.map(r => r.phoneNumber.id))
+    const [starts, catalog] = await Promise.all([
+      this.serviceStarts(rows.map(r => r.phoneNumber.id)),
+      this.catalogFor(producerId),
+    ])
     const priced = rows.map(r => {
       const bill = this.billFor(
-        { isActive: r.phoneNumber.isActive, serviceStartedAt: starts.get(r.phoneNumber.id) ?? null },
+        {
+          isActive: r.phoneNumber.isActive,
+          serviceStartedAt: starts.get(r.phoneNumber.id) ?? null,
+          trialTokens: r.phoneNumber.trialTokens,
+          plan: r.phoneNumber.tokenPlan
+            ? { ...r.phoneNumber.tokenPlan, priceUsd: Number(r.phoneNumber.tokenPlan.priceUsd) }
+            : null,
+          catalog,
+        },
         r,
         period,
       )

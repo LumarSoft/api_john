@@ -51,11 +51,10 @@ export class PhoneNumbersService {
    * Numbers of an organization with the running month's figures.
    *
    * What the caller sees depends on the role:
-   *   - ADMIN: the tokens of the month (one per message sent), what the client pays for
+   *   - ADMIN: the tokens of the month (one per message sent), the number's plan
+   *     and what the month adds up to at the catalog's prices
    *   - SUPERADMIN: also the messages and the OpenAI calls and tokens
-   *   - OWNER (Lumar): also the plan, its price, the provider cost and the margin
-   *
-   * Amounts in USD are withheld from tenants: the client is billed in tokens.
+   *   - OWNER (Lumar): also the provider cost and the margin
    */
   async list(producerId: number, role?: Role, period = currentPeriod(), userId?: number) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || period > currentPeriod())
@@ -75,6 +74,8 @@ export class PhoneNumbersService {
         ...ASSISTANT_SELECT,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
+        trialTokens: true,
+        tokenPlan: { select: { id: true, name: true, tokens: true, priceUsd: true } },
         wabaAccount: { select: { disconnectedAt: true, disconnectReason: true } },
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true, holderName: true } } } },
@@ -97,12 +98,21 @@ export class PhoneNumbersService {
       orderBy: { id: 'desc' },
     })
 
-    const starts = await this.usage.serviceStarts(numbers.map(n => n.id))
+    const [starts, catalog] = await Promise.all([
+      this.usage.serviceStarts(numbers.map(n => n.id)),
+      this.usage.catalogFor(producerId),
+    ])
     return numbers.map(n => {
       const usage = n.usageMonthly[0]
       const cost = Number(usage?.totalCostUsd ?? 0)
       const bill = this.usage.billFor(
-        { isActive: n.isActive, serviceStartedAt: starts.get(n.id) ?? null },
+        {
+          isActive: n.isActive,
+          serviceStartedAt: starts.get(n.id) ?? null,
+          trialTokens: n.trialTokens,
+          plan: n.tokenPlan ? { ...n.tokenPlan, priceUsd: Number(n.tokenPlan.priceUsd) } : null,
+          catalog,
+        },
         usage,
         period,
       )
@@ -130,8 +140,12 @@ export class PhoneNumbersService {
         canConfigureAssistant: this.inScope(scope, n.responsibleProducerCode?.id ?? null),
         usage: {
           period,
-          // What the client pays for: one token per message sent.
+          // What the client pays for: one token per message sent, on the plan that covers the month.
           tokens: bill.tokens,
+          trialTokens: bill.trialTokens,
+          plan: bill.plan,
+          prorated: bill.prorated,
+          billedUsd: bill.billedUsd,
           ...(seesActivity
             ? {
                 metaMessages: usage?.metaMessages ?? 0,
@@ -141,13 +155,10 @@ export class PhoneNumbersService {
                 outputTokens: usage?.openaiOutputTokens ?? 0,
               }
             : {}),
-          // The plan it is billed on, our cost and margin: owner only.
+          // Our cost and margin: owner only.
           ...(isOwner
             ? {
                 pricing: this.usage.commercialPricing,
-                plan: bill.plan,
-                prorated: bill.prorated,
-                billedUsd: bill.billedUsd,
                 metaBillableMessages: usage?.metaBillableMessages ?? 0,
                 openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
                 metaCostUsd: Number(usage?.metaCostUsd ?? 0),
@@ -177,6 +188,11 @@ export class PhoneNumbersService {
       producerId,
     )
 
+    // A new account's number starts with the trial tokens of its first month.
+    const organization = await this.prisma.producer.findUniqueOrThrow({
+      where: { id: producerId },
+      select: { createdAt: true },
+    })
     const phone = await this.prisma.phoneNumber.create({
       data: {
         phoneNumberId: dto.phoneNumberId,
@@ -184,6 +200,7 @@ export class PhoneNumbersService {
         producerId,
         responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
         monthlyBudgetUsd: this.budgetFrom(dto, role) ?? null,
+        trialTokens: this.usage.trialTokensFor(organization.createdAt),
       },
       select: { id: true },
     })

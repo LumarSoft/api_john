@@ -14,6 +14,7 @@ const admin = { id: 4, producerId: 1, role: Role.ADMIN }
 describe('WhatsappOnboardingService', () => {
   it('rejects a standard Cloud API result requested as Coexistence before persisting it', async () => {
     const prisma = {
+      producer: { findUnique: jest.fn().mockResolvedValue({ createdAt: new Date('2026-01-01T00:00:00Z') }) },
       phoneNumber: { findUnique: jest.fn() },
       wabaAccount: { upsert: jest.fn() },
     }
@@ -56,6 +57,7 @@ describe('WhatsappOnboardingService', () => {
 
     function setup(options: { sameId?: unknown; rows?: unknown[]; codes?: number[] } = {}) {
       const prisma = {
+        producer: { findUnique: jest.fn().mockResolvedValue({ createdAt: new Date('2026-01-01T00:00:00Z') }) },
         phoneNumber: {
           findUnique: jest.fn().mockResolvedValue(options.sameId ?? null),
           findMany: jest.fn().mockResolvedValue(options.rows ?? []),
@@ -67,7 +69,10 @@ describe('WhatsappOnboardingService', () => {
         phoneNumberProducerCode: { createMany: jest.fn() },
         $transaction: jest.fn((operations: Promise<unknown>[]) => Promise.all(operations)),
       }
-      const config = { get: jest.fn().mockReturnValue('a'.repeat(64)), getOrThrow: jest.fn() }
+      const config = {
+        get: jest.fn((key: string) => (key.startsWith('COMMERCIAL_') ? undefined : 'a'.repeat(64))),
+        getOrThrow: jest.fn(),
+      }
       const service = new WhatsappOnboardingService(
         prisma as any,
         config as any,
@@ -175,6 +180,7 @@ describe('WhatsappOnboardingService', () => {
   describe("an admin connecting their office's numbers", () => {
     function setup(options: { sameId?: unknown; codes?: number[] } = {}) {
       const prisma = {
+        producer: { findUnique: jest.fn().mockResolvedValue({ createdAt: new Date('2026-01-01T00:00:00Z') }) },
         phoneNumber: {
           findUnique: jest.fn().mockResolvedValue(options.sameId ?? null),
           findFirst: jest.fn(),
@@ -185,7 +191,10 @@ describe('WhatsappOnboardingService', () => {
         wabaAccount: { upsert: jest.fn().mockResolvedValue({ id: 5 }) },
         phoneNumberProducerCode: { createMany: jest.fn() },
       }
-      const config = { get: jest.fn().mockReturnValue('a'.repeat(64)), getOrThrow: jest.fn() }
+      const config = {
+        get: jest.fn((key: string) => (key.startsWith('COMMERCIAL_') ? undefined : 'a'.repeat(64))),
+        getOrThrow: jest.fn(),
+      }
       const service = new WhatsappOnboardingService(
         prisma as any,
         config as any,

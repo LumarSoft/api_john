@@ -63,6 +63,7 @@ model Producer {
   notifications           Notification[]
   contactLeads            ContactLead[]
   productPlans            ProductPlan[]
+  tokenPlans              TokenPlan[]
   businessClosures        BusinessClosure[]
   usageMonthly            UsageMonthly[]
   coverageSettings        CoverageSetting[]
@@ -362,6 +363,15 @@ model PhoneNumber {
   // year windows stay the organization's. Null = offers them as the organization does.
   coverageSettings Json?
   botStatusChanges BotStatusChange[]
+  // The token plan the office chose for this number (Facturación). Null = the
+  // smallest active plan of the organization. A month that goes past it is
+  // billed on the plan that covers it (see UsageService.planFor).
+  tokenPlanId      Int?
+  tokenPlan        TokenPlan?        @relation(fields: [tokenPlanId], references: [id])
+  // Free tokens of the number's first month of service: the "Prueba" plan of
+  // a new account (COMMERCIAL_TRIAL_TOKENS, organizations created from
+  // COMMERCIAL_TRIAL_FROM on). 0 for the numbers of older accounts.
+  trialTokens      Int               @default(0)
 
   @@index([responsibleProducerCodeId])
   @@index([wabaAccountId])
@@ -1230,4 +1240,26 @@ model PolicyExpiryNotice {
 
   @@index([policyId, createdAt])
   @@index([producerId, status])
+}
+
+// A token plan the organization offers its numbers (Facturación): a size in
+// tokens at the platform's fixed unit price (COMMERCIAL_TOKEN_PRICE_USD, USD
+// 0.05: 500 = USD 25, 1.000 = USD 50). The SuperAdmin picks the sizes, never
+// the price. priceUsd is stored as it was when the plan was saved.
+model TokenPlan {
+  id        Int       @id @default(autoincrement())
+  name      String    @db.VarChar(60)
+  tokens    Int
+  priceUsd  Decimal   @db.Decimal(10, 2)
+  isActive  Boolean   @default(true)
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  producerId   Int
+  producer     Producer      @relation(fields: [producerId], references: [id])
+  phoneNumbers PhoneNumber[]
+
+  @@index([producerId, isActive, sortOrder])
 }

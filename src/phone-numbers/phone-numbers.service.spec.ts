@@ -22,6 +22,8 @@ describe('monthly phone number report', () => {
             number: '+5493416000000',
             phoneNumberId: 'PN',
             isActive: true,
+            trialTokens: 0,
+            tokenPlan: null,
             servedCodes: [],
             responsibleProducerCode: null,
             usageMonthly: [
@@ -41,6 +43,13 @@ describe('monthly phone number report', () => {
       },
       // In service since August, so September is a full month.
       usageMonthly: { groupBy: jest.fn().mockResolvedValue([{ phoneNumberId: 1, _min: { period: '2026-08' } }]) },
+      tokenPlan: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, name: 'Inicial', tokens: 300, priceUsd: 15 },
+          { id: 2, name: 'Estándar', tokens: 500, priceUsd: 25 },
+          { id: 3, name: 'Profesional', tokens: 1000, priceUsd: 50 },
+        ]),
+      },
       usageEvent: { groupBy: jest.fn().mockResolvedValue([]) },
       userProducerCode: { findMany: jest.fn().mockResolvedValue([{ producerCodeId: 11 }]) },
     }
@@ -48,21 +57,29 @@ describe('monthly phone number report', () => {
     return { prisma, service: new PhoneNumbersService(prisma as any, usage as any, noCoverages, noAlerts) }
   }
 
-  const ownerOnly = ['pricing', 'plan', 'prorated', 'billedUsd', 'totalCostUsd', 'marginUsd', 'metaBillableMessages']
+  const ownerOnly = ['pricing', 'totalCostUsd', 'marginUsd', 'metaBillableMessages', 'openaiCostUsd', 'metaCostUsd']
 
-  it('shows an admin only the tokens of the month, never an amount in USD', async () => {
+  it('shows an admin the tokens of the month and its plan, never our cost', async () => {
     const { service, prisma } = setup()
     const [row] = await service.list(2, Role.ADMIN, '2026-09')
     expect(prisma.phoneNumber.findMany.mock.calls[0][0]).toMatchObject({
       where: { producerId: 2, deletedAt: null },
       select: { usageMonthly: { where: { period: '2026-09' } } },
     })
-    expect(row.usage).toEqual({ period: '2026-09', tokens: 1200 })
+    // Its plan and what the month adds up to, but never our cost.
+    expect(row.usage).toEqual({
+      period: '2026-09',
+      tokens: 1200,
+      trialTokens: 0,
+      plan: { id: null, name: 'Profesional + 1.000', includedTokens: 2000, priceUsd: 100, trial: false, blocks: 2 },
+      prorated: false,
+      billedUsd: 100,
+    })
     expect(row).not.toHaveProperty('monthlyBudgetUsd')
     expect(row).not.toHaveProperty('budgetExceededAt')
   })
 
-  it('shows a superadmin the messages and the OpenAI calls and tokens, without plan or USD', async () => {
+  it('shows a superadmin the messages and the OpenAI calls and tokens, without our cost', async () => {
     const { service } = setup()
     const [row] = await service.list(2, Role.SUPERADMIN, '2026-09')
     expect(row.usage).toMatchObject({
@@ -83,11 +100,11 @@ describe('monthly phone number report', () => {
     expect(row.usage).toMatchObject({
       tokens: 1200,
       openaiCalls: 80,
-      pricing: { blockTokens: 1000, blockPriceUsd: 60 },
-      plan: { name: 'Estándar', includedTokens: 2000, priceUsd: 120 },
-      billedUsd: 120,
+      pricing: { unitPriceUsd: 0.05, blockTokens: 1000, blockPriceUsd: 50, trialTokens: 100 },
+      plan: { name: 'Profesional + 1.000', includedTokens: 2000, priceUsd: 100 },
+      billedUsd: 100,
       totalCostUsd: 5.21,
-      marginUsd: 114.79,
+      marginUsd: 94.79,
       metaBillableMessages: 200,
     })
     expect(row).toHaveProperty('monthlyBudgetUsd')

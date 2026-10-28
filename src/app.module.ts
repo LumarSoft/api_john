@@ -32,6 +32,7 @@ import { ImprovementsModule } from './improvements/improvements.module'
 import { TasksModule } from './tasks/tasks.module'
 import { RejectionsModule } from './rejections/rejections.module'
 import { ExpiredPoliciesModule } from './expired-policies/expired-policies.module'
+import { BillingModule } from './billing/billing.module'
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { ExpiredPoliciesModule } from './expired-policies/expired-policies.modul
     TasksModule,
     RejectionsModule,
     ExpiredPoliciesModule,
+    BillingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

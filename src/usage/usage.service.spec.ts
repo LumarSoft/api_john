@@ -16,6 +16,7 @@ function setup(phoneOverrides: Record<string, unknown> = {}) {
   const counters = { openaiInputTokens: 0, openaiOutputTokens: 0, openaiCalls: 0, metaMessages: 0 }
   const prisma = {
     phoneNumber: { findFirst: jest.fn().mockResolvedValue(phone), update: jest.fn() },
+    tokenPlan: { findMany: jest.fn().mockResolvedValue([]) },
     usageEvent: {
       create: jest.fn().mockImplementation(async ({ data }) => {
         if (events.has(data.eventId)) throw { code: 'P2002' }
@@ -44,64 +45,128 @@ function setup(phoneOverrides: Record<string, unknown> = {}) {
 
 const live = { isActive: true, serviceStartedAt: new Date('2026-08-10T15:00:00Z') }
 
+const catalog = [
+  { id: 1, name: 'Inicial', tokens: 300, priceUsd: 15 },
+  { id: 2, name: 'Estándar', tokens: 500, priceUsd: 25 },
+  { id: 3, name: 'Profesional', tokens: 1000, priceUsd: 50 },
+]
+const estandar = catalog[1]
+
 describe('token plans', () => {
-  it('picks the smallest plan that covers the tokens, in blocks of 1,000 at USD 60', () => {
+  it('prices every plan at the fixed unit price, whatever its size', () => {
     const { service } = setup()
-    expect(service.planFor(0)).toEqual({ blocks: 1, name: 'Inicial', includedTokens: 1000, priceUsd: 60 })
-    expect(service.planFor(1000)).toMatchObject({ name: 'Inicial', priceUsd: 60 })
-    expect(service.planFor(1001)).toMatchObject({ blocks: 2, name: 'Estándar', includedTokens: 2000, priceUsd: 120 })
-    expect(service.planFor(2001)).toMatchObject({ name: 'Profesional', priceUsd: 180 })
-    expect(service.planFor(4000)).toMatchObject({ name: 'Avanzado', priceUsd: 240 })
-    expect(service.planFor(4500)).toEqual({
-      blocks: 5,
-      name: 'Avanzado + 1.000',
-      includedTokens: 5000,
-      priceUsd: 300,
+    expect(service.commercialPricing).toMatchObject({
+      unitPriceUsd: 0.05,
+      blockTokens: 1000,
+      blockPriceUsd: 50,
+      trialTokens: 100,
     })
+    expect(service.priceOf(300)).toBe(15)
+    expect(service.priceOf(500)).toBe(25)
+    expect(service.priceOf(1000)).toBe(50)
+  })
+
+  it('bills a month on the smallest plan of the catalog that covers it', () => {
+    const { service } = setup()
+    expect(service.planFor(0, catalog)).toMatchObject({ id: 1, name: 'Inicial', includedTokens: 300, priceUsd: 15 })
+    expect(service.planFor(300, catalog)).toMatchObject({ name: 'Inicial' })
+    expect(service.planFor(301, catalog)).toMatchObject({ name: 'Estándar', priceUsd: 25 })
+    expect(service.planFor(1000, catalog)).toMatchObject({ name: 'Profesional', priceUsd: 50 })
+  })
+
+  it('keeps a number on its own plan while it covers the month', () => {
+    const { service } = setup()
+    expect(service.planFor(200, catalog, estandar)).toMatchObject({ id: 2, name: 'Estándar', priceUsd: 25 })
+    expect(service.planFor(900, catalog, estandar)).toMatchObject({ id: 3, name: 'Profesional' })
+  })
+
+  it('charges blocks of 1,000 at the same unit price past the largest plan', () => {
+    const { service } = setup()
+    expect(service.planFor(1200, catalog)).toEqual({
+      id: null,
+      name: 'Profesional + 1.000',
+      includedTokens: 2000,
+      priceUsd: 100,
+      trial: false,
+      blocks: 2,
+    })
+    expect(service.planFor(2500, catalog)).toMatchObject({
+      name: 'Profesional + 2.000',
+      includedTokens: 3000,
+      priceUsd: 150,
+    })
+    // Without a catalog, plain blocks.
+    expect(service.planFor(1200, [])).toMatchObject({ name: '2.000 tokens', includedTokens: 2000, priceUsd: 100 })
   })
 
   it('counts one token per message sent and ignores LLM tokens', () => {
     const { service } = setup()
-    expect(service.billFor(live, { metaMessages: 1430, openaiInputTokens: 5_000_000 }, '2026-10')).toMatchObject({
-      tokens: 1430,
-      plan: { name: 'Estándar' },
-      billedUsd: 120,
+    expect(
+      service.billFor({ ...live, catalog }, { metaMessages: 430, openaiInputTokens: 5_000_000 }, '2026-10'),
+    ).toMatchObject({ tokens: 430, billableTokens: 430, plan: { name: 'Estándar' }, billedUsd: 25 })
+  })
+
+  it('gives a new account its first tokens free, then bills the rest on the plan that covers them', () => {
+    const { service } = setup()
+    const trial = { ...live, serviceStartedAt: new Date('2026-11-03T15:00:00Z'), trialTokens: 100, catalog }
+    expect(service.billFor(trial, { metaMessages: 80 }, '2026-11')).toMatchObject({
+      trialTokens: 100,
+      billableTokens: 0,
+      plan: { name: 'Prueba', includedTokens: 100, priceUsd: 0, trial: true },
+      billedUsd: 0,
+    })
+    expect(service.billFor(trial, { metaMessages: 350 }, '2026-11')).toMatchObject({
+      trialTokens: 100,
+      billableTokens: 250,
+      plan: { name: 'Inicial' },
+      billedUsd: 15,
       prorated: false,
+    })
+    // The month after, no trial: the whole month counts.
+    expect(service.billFor(trial, { metaMessages: 350 }, '2026-12')).toMatchObject({
+      trialTokens: 0,
+      plan: { name: 'Estándar' },
+      billedUsd: 25,
     })
   })
 
-  it('charges the Inicial plan for a quiet month and recalculates the plan every month', () => {
+  it('charges the number its own plan for a quiet month and recalculates every month', () => {
     const { service } = setup()
-    expect(service.billFor(live, undefined, '2026-09').billedUsd).toBe(60)
-    expect(service.billFor(live, { metaMessages: 2150 }, '2026-09').billedUsd).toBe(180)
-    expect(service.billFor(live, { metaMessages: 820 }, '2026-10').billedUsd).toBe(60)
+    expect(service.billFor({ ...live, catalog }, undefined, '2026-09').billedUsd).toBe(15)
+    expect(service.billFor({ ...live, catalog, plan: estandar }, undefined, '2026-09').billedUsd).toBe(25)
+    expect(service.billFor({ ...live, catalog }, { metaMessages: 1200 }, '2026-09').billedUsd).toBe(100)
+    expect(service.billFor({ ...live, catalog }, { metaMessages: 280 }, '2026-10').billedUsd).toBe(15)
   })
 
   it('does not bill a number before it goes live, nor a switched-off number that sent nothing', () => {
     const { service } = setup()
-    expect(service.billFor({ isActive: true, serviceStartedAt: null }, undefined, '2026-10').billedUsd).toBe(0)
-    expect(service.billFor(live, undefined, '2026-07').billedUsd).toBe(0)
-    expect(service.billFor({ ...live, isActive: false }, undefined, '2026-10').billedUsd).toBe(0)
-    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 1500 }, '2026-10').billedUsd).toBe(120)
+    expect(service.billFor({ isActive: true, serviceStartedAt: null, catalog }, undefined, '2026-10').billedUsd).toBe(0)
+    expect(service.billFor({ ...live, catalog }, undefined, '2026-07').billedUsd).toBe(0)
+    expect(service.billFor({ ...live, isActive: false, catalog }, undefined, '2026-10').billedUsd).toBe(0)
+    expect(service.billFor({ ...live, isActive: false, catalog }, { metaMessages: 600 }, '2026-10').billedUsd).toBe(50)
   })
 
-  it('prorates only the Inicial plan of the first month, from the day the number went live', () => {
+  it("prorates only the number's own plan in its first month, from the day it went live", () => {
     const { service } = setup()
-    // 21 October in Argentina: 11 of 31 days in service.
-    const startedOct21 = { isActive: true, serviceStartedAt: new Date('2026-10-21T13:00:00Z') }
-    expect(service.billFor(startedOct21, { metaMessages: 300 }, '2026-10')).toMatchObject({
-      billedUsd: 21.29,
+    const startedOct21 = { isActive: true, serviceStartedAt: new Date('2026-10-21T13:00:00Z'), catalog }
+    // 11 of 31 days of Inicial (USD 15).
+    expect(service.billFor(startedOct21, { metaMessages: 100 }, '2026-10')).toMatchObject({
+      billedUsd: 5.32,
       prorated: true,
     })
+    // Past its plan the covering plan is charged whole.
     expect(service.billFor(startedOct21, { metaMessages: 1500 }, '2026-10')).toMatchObject({
-      billedUsd: 120,
+      plan: { name: 'Profesional + 1.000' },
+      billedUsd: 100,
       prorated: false,
     })
-    expect(service.billFor(startedOct21, { metaMessages: 300 }, '2026-11').billedUsd).toBe(60)
-    // 30 September 22:00 in Argentina is still September: October is a full month.
-    const startedSep30 = { isActive: true, serviceStartedAt: new Date('2026-10-01T01:00:00Z') }
-    expect(service.billFor(startedSep30, undefined, '2026-10').billedUsd).toBe(60)
-    expect(service.billFor(startedSep30, undefined, '2026-09')).toMatchObject({ billedUsd: 2, prorated: true })
+    expect(service.billFor(startedOct21, { metaMessages: 100 }, '2026-11').billedUsd).toBe(15)
+  })
+
+  it('gives the trial only to the numbers of accounts created from the trial date on', () => {
+    const { service } = setup()
+    expect(service.trialTokensFor(new Date('2026-06-01T00:00:00Z'))).toBe(0)
+    expect(service.trialTokensFor(new Date('2026-11-01T00:00:00Z'))).toBe(100)
   })
 
   it('dates the start of service from the first event of the first month, or that month when it has none', async () => {
@@ -153,7 +218,8 @@ describe('monthly usage recording', () => {
       metaBillableMessages: 1,
       totalCostUsd: 0.026,
     })
-    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 60 } })
+    // No catalog in this mock: a plain block of 1,000 at USD 0.05.
+    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 50 } })
   })
 
   it('stores the next plan once a month passes the tokens of its plan', async () => {
@@ -167,7 +233,7 @@ describe('monthly usage recording', () => {
       timestamp: Date.parse('2026-10-20T12:00:00Z') / 1000,
       billable: true,
     })
-    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 120 } })
+    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 100 } })
   })
 
   it('deduplicates status retries durably by phone/message id', async () => {
@@ -244,8 +310,13 @@ describe('monthly usage recording', () => {
       },
     ])
     const report = await service.getSummary(2, [8], '2026-10')
-    expect(report.rows[0]).toMatchObject({ tokens: 1430, plan: { name: 'Estándar' }, billedUsd: 120, marginUsd: 110 })
-    expect(report.totals).toMatchObject({ billedUsd: 120, marginUsd: 110 })
+    expect(report.rows[0]).toMatchObject({
+      tokens: 1430,
+      plan: { name: '2.000 tokens' },
+      billedUsd: 100,
+      marginUsd: 90,
+    })
+    expect(report.totals).toMatchObject({ billedUsd: 100, marginUsd: 90 })
   })
 })
 

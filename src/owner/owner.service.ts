@@ -156,6 +156,8 @@ export class OwnerService {
         isActive: true,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
+        trialTokens: true,
+        tokenPlan: { select: { id: true, name: true, tokens: true, priceUsd: true } },
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true } } } },
         usageMonthly: {
@@ -175,11 +177,24 @@ export class OwnerService {
       },
     })
 
-    const starts = await this.usage.serviceStarts(phones.map(p => p.id))
+    const [starts, catalog] = await Promise.all([
+      this.usage.serviceStarts(phones.map(p => p.id)),
+      this.usage.catalogFor(producerId),
+    ])
     return phones.map(p => {
       const u = p.usageMonthly[0]
       const cost = Number(u?.totalCostUsd ?? 0)
-      const bill = this.usage.billFor({ isActive: p.isActive, serviceStartedAt: starts.get(p.id) ?? null }, u, period)
+      const bill = this.usage.billFor(
+        {
+          isActive: p.isActive,
+          serviceStartedAt: starts.get(p.id) ?? null,
+          trialTokens: p.trialTokens,
+          plan: p.tokenPlan ? { ...p.tokenPlan, priceUsd: Number(p.tokenPlan.priceUsd) } : null,
+          catalog,
+        },
+        u,
+        period,
+      )
 
       return {
         id: p.id,
@@ -204,6 +219,7 @@ export class OwnerService {
           metaCostUsd: Number(u?.metaCostUsd ?? 0),
           totalCostUsd: cost,
           tokens: bill.tokens,
+          trialTokens: bill.trialTokens,
           plan: bill.plan,
           prorated: bill.prorated,
           billedUsd: bill.billedUsd,
