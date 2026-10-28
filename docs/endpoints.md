@@ -647,9 +647,9 @@ Actualiza el nombre con el que se presenta el bot y los nombres de las personas 
 
 ### PATCH /admin/config/bot-status
 
-Switch global: enciende o apaga todas las respuestas automáticas del bot de la organización. Los mensajes entrantes se siguen guardando en la bandeja. Cada cambio real queda registrado en `BotStatusChange` (quién, cuándo) y se anuncia al dueño por los canales configurados (`BOT_STATUS_ALERT_EMAIL`, `BOT_STATUS_ALERT_PHONE` + `BOT_STATUS_ALERT_TEMPLATE`); sin configuración el aviso solo se loguea. Repetir el estado actual no genera registro ni aviso.
+Switch global: enciende o apaga todas las respuestas automáticas del bot de la organización. Los mensajes entrantes se siguen guardando en la bandeja. Cada cambio real queda registrado en `BotStatusChange` (quién, cuándo) y se anuncia al dueño por los canales configurados (`BOT_STATUS_ALERT_EMAIL`, `BOT_STATUS_ALERT_PHONE` + `BOT_STATUS_ALERT_TEMPLATE`); sin configuración el aviso solo se loguea. Repetir el estado actual no genera registro ni aviso. Lo puede usar cualquier administrador, no solo el SuperAdmin; para apagar el bot en un solo número está `PATCH /admin/phone-numbers/:id/bot-status`.
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 

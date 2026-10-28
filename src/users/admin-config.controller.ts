@@ -44,9 +44,13 @@ export class AdminConfigController {
     return this.usersService.updateBotProfile(req.user.producerId, dto)
   }
 
-  /** Emergency organization-wide switch. Only a SuperAdmin may stop every chat. */
+  /**
+   * Emergency organization-wide switch. Open to every admin, not only the
+   * SuperAdmin: the office needs to stop the bot fast when something goes wrong,
+   * and whoever did it is audited and announced.
+   */
   @Patch('bot-status')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   setBotStatus(@Request() req: AuthenticatedRequest, @Body() dto: SetBotStatusDto) {
     return this.usersService.setBotEnabled(req.user.producerId, dto.botEnabled, {
       id: req.user.id,

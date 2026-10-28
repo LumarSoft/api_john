@@ -38,5 +38,8 @@ describe('who changes the organization settings', () => {
   it("lets admins read and change a number's own assistant", () => {
     expect(rolesOf(AdminPhoneNumbersController.prototype.getAssistant)).toEqual([Role.SUPERADMIN, Role.ADMIN])
     expect(rolesOf(AdminPhoneNumbersController.prototype.updateAssistant)).toEqual([Role.SUPERADMIN, Role.ADMIN])
+    expect(rolesOf(AdminPhoneNumbersController.prototype.setBotStatus)).toEqual([Role.SUPERADMIN, Role.ADMIN])
+    // Stopping the bot is an emergency action: every admin may flip either switch.
+    expect(rolesOf(AdminConfigController.prototype.setBotStatus)).toEqual([Role.SUPERADMIN, Role.ADMIN])
   })
 })
