@@ -487,7 +487,7 @@ describe('BotService', () => {
     })
 
     it('tells the bot what a person from the office said last, even in an earlier session', async () => {
-      const old = new Date(Date.now() - 3 * 60 * 60_000)
+      const old = new Date(Date.now() - 90 * 60_000)
       prisma.conversation.findFirst.mockResolvedValue({
         id: 7,
         sessionStartedAt: old,
@@ -506,8 +506,9 @@ describe('BotService', () => {
       expect(result.previousActivityAt).toBe(old.toISOString())
       const where = prisma.message.findFirst.mock.calls[0][0].where
       expect(where.OR).toEqual([{ role: 'agent' }, { source: 'app_echo' }])
-      // Looks back three days, not just into the current session.
-      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThan(71 * 60 * 60_000)
+      // Looks back two hours, not just into the current session.
+      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThanOrEqual(2 * 60 * 60_000)
+      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeLessThan(3 * 60 * 60_000)
     })
 
     it('drops the human reply once the bot answered after it', async () => {

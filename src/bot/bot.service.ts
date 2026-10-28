@@ -36,10 +36,12 @@ const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
 // swept — the bot was switched off, paused or down — and is closed silently.
 const WARNING_WINDOW_MS = 10 * 60_000
 // How far back the bot is told that a person from the office wrote to this
-// chat. A session lasts minutes, so a customer who answers that person a few
-// hours later starts a fresh session the bot would otherwise greet from zero.
-// Three days: a claim taken by hand on a Friday is asked about on Monday.
-const HUMAN_REPLY_LOOKBACK_MS = 72 * 60 * 60_000
+// chat. A session lasts minutes, so a customer who answers that person an hour
+// later starts a fresh session the bot would otherwise greet from zero. Two
+// hours, the time the bot keeps out of a chat answered by hand: with three
+// days, a chat answered from the app at 14:06 got nothing from the bot but
+// "le pasé tu consulta a la oficina" (28/10).
+const HUMAN_REPLY_LOOKBACK_MS = 2 * 60 * 60_000
 // A photo sent outside the guided claim steps only joins an open claim filed
 // this recently; an older claim is not where an unrelated photo belongs.
 const LOOSE_PHOTO_CLAIM_WINDOW_MS = 48 * 60 * 60_000

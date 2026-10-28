@@ -7,7 +7,7 @@ import { InboxService } from './inbox.service'
 
 const DEFAULT_OPERATOR_IDLE_MINUTES = 30
 const DEFAULT_QUIET_MINUTES = 120
-const DEFAULT_MAX_MINUTES = 240
+const DEFAULT_MAX_MINUTES = 120
 
 /**
  * Gives a conversation back to the bot once the human who took it over is
@@ -22,7 +22,8 @@ const DEFAULT_MAX_MINUTES = 240
  * morning. So within business hours a takeover is now sticky: it ends only when
  * the conversation has gone quiet for everyone (BOT_TAKEOVER_QUIET_MINUTES,
  * default 2 h) or the operator has been silent for a long time regardless
- * (BOT_TAKEOVER_MAX_MINUTES, default 4 h). Outside business hours nobody is
+ * (BOT_TAKEOVER_MAX_MINUTES, default 2 h: the bot steps aside two hours after a
+ * person's last reply, 28/10). Outside business hours nobody is
  * going to answer, so the original rule applies: back to the bot after
  * BOT_TAKEOVER_TIMEOUT_MINUTES (default 30) without an operator reply.
  *

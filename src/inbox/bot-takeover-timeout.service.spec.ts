@@ -103,10 +103,10 @@ describe('BotTakeoverTimeoutService', () => {
       expect(inbox.autoReleaseToBot).toHaveBeenCalledWith(expect.objectContaining({ id: 7, phoneNumberId: 'P1' }))
     })
 
-    it('returns the chat after four hours of operator silence even if the customer just wrote', async () => {
+    it('returns the chat after two hours of operator silence even if the customer just wrote', async () => {
       const { service, inbox } = setup(
         { handedOverAt: minutesBefore(openNow, 300) },
-        minutesBefore(openNow, 241),
+        minutesBefore(openNow, 121),
         minutesBefore(openNow, 2),
       )
 
