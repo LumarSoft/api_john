@@ -27,6 +27,7 @@ import { type ActiveClosure, computeStatus, formatSchedule, parseSchedule } from
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { parseStaffNames } from '../common/staff-names'
 import { toBotContextProfile } from '../common/bot-profile'
+import { effectiveAssistant } from '../common/number-assistant'
 
 // Inactivity window after which a chat is considered finished (see getOrCreateConversation).
 const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
@@ -128,6 +129,10 @@ export class BotService {
     const phoneNumber = await this.prisma.phoneNumber.findFirst({
       where: { phoneNumberId, isActive: true, deletedAt: null },
       select: {
+        botName: true,
+        staffNames: true,
+        businessHours: true,
+        botProfile: true,
         producer: {
           select: {
             id: true,
@@ -148,8 +153,11 @@ export class BotService {
       throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
     }
 
-    const { id, name, slug, botName, botEnabled, staffNames, businessHours, botProfile, systemPrompt } =
-      phoneNumber.producer
+    const { producer } = phoneNumber
+    const { id, name, slug, botEnabled, systemPrompt } = producer
+    // A branch's own number may name its assistant, office people, hours and
+    // data differently; whatever it leaves empty is the organization's.
+    const { botName, staffNames, businessHours, botProfile } = effectiveAssistant(producer, phoneNumber)
     // The bot shows the formatted week as its general "horario" line; richer
     // open-now info comes from GET /public/hours when a user asks.
     const attentionHours = formatSchedule(parseSchedule(businessHours))
@@ -530,8 +538,10 @@ export class BotService {
     )
     if (candidates.length === 0) return []
 
-    // Each producer's own weekly schedule + active closures decide whether we are
-    // open now: outside hours (or on a holiday) the chat is finalized silently.
+    // The weekly schedule of the number the chat came through (its own or, if it
+    // has none, its organization's) + the organization's closures decide whether
+    // we are open now: outside hours (or on a holiday) the chat is finalized silently.
+    const numberHours = await this.numberSchedules(candidates.map(c => String(c.phoneNumberId)))
     const producerIds = [...new Set(candidates.map(c => c.producer.id))]
     const today = new Date(`${toDateStr(new Date())}T00:00:00Z`)
     const closureRows = await this.prisma.businessClosure.findMany({
@@ -553,7 +563,8 @@ export class BotService {
       isOpenNow: boolean
     }[] = []
     for (const c of candidates) {
-      const status = computeStatus(parseSchedule(c.producer.businessHours), closuresByProducer.get(c.producer.id) ?? [])
+      const schedule = numberHours.get(String(c.phoneNumberId)) ?? c.producer.businessHours
+      const status = computeStatus(parseSchedule(schedule), closuresByProducer.get(c.producer.id) ?? [])
       out.push({
         conversationId: c.id,
         waId: c.waId,
@@ -848,7 +859,7 @@ export class BotService {
   }
 
   async createSiniestro(conversationId: number, dto: CreateBotSiniestroDto) {
-    const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
+    const { clientId, producerId, phoneNumberId, client } = await this.requireIdentifiedClient(conversationId)
 
     const poliza = await this.prisma.policy.findFirst({
       where: { AND: [this.polizaRefWhere(dto.policyId, clientId, producerId), inForcePolizaWhere()] },
@@ -883,6 +894,7 @@ export class BotService {
     await this.mail.sendSiniestroNotification({
       siniestroId: siniestro.id,
       producerId,
+      phoneNumberId,
       tipo: siniestro.type,
       descripcion: siniestro.description,
       fecha: siniestro.occurredAt,
@@ -1080,11 +1092,21 @@ export class BotService {
     return conversation
   }
 
+  /** Weekly hours of the numbers that have their own, by Meta phone number ID. */
+  private async numberSchedules(phoneNumberIds: string[]): Promise<Map<string, unknown>> {
+    const numbers = await this.prisma.phoneNumber.findMany({
+      where: { phoneNumberId: { in: [...new Set(phoneNumberIds)] } },
+      select: { phoneNumberId: true, businessHours: true },
+    })
+    return new Map(numbers.filter(n => n.businessHours != null).map(n => [n.phoneNumberId, n.businessHours]))
+  }
+
   private async requireIdentifiedClient(conversationId: number) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
       select: {
         producerId: true,
+        phoneNumberId: true,
         waId: true,
         sessionStartedAt: true,
         clientLinkedAt: true,
@@ -1098,6 +1120,11 @@ export class BotService {
       throw new ForbiddenException('Conversation has no identified client — call identify first')
     }
 
-    return { clientId: client.id, producerId: conversation.producerId, client }
+    return {
+      clientId: client.id,
+      producerId: conversation.producerId,
+      phoneNumberId: conversation.phoneNumberId,
+      client,
+    }
   }
 }

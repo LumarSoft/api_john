@@ -621,9 +621,9 @@ Configuración del bot de la organización del usuario autenticado, incluido qui
 
 ### PATCH /admin/config
 
-Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot le deja un aviso a la oficina y sigue atendiendo al cliente.
+Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot le deja un aviso a la oficina y sigue atendiendo al cliente. Vale para todos los números de la organización que no tengan los suyos (ver `PATCH /admin/phone-numbers/:id/assistant`).
 
-**Auth required:** Yes (admin)
+**Auth required:** Yes (SuperAdmin)
 
 **Request body**
 
@@ -642,6 +642,8 @@ Actualiza el nombre con el que se presenta el bot y los nombres de las personas 
 ```json
 { "botName": "Nico", "botEnabled": true, "staffNames": ["Mili", "Milagros"] }
 ```
+
+`403 Forbidden` — the caller is not a SuperAdmin
 
 ### PATCH /admin/config/bot-status
 
@@ -1482,7 +1484,7 @@ All `/bot/*` endpoints require the header `x-bot-secret` matching the `BOT_SECRE
 
 ### GET /bot/context/:phoneNumberId
 
-Resolves the producer (tenant) behind a Meta phone number ID, including its system prompt.
+Resolves the producer (tenant) behind a Meta phone number ID, including its system prompt. `botName`, `staffNames`, the hours line and `profile` are the number's own where it has them (`PATCH /admin/phone-numbers/:id/assistant`) and the organization's for the rest.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1523,7 +1525,7 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
 
 ### GET /bot/numbers/:phoneNumberId/hours
 
-Live hours (formatted week, open now, today's closure) of the organization that owns the number — the same shape as `GET /public/hours`, which only knows the default organization.
+Live hours (formatted week, open now, today's closure) of the number: its own weekly hours if it has them, the organization's otherwise, with the organization's closures — the same shape as `GET /public/hours`, which only knows the default organization.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -2007,6 +2009,71 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 
+Every number also carries `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization) and `canConfigureAssistant` (whether the caller may change it, see below).
+
+### GET /admin/phone-numbers/:id/assistant
+
+A number's own assistant next to its organization's. Whatever the number leaves empty (`null`, empty list, `null` field of `botProfile`) is the organization's: that is what the bot uses on this number (`GET /bot/context`, `GET /bot/numbers/:phoneNumberId/hours`, the inactivity notice, the takeover sweep and the claims e-mail). Closures (holidays) are always the organization's. The transfer account goes as a whole: a number with any `transfer*` field of its own uses only its own account fields, never the organization's alias with its own CBU or the other way around.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "id": 8,
+  "number": "+54 9 341 000-0000",
+  "canEdit": true,
+  "own": {
+    "botName": "Sofi",
+    "staffNames": ["Caro"],
+    "businessHours": null,
+    "botProfile": { "orgName": "Seguros Norte Rafaela", "orgShortName": null, "transferAlias": "NORTE.RAFAELA", "claimsEmail": null, "...": null }
+  },
+  "organization": {
+    "name": "Seguros Norte SRL",
+    "botName": "Nico",
+    "staffNames": ["Mili", "Milagros"],
+    "businessHours": { "mon": [{ "from": "08:00", "to": "16:00" }], "...": [] },
+    "botProfile": { "orgName": "Seguros Norte", "towTruckPhone": "0800-111-2222", "...": null }
+  }
+}
+```
+
+`canEdit` is `true` for a SuperAdmin (and the OWNER) on any number, and for an admin only on a number whose responsible code is one of theirs.
+
+`404 Not Found` — the number is not of the caller's organization
+
+### PATCH /admin/phone-numbers/:id/assistant
+
+Changes a number's own assistant. Only the fields sent change; clearing one gives the number the organization's value back.
+
+**Auth required:** Yes (SUPERADMIN on any number; ADMIN on the numbers billed to one of their codes)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| botName | string | No | max 60; empty = the organization's |
+| staffNames | string[] | No | up to 10 names of max 30; empty and repeated dropped; empty list = the organization's |
+| businessHours | object \| null | No | same shape and rules as `PATCH /admin/business-hours/schedule`; `null` = the organization's |
+| botProfile | object | No | same fields and limits as `PATCH /admin/config/profile`; an empty string = the organization's |
+
+```json
+{ "botName": "Sofi", "staffNames": ["Caro"], "businessHours": null, "botProfile": { "transferAlias": "NORTE.RAFAELA" } }
+```
+
+**Responses**
+
+`200 OK` — same body as `GET /admin/phone-numbers/:id/assistant`
+
+`400 Bad Request` — invalid hours or profile field
+
+`403 Forbidden` — an admin on a number that is not billed to one of their codes
+
+`404 Not Found` — the number is not of the caller's organization
+
 ## Cotización — Leads (productos sin cotización online)
 
 Para los productos cuyo precio no se cotiza online (bici, comercio, praxis,
@@ -2216,7 +2283,7 @@ Actualiza el seguimiento de una solicitud.
 
 ## Admin — Planes de precio fijo
 
-CRUD de `ProductPlan` (bolso, hogar). `UserAuthGuard`, scope al productor.
+CRUD de `ProductPlan` (bolso, hogar). `UserAuthGuard`, scope al productor. Todos los roles leen los planes; crearlos, cambiarlos y borrarlos es solo del SuperAdmin (`403 Forbidden` para el resto).
 
 ### GET /admin/pricing
 
@@ -2226,7 +2293,7 @@ Lista todos los planes (activos e inactivos) del productor.
 
 ### POST /admin/pricing
 
-**Auth required:** Yes (Bearer, type `user`)
+**Auth required:** Yes (SuperAdmin)
 
 **Request body**
 
@@ -2247,7 +2314,7 @@ Lista todos los planes (activos e inactivos) del productor.
 Igual al body de creación pero todos los campos opcionales (`productType` no es
 modificable).
 
-**Auth required:** Yes (Bearer, type `user`)
+**Auth required:** Yes (SuperAdmin)
 
 `200 OK` → plan actualizado
 `404 Not Found`
@@ -2256,7 +2323,7 @@ modificable).
 
 Soft delete del plan.
 
-**Auth required:** Yes (Bearer, type `user`)
+**Auth required:** Yes (SuperAdmin)
 
 `200 OK` → `{ "ok": true }`
 `404 Not Found`
@@ -2338,7 +2405,9 @@ Current weekly schedule + active/upcoming closures.
 
 ### PATCH /admin/business-hours/schedule
 
-**Auth required:** Yes (Bearer, type `user`)
+The organization's hours: they apply to every number that has no hours of its own (`PATCH /admin/phone-numbers/:id/assistant`).
+
+**Auth required:** Yes (SuperAdmin)
 
 **Request body**
 
@@ -2348,12 +2417,13 @@ Current weekly schedule + active/upcoming closures.
 
 `200 OK` → `{ "weekly": { ... } }`
 `400 Bad Request` → invalid HH:mm / overlapping ranges
+`403 Forbidden` → the caller is not a SuperAdmin
 
 ### POST /admin/business-hours/closures
 
-Adds a temporary closure (single day → `startDate == endDate`).
+Adds a temporary closure (single day → `startDate == endDate`). Closures apply to every number of the organization.
 
-**Auth required:** Yes (Bearer, type `user`)
+**Auth required:** Yes (SuperAdmin)
 
 **Request body**
 
@@ -2369,7 +2439,7 @@ Adds a temporary closure (single day → `startDate == endDate`).
 
 Soft-deletes a closure.
 
-**Auth required:** Yes (Bearer, type `user`)
+**Auth required:** Yes (SuperAdmin)
 
 `200 OK` → `{ "ok": true }`
 `404 Not Found`
@@ -2441,7 +2511,7 @@ Lists every coverage code ever seen for the authenticated user's producer, order
 
 Updates one coverage. Any edit sets `isConfigured` to `true`.
 
-**Auth required:** Yes
+**Auth required:** Yes (SuperAdmin; every role reads `GET /admin/coberturas`)
 
 **Request body**
 
@@ -2477,7 +2547,7 @@ Updates one coverage. Any edit sets `isConfigured` to `true`.
 
 Persists a whole ordering in one call, for a drag-and-drop list.
 
-**Auth required:** Yes
+**Auth required:** Yes (SuperAdmin)
 
 **Request body**
 

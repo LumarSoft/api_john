@@ -1,5 +1,7 @@
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { Role } from 'generated/prisma/client'
+import { Prisma, Role } from 'generated/prisma/client'
+import type { PrismaService } from '../prisma/prisma.service'
 import { PhoneNumbersService } from './phone-numbers.service'
 import { UsageService } from '../usage/usage.service'
 
@@ -35,6 +37,7 @@ describe('monthly phone number report', () => {
       // In service since August, so September is a full month.
       usageMonthly: { groupBy: jest.fn().mockResolvedValue([{ phoneNumberId: 1, _min: { period: '2026-08' } }]) },
       usageEvent: { groupBy: jest.fn().mockResolvedValue([]) },
+      userProducerCode: { findMany: jest.fn().mockResolvedValue([{ producerCodeId: 11 }]) },
     }
     const usage = new UsageService(prisma as any, { get: () => undefined } as unknown as ConfigService)
     return { prisma, service: new PhoneNumbersService(prisma as any, usage as any) }
@@ -93,10 +96,140 @@ describe('monthly phone number report', () => {
     expect(prisma.phoneNumber.update.mock.calls[1][0].data).toEqual({ monthlyBudgetUsd: 30 })
   })
 
+  it('tells an admin which numbers are theirs to configure', async () => {
+    const { service, prisma } = setup()
+    const [row] = (await prisma.phoneNumber.findMany()) as Record<string, unknown>[]
+    const base = { ...row, botName: null, staffNames: null, businessHours: null, botProfile: null }
+    prisma.phoneNumber.findMany.mockResolvedValueOnce([
+      { ...base, id: 1, botName: 'Sofi', responsibleProducerCode: { id: 11, code: '11425', holderName: null } },
+      { ...base, id: 2, responsibleProducerCode: { id: 12, code: '8074', holderName: null } },
+    ])
+
+    const [mine, other] = await service.list(2, Role.ADMIN, '2026-09', 4)
+
+    expect(mine).toMatchObject({ canConfigureAssistant: true, assistant: { botName: 'Sofi', customized: true } })
+    expect(other).toMatchObject({ canConfigureAssistant: false, assistant: { botName: null, customized: false } })
+    const [any] = await service.list(2, Role.SUPERADMIN, '2026-09', 2)
+    expect(any.canConfigureAssistant).toBe(true)
+  })
+
   it('rejects invalid and future month selectors', async () => {
     const { service, prisma } = setup()
     await expect(service.list(2, Role.OWNER, '2026-13')).rejects.toThrow('Mes inválido')
     await expect(service.list(2, Role.OWNER, '2099-01')).rejects.toThrow('Mes inválido')
     expect(prisma.phoneNumber.findMany).not.toHaveBeenCalled()
+  })
+})
+
+describe("a number's own assistant", () => {
+  const organization = {
+    name: 'Seguros Norte SRL',
+    botName: 'Nico',
+    staffNames: 'Mili, Milagros',
+    businessHours: null,
+    botProfile: { orgName: 'Seguros Norte', towTruckPhone: '0800-111-2222' },
+  }
+
+  function setup(number: Record<string, unknown> = {}, userCodes: number[] = []) {
+    const stored = {
+      id: 8,
+      number: '+54 9 341 000-0000',
+      responsibleProducerCodeId: 11,
+      botName: null,
+      staffNames: null,
+      businessHours: null,
+      botProfile: null,
+      producer: organization,
+      ...number,
+    }
+    const prisma = {
+      phoneNumber: {
+        findFirst: jest.fn().mockResolvedValue(stored),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      userProducerCode: {
+        findMany: jest.fn().mockResolvedValue(userCodes.map(producerCodeId => ({ producerCodeId }))),
+      },
+    }
+    const service = new PhoneNumbersService(prisma as unknown as PrismaService, {} as UsageService)
+    return { prisma, service }
+  }
+
+  const superAdmin = { id: 2, producerId: 1, role: Role.SUPERADMIN }
+  const admin = { id: 4, producerId: 1, role: Role.ADMIN }
+
+  it("shows the number's settings next to the organization's that fill the gaps", async () => {
+    const { service } = setup({ botName: 'Sofi', botProfile: { orgName: 'Seguros Norte Rafaela' } })
+
+    const view = await service.getAssistant(8, superAdmin)
+
+    expect(view).toMatchObject({
+      canEdit: true,
+      own: { botName: 'Sofi', staffNames: [], businessHours: null, botProfile: { orgName: 'Seguros Norte Rafaela' } },
+      organization: { name: 'Seguros Norte SRL', botName: 'Nico', staffNames: ['Mili', 'Milagros'] },
+    })
+    expect(view.own.botProfile.towTruckPhone).toBeNull()
+    expect(view.organization.botProfile.towTruckPhone).toBe('0800-111-2222')
+  })
+
+  it('saves only what the number changes and gives back the rest to the organization', async () => {
+    const { service, prisma } = setup({
+      botProfile: { transferAlias: 'NORTE.VIEJO', orgName: 'Seguros Norte Rafaela' },
+    })
+
+    await service.updateAssistant(8, superAdmin, {
+      botName: ' Sofi ',
+      staffNames: ['Caro', 'caro', ' '],
+      businessHours: { mon: [{ from: '09:00', to: '13:00' }] },
+      botProfile: { transferAlias: 'NORTE.RAFAELA', orgName: '' },
+    })
+
+    expect(prisma.phoneNumber.update).toHaveBeenCalledWith({
+      where: { id: 8 },
+      data: {
+        botName: 'Sofi',
+        staffNames: 'Caro',
+        businessHours: { mon: [{ from: '09:00', to: '13:00' }], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] },
+        botProfile: { transferAlias: 'NORTE.RAFAELA' },
+      },
+    })
+  })
+
+  it('clears every setting back to the organization', async () => {
+    const { service, prisma } = setup({ botName: 'Sofi', businessHours: { mon: [] }, botProfile: { orgName: 'X' } })
+
+    await service.updateAssistant(8, superAdmin, {
+      botName: '',
+      staffNames: [],
+      businessHours: null,
+      botProfile: { orgName: '' },
+    })
+
+    expect(prisma.phoneNumber.update.mock.calls[0][0].data).toEqual({
+      botName: null,
+      staffNames: null,
+      businessHours: Prisma.DbNull,
+      botProfile: Prisma.DbNull,
+    })
+  })
+
+  it('lets an admin change the numbers billed to one of their codes, and no other', async () => {
+    const own = setup({}, [11])
+    await expect(own.service.updateAssistant(8, admin, { botName: 'Sofi' })).resolves.toMatchObject({ canEdit: true })
+
+    const other = setup({}, [12])
+    await expect(other.service.updateAssistant(8, admin, { botName: 'Sofi' })).rejects.toBeInstanceOf(
+      ForbiddenException,
+    )
+    expect(other.prisma.phoneNumber.update).not.toHaveBeenCalled()
+    await expect(other.service.getAssistant(8, admin)).resolves.toMatchObject({ canEdit: false })
+  })
+
+  it('rejects malformed hours', async () => {
+    const { service, prisma } = setup()
+    await expect(
+      service.updateAssistant(8, superAdmin, { businessHours: { mon: [{ from: '14:00', to: '09:00' }] } }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    expect(prisma.phoneNumber.update).not.toHaveBeenCalled()
   })
 })

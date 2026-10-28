@@ -72,6 +72,34 @@ export function mergeBotProfile(raw: unknown, changes: Partial<Record<keyof BotP
   return merged
 }
 
+/** The bank account customers transfer to: one account, never mixed with another's fields. */
+const TRANSFER_FIELDS: ReadonlyArray<keyof BotProfile> = [
+  'transferAlias',
+  'transferCbu',
+  'transferHolder',
+  'transferBank',
+]
+
+/**
+ * A number's own profile over its organization's: each field the number filled
+ * in wins and the rest come from the organization. The transfer account goes as
+ * a whole: a number with any account field of its own uses only its own, so an
+ * alias never travels with another account's CBU or holder. Null when neither
+ * has a profile, so the default organization keeps the bot's own values.
+ */
+export function overlayBotProfile(organization: unknown, number: unknown): BotProfile | null {
+  if (organization == null && number == null) return null
+  const own = parseBotProfile(number)
+  const base = parseBotProfile(organization)
+  const ownAccount = TRANSFER_FIELDS.some(field => own[field] != null)
+  return Object.fromEntries(
+    BOT_PROFILE_FIELDS.map(field => [
+      field,
+      ownAccount && TRANSFER_FIELDS.includes(field) ? own[field] : (own[field] ?? base[field]),
+    ]),
+  ) as unknown as BotProfile
+}
+
 /**
  * The profile the bot works with. Null for the default organization while it
  * has no saved profile: the bot then keeps the values it always had, so an

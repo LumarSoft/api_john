@@ -339,6 +339,15 @@ model PhoneNumber {
   historyLastSyncedAt  DateTime?
   contactsLastSyncedAt DateTime?
 
+  // The number's own assistant, for a branch or a producer that answers on its
+  // own line. Each one left null takes the organization's value (same field on
+  // Producer), so a number nobody configured behaves exactly as before.
+  botName       String? @db.VarChar(60)
+  staffNames    String? @db.VarChar(255)
+  businessHours Json?
+  // Only the Producer.botProfile fields this number changes (same flat shape).
+  botProfile    Json?
+
   @@index([responsibleProducerCodeId])
   @@index([wabaAccountId])
 }

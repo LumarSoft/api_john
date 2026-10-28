@@ -9,7 +9,7 @@ jest.mock('../siniestros/siniestro-upload.config', () => ({
 
 function createPrismaMock() {
   return {
-    phoneNumber: { findFirst: jest.fn() },
+    phoneNumber: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     policy: { findFirst: jest.fn(), update: jest.fn(), count: jest.fn().mockResolvedValue(0) },
     notification: { findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     conversation: {
@@ -274,6 +274,46 @@ describe('BotService', () => {
     it('lets the default organization keep the bot values until it saves a profile', async () => {
       prisma.phoneNumber.findFirst.mockResolvedValue(producer({ id: 1, slug: 'john' }))
       await expect(service.getContext('P1')).resolves.toMatchObject({ profile: null })
+    })
+
+    it("gives a branch's number its own assistant and the organization's for the rest", async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({
+        botName: 'Sofi',
+        staffNames: 'Caro',
+        businessHours: null,
+        botProfile: { orgName: 'Seguros Norte Rafaela', transferAlias: 'NORTE.RAFAELA' },
+        ...producer({
+          botName: 'Nico',
+          staffNames: 'Mili, Milagros',
+          botProfile: { orgName: 'Seguros Norte', towTruckPhone: '0800-111-2222' },
+        }),
+      })
+
+      await expect(service.getContext('P2')).resolves.toMatchObject({
+        botName: 'Sofi',
+        staffNames: ['Caro'],
+        profile: {
+          orgName: 'Seguros Norte Rafaela',
+          towTruckPhone: '0800-111-2222',
+          transfer: { alias: 'NORTE.RAFAELA', cbu: null, holder: null, bank: null },
+        },
+      })
+    })
+
+    it('keeps the organization assistant on a number nobody configured', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({
+        botName: null,
+        staffNames: null,
+        businessHours: null,
+        botProfile: null,
+        ...producer({ botName: 'Nico', staffNames: 'Mili', botProfile: { orgName: 'Seguros Norte' } }),
+      })
+
+      await expect(service.getContext('P2')).resolves.toMatchObject({
+        botName: 'Nico',
+        staffNames: ['Mili'],
+        profile: { orgName: 'Seguros Norte' },
+      })
     })
   })
 

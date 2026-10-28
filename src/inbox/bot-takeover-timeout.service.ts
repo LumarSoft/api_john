@@ -72,6 +72,9 @@ export class BotTakeoverTimeoutService {
         },
       })
 
+      // A branch's number may keep its own hours; the rest use the organization's.
+      const numberHours = await this.numberSchedules(paused.map(c => c.phoneNumberId))
+
       let released = 0
       for (const conversation of paused) {
         const lastHuman = await this.lastHumanActivity(conversation.id, conversation.handedOverAt)
@@ -81,7 +84,10 @@ export class BotTakeoverTimeoutService {
           endDate: c.endDate.toISOString().slice(0, 10),
           reason: c.reason,
         }))
-        const reason = this.releaseReason(lastHuman, lastCustomer, conversation.producer?.businessHours, now, closures)
+        const hours =
+          (conversation.phoneNumberId && numberHours.get(conversation.phoneNumberId)) ??
+          conversation.producer?.businessHours
+        const reason = this.releaseReason(lastHuman, lastCustomer, hours, now, closures)
         if (!reason) continue
         if (await this.inbox.autoReleaseToBot(conversation)) {
           released++
@@ -95,6 +101,17 @@ export class BotTakeoverTimeoutService {
     } finally {
       this.running = false
     }
+  }
+
+  /** Weekly hours of the numbers that have their own, by Meta phone number ID. */
+  private async numberSchedules(phoneNumberIds: (string | null)[]): Promise<Map<string, unknown>> {
+    const ids = [...new Set(phoneNumberIds.filter((id): id is string => !!id))]
+    if (!ids.length) return new Map()
+    const numbers = await this.prisma.phoneNumber.findMany({
+      where: { phoneNumberId: { in: ids } },
+      select: { phoneNumberId: true, businessHours: true },
+    })
+    return new Map(numbers.filter(n => n.businessHours != null).map(n => [n.phoneNumberId, n.businessHours]))
   }
 
   /**

@@ -1,4 +1,4 @@
-import { mergeBotProfile, parseBotProfile, toBotContextProfile } from './bot-profile'
+import { mergeBotProfile, overlayBotProfile, parseBotProfile, toBotContextProfile } from './bot-profile'
 
 describe('bot profile', () => {
   it('reads the stored JSON, dropping blanks and anything that is not text', () => {
@@ -44,5 +44,38 @@ describe('bot profile', () => {
     expect(toBotContextProfile({ name: 'Norte SRL', botProfile: null }, false)?.orgName).toBe('Norte SRL')
     expect(toBotContextProfile({ name: 'John', botProfile: null }, true)).toBeNull()
     expect(toBotContextProfile({ name: 'John', botProfile: { orgShortName: 'JPMG' } }, true)?.orgName).toBe('John')
+  })
+})
+
+describe('overlayBotProfile', () => {
+  const organization = {
+    orgName: 'Seguros Norte',
+    towTruckPhone: '0800-111-2222',
+    transferAlias: 'NORTE.PAGOS',
+    transferCbu: '0000003100000000000001',
+    transferHolder: 'Seguros Norte SRL',
+    transferBank: 'Banco Macro',
+  }
+
+  it("fills what the number leaves empty with the organization's", () => {
+    expect(overlayBotProfile(organization, { orgName: 'Seguros Norte Rafaela' })).toMatchObject({
+      orgName: 'Seguros Norte Rafaela',
+      towTruckPhone: '0800-111-2222',
+      transferAlias: 'NORTE.PAGOS',
+      transferCbu: '0000003100000000000001',
+    })
+  })
+
+  it("never mixes the number's account with the organization's", () => {
+    expect(overlayBotProfile(organization, { transferAlias: 'RAFAELA.PAGOS' })).toMatchObject({
+      transferAlias: 'RAFAELA.PAGOS',
+      transferCbu: null,
+      transferHolder: null,
+      transferBank: null,
+    })
+  })
+
+  it('stays null when neither has a profile', () => {
+    expect(overlayBotProfile(null, null)).toBeNull()
   })
 })

@@ -8,6 +8,9 @@ export interface SiniestroNotification {
   siniestroId: number
   // Organization whose office is told: each one names its own claims e-mail.
   producerId: number
+  // The WhatsApp number the claim came through, when it came from the bot: a
+  // branch's number may name its own claims e-mail.
+  phoneNumberId?: string | null
   tipo: string
   descripcion: string
   fecha: Date
@@ -46,18 +49,25 @@ export class MailService {
   }
 
   /**
-   * Who hears about an organization's new claims: the claims e-mail of its
+   * Who hears about an organization's new claims: the claims e-mail of the
+   * number the claim came through, if it has its own, or of the organization's
    * profile or, for the default organization only, ADVISOR_EMAIL — another
    * organization's claims never reach JPMG's advisor.
    */
-  async claimsRecipient(producerId: number): Promise<string | null> {
+  async claimsRecipient(producerId: number, phoneNumberId?: string | null): Promise<string | null> {
     try {
       const producer = await this.prisma.producer.findFirst({
         where: { id: producerId, deletedAt: null },
         select: { slug: true, botProfile: true },
       })
       if (!producer) return null
-      const own = parseBotProfile(producer.botProfile).claimsEmail
+      const number = phoneNumberId
+        ? await this.prisma.phoneNumber.findFirst({
+            where: { phoneNumberId, producerId, deletedAt: null },
+            select: { botProfile: true },
+          })
+        : null
+      const own = parseBotProfile(number?.botProfile).claimsEmail ?? parseBotProfile(producer.botProfile).claimsEmail
       if (own) return own
       return producer.slug === this.defaultProducerSlug ? (this.advisorEmail ?? null) : null
     } catch (err) {
@@ -71,7 +81,7 @@ export class MailService {
    * notification must not roll back the claim that was already persisted.
    */
   async sendSiniestroNotification(data: SiniestroNotification): Promise<void> {
-    const to = await this.claimsRecipient(data.producerId)
+    const to = await this.claimsRecipient(data.producerId, data.phoneNumberId)
     if (!to) {
       this.logger.warn(
         `No claims e-mail for producer ${data.producerId} — skipping notification for siniestro #${data.siniestroId}`,

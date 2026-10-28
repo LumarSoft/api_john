@@ -19,6 +19,7 @@ import { AuthenticatedRequest } from '../common/types/authenticated-request.type
 import { PhoneNumbersService } from './phone-numbers.service'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
+import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
 
 @UseGuards(UserAuthGuard, RolesGuard)
 @Roles(Role.SUPERADMIN)
@@ -30,7 +31,25 @@ export class AdminPhoneNumbersController {
   @Get()
   @Roles(Role.SUPERADMIN, Role.ADMIN)
   list(@Request() req: AuthenticatedRequest, @Query('period') period?: string) {
-    return this.service.list(req.user.producerId, req.user.role, period)
+    return this.service.list(req.user.producerId, req.user.role, period, req.user.id)
+  }
+
+  // A number's own assistant (name, office people, hours and data): everyone
+  // reads it; the service lets an admin change only the numbers of their codes.
+  @Get(':id/assistant')
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  getAssistant(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
+    return this.service.getAssistant(id, req.user)
+  }
+
+  @Patch(':id/assistant')
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  updateAssistant(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: UpdateNumberAssistantDto,
+  ) {
+    return this.service.updateAssistant(id, req.user, dto)
   }
 
   @Post()

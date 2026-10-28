@@ -105,14 +105,19 @@ export class BusinessHoursService {
     return this.getStatus(await this.resolveDefaultProducerId())
   }
 
-  /** Live status for the organization of a WhatsApp number — what the bot tells its customers. */
+  /**
+   * Live status for a WhatsApp number — what the bot tells its customers: the
+   * number's own weekly hours if it has them, its organization's otherwise.
+   * Closures (holidays) are the organization's for every number.
+   */
   async getStatusForNumber(phoneNumberId: string): Promise<HoursStatus> {
     const phone = await this.prisma.phoneNumber.findFirst({
       where: { phoneNumberId, isActive: true, deletedAt: null },
-      select: { producerId: true },
+      select: { producerId: true, businessHours: true, producer: { select: { businessHours: true } } },
     })
     if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
-    return this.getStatus(phone.producerId)
+    const closures = await this.activeClosures(phone.producerId)
+    return computeStatus(parseSchedule(phone.businessHours ?? phone.producer.businessHours), closures)
   }
 
   // ─── Helpers ───────────────────────────────────────────────

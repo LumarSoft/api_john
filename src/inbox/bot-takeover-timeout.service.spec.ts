@@ -15,8 +15,12 @@ describe('BotTakeoverTimeoutService', () => {
     lastReplyAt: Date | null,
     lastCustomerAt: Date | null,
     env: Record<string, string> = {},
+    numberHours: unknown = null,
   ) {
     const prisma = {
+      phoneNumber: {
+        findMany: jest.fn().mockResolvedValue([{ phoneNumberId: 'P1', businessHours: numberHours }]),
+      },
       conversation: {
         findMany: jest
           .fn()
@@ -159,6 +163,21 @@ describe('BotTakeoverTimeoutService', () => {
           producer: { businessHours: { wed: [{ from: '08:00', to: '23:00' }] } },
         },
       ])
+
+      await service.releaseIdleTakeovers(closedNow)
+
+      expect(inbox.autoReleaseToBot).not.toHaveBeenCalled()
+    })
+
+    it("uses the hours of the chat's number when it has its own", async () => {
+      // The branch's number is open until 23:00 although the organization closes at 16.
+      const { service, inbox } = setup(
+        { handedOverAt: minutesBefore(closedNow, 90) },
+        minutesBefore(closedNow, 31),
+        minutesBefore(closedNow, 1),
+        {},
+        { wed: [{ from: '08:00', to: '23:00' }] },
+      )
 
       await service.releaseIdleTakeovers(closedNow)
 

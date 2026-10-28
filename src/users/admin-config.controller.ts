@@ -10,9 +10,10 @@ import { SetBotStatusDto } from './dto/set-bot-status.dto'
 import { UpdateBotProfileDto } from './dto/update-bot-profile.dto'
 
 /**
- * Producer-level configuration for the admin "Configuración" screen.
- * Admin-only (UserAuthGuard) and always scoped to the caller's producer, so each
- * branch/tenant edits only its own bot settings.
+ * Producer-level configuration for the admin "Configuración" screen, always
+ * scoped to the caller's producer. Everyone reads it; it applies to every number
+ * of the organization, so only the SuperAdmin changes it. A branch's own number
+ * is configured in admin/phone-numbers/:id/assistant.
  */
 @UseGuards(UserAuthGuard, RolesGuard)
 @Controller('admin/config')
@@ -25,6 +26,7 @@ export class AdminConfigController {
   }
 
   @Patch()
+  @Roles(Role.SUPERADMIN)
   update(@Request() req: AuthenticatedRequest, @Body() dto: UpdateConfigDto) {
     return this.usersService.updateProducerConfig(req.user.producerId, dto)
   }

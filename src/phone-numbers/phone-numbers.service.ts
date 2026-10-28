@@ -1,10 +1,39 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { Role } from 'generated/prisma/client'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
+import { Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UsageService, currentPeriod } from '../usage/usage.service'
+import { parseSchedule, validateSchedule } from '../business-hours/schedule'
+import { mergeBotProfile, parseBotProfile } from '../common/bot-profile'
+import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
+import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
 import { describeDisconnectReason } from '../whatsapp-onboarding/whatsapp-connection-monitor.service'
+
+/** Who asks about a number's assistant. */
+interface PanelUser {
+  id: number
+  producerId: number
+  role?: Role
+}
+
+const ASSISTANT_SELECT = { botName: true, staffNames: true, businessHours: true, botProfile: true } as const
+
+interface StoredAssistant {
+  botName: string | null
+  staffNames: string | null
+  businessHours: unknown
+  botProfile: unknown
+}
+
+const hasOwnAssistant = (n: StoredAssistant): boolean =>
+  n.botName != null || n.staffNames != null || n.businessHours != null || n.botProfile != null
 
 /**
  * SuperAdmin management of the organization's WhatsApp numbers. Billing is per
@@ -29,11 +58,12 @@ export class PhoneNumbersService {
    *
    * Amounts in USD are withheld from tenants: the client is billed in tokens.
    */
-  async list(producerId: number, role?: Role, period = currentPeriod()) {
+  async list(producerId: number, role?: Role, period = currentPeriod(), userId?: number) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || period > currentPeriod())
       throw new BadRequestException('Mes inválido')
     const isOwner = role === Role.OWNER
     const seesActivity = isOwner || role === Role.SUPERADMIN
+    const assistantScope = await this.assistantScope({ id: userId ?? 0, producerId, role })
     const numbers = await this.prisma.phoneNumber.findMany({
       where: { producerId, deletedAt: null },
       select: {
@@ -41,6 +71,7 @@ export class PhoneNumbersService {
         phoneNumberId: true,
         number: true,
         isActive: true,
+        ...ASSISTANT_SELECT,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
         wabaAccount: { select: { disconnectedAt: true, disconnectReason: true } },
@@ -91,6 +122,9 @@ export class PhoneNumbersService {
           : null,
         responsibleCode: n.responsibleProducerCode,
         servedCodes: n.servedCodes.map(s => s.producerCode),
+        // Its own assistant name (null = the organization's) and whether it changes anything.
+        assistant: { botName: n.botName, customized: hasOwnAssistant(n) },
+        canConfigureAssistant: this.mayConfigure(assistantScope, n.responsibleProducerCode?.id ?? null),
         usage: {
           period,
           // What the client pays for: one token per message sent.
@@ -188,6 +222,91 @@ export class PhoneNumbersService {
       data: { deletedAt: new Date(), isActive: false },
     })
     return { id }
+  }
+
+  /**
+   * A number's own assistant next to its organization's, which fills whatever
+   * the number leaves empty. Every panel user of the organization may read it.
+   */
+  async getAssistant(id: number, user: PanelUser) {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { id, producerId: user.producerId, deletedAt: null },
+      select: {
+        id: true,
+        number: true,
+        responsibleProducerCodeId: true,
+        ...ASSISTANT_SELECT,
+        producer: { select: { name: true, ...ASSISTANT_SELECT } },
+      },
+    })
+    if (!phone) throw new NotFoundException(`Phone number ${id} not found`)
+    const { producer } = phone
+
+    return {
+      id: phone.id,
+      number: phone.number,
+      canEdit: this.mayConfigure(await this.assistantScope(user), phone.responsibleProducerCodeId),
+      own: {
+        botName: phone.botName,
+        staffNames: parseStaffNames(phone.staffNames),
+        businessHours: phone.businessHours == null ? null : parseSchedule(phone.businessHours),
+        botProfile: parseBotProfile(phone.botProfile),
+      },
+      organization: {
+        name: producer.name,
+        botName: producer.botName,
+        staffNames: parseStaffNames(producer.staffNames),
+        businessHours: parseSchedule(producer.businessHours),
+        botProfile: parseBotProfile(producer.botProfile),
+      },
+    }
+  }
+
+  /**
+   * Changes a number's own assistant: the SuperAdmin on any number, an admin
+   * only on the numbers billed to one of their codes. Clearing a setting gives
+   * the number the organization's value back.
+   */
+  async updateAssistant(id: number, user: PanelUser, dto: UpdateNumberAssistantDto) {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { id, producerId: user.producerId, deletedAt: null },
+      select: { responsibleProducerCodeId: true, botProfile: true },
+    })
+    if (!phone) throw new NotFoundException(`Phone number ${id} not found`)
+    if (!this.mayConfigure(await this.assistantScope(user), phone.responsibleProducerCodeId)) {
+      throw new ForbiddenException('Only the SuperAdmin or an admin of its code may change this number')
+    }
+
+    const data: Prisma.PhoneNumberUpdateInput = {}
+    if (dto.botName !== undefined) data.botName = dto.botName.trim() || null
+    if (dto.staffNames !== undefined) data.staffNames = serializeStaffNames(dto.staffNames)
+    if (dto.businessHours !== undefined) {
+      data.businessHours =
+        dto.businessHours === null
+          ? Prisma.DbNull
+          : (validateSchedule(dto.businessHours) as unknown as Prisma.InputJsonValue)
+    }
+    if (dto.botProfile !== undefined) {
+      const own = Object.entries(mergeBotProfile(phone.botProfile, dto.botProfile)).filter(([, v]) => v != null)
+      data.botProfile = own.length ? (Object.fromEntries(own) as Prisma.InputJsonObject) : Prisma.DbNull
+    }
+    await this.prisma.phoneNumber.update({ where: { id }, data })
+    return this.getAssistant(id, user)
+  }
+
+  /** The codes whose numbers the user may configure; null = every number of the organization. */
+  private async assistantScope(user: PanelUser): Promise<number[] | null> {
+    if (user.role === Role.OWNER || user.role === Role.SUPERADMIN) return null
+    if (!user.id) return []
+    const codes = await this.prisma.userProducerCode.findMany({
+      where: { userId: user.id },
+      select: { producerCodeId: true },
+    })
+    return codes.map(c => c.producerCodeId)
+  }
+
+  private mayConfigure(scope: number[] | null, responsibleCodeId: number | null): boolean {
+    return scope === null || (responsibleCodeId != null && scope.includes(responsibleCodeId))
   }
 
   private async findOneOrThrow(id: number, producerId: number) {
