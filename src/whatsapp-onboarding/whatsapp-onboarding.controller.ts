@@ -8,8 +8,10 @@ import { AuthenticatedRequest } from '../common/types/authenticated-request.type
 import { WhatsappOnboardingService } from './whatsapp-onboarding.service'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 
+// An admin connects and checks the numbers billed to their own codes; the
+// service enforces it. The SuperAdmin, any number of the organization.
 @UseGuards(UserAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN)
+@Roles(Role.SUPERADMIN, Role.ADMIN)
 @Controller('admin/whatsapp')
 export class WhatsappOnboardingController {
   constructor(
@@ -33,18 +35,18 @@ export class WhatsappOnboardingController {
 
   @Post('onboard')
   onboard(@Request() req: AuthenticatedRequest, @Body() dto: OnboardWhatsappDto) {
-    return this.service.onboard(req.user.producerId, dto)
+    return this.service.onboard(req.user, dto)
   }
 
   /** Manual recovery while Meta's one-shot 24 h sync window is still open. */
   @Post(':phoneNumberId/sync')
-  retrySync(@Param('phoneNumberId') phoneNumberId: string) {
-    return this.service.retryAppDataSync(phoneNumberId)
+  retrySync(@Request() req: AuthenticatedRequest, @Param('phoneNumberId') phoneNumberId: string) {
+    return this.service.retryAppDataSync(req.user, phoneNumberId)
   }
 
   /** Confirms that Meta kept the number on the Business app + Cloud API. */
   @Get(':phoneNumberId/status')
-  connectionStatus(@Param('phoneNumberId') phoneNumberId: string) {
-    return this.service.getConnectionStatus(phoneNumberId)
+  connectionStatus(@Request() req: AuthenticatedRequest, @Param('phoneNumberId') phoneNumberId: string) {
+    return this.service.getConnectionStatus(req.user, phoneNumberId)
   }
 }

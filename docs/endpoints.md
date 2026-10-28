@@ -1995,11 +1995,19 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 
 ### Reconnecting a number (`POST /admin/whatsapp/onboard`)
 
+**Who may connect a number.** `POST /admin/whatsapp/onboard`, `GET /admin/whatsapp/embedded-signup-config`, `GET /admin/whatsapp/:phoneNumberId/status` and `POST /admin/whatsapp/:phoneNumberId/sync` accept SUPERADMIN, ADMIN and OWNER. The SuperAdmin may bill a number to any code of the organization (`responsibleProducerCodeId` and `servedCodeIds` must belong to it). An admin connects numbers for their own codes only: the number is billed to `responsibleProducerCodeId`, which must be one of theirs and may be omitted when they have a single code; `servedCodeIds` must be theirs too; reconnecting is allowed only for a number already billed to one of their codes. `status` and `sync` answer only for numbers the caller sees (the OWNER, any number).
+
+`400 Bad Request` — an admin with several codes sent no `responsibleProducerCodeId`
+
+`403 Forbidden` — a code that is not the caller's, or an admin reconnecting a number billed to another code (checked before anything is saved; codes are checked before Meta's `code` is exchanged)
+
+`404 Not Found` — `status`/`sync` for a number the caller does not see
+
 Running Embedded Signup again for a number that Meta dropped reuses its `PhoneNumber` row, so the month's usage, the budget and the producer codes stay with it: the row with the same Meta id is revived (even if it is still listed, instead of answering `409`); on Coexistence, if Meta hands out a new `phone_number_id`, the latest deleted or disconnected row of the same WABA (or with the same display number) is re-pointed and its chats move with it. The response adds `"reconnected": true`. `409 Conflict` is only returned when the number is live in another organization. `GET /admin/phone-numbers` now includes `disconnectedAt`, `disconnectReason` and `disconnectReasonLabel` for each number.
 
 ### What each role gets from `GET /admin/phone-numbers`
 
-Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). The month's `usage` depends on the role, and no tenant role receives an amount in USD:
+Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role, and no tenant role receives an amount in USD:
 
 | Role | `usage` fields | Number fields |
 |---|---|---|
@@ -2009,7 +2017,7 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 
-Every number also carries `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization) and `canConfigureAssistant` (whether the caller may change it, see below).
+Every number also carries `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization) and `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own).
 
 ### GET /admin/phone-numbers/:id/assistant
 
@@ -2041,9 +2049,9 @@ A number's own assistant next to its organization's. Whatever the number leaves 
 }
 ```
 
-`canEdit` is `true` for a SuperAdmin (and the OWNER) on any number, and for an admin only on a number whose responsible code is one of theirs.
+`canEdit` is `true`: whoever sees a number may configure it.
 
-`404 Not Found` — the number is not of the caller's organization
+`404 Not Found` — the number is not of the caller's organization, or an admin asked for a number not billed to one of their codes
 
 ### PATCH /admin/phone-numbers/:id/assistant
 
@@ -2070,9 +2078,7 @@ Changes a number's own assistant. Only the fields sent change; clearing one give
 
 `400 Bad Request` — invalid hours or profile field
 
-`403 Forbidden` — an admin on a number that is not billed to one of their codes
-
-`404 Not Found` — the number is not of the caller's organization
+`404 Not Found` — the number is not of the caller's organization, or an admin on a number that is not billed to one of their codes
 
 ## Cotización — Leads (productos sin cotización online)
 

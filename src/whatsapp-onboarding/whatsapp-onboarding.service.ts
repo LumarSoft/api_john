@@ -1,8 +1,17 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { HttpService } from '@nestjs/axios'
 import { firstValueFrom } from 'rxjs'
+import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { ScopeService, type ScopeUser } from '../common/scope/scope.service'
 import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 import { describeGraphError } from './graph-errors'
@@ -16,6 +25,9 @@ interface MetaPhoneNumberStatus {
 
 const COEXISTENCE_STATUS_ATTEMPTS = 4
 const COEXISTENCE_STATUS_RETRY_MS = 750
+
+/** SuperAdmin and OWNER connect any number of the organization; an admin only their codes' numbers. */
+const isOrganizationWide = (user: ScopeUser) => user.role === Role.SUPERADMIN || user.role === Role.OWNER
 
 /**
  * Turns the result of an Embedded Signup session into a working number.
@@ -41,6 +53,7 @@ export class WhatsappOnboardingService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly http: HttpService,
+    private readonly scope: ScopeService,
   ) {}
 
   private get graphBase(): string {
@@ -52,7 +65,11 @@ export class WhatsappOnboardingService {
     return resolveKey(this.config.get<string>('WABA_TOKEN_ENCRYPTION_KEY'), 'WABA_TOKEN_ENCRYPTION_KEY')
   }
 
-  async onboard(producerId: number, dto: OnboardWhatsappDto) {
+  async onboard(user: ScopeUser, dto: OnboardWhatsappDto) {
+    const { producerId } = user
+    // 0 — billing codes, checked before the code is spent.
+    const billing = await this.resolveBilling(user, dto)
+
     // 1 — code → business token. The code dies 30s after the popup closes.
     const { accessToken, expiresAt } = await this.exchangeCode(dto.code)
 
@@ -88,6 +105,12 @@ export class WhatsappOnboardingService {
       dto.isCoexistence ?? false,
       displayPhoneNumber,
     )
+    // An admin reconnects only a number billed to one of their codes, never another office's.
+    if (existing && billing.ownCodes && !billing.ownCodes.includes(existing.responsibleProducerCodeId ?? -1)) {
+      throw new ForbiddenException(
+        'Este número está a cargo de otro código de productor. Pedile al SuperAdmin que lo reconecte.',
+      )
+    }
 
     // 2 — subscribe THIS app to the customer's WABA. Without it: no webhooks.
     await this.subscribeApp(dto.wabaId, accessToken)
@@ -134,7 +157,7 @@ export class WhatsappOnboardingService {
             number: displayPhoneNumber ?? phoneNumberId,
             producerId,
             wabaAccountId: waba.id,
-            responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
+            responsibleProducerCodeId: billing.responsibleProducerCodeId ?? null,
           },
           select: { id: true },
         })
@@ -203,7 +226,8 @@ export class WhatsappOnboardingService {
     return decryptSecret(row.wabaAccount.accessToken, this.encryptionKey)
   }
 
-  async retryAppDataSync(metaPhoneNumberId: string) {
+  async retryAppDataSync(user: ScopeUser, metaPhoneNumberId: string) {
+    await this.assertSeesNumber(user, metaPhoneNumberId)
     const accessToken = await this.getAccessTokenForPhoneNumber(metaPhoneNumberId)
     if (!accessToken) {
       throw new BadRequestException(`El número ${metaPhoneNumberId} no tiene un WABA activo`)
@@ -215,7 +239,8 @@ export class WhatsappOnboardingService {
   }
 
   /** Read-only production check used after Embedded Signup and during cutover. */
-  async getConnectionStatus(metaPhoneNumberId: string) {
+  async getConnectionStatus(user: ScopeUser, metaPhoneNumberId: string) {
+    await this.assertSeesNumber(user, metaPhoneNumberId)
     const accessToken = await this.getAccessTokenForPhoneNumber(metaPhoneNumberId)
     if (!accessToken) {
       throw new BadRequestException(`El número ${metaPhoneNumberId} no tiene un WABA activo`)
@@ -244,6 +269,51 @@ export class WhatsappOnboardingService {
   }
 
   /**
+   * The codes a new number is billed to and serves. The SuperAdmin may use any
+   * of the organization's; an admin only their own, and their number is always
+   * billed to one of them (their only code when the panel sends none).
+   * `ownCodes` is null when the caller may reconnect any number.
+   */
+  private async resolveBilling(
+    user: ScopeUser,
+    dto: OnboardWhatsappDto,
+  ): Promise<{ ownCodes: number[] | null; responsibleProducerCodeId?: number }> {
+    const accessible = await this.scope.resolveAccessibleProducerCodeIds(user)
+    const requested = [dto.responsibleProducerCodeId, ...(dto.servedCodeIds ?? [])].filter(
+      (id): id is number => id != null,
+    )
+    if (requested.some(id => !accessible.includes(id))) {
+      throw new ForbiddenException('Solo podés asignar el número a códigos de productor a tu cargo')
+    }
+    if (isOrganizationWide(user)) return { ownCodes: null, responsibleProducerCodeId: dto.responsibleProducerCodeId }
+
+    const responsibleProducerCodeId =
+      dto.responsibleProducerCodeId ?? (accessible.length === 1 ? accessible[0] : undefined)
+    if (responsibleProducerCodeId == null) {
+      throw new BadRequestException('Elegí el código de productor responsable del número')
+    }
+    return { ownCodes: accessible, responsibleProducerCodeId }
+  }
+
+  /**
+   * The OWNER checks any number, the SuperAdmin those of its organization and an
+   * admin those billed to one of their codes. Anything else is "not found".
+   */
+  private async assertSeesNumber(user: ScopeUser, metaPhoneNumberId: string): Promise<void> {
+    if (user.role === Role.OWNER) return
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { phoneNumberId: metaPhoneNumberId, producerId: user.producerId, deletedAt: null },
+      select: { responsibleProducerCodeId: true },
+    })
+    const sees =
+      phone != null &&
+      (isOrganizationWide(user) ||
+        (phone.responsibleProducerCodeId != null &&
+          (await this.scope.canAccessCode(user, phone.responsibleProducerCodeId))))
+    if (!sees) throw new NotFoundException(`El número ${metaPhoneNumberId} no está entre tus números`)
+  }
+
+  /**
    * The PhoneNumber row a (re)connection reuses, so a Coexistence drop does not
    * cost the month's usage, the budget or the producer codes:
    *
@@ -260,10 +330,10 @@ export class WhatsappOnboardingService {
     phoneNumberId: string,
     isCoexistence: boolean,
     displayPhoneNumber: string | undefined,
-  ): Promise<{ id: number; phoneNumberId: string } | null> {
+  ): Promise<{ id: number; phoneNumberId: string; responsibleProducerCodeId: number | null } | null> {
     const sameId = await this.prisma.phoneNumber.findUnique({
       where: { phoneNumberId },
-      select: { id: true, producerId: true, deletedAt: true, phoneNumberId: true },
+      select: { id: true, producerId: true, deletedAt: true, phoneNumberId: true, responsibleProducerCodeId: true },
     })
     if (sameId) {
       if (!sameId.deletedAt && sameId.producerId !== producerId) {
@@ -280,6 +350,7 @@ export class WhatsappOnboardingService {
         phoneNumberId: true,
         number: true,
         deletedAt: true,
+        responsibleProducerCodeId: true,
         wabaAccount: { select: { wabaId: true, disconnectedAt: true } },
       },
       orderBy: { id: 'desc' },

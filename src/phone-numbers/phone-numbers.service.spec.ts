@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma, Role } from 'generated/prisma/client'
 import type { PrismaService } from '../prisma/prisma.service'
@@ -96,20 +96,37 @@ describe('monthly phone number report', () => {
     expect(prisma.phoneNumber.update.mock.calls[1][0].data).toEqual({ monthlyBudgetUsd: 30 })
   })
 
-  it('tells an admin which numbers are theirs to configure', async () => {
+  it('lists to an admin only the numbers billed to one of their codes', async () => {
     const { service, prisma } = setup()
     const [row] = (await prisma.phoneNumber.findMany()) as Record<string, unknown>[]
-    const base = { ...row, botName: null, staffNames: null, businessHours: null, botProfile: null }
+    prisma.phoneNumber.findMany.mockClear()
     prisma.phoneNumber.findMany.mockResolvedValueOnce([
-      { ...base, id: 1, botName: 'Sofi', responsibleProducerCode: { id: 11, code: '11425', holderName: null } },
-      { ...base, id: 2, responsibleProducerCode: { id: 12, code: '8074', holderName: null } },
+      {
+        ...row,
+        botName: 'Sofi',
+        staffNames: null,
+        businessHours: null,
+        botProfile: null,
+        responsibleProducerCode: { id: 11, code: '11425', holderName: null },
+      },
     ])
 
-    const [mine, other] = await service.list(2, Role.ADMIN, '2026-09', 4)
+    const [mine] = await service.list(2, Role.ADMIN, '2026-09', 4)
 
+    expect(prisma.userProducerCode.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 4 } }))
+    expect(prisma.phoneNumber.findMany.mock.calls[0][0].where).toEqual({
+      producerId: 2,
+      deletedAt: null,
+      responsibleProducerCodeId: { in: [11] },
+    })
     expect(mine).toMatchObject({ canConfigureAssistant: true, assistant: { botName: 'Sofi', customized: true } })
-    expect(other).toMatchObject({ canConfigureAssistant: false, assistant: { botName: null, customized: false } })
+  })
+
+  it('lists every number of the organization to the superadmin', async () => {
+    const { service, prisma } = setup()
     const [any] = await service.list(2, Role.SUPERADMIN, '2026-09', 2)
+    expect(prisma.phoneNumber.findMany.mock.calls[0][0].where).toEqual({ producerId: 2, deletedAt: null })
+    expect(prisma.userProducerCode.findMany).not.toHaveBeenCalled()
     expect(any.canConfigureAssistant).toBe(true)
   })
 
@@ -213,16 +230,14 @@ describe("a number's own assistant", () => {
     })
   })
 
-  it('lets an admin change the numbers billed to one of their codes, and no other', async () => {
+  it('lets an admin read and change the numbers billed to one of their codes, and no other', async () => {
     const own = setup({}, [11])
     await expect(own.service.updateAssistant(8, admin, { botName: 'Sofi' })).resolves.toMatchObject({ canEdit: true })
 
     const other = setup({}, [12])
-    await expect(other.service.updateAssistant(8, admin, { botName: 'Sofi' })).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    await expect(other.service.updateAssistant(8, admin, { botName: 'Sofi' })).rejects.toBeInstanceOf(NotFoundException)
     expect(other.prisma.phoneNumber.update).not.toHaveBeenCalled()
-    await expect(other.service.getAssistant(8, admin)).resolves.toMatchObject({ canEdit: false })
+    await expect(other.service.getAssistant(8, admin)).rejects.toBeInstanceOf(NotFoundException)
   })
 
   it('rejects malformed hours', async () => {

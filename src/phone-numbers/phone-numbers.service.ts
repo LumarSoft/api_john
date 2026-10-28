@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UsageService, currentPeriod } from '../usage/usage.service'
@@ -63,9 +57,10 @@ export class PhoneNumbersService {
       throw new BadRequestException('Mes inválido')
     const isOwner = role === Role.OWNER
     const seesActivity = isOwner || role === Role.SUPERADMIN
-    const assistantScope = await this.assistantScope({ id: userId ?? 0, producerId, role })
+    const scope = await this.numberScope({ id: userId ?? 0, producerId, role })
     const numbers = await this.prisma.phoneNumber.findMany({
-      where: { producerId, deletedAt: null },
+      // An admin sees only the numbers billed to one of their codes.
+      where: { producerId, deletedAt: null, ...(scope ? { responsibleProducerCodeId: { in: scope } } : {}) },
       select: {
         id: true,
         phoneNumberId: true,
@@ -124,7 +119,7 @@ export class PhoneNumbersService {
         servedCodes: n.servedCodes.map(s => s.producerCode),
         // Its own assistant name (null = the organization's) and whether it changes anything.
         assistant: { botName: n.botName, customized: hasOwnAssistant(n) },
-        canConfigureAssistant: this.mayConfigure(assistantScope, n.responsibleProducerCode?.id ?? null),
+        canConfigureAssistant: this.inScope(scope, n.responsibleProducerCode?.id ?? null),
         usage: {
           period,
           // What the client pays for: one token per message sent.
@@ -226,7 +221,8 @@ export class PhoneNumbersService {
 
   /**
    * A number's own assistant next to its organization's, which fills whatever
-   * the number leaves empty. Every panel user of the organization may read it.
+   * the number leaves empty. Readable by whoever sees the number: the SuperAdmin
+   * any of the organization's, an admin those billed to one of their codes.
    */
   async getAssistant(id: number, user: PanelUser) {
     const phone = await this.prisma.phoneNumber.findFirst({
@@ -239,13 +235,16 @@ export class PhoneNumbersService {
         producer: { select: { name: true, ...ASSISTANT_SELECT } },
       },
     })
-    if (!phone) throw new NotFoundException(`Phone number ${id} not found`)
+    if (!phone || !this.inScope(await this.numberScope(user), phone.responsibleProducerCodeId)) {
+      throw new NotFoundException(`Phone number ${id} not found`)
+    }
     const { producer } = phone
 
     return {
       id: phone.id,
       number: phone.number,
-      canEdit: this.mayConfigure(await this.assistantScope(user), phone.responsibleProducerCodeId),
+      // Whoever sees a number may configure it.
+      canEdit: true,
       own: {
         botName: phone.botName,
         staffNames: parseStaffNames(phone.staffNames),
@@ -272,9 +271,8 @@ export class PhoneNumbersService {
       where: { id, producerId: user.producerId, deletedAt: null },
       select: { responsibleProducerCodeId: true, botProfile: true },
     })
-    if (!phone) throw new NotFoundException(`Phone number ${id} not found`)
-    if (!this.mayConfigure(await this.assistantScope(user), phone.responsibleProducerCodeId)) {
-      throw new ForbiddenException('Only the SuperAdmin or an admin of its code may change this number')
+    if (!phone || !this.inScope(await this.numberScope(user), phone.responsibleProducerCodeId)) {
+      throw new NotFoundException(`Phone number ${id} not found`)
     }
 
     const data: Prisma.PhoneNumberUpdateInput = {}
@@ -294,8 +292,11 @@ export class PhoneNumbersService {
     return this.getAssistant(id, user)
   }
 
-  /** The codes whose numbers the user may configure; null = every number of the organization. */
-  private async assistantScope(user: PanelUser): Promise<number[] | null> {
+  /**
+   * The codes whose numbers the user sees and configures: an admin's own codes.
+   * Null = every number of the organization (SuperAdmin and OWNER).
+   */
+  private async numberScope(user: PanelUser): Promise<number[] | null> {
     if (user.role === Role.OWNER || user.role === Role.SUPERADMIN) return null
     if (!user.id) return []
     const codes = await this.prisma.userProducerCode.findMany({
@@ -305,7 +306,7 @@ export class PhoneNumbersService {
     return codes.map(c => c.producerCodeId)
   }
 
-  private mayConfigure(scope: number[] | null, responsibleCodeId: number | null): boolean {
+  private inScope(scope: number[] | null, responsibleCodeId: number | null): boolean {
     return scope === null || (responsibleCodeId != null && scope.includes(responsibleCodeId))
   }
 

@@ -27,15 +27,16 @@ import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
 export class AdminPhoneNumbersController {
   constructor(private readonly service: PhoneNumbersService) {}
 
-  // Admins may read the month's tokens; managing numbers stays with the SuperAdmin.
+  // Admins read the month's tokens of the numbers billed to their codes;
+  // managing numbers stays with the SuperAdmin.
   @Get()
   @Roles(Role.SUPERADMIN, Role.ADMIN)
   list(@Request() req: AuthenticatedRequest, @Query('period') period?: string) {
     return this.service.list(req.user.producerId, req.user.role, period, req.user.id)
   }
 
-  // A number's own assistant (name, office people, hours and data): everyone
-  // reads it; the service lets an admin change only the numbers of their codes.
+  // A number's own assistant (name, office people, hours and data): the service
+  // lets an admin read and change only the numbers of their codes.
   @Get(':id/assistant')
   @Roles(Role.SUPERADMIN, Role.ADMIN)
   getAssistant(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
