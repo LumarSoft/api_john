@@ -1568,6 +1568,8 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 
 **Linked client:** `client` is returned only while the link applies to whoever is writing: always when the client's stored phone is this `waId`, otherwise only within the session in which they identified. Someone who identified with another person's DNI is treated as unidentified on their next session, so the bot asks again instead of greeting them as that person. The client-scoped endpoints below apply the same rule.
 
+**Numbers of a branch:** a number serves the producer codes it is billed to and attends (`responsibleProducerCode` + served codes; a number with no code serves every code). The chat is one per person and organization, so it may move between numbers: a linked client counts only if the number now written to serves them (one of their policies, or the client, is under one of its codes), and when the chat's code is not one of the new number's, the chat goes back to no code until the person identifies there. `phoneMatch` only looks among the clients the number serves.
+
 **Phone match:** when there is no linked client and exactly one client of the organization has this `waId` as their cartera phone, `phoneMatch` carries that client's first name (`{ "firstName": "JUAN" }`) so the bot can ask "¿hablo con Juan?" instead of the DNI; otherwise `null`. Nothing is linked until the bot calls `identify-by-phone`.
 
 **Auth required:** Yes (`x-bot-secret`)
@@ -1683,6 +1685,8 @@ Persists a message in the conversation.
 ### POST /bot/conversation/:conversationId/identify
 
 Links the conversation to a `Client` found by DNI or license plate within the producer's tenant. Required before calling the client-scoped endpoints below.
+
+Only the clients the conversation's number serves are found: on a branch's number, a DNI or plate of another office's client answers `404` like an unknown one. The chat is filed under the client's code, or under the code of their policy that the number serves when the client belongs to another. From then on `polizas`, `estado-cuenta`, `documentos`, `siniestros`, new claims, photos and `request-policy-cancellation` only reach the policies and claims of the number's codes; a link the number does not serve answers `403` as if there were no identified client. `identify-by-phone` follows the same rule.
 
 **Auth required:** Yes (`x-bot-secret`)
 

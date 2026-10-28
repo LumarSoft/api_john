@@ -68,6 +68,27 @@ function isClientLinkActive(link: ClientLink): boolean {
   return !link.sessionStartedAt || link.clientLinkedAt >= link.sessionStartedAt
 }
 
+/**
+ * Keeps a policy or claim to the producer codes a number serves. Null codes =
+ * the number is not restricted, so nothing is filtered.
+ */
+const inCodes = (codeIds: number[] | null) => (codeIds ? { producerCodeId: { in: codeIds } } : {})
+
+/**
+ * The clients a number may identify and serve: those of one of its codes, or
+ * with a policy under one of them. A branch's number never answers for a client
+ * of another office.
+ */
+const servedClientWhere = (codeIds: number[] | null): Prisma.ClientWhereInput =>
+  codeIds
+    ? {
+        OR: [
+          { producerCodeId: { in: codeIds } },
+          { policies: { some: { deletedAt: null, producerCodeId: { in: codeIds } } } },
+        ],
+      }
+    : {}
+
 const CLIENT_SUMMARY_SELECT = {
   id: true,
   firstName: true,
@@ -286,12 +307,14 @@ export class BotService {
    */
   async getOrCreateConversation(phoneNumberId: string, waId: string) {
     const { producerId } = await this.getContext(phoneNumberId)
+    const codeIds = await this.numberCodeIds(phoneNumberId)
 
     const CONVERSATION_SELECT = {
       id: true,
       sessionStartedAt: true,
       lastMessageAt: true,
       phoneNumberId: true,
+      producerCodeId: true,
       botPaused: true,
       status: true,
       flowState: true,
@@ -317,6 +340,13 @@ export class BotService {
     // Keep the originating number current (self-heals older rows) so proactive
     // warnings are sent from the number the user actually wrote to.
     const phoneChanged = conversation.phoneNumberId !== phoneNumberId
+    // One chat per person and organization: when it moves to a number that does
+    // not serve its code, it is nobody's until the person identifies on this one.
+    const foreignCode =
+      phoneChanged &&
+      codeIds != null &&
+      conversation.producerCodeId != null &&
+      !codeIds.includes(conversation.producerCodeId)
 
     const lastActivity = conversation.lastMessageAt
     if (lastActivity && Date.now() - lastActivity.getTime() > this.sessionTimeoutMs) {
@@ -338,6 +368,7 @@ export class BotService {
         data: {
           ...(newSession ? { sessionStartedAt, flowState: null } : {}),
           ...(phoneChanged ? { phoneNumberId } : {}),
+          ...(foreignCode ? { producerCodeId: null } : {}),
           ...(shouldReopen ? { status: 'open' } : {}),
         },
       })
@@ -386,17 +417,19 @@ export class BotService {
       select: { id: true, role: true, content: true, createdAt: true, source: true },
     })
 
-    const clientActive = isClientLinkActive({
-      waId,
-      sessionStartedAt,
-      clientLinkedAt: conversation.clientLinkedAt,
-      client: conversation.client,
-    })
+    // A client linked on another number counts only if this number serves them.
+    const clientActive =
+      isClientLinkActive({
+        waId,
+        sessionStartedAt,
+        clientLinkedAt: conversation.clientLinkedAt,
+        client: conversation.client,
+      }) && (await this.servesClient(conversation.client, codeIds))
 
     // Not identified, but this number is a client's phone in the cartera: the
     // bot asks "¿hablo con Juan?" instead of the DNI. Only the first name goes
     // out, and nothing is linked until the person confirms.
-    const phoneMatch = clientActive ? null : await this.findClientByPhone(producerId, waId)
+    const phoneMatch = clientActive ? null : await this.findClientByPhone(producerId, waId, codeIds)
 
     return {
       conversationId: conversation.id,
@@ -644,6 +677,8 @@ export class BotService {
   /**
    * Links the conversation to a Client found by DNI or license plate.
    * This is what unlocks the client-only endpoints (polizas, cuotas, documentos, siniestros).
+   * Only among the clients of the codes the number serves: on a branch's number
+   * another office's client is not found.
    */
   async identifyClient(conversationId: number, dto: IdentifyClientDto) {
     const conversation = await this.findConversation(conversationId)
@@ -651,6 +686,7 @@ export class BotService {
     if (!dto.dni && !dto.plate) {
       throw new BadRequestException('Either dni or plate is required')
     }
+    const codeIds = await this.numberCodeIds(conversation.phoneNumberId)
 
     let client: { id: number; producerCodeId: number | null } | null = null
 
@@ -661,7 +697,12 @@ export class BotService {
       const cuilDni = /^(?:20|23|24|27)\d{9}$/.test(dni) ? String(Number(dni.slice(2, 10))) : null
       for (const candidate of cuilDni ? [dni, cuilDni] : [dni]) {
         client = await this.prisma.client.findFirst({
-          where: { dni: candidate, producerId: conversation.producerId, deletedAt: null },
+          where: {
+            dni: candidate,
+            producerId: conversation.producerId,
+            deletedAt: null,
+            ...servedClientWhere(codeIds),
+          },
           select: { id: true, producerCodeId: true },
         })
         if (client) break
@@ -675,6 +716,7 @@ export class BotService {
           producerId: conversation.producerId,
           deletedAt: null,
           vehicle: { licensePlate: plate, deletedAt: null },
+          ...inCodes(codeIds),
         },
         select: { clientId: true, producerCodeId: true },
       })
@@ -685,7 +727,7 @@ export class BotService {
       throw new NotFoundException('No client found for the given dni/plate')
     }
 
-    return this.linkClient(conversationId, client)
+    return this.linkClient(conversationId, client, codeIds)
   }
 
   /**
@@ -695,21 +737,22 @@ export class BotService {
    */
   async identifyByPhone(conversationId: number) {
     const conversation = await this.findConversation(conversationId)
-    const client = await this.findClientByPhone(conversation.producerId, conversation.waId)
+    const codeIds = await this.numberCodeIds(conversation.phoneNumberId)
+    const client = await this.findClientByPhone(conversation.producerId, conversation.waId, codeIds)
     if (!client) throw new NotFoundException('No client has this phone number')
-    return this.linkClient(conversationId, client)
+    return this.linkClient(conversationId, client, codeIds)
   }
 
   /**
    * The one client of the organization whose cartera phone is this WhatsApp
-   * number, or null — also when several share it, since then we can't tell
-   * who is writing.
+   * number, among those the number serves, or null — also when several share
+   * it, since then we can't tell who is writing.
    */
-  private async findClientByPhone(producerId: number, waId: string) {
+  private async findClientByPhone(producerId: number, waId: string, codeIds: number[] | null) {
     const suffix = phoneSuffix(waId)
     if (!suffix) return null
     const candidates = await this.prisma.client.findMany({
-      where: { producerId, deletedAt: null, phone: { endsWith: suffix } },
+      where: { producerId, deletedAt: null, phone: { endsWith: suffix }, ...servedClientWhere(codeIds) },
       select: { id: true, firstName: true, phone: true, producerCodeId: true },
       take: 20,
     })
@@ -717,20 +760,69 @@ export class BotService {
     return matches.length === 1 ? matches[0] : null
   }
 
-  private async linkClient(conversationId: number, client: { id: number; producerCodeId: number | null }) {
+  private async linkClient(
+    conversationId: number,
+    client: { id: number; producerCodeId: number | null },
+    codeIds: number[] | null,
+  ) {
     // Resolve the chat to the client's producer code so inbox/novedades scoping
     // routes it to the right admin even when the number serves several codes.
     const updated = await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { clientId: client.id, producerCodeId: client.producerCodeId, clientLinkedAt: new Date() },
+      data: {
+        clientId: client.id,
+        producerCodeId: await this.chatCodeFor(client, codeIds),
+        clientLinkedAt: new Date(),
+      },
       select: { client: { select: CLIENT_SUMMARY_SELECT } },
     })
 
     const policyCount = await this.prisma.policy.count({
-      where: { clientId: client.id, deletedAt: null },
+      where: { clientId: client.id, deletedAt: null, ...inCodes(codeIds) },
     })
 
     return { client: updated.client, policyCount }
+  }
+
+  /**
+   * The code a chat goes to: the client's own, unless the number does not serve
+   * it; then the code of the client's policy that the number does serve.
+   */
+  private async chatCodeFor(client: { id: number; producerCodeId: number | null }, codeIds: number[] | null) {
+    if (!codeIds || (client.producerCodeId != null && codeIds.includes(client.producerCodeId))) {
+      return client.producerCodeId
+    }
+    const policy = await this.prisma.policy.findFirst({
+      where: { clientId: client.id, deletedAt: null, producerCodeId: { in: codeIds } },
+      select: { producerCodeId: true },
+    })
+    return policy?.producerCodeId ?? null
+  }
+
+  /**
+   * The producer codes a Meta number serves: its responsible code and the ones
+   * it also attends. Null = not restricted: a chat with no stored number, or a
+   * number the SuperAdmin has not given any code yet.
+   */
+  private async numberCodeIds(phoneNumberId: string | null): Promise<number[] | null> {
+    if (!phoneNumberId) return null
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { phoneNumberId, deletedAt: null },
+      select: { responsibleProducerCodeId: true, servedCodes: { select: { producerCodeId: true } } },
+    })
+    const ids = new Set(phone?.servedCodes.map(s => s.producerCodeId) ?? [])
+    if (phone?.responsibleProducerCodeId != null) ids.add(phone.responsibleProducerCodeId)
+    return ids.size ? [...ids] : null
+  }
+
+  /** Whether the number may serve this client; always when it serves every code. */
+  private async servesClient(client: { id: number } | null, codeIds: number[] | null): Promise<boolean> {
+    if (!client || !codeIds) return true
+    const served = await this.prisma.client.findFirst({
+      where: { id: client.id, ...servedClientWhere(codeIds) },
+      select: { id: true },
+    })
+    return served != null
   }
 
   /**
@@ -744,10 +836,10 @@ export class BotService {
    * on them stopped legitimate claims. See paymentStatus in common/poliza-vigencia.
    */
   async getPolizas(conversationId: number) {
-    const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
+    const { clientId, producerId, codeIds } = await this.requireIdentifiedClient(conversationId)
 
     const polizas = await this.prisma.policy.findMany({
-      where: { clientId, producerId, ...inForcePolizaWhere() },
+      where: { clientId, producerId, ...inCodes(codeIds), ...inForcePolizaWhere() },
       orderBy: { validTo: 'desc' },
       select: POLIZA_SUMMARY_SELECT,
     })
@@ -786,10 +878,10 @@ export class BotService {
    * installments next to the live ones.
    */
   async getEstadoCuenta(conversationId: number) {
-    const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
+    const { clientId, producerId, codeIds } = await this.requireIdentifiedClient(conversationId)
 
     const polizas = await this.prisma.policy.findMany({
-      where: { clientId, producerId, ...inForcePolizaWhere() },
+      where: { clientId, producerId, ...inCodes(codeIds), ...inForcePolizaWhere() },
       select: {
         id: true,
         certificateNumber: true,
@@ -829,21 +921,21 @@ export class BotService {
 
   /** Documents of a policy (tarjeta verde, certificado, constancia de pago…) fetched live from Triunfo. */
   async getDocumentos(conversationId: number, polizaId: number) {
-    const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
-    return this.documentos.listForPolicy(this.polizaRefWhere(polizaId, clientId, producerId))
+    const { clientId, producerId, codeIds } = await this.requireIdentifiedClient(conversationId)
+    return this.documentos.listForPolicy(this.polizaRefWhere(polizaId, clientId, producerId, codeIds))
   }
 
   /** One document of a policy as a PDF, for the bot to send it in the chat. */
   async getDocumentoPdf(conversationId: number, polizaId: number, code: string) {
-    const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
-    return this.documentos.downloadForPolicy(this.polizaRefWhere(polizaId, clientId, producerId), code)
+    const { clientId, producerId, codeIds } = await this.requireIdentifiedClient(conversationId)
+    return this.documentos.downloadForPolicy(this.polizaRefWhere(polizaId, clientId, producerId, codeIds), code)
   }
 
   async getSiniestros(conversationId: number) {
-    const { clientId, producerId } = await this.requireIdentifiedClient(conversationId)
+    const { clientId, producerId, codeIds } = await this.requireIdentifiedClient(conversationId)
 
     return this.prisma.claim.findMany({
-      where: { clientId, producerId, deletedAt: null },
+      where: { clientId, producerId, deletedAt: null, ...inCodes(codeIds) },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -859,10 +951,10 @@ export class BotService {
   }
 
   async createSiniestro(conversationId: number, dto: CreateBotSiniestroDto) {
-    const { clientId, producerId, phoneNumberId, client } = await this.requireIdentifiedClient(conversationId)
+    const { clientId, producerId, phoneNumberId, client, codeIds } = await this.requireIdentifiedClient(conversationId)
 
     const poliza = await this.prisma.policy.findFirst({
-      where: { AND: [this.polizaRefWhere(dto.policyId, clientId, producerId), inForcePolizaWhere()] },
+      where: { AND: [this.polizaRefWhere(dto.policyId, clientId, producerId, codeIds), inForcePolizaWhere()] },
       select: { id: true, certificateNumber: true, company: true, producerCodeId: true },
     })
     if (!poliza) throw new NotFoundException(`Policy ${dto.policyId} not found or not in force`)
@@ -935,7 +1027,7 @@ export class BotService {
     // Deliberately the stored link, not the session-scoped one: photos for a
     // claim often arrive after the session expired, and they belong to the
     // open claim this same chat filed.
-    const { clientId, producerId } = await this.findConversation(conversationId)
+    const { clientId, producerId, phoneNumberId } = await this.findConversation(conversationId)
 
     if (!clientId || holdForNewClaim) {
       return { claimId: null, attachmentCount: 0, attached: false, attachments }
@@ -946,6 +1038,8 @@ export class BotService {
         clientId,
         producerId,
         deletedAt: null,
+        // A photo sent to a branch's number never joins another office's claim.
+        ...inCodes(await this.numberCodeIds(phoneNumberId)),
         status: { not: 'resolved' },
         // The guided claim steps label their photos (tipo); a loose photo only
         // joins a claim filed recently. A moto photo sent to get a quote ended
@@ -1025,9 +1119,9 @@ export class BotService {
 
   /** Record a request for the office; never cancel the policy automatically. */
   async requestPolicyCancellation(conversationId: number, polizaId: number, reason?: string) {
-    const { clientId, producerId, client } = await this.requireIdentifiedClient(conversationId)
+    const { clientId, producerId, client, codeIds } = await this.requireIdentifiedClient(conversationId)
     const poliza = await this.prisma.policy.findFirst({
-      where: { id: polizaId, clientId, producerId, deletedAt: null },
+      where: { id: polizaId, clientId, producerId, deletedAt: null, ...inCodes(codeIds) },
       select: { id: true, certificateNumber: true, producerCodeId: true, vehicle: { select: { licensePlate: true } } },
     })
     if (!poliza) throw new NotFoundException(`Policy ${polizaId} not found`)
@@ -1074,11 +1168,12 @@ export class BotService {
    * then sends it back as the id). Scoped to the identified client, so the OR
    * can never resolve to another client's policy.
    */
-  private polizaRefWhere(ref: number, clientId: number, producerId: number) {
+  private polizaRefWhere(ref: number, clientId: number, producerId: number, codeIds: number[] | null) {
     return {
       clientId,
       producerId,
       deletedAt: null,
+      ...inCodes(codeIds),
       OR: [{ id: ref }, { certificateNumber: String(ref) }],
     }
   }
@@ -1086,7 +1181,7 @@ export class BotService {
   private async findConversation(conversationId: number) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
-      select: { id: true, producerId: true, clientId: true, waId: true },
+      select: { id: true, producerId: true, clientId: true, waId: true, phoneNumberId: true },
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
     return conversation
@@ -1115,8 +1210,11 @@ export class BotService {
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
 
+    // The number the person is writing to must serve the client: a link made on
+    // the organization's main line does not carry over to a branch's number.
+    const codeIds = await this.numberCodeIds(conversation.phoneNumberId)
     const client = isClientLinkActive(conversation) ? conversation.client : null
-    if (!client || client.deletedAt) {
+    if (!client || client.deletedAt || !(await this.servesClient(client, codeIds))) {
       throw new ForbiddenException('Conversation has no identified client — call identify first')
     }
 
@@ -1125,6 +1223,8 @@ export class BotService {
       producerId: conversation.producerId,
       phoneNumberId: conversation.phoneNumberId,
       client,
+      // Only the policies and claims of the codes this number serves.
+      codeIds,
     }
   }
 }

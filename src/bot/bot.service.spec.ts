@@ -10,7 +10,12 @@ jest.mock('../siniestros/siniestro-upload.config', () => ({
 function createPrismaMock() {
   return {
     phoneNumber: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
-    policy: { findFirst: jest.fn(), update: jest.fn(), count: jest.fn().mockResolvedValue(0) },
+    policy: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+    },
     notification: { findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     conversation: {
       findFirst: jest.fn(),
@@ -321,6 +326,8 @@ describe('BotService', () => {
     beforeEach(() => {
       prisma.phoneNumber.findFirst.mockResolvedValue({
         producer: { id: 1, name: 'John', slug: 'john', systemPrompt: 'x', isActive: true },
+        responsibleProducerCodeId: null,
+        servedCodes: [],
       })
       prisma.message.findMany.mockResolvedValue([])
     })
@@ -549,6 +556,136 @@ describe('BotService', () => {
       expect(prisma.conversation.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ phoneNumberId: 'P1' }) }),
       )
+    })
+  })
+
+  describe("a branch's number", () => {
+    // +54 9 341 660-1874 serves only 10856 (id 4); the client is 10484's (id 2).
+    const branch = { responsibleProducerCodeId: 4, servedCodes: [] }
+    const evelyn = { id: 5, firstName: 'Evelyn', lastName: 'Benitez', dni: '37334584', phone: '341156643370' }
+    const onlyBranchCodes = {
+      OR: [{ producerCodeId: { in: [4] } }, { policies: { some: { deletedAt: null, producerCodeId: { in: [4] } } } }],
+    }
+
+    beforeEach(() => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({
+        producer: { id: 1, name: 'John', slug: 'john', systemPrompt: 'x', isActive: true },
+        ...branch,
+      })
+      prisma.message.findMany.mockResolvedValue([])
+    })
+
+    it("does not find another office's client by DNI", async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: null, phoneNumberId: 'BRANCH' })
+      prisma.client.findFirst.mockResolvedValue(null)
+
+      await expect(service.identifyClient(3, { dni: '37334584' })).rejects.toThrow('No client found')
+      expect(prisma.client.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { dni: '37334584', producerId: 1, deletedAt: null, ...onlyBranchCodes } }),
+      )
+      expect(prisma.conversation.update).not.toHaveBeenCalled()
+    })
+
+    it('looks plates up only among the policies of its codes', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: null, phoneNumberId: 'BRANCH' })
+      prisma.policy.findFirst.mockResolvedValue(null)
+
+      await expect(service.identifyClient(3, { plate: 'GLQ 276' })).rejects.toThrow('No client found')
+      expect(prisma.policy.findFirst.mock.calls[0][0].where).toMatchObject({ producerCodeId: { in: [4] } })
+    })
+
+    it("files the chat under the branch's code when the client also has a policy there", async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: null, phoneNumberId: 'BRANCH' })
+      prisma.client.findFirst.mockResolvedValue({ id: 5, producerCodeId: 2 })
+      prisma.policy.findFirst.mockResolvedValue({ producerCodeId: 4 })
+      prisma.conversation.update.mockResolvedValue({ client: evelyn })
+
+      await service.identifyClient(3, { dni: '37334584' })
+
+      expect(prisma.conversation.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ clientId: 5, producerCodeId: 4 }) }),
+      )
+      expect(prisma.policy.count).toHaveBeenCalledWith({
+        where: { clientId: 5, deletedAt: null, producerCodeId: { in: [4] } },
+      })
+    })
+
+    it('does not carry over a client identified on the main number', async () => {
+      const start = new Date(Date.now() - 60_000)
+      prisma.conversation.findFirst.mockResolvedValue({
+        id: 251,
+        sessionStartedAt: start,
+        lastMessageAt: new Date(),
+        phoneNumberId: 'MAIN',
+        producerCodeId: 2,
+        clientLinkedAt: new Date(),
+        client: evelyn,
+      })
+      prisma.client.findFirst.mockResolvedValue(null)
+
+      const result = await service.getOrCreateConversation('BRANCH', '5493416956364')
+
+      expect(result.client).toBeNull()
+      expect(prisma.conversation.update).toHaveBeenCalledWith({
+        where: { id: 251 },
+        data: { phoneNumberId: 'BRANCH', producerCodeId: null },
+      })
+      expect(prisma.client.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining(onlyBranchCodes) }),
+      )
+    })
+
+    it('keeps a client the branch serves', async () => {
+      const start = new Date(Date.now() - 60_000)
+      prisma.conversation.findFirst.mockResolvedValue({
+        id: 251,
+        sessionStartedAt: start,
+        lastMessageAt: new Date(),
+        phoneNumberId: 'BRANCH',
+        producerCodeId: 4,
+        clientLinkedAt: new Date(),
+        client: evelyn,
+      })
+      prisma.client.findFirst.mockResolvedValue({ id: 5 })
+
+      await expect(service.getOrCreateConversation('BRANCH', '5493416956364')).resolves.toMatchObject({
+        client: evelyn,
+      })
+    })
+
+    it('answers no policy, document or claim of a client it does not serve', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({
+        producerId: 1,
+        phoneNumberId: 'BRANCH',
+        waId: '5493416956364',
+        sessionStartedAt: new Date(Date.now() - 60_000),
+        clientLinkedAt: new Date(),
+        client: { ...evelyn, email: null, city: null, deletedAt: null },
+      })
+      prisma.client.findFirst.mockResolvedValue(null)
+
+      await expect(service.getPolizas(251)).rejects.toThrow('no identified client')
+      await expect(service.getDocumentoPdf(251, 10712, '1020')).rejects.toThrow('no identified client')
+      expect(prisma.policy.findMany).not.toHaveBeenCalled()
+    })
+
+    it("lists only the policies of the branch's codes", async () => {
+      prisma.conversation.findFirst.mockResolvedValue({
+        producerId: 1,
+        phoneNumberId: 'BRANCH',
+        waId: '5493416956364',
+        sessionStartedAt: new Date(Date.now() - 60_000),
+        clientLinkedAt: new Date(),
+        client: { ...evelyn, email: null, city: null, deletedAt: null },
+      })
+      prisma.client.findFirst.mockResolvedValue({ id: 5 })
+
+      await service.getPolizas(251)
+
+      expect(prisma.policy.findMany.mock.calls[0][0].where).toMatchObject({
+        clientId: 5,
+        producerCodeId: { in: [4] },
+      })
     })
   })
 
