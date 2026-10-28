@@ -18,8 +18,12 @@ function createPrismaMock() {
     user: { findUniqueOrThrow: jest.fn(), update: jest.fn() },
     contactLead: { updateMany: jest.fn() },
     quoteRequest: { updateMany: jest.fn() },
+    conversation: { findMany: jest.fn().mockResolvedValue([]) },
   }
 }
+
+/** A SuperAdmin of code 10: its novedades plus the unattributed ones. */
+const SUPERADMIN_CHATS = { codeIds: [10], ownNumbers: null }
 
 describe('NovedadesService', () => {
   let prisma: ReturnType<typeof createPrismaMock>
@@ -34,7 +38,7 @@ describe('NovedadesService', () => {
   describe('clearAll', () => {
     it('soft deletes only accessible notifications without changing business records', async () => {
       prisma.notification.updateMany.mockResolvedValue({ count: 15 })
-      await expect(service.clearAll(5, [10])).resolves.toEqual({ clearedCount: 15 })
+      await expect(service.clearAll(5, SUPERADMIN_CHATS)).resolves.toEqual({ clearedCount: 15 })
       expect(prisma.notification.updateMany).toHaveBeenCalledWith({
         where: { producerId: 5, deletedAt: null, OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] },
         data: { deletedAt: expect.any(Date) },
@@ -45,7 +49,7 @@ describe('NovedadesService', () => {
 
     it('returns zero when there are no accessible notifications', async () => {
       prisma.notification.updateMany.mockResolvedValue({ count: 0 })
-      await expect(service.clearAll(5, [])).resolves.toEqual({ clearedCount: 0 })
+      await expect(service.clearAll(5, { codeIds: [], ownNumbers: null })).resolves.toEqual({ clearedCount: 0 })
       expect(prisma.notification.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { producerId: 5, deletedAt: null, OR: [{ producerCodeId: { in: [] } }, { producerCodeId: null }] },
@@ -55,7 +59,7 @@ describe('NovedadesService', () => {
 
     it('reports database failures without returning a false success', async () => {
       prisma.notification.updateMany.mockRejectedValue(new Error('database unavailable'))
-      await expect(service.clearAll(5, [10])).rejects.toThrow('database unavailable')
+      await expect(service.clearAll(5, SUPERADMIN_CHATS)).rejects.toThrow('database unavailable')
     })
   })
 
@@ -113,11 +117,32 @@ describe('NovedadesService', () => {
   })
 
   describe('listForAdmin', () => {
+    it("shows an admin the handoffs of their own numbers' chats and the rest by code", async () => {
+      prisma.notification.count.mockResolvedValue(0)
+      prisma.notification.findMany.mockResolvedValue([])
+      prisma.conversation.findMany.mockResolvedValue([{ id: 251 }])
+
+      await service.listForAdmin(5, { codeIds: [4], ownNumbers: ['BRANCH'] }, {})
+
+      expect(prisma.conversation.findMany).toHaveBeenCalledWith({
+        where: { producerId: 5, phoneNumberId: { in: ['BRANCH'] } },
+        select: { id: true },
+      })
+      expect(prisma.notification.findMany.mock.calls[0][0].where).toEqual({
+        producerId: 5,
+        deletedAt: null,
+        OR: [
+          { type: NovedadType.HANDOFF, refId: { in: [251] } },
+          { type: { not: NovedadType.HANDOFF }, OR: [{ producerCodeId: { in: [4] } }, { producerCodeId: null }] },
+        ],
+      })
+    })
+
     it('orders unread first then newest, and applies pagination defaults', async () => {
       prisma.notification.count.mockResolvedValue(1)
       prisma.notification.findMany.mockResolvedValue([{ id: 8 }])
 
-      const result = await service.listForAdmin(5, [10], {})
+      const result = await service.listForAdmin(5, SUPERADMIN_CHATS, {})
 
       expect(prisma.notification.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -138,7 +163,7 @@ describe('NovedadesService', () => {
       prisma.notification.count.mockResolvedValue(0)
       prisma.notification.findMany.mockResolvedValue([])
 
-      await service.listForAdmin(5, [10], { type: NovedadType.HANDOFF, unread: true })
+      await service.listForAdmin(5, SUPERADMIN_CHATS, { type: NovedadType.HANDOFF, unread: true })
 
       expect(prisma.notification.count).toHaveBeenCalledWith({
         where: {
@@ -155,7 +180,7 @@ describe('NovedadesService', () => {
       prisma.notification.count.mockResolvedValue(0)
       prisma.notification.findMany.mockResolvedValue([])
 
-      await service.listForAdmin(5, [10], { clientId: 3, search: '30123' })
+      await service.listForAdmin(5, SUPERADMIN_CHATS, { clientId: 3, search: '30123' })
 
       expect(prisma.notification.count).toHaveBeenCalledWith({
         where: {
@@ -194,7 +219,7 @@ describe('NovedadesService', () => {
         .mockResolvedValueOnce(0)
         .mockResolvedValue(2)
 
-      const stats = await service.getStats(5, [10])
+      const stats = await service.getStats(5, SUPERADMIN_CHATS)
 
       expect(stats).toEqual({
         unreadTotal: 3,
@@ -211,7 +236,7 @@ describe('NovedadesService', () => {
     it('keeps actionable filtering independent of read state and preserves code scope with search', async () => {
       prisma.notification.count.mockResolvedValue(0)
       prisma.notification.findMany.mockResolvedValue([])
-      await service.listForAdmin(5, [10], {
+      await service.listForAdmin(5, SUPERADMIN_CHATS, {
         actionable: true,
         category: MatterCategory.BAJA,
         since: '2026-09-30T20:00:00Z',
@@ -230,9 +255,9 @@ describe('NovedadesService', () => {
     })
 
     it('rejects changes outside the tenant/scope', async () => {
-      await expect(service.updateMatter(8, 5, [10], { status: MatterStatus.RESOLVED })).rejects.toBeInstanceOf(
-        NotFoundException,
-      )
+      await expect(
+        service.updateMatter(8, 5, SUPERADMIN_CHATS, { status: MatterStatus.RESOLVED }),
+      ).rejects.toBeInstanceOf(NotFoundException)
       expect(prisma.notification.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
@@ -248,11 +273,11 @@ describe('NovedadesService', () => {
 
     it('resolves and reopens without altering read state', async () => {
       prisma.notification.findFirst.mockResolvedValue({ type: 'handoff', refId: 1 })
-      await service.updateMatter(8, 5, [10], { status: MatterStatus.RESOLVED })
+      await service.updateMatter(8, 5, SUPERADMIN_CHATS, { status: MatterStatus.RESOLVED })
       expect(prisma.notification.update).toHaveBeenLastCalledWith(
         expect.objectContaining({ data: { status: 'resolved', resolvedAt: expect.any(Date) } }),
       )
-      await service.updateMatter(8, 5, [10], { status: MatterStatus.PENDING })
+      await service.updateMatter(8, 5, SUPERADMIN_CHATS, { status: MatterStatus.PENDING })
       expect(prisma.notification.update).toHaveBeenLastCalledWith(
         expect.objectContaining({ data: { status: 'pending', resolvedAt: null } }),
       )
@@ -260,7 +285,7 @@ describe('NovedadesService', () => {
 
     it('updates the quote request in the same transaction', async () => {
       prisma.notification.findFirst.mockResolvedValue({ type: 'lead', refId: 21 })
-      await service.updateMatter(8, 5, [10], { status: MatterStatus.IN_PROGRESS })
+      await service.updateMatter(8, 5, SUPERADMIN_CHATS, { status: MatterStatus.IN_PROGRESS })
       expect(prisma.contactLead.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ id: 21, producerId: 5 }),
@@ -378,7 +403,7 @@ describe('NovedadesService', () => {
     it('throws 404 when the novedad is not in this tenant', async () => {
       prisma.notification.findFirst.mockResolvedValue(null)
 
-      await expect(service.markRead(8, 5, [10])).rejects.toBeInstanceOf(NotFoundException)
+      await expect(service.markRead(8, 5, SUPERADMIN_CHATS)).rejects.toBeInstanceOf(NotFoundException)
       expect(prisma.notification.update).not.toHaveBeenCalled()
     })
 
@@ -386,7 +411,7 @@ describe('NovedadesService', () => {
       prisma.notification.findFirst.mockResolvedValue({ id: 8, readAt: null })
       prisma.notification.update.mockResolvedValue({ id: 8, readAt: new Date() })
 
-      await service.markRead(8, 5, [10])
+      await service.markRead(8, 5, SUPERADMIN_CHATS)
 
       expect(prisma.notification.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 8 }, data: { readAt: expect.any(Date) } }),
@@ -397,7 +422,7 @@ describe('NovedadesService', () => {
       prisma.notification.findFirst.mockResolvedValue({ id: 8, readAt: new Date() })
       prisma.notification.findFirstOrThrow.mockResolvedValue({ id: 8 })
 
-      await service.markRead(8, 5, [10])
+      await service.markRead(8, 5, SUPERADMIN_CHATS)
 
       expect(prisma.notification.update).not.toHaveBeenCalled()
       expect(prisma.notification.findFirstOrThrow).toHaveBeenCalled()
@@ -408,7 +433,7 @@ describe('NovedadesService', () => {
     it('marks all unread, optionally scoped to a type', async () => {
       prisma.notification.updateMany.mockResolvedValue({ count: 4 })
 
-      const result = await service.markAllRead(5, [10], NovedadType.SINIESTRO)
+      const result = await service.markAllRead(5, SUPERADMIN_CHATS, NovedadType.SINIESTRO)
 
       expect(prisma.notification.updateMany).toHaveBeenCalledWith({
         where: {

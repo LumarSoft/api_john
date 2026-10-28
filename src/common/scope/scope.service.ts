@@ -17,6 +17,17 @@ export interface ScopeWhere {
 }
 
 /**
+ * Which WhatsApp chats a user sees. The SuperAdmin (and the OWNER): those of
+ * `codeIds` plus the ones not attributed to a code yet. An admin: only the chats
+ * that came through their own numbers, whatever their code.
+ */
+export interface ChatScope {
+  codeIds: number[]
+  /** Meta ids of the admin's own numbers (billed to one of their codes); null = not limited by number. */
+  ownNumbers: string[] | null
+}
+
+/**
  * Resolves, for an authenticated admin user, which Triunfo producer codes they
  * are allowed to see:
  *   - SUPERADMIN → every (active) code of their organization.
@@ -91,6 +102,31 @@ export class ScopeService {
     if (phone.responsibleProducerCodeId != null) ids.add(phone.responsibleProducerCodeId)
     for (const s of phone.servedCodes) ids.add(s.producerCodeId)
     return [...ids]
+  }
+
+  /**
+   * The chats a user sees (see ChatScope). `codeIds` defaults to every code the
+   * user may access; pass the narrowed ones of a section filter instead.
+   */
+  async resolveChatScope(user: ScopeUser, codeIds?: number[]): Promise<ChatScope> {
+    return {
+      codeIds: codeIds ?? (await this.resolveAccessibleProducerCodeIds(user)),
+      ownNumbers: await this.ownMetaPhoneNumberIds(user),
+    }
+  }
+
+  /**
+   * Meta ids of an admin's own numbers: those of the organization billed to one
+   * of their codes. Null for the SuperAdmin and the OWNER, who see every number.
+   */
+  async ownMetaPhoneNumberIds(user: ScopeUser): Promise<string[] | null> {
+    if (user.role === Role.SUPERADMIN || user.role === Role.OWNER) return null
+    const codeIds = await this.resolveAccessibleProducerCodeIds(user)
+    const phones = await this.prisma.phoneNumber.findMany({
+      where: { producerId: user.producerId, deletedAt: null, responsibleProducerCodeId: { in: codeIds } },
+      select: { phoneNumberId: true },
+    })
+    return phones.map(p => p.phoneNumberId)
   }
 
   /** Meta phone_number_id string of a PhoneNumber row (for conversation filtering). */

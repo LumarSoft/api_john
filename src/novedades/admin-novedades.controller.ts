@@ -27,26 +27,32 @@ export class AdminNovedadesController {
 
   @Get()
   async findAll(@Query() query: ListNovedadesDto, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveScopedCodeIdsFor(req.user, {
-      producerCodeId: query.producerCodeId,
-      phoneNumberId: query.phoneNumberId,
-    })
-    return this.novedadesService.listForAdmin(req.user.producerId, codeIds, query)
+    const chats = await this.scope.resolveChatScope(
+      req.user,
+      await this.scope.resolveScopedCodeIdsFor(req.user, {
+        producerCodeId: query.producerCodeId,
+        phoneNumberId: query.phoneNumberId,
+      }),
+    )
+    return this.novedadesService.listForAdmin(req.user.producerId, chats, query)
   }
 
   @Delete()
   async clearAll(@Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.novedadesService.clearAll(req.user.producerId, codeIds)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.novedadesService.clearAll(req.user.producerId, chats)
   }
 
   @Get('stats')
   async getStats(@Query() query: ListNovedadesDto, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveScopedCodeIdsFor(req.user, {
-      producerCodeId: query.producerCodeId,
-      phoneNumberId: query.phoneNumberId,
-    })
-    return this.novedadesService.getStats(req.user.producerId, codeIds)
+    const chats = await this.scope.resolveChatScope(
+      req.user,
+      await this.scope.resolveScopedCodeIdsFor(req.user, {
+        producerCodeId: query.producerCodeId,
+        phoneNumberId: query.phoneNumberId,
+      }),
+    )
+    return this.novedadesService.getStats(req.user.producerId, chats)
   }
 
   @Post('visit')
@@ -60,19 +66,19 @@ export class AdminNovedadesController {
     @Body() dto: UpdateMatterDto,
     @Request() req: AuthenticatedRequest,
   ) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.novedadesService.updateMatter(id, req.user.producerId, codeIds, dto)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.novedadesService.updateMatter(id, req.user.producerId, chats, dto)
   }
 
   @Patch('read-all')
   async markAllRead(@Query() query: MarkAllReadDto, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.novedadesService.markAllRead(req.user.producerId, codeIds, query.type)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.novedadesService.markAllRead(req.user.producerId, chats, query.type)
   }
 
   @Patch(':id/read')
   async markRead(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.novedadesService.markRead(id, req.user.producerId, codeIds)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.novedadesService.markRead(id, req.user.producerId, chats)
   }
 }

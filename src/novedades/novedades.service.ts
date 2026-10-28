@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import type { ChatScope } from '../common/scope/scope.service'
 import { ListNovedadesDto, NovedadType, MatterCategory, MatterStatus, UpdateMatterDto } from './dto/list-novedades.dto'
 
 import { classifyMatter } from './classify-matter'
@@ -236,14 +237,34 @@ export class NovedadesService {
     return { OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }
   }
 
-  async listForAdmin(producerId: number, codeIds: number[], dto: ListNovedadesDto) {
+  /**
+   * The novedades a user sees: by code, as codeScope. For an admin a handoff
+   * (someone asking for a person) follows its chat instead: only those that
+   * came through one of their own numbers, like the inbox.
+   */
+  private async matterScope(producerId: number, scope: ChatScope): Promise<Prisma.NotificationWhereInput> {
+    const byCode = this.codeScope(scope.codeIds)
+    if (!scope.ownNumbers) return byCode
+    const chats = await this.prisma.conversation.findMany({
+      where: { producerId, phoneNumberId: { in: scope.ownNumbers } },
+      select: { id: true },
+    })
+    return {
+      OR: [
+        { type: NovedadType.HANDOFF, refId: { in: chats.map(c => c.id) } },
+        { type: { not: NovedadType.HANDOFF }, ...byCode },
+      ],
+    }
+  }
+
+  async listForAdmin(producerId: number, scope: ChatScope, dto: ListNovedadesDto) {
     const page = dto.page && dto.page > 0 ? dto.page : 1
     const pageSize = dto.pageSize && dto.pageSize > 0 ? dto.pageSize : DEFAULT_PAGE_SIZE
     const search = dto.search?.trim()
     const where: Prisma.NotificationWhereInput = {
       producerId,
       deletedAt: null,
-      ...this.codeScope(codeIds),
+      ...(await this.matterScope(producerId, scope)),
       ...(dto.category ? { category: dto.category } : {}),
       ...(dto.status ? { status: dto.status } : dto.actionable ? { status: { not: MatterStatus.RESOLVED } } : {}),
       ...(dto.since ? { createdAt: { gt: new Date(dto.since) } } : {}),
@@ -295,16 +316,17 @@ export class NovedadesService {
   }
 
   /** Clears notifications only, leaving their underlying business records intact. */
-  async clearAll(producerId: number, codeIds: number[]) {
+  async clearAll(producerId: number, scope: ChatScope) {
     const result = await this.prisma.notification.updateMany({
-      where: { producerId, deletedAt: null, ...this.codeScope(codeIds) },
+      where: { producerId, deletedAt: null, ...(await this.matterScope(producerId, scope)) },
       data: { deletedAt: new Date() },
     })
     return { clearedCount: result.count }
   }
 
-  async getStats(producerId: number, codeIds: number[]) {
-    const base = { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds) }
+  async getStats(producerId: number, scope: ChatScope) {
+    const visible = await this.matterScope(producerId, scope)
+    const base = { producerId, deletedAt: null, readAt: null, ...visible }
 
     const [unreadTotal, unreadClaims, unreadHandoff, unreadCancellations] = await this.prisma.$transaction([
       this.prisma.notification.count({ where: base }),
@@ -320,7 +342,7 @@ export class NovedadesService {
           where: {
             producerId,
             deletedAt: null,
-            ...this.codeScope(codeIds),
+            ...visible,
             category,
             status: { not: MatterStatus.RESOLVED },
           },
@@ -393,10 +415,11 @@ export class NovedadesService {
     })
   }
 
-  async updateMatter(id: number, producerId: number, codeIds: number[], dto: UpdateMatterDto) {
+  async updateMatter(id: number, producerId: number, scope: ChatScope, dto: UpdateMatterDto) {
+    const visible = await this.matterScope(producerId, scope)
     return this.prisma.$transaction(async tx => {
       const matter = await tx.notification.findFirst({
-        where: { id, producerId, deletedAt: null, ...this.codeScope(codeIds) },
+        where: { id, producerId, deletedAt: null, ...visible },
         select: { type: true, refId: true },
       })
       if (!matter) throw new NotFoundException(`Novedad ${id} not found`)
@@ -410,12 +433,12 @@ export class NovedadesService {
               : 'NEW'
         if (matter.type === NovedadType.LEAD) {
           await tx.contactLead.updateMany({
-            where: { id: matter.refId, producerId, deletedAt: null, ...this.codeScope(codeIds) },
+            where: { id: matter.refId, producerId, deletedAt: null, ...this.codeScope(scope.codeIds) },
             data: { status },
           })
         } else {
           await tx.quoteRequest.updateMany({
-            where: { id: matter.refId, deletedAt: null, quote: { producerId, ...this.codeScope(codeIds) } },
+            where: { id: matter.refId, deletedAt: null, quote: { producerId, ...this.codeScope(scope.codeIds) } },
             data: { status },
           })
         }
@@ -433,9 +456,9 @@ export class NovedadesService {
     })
   }
 
-  async markRead(id: number, producerId: number, codeIds: number[]) {
+  async markRead(id: number, producerId: number, scope: ChatScope) {
     const novedad = await this.prisma.notification.findFirst({
-      where: { id, producerId, deletedAt: null, ...this.codeScope(codeIds) },
+      where: { id, producerId, deletedAt: null, ...(await this.matterScope(producerId, scope)) },
       select: { id: true, readAt: true },
     })
     if (!novedad) throw new NotFoundException(`Novedad ${id} not found`)
@@ -452,9 +475,15 @@ export class NovedadesService {
     })
   }
 
-  async markAllRead(producerId: number, codeIds: number[], type?: NovedadType) {
+  async markAllRead(producerId: number, scope: ChatScope, type?: NovedadType) {
     const result = await this.prisma.notification.updateMany({
-      where: { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds), ...(type ? { type } : {}) },
+      where: {
+        producerId,
+        deletedAt: null,
+        readAt: null,
+        ...(await this.matterScope(producerId, scope)),
+        ...(type ? { type } : {}),
+      },
       data: { readAt: new Date() },
     })
     return { updated: result.count }

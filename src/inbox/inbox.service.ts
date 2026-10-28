@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common'
 import { ConversationStatus, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import type { ChatScope } from '../common/scope/scope.service'
 import { isSamePhone } from '../common/phone-match'
 import { signAdjuntoUrl } from '../siniestros/adjunto-url'
 import { INBOX_PUBLIC_PREFIX, MAX_OUTGOING_IMAGE_SIZE } from '../siniestros/siniestro-upload.config'
@@ -24,10 +25,13 @@ const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000
 // a long Coexistence backfill.
 const MAX_THREAD_MESSAGES = 500
 
-// Conversations not yet attributed to a code (unidentified WhatsApp numbers) stay
-// visible to every admin of the org so new handoffs can be picked up.
-const codeScopeOr = (codeIds: number[]): Prisma.ConversationWhereInput[] => [
-  { OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] },
+// The SuperAdmin sees the chats of its codes and those not attributed to a code
+// yet (unidentified WhatsApp numbers), so new handoffs can be picked up. An
+// admin sees only the chats that came through their own numbers, whatever their code.
+const chatScopeWhere = (scope: ChatScope): Prisma.ConversationWhereInput[] => [
+  scope.ownNumbers
+    ? { phoneNumberId: { in: scope.ownNumbers } }
+    : { OR: [{ producerCodeId: { in: scope.codeIds } }, { producerCodeId: null }] },
 ]
 
 const CONVERSATION_SUMMARY_SELECT = {
@@ -135,7 +139,7 @@ export class InboxService {
     private readonly novedades: NovedadesService,
   ) {}
 
-  async listConversations(producerId: number, codeIds: number[], dto: ListInboxDto, metaPhoneNumberId?: string | null) {
+  async listConversations(producerId: number, scope: ChatScope, dto: ListInboxDto, metaPhoneNumberId?: string | null) {
     const statusFilter: ConversationStatus[] = dto.status ? [dto.status] : ['open', 'pending']
     const search = dto.search?.trim()
 
@@ -146,7 +150,7 @@ export class InboxService {
         status: { in: statusFilter },
         ...(metaPhoneNumberId ? { phoneNumberId: metaPhoneNumberId } : {}),
         AND: [
-          ...codeScopeOr(codeIds),
+          ...chatScopeWhere(scope),
           ...(search
             ? [
                 {
@@ -192,8 +196,8 @@ export class InboxService {
     return new Map(rows.flatMap(row => (row._max.createdAt ? [[row.conversationId, row._max.createdAt]] : [])))
   }
 
-  async getMessages(conversationId: number, producerId: number, codeIds: number[]) {
-    await this.findAndVerify(conversationId, producerId, codeIds)
+  async getMessages(conversationId: number, producerId: number, scope: ChatScope) {
+    await this.findAndVerify(conversationId, producerId, scope)
     const readAt = new Date()
 
     // Not limited to the bot session: the session boundary moves after a few
@@ -217,12 +221,12 @@ export class InboxService {
   }
 
   /** Explicit deletion of ephemeral chats. Business records remain intact. */
-  async deleteConversations(producerId: number, codeIds: number[], conversationId?: number) {
+  async deleteConversations(producerId: number, scope: ChatScope, conversationId?: number) {
     const deleted = await this.prisma.$transaction(async tx => {
       const where: Prisma.ConversationWhereInput = {
         producerId,
         deletedAt: null,
-        AND: codeScopeOr(codeIds),
+        AND: chatScopeWhere(scope),
         ...(conversationId !== undefined ? { id: conversationId } : {}),
       }
       const conversations = await tx.conversation.findMany({
@@ -256,11 +260,11 @@ export class InboxService {
     return { deletedCount: deleted.length }
   }
 
-  async takeover(conversationId: number, producerId: number, codeIds: number[], userId: number) {
+  async takeover(conversationId: number, producerId: number, scope: ChatScope, userId: number) {
     // Fix #2: verify the conversation exists AND belongs to this producer before
     // touching anything — 404 for both "not found" and "wrong tenant" so we
     // don't leak cross-tenant existence.
-    await this.findAndVerify(conversationId, producerId, codeIds)
+    await this.findAndVerify(conversationId, producerId, scope)
 
     // Fix #1: atomic conditional update — only succeeds when nobody else has
     // claimed the conversation yet. updateMany gives us a WHERE-level check
@@ -270,7 +274,7 @@ export class InboxService {
         id: conversationId,
         producerId,
         deletedAt: null,
-        AND: codeScopeOr(codeIds),
+        AND: chatScopeWhere(scope),
         assignedToUserId: null, // ← guard: reject if already taken
       },
       data: {
@@ -300,8 +304,8 @@ export class InboxService {
    * the holder's DNI). Unlinking also makes the bot ask for identification on
    * the next message instead of serving that client's data.
    */
-  async updateContact(conversationId: number, producerId: number, codeIds: number[], dto: UpdateInboxContactDto) {
-    await this.findAndVerify(conversationId, producerId, codeIds)
+  async updateContact(conversationId: number, producerId: number, scope: ChatScope, dto: UpdateInboxContactDto) {
+    await this.findAndVerify(conversationId, producerId, scope)
 
     const conversation = await this.prisma.conversation.update({
       where: { id: conversationId },
@@ -314,9 +318,9 @@ export class InboxService {
     return withContact(conversation)
   }
 
-  async release(conversationId: number, producerId: number, codeIds: number[]) {
+  async release(conversationId: number, producerId: number, scope: ChatScope) {
     // Fix #2: producerId is baked into findAndVerify's DB query.
-    const conversation = await this.findAndVerify(conversationId, producerId, codeIds)
+    const conversation = await this.findAndVerify(conversationId, producerId, scope)
 
     await this.prisma.conversation.update({
       where: { id: conversationId },
@@ -357,8 +361,8 @@ export class InboxService {
     return true
   }
 
-  async sendMessage(conversationId: number, producerId: number, codeIds: number[], userId: number, text: string) {
-    const conversation = await this.assertCanSend(conversationId, producerId, codeIds)
+  async sendMessage(conversationId: number, producerId: number, scope: ChatScope, userId: number, text: string) {
+    const conversation = await this.assertCanSend(conversationId, producerId, scope)
 
     // Fix #3: deliver to WhatsApp FIRST — if the bot is down this throws and
     // nothing is persisted, so the agent sees an error instead of a ghost
@@ -375,7 +379,7 @@ export class InboxService {
   async sendMedia(
     conversationId: number,
     producerId: number,
-    codeIds: number[],
+    scope: ChatScope,
     file: Express.Multer.File | undefined,
     caption?: string,
   ) {
@@ -385,7 +389,7 @@ export class InboxService {
       if (isImage && file.size > MAX_OUTGOING_IMAGE_SIZE) {
         throw new BadRequestException('WhatsApp only accepts photos up to 5 MB')
       }
-      const conversation = await this.assertCanSend(conversationId, producerId, codeIds)
+      const conversation = await this.assertCanSend(conversationId, producerId, scope)
       // Multer reads multipart filenames as latin1; WhatsApp shows the name to the client.
       const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8')
       const text = caption?.trim() ?? ''
@@ -416,9 +420,9 @@ export class InboxService {
   }
 
   /** Checks shared by every reply from the panel; returns the conversation. */
-  private async assertCanSend(conversationId: number, producerId: number, codeIds: number[]) {
+  private async assertCanSend(conversationId: number, producerId: number, scope: ChatScope) {
     // Fix #2: producerId in DB query, not post-fetch check.
-    const conversation = await this.findAndVerify(conversationId, producerId, codeIds)
+    const conversation = await this.findAndVerify(conversationId, producerId, scope)
 
     if (!conversation.botPaused && conversation.producer.botEnabled) {
       throw new ForbiddenException('Take over the conversation before sending messages')
@@ -518,9 +522,9 @@ export class InboxService {
   // Fix #2: producerId lives in the DB query — not a post-fetch application check.
   // This means a wrong-tenant :id is indistinguishable from a missing :id (both 404),
   // which is the correct behavior: we don't want to leak cross-tenant existence.
-  private async findAndVerify(conversationId: number, producerId: number, codeIds: number[]) {
+  private async findAndVerify(conversationId: number, producerId: number, scope: ChatScope) {
     const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, producerId, deletedAt: null, AND: codeScopeOr(codeIds) },
+      where: { id: conversationId, producerId, deletedAt: null, AND: chatScopeWhere(scope) },
       select: {
         id: true,
         waId: true,

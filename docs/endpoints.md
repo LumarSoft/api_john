@@ -1127,6 +1127,8 @@ Progresses the claim and/or records the official Triunfo number after filing it 
 
 ## Admin — Bandeja (Inbox)
 
+**Who sees which chat.** The SuperAdmin (and the OWNER) sees every chat of the organization's codes plus those not attributed to a code yet; the section filter narrows them by code or by number. An admin sees **only the chats that came through their own numbers** (the numbers billed to one of their codes, as listed in `GET /admin/phone-numbers`), whatever code the chat is attributed to; with no number of their own they see no chat. Chats are one per person and organization, so a chat follows the number the person last wrote to. Every inbox endpoint applies the rule: a chat outside it answers `404` (list, messages, contact, takeover, release, reply, media, delete).
+
 ### GET /admin/inbox
 
 Active conversations for the producer (defaults to `open` + `pending`), pending ones first.
@@ -1265,6 +1267,8 @@ Sends a photo or a PDF to the customer from the Whatsapp section, with an option
 A notifications feed for the panel. A novedad is created automatically when a new claim is filed (`type: "siniestro"`, `refId` = claim id) or when a customer asks to talk to a human advisor (`type: "handoff"`, `refId` = conversation id). `title`/`body` are denormalized at creation; open the source entity via `refId` for full detail (e.g. `GET /admin/siniestros/:refId` for claims, or the inbox for handoffs).
 
 All endpoints require an employee/admin JWT (`type: "user"`). A client token returns `403`.
+
+Novedades are visible by code: those of the user's codes plus those not attributed to a code. For an admin, a handoff follows its chat instead, like the inbox: only those of chats that came through their own numbers. List, stats, read, read-all, matter changes and clearing all apply it.
 
 ### GET /admin/novedades
 

@@ -34,30 +34,35 @@ export class AdminInboxController {
 
   @Get()
   async list(@Query() dto: ListInboxDto, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveScopedCodeIds(req.user, dto.producerCodeId)
+    // An admin sees only the chats of their own numbers; the SuperAdmin may
+    // narrow by code with the section filter.
+    const chats = await this.scope.resolveChatScope(
+      req.user,
+      await this.scope.resolveScopedCodeIds(req.user, dto.producerCodeId),
+    )
     // "Filter by número/sucursal": narrow to conversations that came through that
     // exact Meta number (independent of the code dimension above).
     const metaPhoneNumberId =
       dto.phoneNumberId != null ? await this.scope.metaPhoneNumberId(req.user.producerId, dto.phoneNumberId) : null
-    return this.inbox.listConversations(req.user.producerId, codeIds, dto, metaPhoneNumberId)
+    return this.inbox.listConversations(req.user.producerId, chats, dto, metaPhoneNumberId)
   }
 
   @Delete()
   async deleteAll(@Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.inbox.deleteConversations(req.user.producerId, codeIds)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.inbox.deleteConversations(req.user.producerId, chats)
   }
 
   @Delete(':id')
   async deleteOne(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.inbox.deleteConversations(req.user.producerId, codeIds, id)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.inbox.deleteConversations(req.user.producerId, chats, id)
   }
 
   @Get(':id/messages')
   async getMessages(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.inbox.getMessages(id, req.user.producerId, codeIds)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.inbox.getMessages(id, req.user.producerId, chats)
   }
 
   @Patch(':id/contact')
@@ -66,20 +71,20 @@ export class AdminInboxController {
     @Body() dto: UpdateInboxContactDto,
     @Request() req: AuthenticatedRequest,
   ) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.inbox.updateContact(id, req.user.producerId, codeIds, dto)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.inbox.updateContact(id, req.user.producerId, chats, dto)
   }
 
   @Post(':id/takeover')
   async takeover(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.inbox.takeover(id, req.user.producerId, codeIds, req.user.id)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.inbox.takeover(id, req.user.producerId, chats, req.user.id)
   }
 
   @Post(':id/release')
   async release(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.inbox.release(id, req.user.producerId, codeIds)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.inbox.release(id, req.user.producerId, chats)
   }
 
   @Post(':id/message')
@@ -88,8 +93,8 @@ export class AdminInboxController {
     @Body() dto: SendInboxMessageDto,
     @Request() req: AuthenticatedRequest,
   ) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.inbox.sendMessage(id, req.user.producerId, codeIds, req.user.id, dto.text)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.inbox.sendMessage(id, req.user.producerId, chats, req.user.id, dto.text)
   }
 
   @Post(':id/media')
@@ -100,7 +105,7 @@ export class AdminInboxController {
     @Body() dto: SendInboxMediaDto,
     @Request() req: AuthenticatedRequest,
   ) {
-    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.inbox.sendMedia(id, req.user.producerId, codeIds, file, dto.caption)
+    const chats = await this.scope.resolveChatScope(req.user)
+    return this.inbox.sendMedia(id, req.user.producerId, chats, file, dto.caption)
   }
 }
