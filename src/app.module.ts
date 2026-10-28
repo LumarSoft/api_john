@@ -31,6 +31,7 @@ import { WhatsappOnboardingModule } from './whatsapp-onboarding/whatsapp-onboard
 import { ImprovementsModule } from './improvements/improvements.module'
 import { TasksModule } from './tasks/tasks.module'
 import { RejectionsModule } from './rejections/rejections.module'
+import { ExpiredPoliciesModule } from './expired-policies/expired-policies.module'
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { RejectionsModule } from './rejections/rejections.module'
     ImprovementsModule,
     TasksModule,
     RejectionsModule,
+    ExpiredPoliciesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

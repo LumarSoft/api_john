@@ -476,6 +476,7 @@ model User {
   tasksAssigned           Task[]                   @relation("tasks_assigned")
   taskComments            TaskComment[]
   paymentRejectionImports PaymentRejectionImport[]
+  policiesHidden          Policy[]                 @relation("policies_hidden")
   paymentRejectionsSent   PaymentRejection[]
 }
 
@@ -541,6 +542,13 @@ model Policy {
   premium           Decimal?  @db.Decimal(12, 2)
   paymentMethod     String?
   rawData           Json // full provider response for this policy
+  // Taken out of the "pólizas vencidas" worklist by hand: the office knows
+  // it will not be renewed (vehicle sold, insured elsewhere…). The cartera
+  // sync never touches these, so the choice survives every novedad.
+  hiddenAt     DateTime?
+  hiddenReason String?
+  hiddenById   Int?
+  hiddenBy     User?     @relation("policies_hidden", fields: [hiddenById], references: [id])
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?

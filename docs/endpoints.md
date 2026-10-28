@@ -1038,6 +1038,100 @@ Returns aggregate debt stats for the authenticated producer. Includes both per-c
 
 `401 Unauthorized` — Missing or invalid JWT
 
+---
+
+### GET /admin/cobranzas/vencidas
+
+The "pólizas vencidas" worklist of the Cobranzas screen: policies that ran out in the last 365 days, were not cancelled by Triunfo and were **not renewed** — a renewal gets a new certificate and leaves the old row behind, so a policy is taken as renewed when the same client has a policy still running (`validTo` in the future, not cancelled) on the same plate, or on the same `riskType` when there is no plate. The office hides the ones it knows will not come back; hidden policies are listed with `hidden=true`.
+
+**Auth required:** Yes (JWT user token)
+
+**Query parameters**
+
+| Parameter      | Type    | Required | Description                                                        |
+|----------------|---------|----------|--------------------------------------------------------------------|
+| search         | string  | No       | Client name or DNI, certificate number or plate                    |
+| producerCodeId | number  | No       | Only this producer code (must be accessible to the user)           |
+| phoneNumberId  | number  | No       | Only the codes this number serves                                  |
+| paymentMethod  | string  | No       | Only policies with this medio de pago                              |
+| hidden         | boolean | No       | `true` lists the hidden policies instead (default: the visible ones) |
+| sort           | string  | No       | `oldest` (longest expired first, default) \| `recent`              |
+| page           | number  | No       | Page number (default: 1)                                           |
+| pageSize       | number  | No       | Results per page (default: 25, max: 100)                           |
+
+**Responses**
+
+`200 OK` — `hiddenCount` is how many policies in scope are hidden, whatever `hidden` says.
+```json
+{
+  "data": [
+    {
+      "id": 812,
+      "certificateNumber": "1763551",
+      "riskType": "auto",
+      "product": null,
+      "licensePlate": "AB123CD",
+      "vehicle": "FIAT PALIO 2024",
+      "validTo": "2026-08-14T00:00:00.000Z",
+      "daysExpired": 75,
+      "paymentMethod": "Plan De Pago",
+      "producerCode": { "id": 7, "code": "14831" },
+      "client": { "id": 1, "firstName": "María", "lastName": "García", "dni": "12345678", "phone": "+54 9 341 555-1234", "email": null },
+      "unpaidInstallments": 1,
+      "hiddenAt": null,
+      "hiddenReason": null
+    }
+  ],
+  "total": 195,
+  "hiddenCount": 12,
+  "page": 1,
+  "pageSize": 25,
+  "totalPages": 8
+}
+```
+
+`401 Unauthorized` — Missing or invalid JWT
+
+---
+
+### PATCH /admin/cobranzas/vencidas/:id/hide
+
+Takes a policy out of the worklist for good (it will not be renewed). The cartera sync never touches this, so it survives later novedades of the same certificate.
+
+**Auth required:** Yes (JWT user token; the policy must belong to a code accessible to the user)
+
+**Request body**
+
+| Field  | Type   | Required | Constraints |
+|--------|--------|----------|-------------|
+| reason | string | No       | Max 120 characters, e.g. "Vendió el auto" |
+
+**Responses**
+
+`200 OK`
+```json
+{ "id": 812, "hiddenAt": "2026-10-28T18:02:11.000Z", "hiddenReason": "Vendió el auto" }
+```
+
+`404 Not Found` — No such policy in the user's scope
+
+---
+
+### PATCH /admin/cobranzas/vencidas/:id/unhide
+
+Brings a hidden policy back to the worklist.
+
+**Auth required:** Yes (JWT user token)
+
+**Responses**
+
+`200 OK`
+```json
+{ "id": 812, "hiddenAt": null, "hiddenReason": null }
+```
+
+`404 Not Found` — No such policy in the user's scope
+
 ## Admin — Siniestros
 
 Triunfo's API has no claims endpoint, so claims filed through the bot or the client portal are stored locally with `status: "pending"`. The admin reviews them here, files them manually in Triunfo's web, and records the official claim number via `PATCH`.

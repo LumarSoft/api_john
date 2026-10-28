@@ -7,7 +7,7 @@ import {
   inForcePolizaWhere,
   notCancelledPolizaWhere,
 } from '../common/poliza-vigencia'
-import { productOf, riesgosOf } from '../common/poliza-detail'
+import { productNameOf } from '../common/poliza-detail'
 import { ClientStatusFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
 import { CollectionStatusFilter, ListCobranzasDto } from './dto/list-cobranzas.dto'
 
@@ -32,8 +32,7 @@ export interface InsuredItem {
  * when nothing tells it apart: the screen falls back to the risk type.
  */
 function productName(riskType: RiskType, rawData: Prisma.JsonValue): string | null {
-  const raw = rawData && typeof rawData === 'object' && !Array.isArray(rawData) ? rawData : null
-  return productOf(riskType, riesgosOf(raw), raw?.Articulo)
+  return productNameOf(riskType, rawData)
 }
 
 function extractInsuredItem(rawData: Prisma.JsonValue): InsuredItem | null {

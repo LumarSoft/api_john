@@ -114,3 +114,14 @@ export function placeOf(riskType: string, raw: Raw, riesgos: RiesgoCubierto[]): 
     .replace(/(^|[\s/(-])(\p{L})/gu, (_, sep: string, ch: string) => sep + ch.toUpperCase())
   return titled.length > 40 ? `${titled.slice(0, 39)}…` : titled
 }
+
+/**
+ * `productOf` straight from a policy's stored `rawData`: what the panel and
+ * the portal call a non-vehicle policy ("Acc. personales", "Sepelio"…). Null
+ * for vehicles and when nothing tells it apart.
+ */
+export function productNameOf(riskType: string, rawData: unknown): string | null {
+  const raw =
+    rawData && typeof rawData === 'object' && !Array.isArray(rawData) ? (rawData as Record<string, unknown>) : null
+  return productOf(riskType, riesgosOf(raw), raw?.Articulo)
+}
