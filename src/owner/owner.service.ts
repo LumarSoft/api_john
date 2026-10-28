@@ -189,7 +189,7 @@ export class OwnerService {
           isActive: p.isActive,
           serviceStartedAt: starts.get(p.id) ?? null,
           trialTokens: p.trialTokens,
-          plan: p.tokenPlan ? { ...p.tokenPlan, priceUsd: Number(p.tokenPlan.priceUsd) } : null,
+          plan: p.tokenPlan ? this.usage.catalogPlan(p.tokenPlan) : null,
           catalog,
         },
         u,
@@ -222,8 +222,10 @@ export class OwnerService {
           trialTokens: bill.trialTokens,
           plan: bill.plan,
           prorated: bill.prorated,
-          billedUsd: bill.billedUsd,
-          marginUsd: Math.round((bill.billedUsd - cost) * 100) / 100,
+          // What the platform invoices the organization, what the organization resells it for, and our margin.
+          billedUsd: bill.costUsd,
+          resaleUsd: bill.billedUsd,
+          marginUsd: Math.round((bill.costUsd - cost) * 100) / 100,
         },
       }
     })

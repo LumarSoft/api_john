@@ -38,6 +38,12 @@ const hasOwnAssistant = (n: StoredAssistant): boolean =>
  * serves + a monthly OpenAI budget. The list embeds the month's tokens so the
  * office sees its consumption at a glance.
  */
+/** A billed plan as an admin may see it: without what it costs the organization. */
+function withoutCost<T extends { costUsd: number }>(plan: T): Omit<T, 'costUsd'> {
+  const { costUsd: _cost, ...rest } = plan
+  return rest
+}
+
 @Injectable()
 export class PhoneNumbersService {
   constructor(
@@ -110,7 +116,7 @@ export class PhoneNumbersService {
           isActive: n.isActive,
           serviceStartedAt: starts.get(n.id) ?? null,
           trialTokens: n.trialTokens,
-          plan: n.tokenPlan ? { ...n.tokenPlan, priceUsd: Number(n.tokenPlan.priceUsd) } : null,
+          plan: n.tokenPlan ? this.usage.catalogPlan(n.tokenPlan) : null,
           catalog,
         },
         usage,
@@ -143,11 +149,14 @@ export class PhoneNumbersService {
           // What the client pays for: one token per message sent, on the plan that covers the month.
           tokens: bill.tokens,
           trialTokens: bill.trialTokens,
-          plan: bill.plan,
+          // The plan's cost to the organization is the SuperAdmin's and the owner's, not the productor's.
+          plan: seesActivity ? bill.plan : withoutCost(bill.plan),
           prorated: bill.prorated,
           billedUsd: bill.billedUsd,
           ...(seesActivity
             ? {
+                // What the organization pays the platform for the number this month.
+                costUsd: bill.costUsd,
                 metaMessages: usage?.metaMessages ?? 0,
                 metaConversations: usage?.metaConversations ?? 0,
                 openaiCalls: usage?.openaiCalls ?? 0,
@@ -163,7 +172,7 @@ export class PhoneNumbersService {
                 openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
                 metaCostUsd: Number(usage?.metaCostUsd ?? 0),
                 totalCostUsd: cost,
-                marginUsd: Math.round((bill.billedUsd - cost) * 100) / 100,
+                marginUsd: Math.round((bill.costUsd - cost) * 100) / 100,
               }
             : {}),
         },

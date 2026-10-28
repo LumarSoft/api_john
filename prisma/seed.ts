@@ -244,12 +244,12 @@ async function main() {
   // The Meta phone_number_id must match what arrives in the webhook, or the bot
   // can't resolve the producer. Set SEED_PHONE_NUMBER_ID to your dev number.
   const phoneNumberId = process.env.SEED_PHONE_NUMBER_ID ?? 'TEST_META_PHONE_ID'
-  // Token plans the organization offers its numbers: sizes at the fixed unit
-  // price (USD 0.05 per token). The "Prueba" plan (100 free tokens) is not a row:
-  // it is the first month of a new account's number.
+  // Token plans the organization offers its numbers: sizes costing the fixed
+  // unit price (USD 0.05 per token), sold at cost until the SuperAdmin prices
+  // them. The "Prueba" plan (100 free tokens) is not a row: it is the first
+  // month of a new account's number.
   for (const [sortOrder, plan] of [
-    { name: 'Inicial', tokens: 300 },
-    { name: 'Estándar', tokens: 500 },
+    { name: 'Inicial', tokens: 500 },
     { name: 'Profesional', tokens: 1000 },
   ].entries()) {
     const existing = await prisma.tokenPlan.findFirst({

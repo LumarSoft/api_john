@@ -75,6 +75,7 @@ describe('monthly phone number report', () => {
       prorated: false,
       billedUsd: 100,
     })
+    expect(row.usage).not.toHaveProperty('costUsd')
     expect(row).not.toHaveProperty('monthlyBudgetUsd')
     expect(row).not.toHaveProperty('budgetExceededAt')
   })

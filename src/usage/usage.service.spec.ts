@@ -46,9 +46,9 @@ function setup(phoneOverrides: Record<string, unknown> = {}) {
 const live = { isActive: true, serviceStartedAt: new Date('2026-08-10T15:00:00Z') }
 
 const catalog = [
-  { id: 1, name: 'Inicial', tokens: 300, priceUsd: 15 },
-  { id: 2, name: 'Estándar', tokens: 500, priceUsd: 25 },
-  { id: 3, name: 'Profesional', tokens: 1000, priceUsd: 50 },
+  { id: 1, name: 'Inicial', tokens: 300, priceUsd: 15, costUsd: 15 },
+  { id: 2, name: 'Estándar', tokens: 500, priceUsd: 25, costUsd: 25 },
+  { id: 3, name: 'Profesional', tokens: 1000, priceUsd: 50, costUsd: 50 },
 ]
 const estandar = catalog[1]
 
@@ -87,6 +87,7 @@ describe('token plans', () => {
       name: 'Profesional + 1.000',
       includedTokens: 2000,
       priceUsd: 100,
+      costUsd: 100,
       trial: false,
       blocks: 2,
     })
@@ -97,6 +98,22 @@ describe('token plans', () => {
     })
     // Without a catalog, plain blocks.
     expect(service.planFor(1200, [])).toMatchObject({ name: '2.000 tokens', includedTokens: 2000, priceUsd: 100 })
+  })
+
+  it("bills the productor the organization's price and the organization the cost", () => {
+    const { service } = setup()
+    // Tarifa B: 500 at USD 30, 1,000 at USD 60; the cost stays USD 0.05 per token.
+    const resale = [
+      { id: 1, name: 'Inicial', tokens: 500, priceUsd: 30, costUsd: 25 },
+      { id: 2, name: 'Profesional', tokens: 1000, priceUsd: 60, costUsd: 50 },
+    ]
+    expect(service.planFor(420, resale)).toMatchObject({ name: 'Inicial', priceUsd: 30, costUsd: 25 })
+    // Past the largest plan the price keeps that plan's price per token (USD 0.06), the cost the unit price.
+    expect(service.planFor(1430, resale)).toMatchObject({ name: 'Profesional + 1.000', priceUsd: 120, costUsd: 100 })
+    expect(service.billFor({ ...live, catalog: resale }, { metaMessages: 900 }, '2026-10')).toMatchObject({
+      billedUsd: 60,
+      costUsd: 50,
+    })
   })
 
   it('counts one token per message sent and ignores LLM tokens', () => {

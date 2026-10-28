@@ -1,6 +1,7 @@
 -- Token plans an organization offers its numbers (Facturación): a size in
--- tokens at the platform's fixed unit price (USD 0.05: 500 = USD 25, 1.000 =
--- USD 50). The SuperAdmin picks the sizes, never the price.
+-- tokens, costing the organization the platform's fixed unit price (USD 0.05:
+-- 500 = USD 25, 1.000 = USD 50) and sold to its productores at priceUsd, which
+-- the SuperAdmin sets and can never be below that cost.
 CREATE TABLE `TokenPlan` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `name` VARCHAR(60) NOT NULL,
@@ -28,11 +29,10 @@ ALTER TABLE `PhoneNumber`
 
 ALTER TABLE `PhoneNumber` ADD CONSTRAINT `PhoneNumber_tokenPlanId_fkey` FOREIGN KEY (`tokenPlanId`) REFERENCES `TokenPlan`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
--- Every organization starts with the same catalog: 300, 500 and 1.000 tokens
--- at USD 0.05 each. Past 1.000 the month is billed in blocks of 1.000.
+-- Every organization starts with the same catalog: 500 and 1.000 tokens at
+-- USD 0.05 each, sold at cost until the SuperAdmin sets its own prices. Past
+-- 1.000 the month is billed in blocks of 1.000.
 INSERT INTO `TokenPlan` (`name`, `tokens`, `priceUsd`, `isActive`, `sortOrder`, `updatedAt`, `producerId`)
-SELECT 'Inicial', 300, 15.00, true, 0, NOW(3), p.`id` FROM `Producer` p WHERE p.`deletedAt` IS NULL;
+SELECT 'Inicial', 500, 25.00, true, 0, NOW(3), p.`id` FROM `Producer` p WHERE p.`deletedAt` IS NULL;
 INSERT INTO `TokenPlan` (`name`, `tokens`, `priceUsd`, `isActive`, `sortOrder`, `updatedAt`, `producerId`)
-SELECT 'Estándar', 500, 25.00, true, 1, NOW(3), p.`id` FROM `Producer` p WHERE p.`deletedAt` IS NULL;
-INSERT INTO `TokenPlan` (`name`, `tokens`, `priceUsd`, `isActive`, `sortOrder`, `updatedAt`, `producerId`)
-SELECT 'Profesional', 1000, 50.00, true, 2, NOW(3), p.`id` FROM `Producer` p WHERE p.`deletedAt` IS NULL;
+SELECT 'Profesional', 1000, 50.00, true, 1, NOW(3), p.`id` FROM `Producer` p WHERE p.`deletedAt` IS NULL;

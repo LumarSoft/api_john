@@ -1251,9 +1251,9 @@ The office told these clients by other means (a call, in person): a `MARKED` not
 
 ## Admin — Facturación (planes por tokens)
 
-Every WhatsApp number is billed monthly on a token plan (1 token = 1 message the platform sends). The price per token is the platform's (`COMMERCIAL_TOKEN_PRICE_USD`, USD 0.05): a plan costs `tokens × price`, and the organization's SuperAdmin only chooses the sizes offered (the catalog). A number is on one plan (null = the smallest of the catalog); a month that goes past it is billed on the smallest plan that covers it, and past the largest plan in blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` at the same unit price. The numbers of an organization created from `COMMERCIAL_TRIAL_FROM` on send their first `COMMERCIAL_TRIAL_TOKENS` of their first month free ("Prueba"). Full rules and examples: `docs/token-plans-october-2026.md`.
+Every WhatsApp number is billed monthly on a token plan (1 token = 1 message the platform sends). A plan **costs** the organization its tokens at the platform's fixed unit price (`COMMERCIAL_TOKEN_PRICE_USD`, USD 0.05: 500 = USD 25, 1.000 = USD 50); the organization's SuperAdmin chooses the sizes offered (the catalog) and the **price** its productores pay for each, never below the cost. A number is on one plan (null = the smallest of the catalog); a month that goes past it is billed on the smallest plan that covers it, and past the largest plan in blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (cost at the unit price, price at the largest plan's price per token). The numbers of an organization created from `COMMERCIAL_TRIAL_FROM` on send their first `COMMERCIAL_TRIAL_TOKENS` of their first month free ("Prueba"). Full rules and examples: `docs/token-plans-october-2026.md`.
 
-All endpoints require an employee JWT. ADMIN sees and moves the numbers billed to its codes; SUPERADMIN (and OWNER) every number, and manages the catalog.
+All endpoints require an employee JWT. ADMIN (a productor) sees and moves the numbers billed to its codes and only ever sees prices; SUPERADMIN (and OWNER) sees every number with its cost and margin, and manages the catalog.
 
 ### GET /admin/billing
 
@@ -1269,34 +1269,38 @@ The running month of every number in scope: its plan, how far into it the month 
 
 **Responses**
 
-`200 OK` — `includedTokens` is the bar's denominator: the number's own plan (or the smallest) plus the trial of a first month. `billedPlan` is what the month is billed on right now (`trial: true` while the trial covers it); `exceeded` means the month went past the number's own plan.
+`200 OK` — `includedTokens` is the bar's denominator: the number's own plan (or the smallest) plus the trial of a first month. `billedPlan` is what the month is billed on right now (`trial: true` while the trial covers it); `exceeded` means the month went past the number's own plan; `estimatedUsd` is the price the productor pays. `costUsd`, `marginUsd`, `totalCostUsd`, `totalMarginUsd` and the `costUsd` inside `plan`/`plans`/`billedPlan` come only for SUPERADMIN and OWNER.
 ```json
 {
   "period": "2026-11",
   "unitPriceUsd": 0.05,
   "blockTokens": 1000,
   "trialTokens": 100,
-  "plans": [{ "id": 1, "name": "Inicial", "tokens": 300, "priceUsd": 15 }],
+  "plans": [{ "id": 1, "name": "Inicial", "tokens": 500, "priceUsd": 30, "costUsd": 25 }],
   "numbers": [
     {
       "id": 8,
       "number": "+54 9 341 275-7294",
       "isActive": true,
       "responsibleCode": { "id": 1, "code": "11425", "holderName": null },
-      "plan": { "id": 1, "name": "Inicial", "tokens": 300, "priceUsd": 15 },
+      "plan": { "id": 1, "name": "Inicial", "tokens": 500, "priceUsd": 30, "costUsd": 25 },
       "trialTokens": 0,
       "tokensUsed": 120,
-      "includedTokens": 300,
-      "remainingTokens": 180,
-      "percentUsed": 40,
+      "includedTokens": 500,
+      "remainingTokens": 380,
+      "percentUsed": 24,
       "exceeded": false,
-      "billedPlan": { "id": 1, "name": "Inicial", "includedTokens": 300, "priceUsd": 15, "trial": false, "blocks": 1 },
-      "estimatedUsd": 15,
+      "billedPlan": { "id": 1, "name": "Inicial", "includedTokens": 500, "priceUsd": 30, "costUsd": 25, "trial": false, "blocks": 1 },
+      "estimatedUsd": 30,
       "prorated": false,
+      "costUsd": 25,
+      "marginUsd": 5,
       "updatedAt": "2026-11-12T18:40:12.000Z"
     }
   ],
-  "totalEstimatedUsd": 15
+  "totalEstimatedUsd": 30,
+  "totalCostUsd": 25,
+  "totalMarginUsd": 5
 }
 ```
 
@@ -1306,7 +1310,7 @@ The running month of every number in scope: its plan, how far into it the month 
 
 ### GET /admin/billing/plans
 
-The organization's catalog. The SuperAdmin also gets the retired (`isActive: false`) plans; `numbersOnPlan` counts the numbers on each.
+The organization's catalog. The SuperAdmin also gets the retired (`isActive: false`) plans and each plan's `costUsd` and `marginUsd`; `numbersOnPlan` counts the numbers on each.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -1314,7 +1318,7 @@ The organization's catalog. The SuperAdmin also gets the retired (`isActive: fal
 ```json
 {
   "unitPriceUsd": 0.05,
-  "plans": [{ "id": 1, "name": "Inicial", "tokens": 300, "priceUsd": 15, "isActive": true, "sortOrder": 0, "numbersOnPlan": 2 }]
+  "plans": [{ "id": 1, "name": "Inicial", "tokens": 500, "priceUsd": 30, "costUsd": 25, "marginUsd": 5, "isActive": true, "sortOrder": 0, "numbersOnPlan": 2 }]
 }
 ```
 
@@ -1322,31 +1326,33 @@ The organization's catalog. The SuperAdmin also gets the retired (`isActive: fal
 
 ### POST /admin/billing/plans
 
-Adds a plan to the catalog. The price is `tokens × COMMERCIAL_TOKEN_PRICE_USD`; a price in the request is rejected.
+Adds a plan to the catalog. Its cost is `tokens × COMMERCIAL_TOKEN_PRICE_USD`; `priceUsd` is what the productores pay — at cost when left out, refused when below cost.
 
 **Auth required:** Yes (SUPERADMIN, OWNER)
 
 **Request body**
 
-| Field     | Type   | Required | Constraints                  |
-|-----------|--------|----------|------------------------------|
-| name      | string | Yes      | 1–60 characters              |
-| tokens    | number | Yes      | integer, 1–1,000,000         |
-| sortOrder | number | No       | integer ≥ 0 (default: last)  |
+| Field     | Type   | Required | Constraints                                     |
+|-----------|--------|----------|-------------------------------------------------|
+| name      | string | Yes      | 1–60 characters                                 |
+| tokens    | number | Yes      | integer, 1–1,000,000                            |
+| priceUsd  | number | No       | ≥ the plan's cost, 2 decimals (default: the cost) |
+| sortOrder | number | No       | integer ≥ 0 (default: last)                     |
 
 `201 Created` — the plan as `GET /admin/billing/plans` lists it.
+`400 Bad Request` — "El precio no puede ser menor que el costo del plan (USD 25)."
 
 ---
 
 ### PATCH /admin/billing/plans/:id
 
-Renames, resizes (the price follows), reorders or switches a plan on or off. A plan switched off is not offered any more but the numbers on it keep it.
+Renames, resizes, reprices, reorders or switches a plan on or off. A resized plan keeps its price unless that would fall below the new cost, in which case it is raised to it. A plan switched off is not offered any more but the numbers on it keep it.
 
 **Auth required:** Yes (SUPERADMIN, OWNER)
 
-**Request body**: `name`, `tokens`, `isActive`, `sortOrder`, all optional.
+**Request body**: `name`, `tokens`, `priceUsd`, `isActive`, `sortOrder`, all optional.
 
-`200 OK` — the plan. `404 Not Found` — no such plan in the organization.
+`200 OK` — the plan. `400 Bad Request` — price below cost. `404 Not Found` — no such plan in the organization.
 
 ---
 
@@ -2453,8 +2459,8 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 | Role       | `usage` fields                                                                                                                       | Number fields                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| ADMIN      | `period`, `tokens` (one per message sent), `trialTokens`, `plan` (the plan the month is billed on, see Facturación), `prorated`, `billedUsd`                                                                                            | no budget fields                                 |
-| SUPERADMIN | plus `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens`                                               | `budgetExceededAt` (the AI paused for the month) |
+| ADMIN      | `period`, `tokens` (one per message sent), `trialTokens`, `plan` (the plan the month is billed on, see Facturación; its price, never its cost), `prorated`, `billedUsd` (the price)                                                                                            | no budget fields                                 |
+| SUPERADMIN | plus `costUsd` (what the organization pays the platform), `plan.costUsd`, `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens`                                               | `budgetExceededAt` (the AI paused for the month) |
 | OWNER      | plus `pricing` (`unitPriceUsd`, `blockTokens`, `blockPriceUsd`, `trialTokens`), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` | `monthlyBudgetUsd`, `budgetExceededAt`           |
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.

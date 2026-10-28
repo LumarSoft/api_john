@@ -39,7 +39,10 @@ export interface CatalogPlan {
   id: number
   name: string
   tokens: number
+  /** What the organization charges its productor for the plan (never below cost). */
   priceUsd: number
+  /** What the platform charges the organization: tokens at the fixed unit price. */
+  costUsd: number
 }
 
 export interface BillablePhone {
@@ -59,7 +62,10 @@ export interface TokenPlan {
   id: number | null
   name: string
   includedTokens: number
+  /** The organization's price to its productor. */
   priceUsd: number
+  /** The platform's charge to the organization. */
+  costUsd: number
   /** The free first-month plan of a new account. */
   trial: boolean
   /** Blocks of COMMERCIAL_TOKEN_BLOCK_SIZE the plan spans, for the owner's report. */
@@ -74,7 +80,10 @@ export interface MonthlyBill {
   /** Free tokens applied this month. */
   trialTokens: number
   plan: TokenPlan
+  /** What the number's productor pays the organization for the month. */
   billedUsd: number
+  /** What the organization pays the platform for the month. */
+  costUsd: number
   /** True when the number's own plan was prorated for the first month of service. */
   prorated: boolean
 }
@@ -149,9 +158,20 @@ export class UsageService {
     this.commercialPricing = readCommercialPricing(config)
   }
 
-  /** What a plan of `tokens` costs: the fixed unit price, whatever the size. */
+  /** What a plan of `tokens` costs the organization: the fixed unit price, whatever the size. */
   priceOf(tokens: number): number {
     return round2(tokens * this.commercialPricing.unitPriceUsd)
+  }
+
+  /** A TokenPlan row as billing reads it, with its cost at the fixed unit price. */
+  catalogPlan(row: { id: number; name: string; tokens: number; priceUsd: unknown }): CatalogPlan {
+    return {
+      id: row.id,
+      name: row.name,
+      tokens: row.tokens,
+      priceUsd: Number(row.priceUsd),
+      costUsd: this.priceOf(row.tokens),
+    }
   }
 
   /** The free tokens a number gets in its first month: only the numbers of accounts created from the trial date on. */
@@ -166,7 +186,7 @@ export class UsageService {
       orderBy: [{ tokens: 'asc' }, { id: 'asc' }],
       select: { id: true, name: true, tokens: true, priceUsd: true },
     })
-    return plans.map(p => ({ ...p, priceUsd: Number(p.priceUsd) }))
+    return plans.map(p => this.catalogPlan(p))
   }
 
   private async resolvePhone(metaPhoneNumberId: string) {
@@ -191,20 +211,22 @@ export class UsageService {
       name: plan.name,
       includedTokens: plan.tokens,
       priceUsd: plan.priceUsd,
+      costUsd: plan.costUsd,
       trial: false,
       blocks: Math.ceil(plan.tokens / this.commercialPricing.blockTokens),
     }
   }
 
   private trialPlan(tokens: number): TokenPlan {
-    return { id: null, name: TRIAL_PLAN_NAME, includedTokens: tokens, priceUsd: 0, trial: true, blocks: 0 }
+    return { id: null, name: TRIAL_PLAN_NAME, includedTokens: tokens, priceUsd: 0, costUsd: 0, trial: true, blocks: 0 }
   }
 
   /**
    * The plan a month of `tokens` is billed on: the number's own plan while it
    * covers them, else the smallest plan of the catalog that does, and past the
-   * largest plan that same plan plus blocks of COMMERCIAL_TOKEN_BLOCK_SIZE, every
-   * token at the same unit price. With no catalog at all, plain blocks.
+   * largest plan that same plan plus blocks of COMMERCIAL_TOKEN_BLOCK_SIZE: the
+   * cost at the unit price, the price at the largest plan's own price per token.
+   * With no catalog at all, plain blocks at cost.
    */
   planFor(tokens: number, catalog: CatalogPlan[] = [], assigned: CatalogPlan | null = null): TokenPlan {
     const { blockTokens } = this.commercialPricing
@@ -220,11 +242,13 @@ export class UsageService {
     const extraBlocks = Math.max(1, Math.ceil((tokens - base) / blockTokens))
     const includedTokens = base + extraBlocks * blockTokens
     const extra = (extraBlocks * blockTokens).toLocaleString('es-AR')
+    const costUsd = this.priceOf(includedTokens)
     return {
       id: null,
       name: largest ? `${largest.name} + ${extra}` : `${extra} tokens`,
       includedTokens,
-      priceUsd: this.priceOf(includedTokens),
+      priceUsd: largest ? round2((includedTokens * largest.priceUsd) / largest.tokens) : costUsd,
+      costUsd,
       trial: false,
       blocks: Math.ceil(includedTokens / blockTokens),
     }
@@ -254,6 +278,7 @@ export class UsageService {
         trialTokens: 0,
         plan: this.planFor(0, catalog, assigned),
         billedUsd: 0,
+        costUsd: 0,
         prorated: false,
       }
     }
@@ -261,7 +286,15 @@ export class UsageService {
     const trialTokens = firstMonth ? (phone.trialTokens ?? 0) : 0
     const billableTokens = Math.max(0, tokens - trialTokens)
     if (trialTokens > 0 && billableTokens === 0) {
-      return { tokens, billableTokens, trialTokens, plan: this.trialPlan(trialTokens), billedUsd: 0, prorated: false }
+      return {
+        tokens,
+        billableTokens,
+        trialTokens,
+        plan: this.trialPlan(trialTokens),
+        billedUsd: 0,
+        costUsd: 0,
+        prorated: false,
+      }
     }
     const plan = this.planFor(billableTokens, catalog, assigned)
     const ownPlanId = assigned?.id ?? [...catalog].sort((a, b) => a.tokens - b.tokens)[0]?.id ?? null
@@ -269,7 +302,15 @@ export class UsageService {
       firstMonth && trialTokens === 0 && plan.id != null && plan.id === ownPlanId
         ? serviceShareOfMonth(period, phone.serviceStartedAt!)
         : 1
-    return { tokens, billableTokens, trialTokens, plan, billedUsd: round2(plan.priceUsd * share), prorated: share < 1 }
+    return {
+      tokens,
+      billableTokens,
+      trialTokens,
+      plan,
+      billedUsd: round2(plan.priceUsd * share),
+      costUsd: round2(plan.costUsd * share),
+      prorated: share < 1,
+    }
   }
 
   /**
@@ -475,12 +516,13 @@ export class UsageService {
   ): Promise<void> {
     try {
       const [starts, catalog] = await Promise.all([this.serviceStarts([phone.id]), this.catalogFor(phone.producerId)])
-      const { billedUsd } = this.billFor(
+      // The stored amount is the platform's invoice to the organization (its cost).
+      const { costUsd: billedUsd } = this.billFor(
         {
           isActive: phone.isActive,
           serviceStartedAt: starts.get(phone.id) ?? null,
           trialTokens: phone.trialTokens,
-          plan: phone.tokenPlan ? { ...phone.tokenPlan, priceUsd: Number(phone.tokenPlan.priceUsd) } : null,
+          plan: phone.tokenPlan ? this.catalogPlan(phone.tokenPlan) : null,
           catalog,
         },
         usage,
@@ -573,9 +615,7 @@ export class UsageService {
           isActive: r.phoneNumber.isActive,
           serviceStartedAt: starts.get(r.phoneNumber.id) ?? null,
           trialTokens: r.phoneNumber.trialTokens,
-          plan: r.phoneNumber.tokenPlan
-            ? { ...r.phoneNumber.tokenPlan, priceUsd: Number(r.phoneNumber.tokenPlan.priceUsd) }
-            : null,
+          plan: r.phoneNumber.tokenPlan ? this.catalogPlan(r.phoneNumber.tokenPlan) : null,
           catalog,
         },
         r,
@@ -586,8 +626,10 @@ export class UsageService {
         tokens: bill.tokens,
         plan: bill.plan,
         prorated: bill.prorated,
-        billedUsd: bill.billedUsd,
-        marginUsd: bill.billedUsd - Number(r.totalCostUsd),
+        // The owner's report: what the platform invoices the organization and keeps after providers.
+        billedUsd: bill.costUsd,
+        resaleUsd: bill.billedUsd,
+        marginUsd: bill.costUsd - Number(r.totalCostUsd),
       }
     })
 

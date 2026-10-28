@@ -16,7 +16,7 @@ function setup(numbers: unknown[] = []) {
   const prisma = {
     tokenPlan: {
       findMany: jest.fn().mockResolvedValue(plans),
-      findFirst: jest.fn().mockResolvedValue({ id: 2 }),
+      findFirst: jest.fn().mockResolvedValue({ id: 2, tokens: 500, priceUsd: 25 }),
       create: jest
         .fn()
         .mockImplementation(({ data }) =>
@@ -71,6 +71,19 @@ describe('BillingService catalog', () => {
     expect(prisma.tokenPlan.update.mock.calls[0][0].data).toEqual({ name: 'Plus', tokens: 800, priceUsd: 40 })
   })
 
+  it('sells at the price the organization asks, but never below its cost', async () => {
+    const { service, prisma } = setup()
+
+    const plan = await service.createPlan(1, { name: 'Inicial', tokens: 500, priceUsd: 30 })
+    expect(prisma.tokenPlan.create.mock.calls[0][0].data).toMatchObject({ tokens: 500, priceUsd: 30 })
+    expect(plan).toMatchObject({ priceUsd: 30, costUsd: 25, marginUsd: 5 })
+
+    await expect(service.createPlan(1, { name: 'Regalado', tokens: 500, priceUsd: 20 })).rejects.toThrow(
+      'no puede ser menor que el costo',
+    )
+    await expect(service.updatePlan(1, 2, { priceUsd: 24.99 })).rejects.toThrow('no puede ser menor que el costo')
+  })
+
   it('sends the numbers of a retired plan back to the smallest one', async () => {
     const { service, prisma } = setup()
 
@@ -102,7 +115,13 @@ describe('BillingService overview', () => {
 
     const result = await service.overview(superadmin, '2026-10')
 
-    expect(result).toMatchObject({ period: '2026-10', unitPriceUsd: 0.05, totalEstimatedUsd: 15 })
+    expect(result).toMatchObject({
+      period: '2026-10',
+      unitPriceUsd: 0.05,
+      totalEstimatedUsd: 15,
+      totalCostUsd: 15,
+      totalMarginUsd: 0,
+    })
     expect(result.plans.map(p => p.name)).toEqual(['Inicial', 'Estándar', 'Profesional'])
     expect(result.numbers[0]).toMatchObject({
       plan: { id: 1, name: 'Inicial', tokens: 300 },
@@ -111,9 +130,23 @@ describe('BillingService overview', () => {
       remainingTokens: 180,
       percentUsed: 40,
       exceeded: false,
-      billedPlan: { name: 'Inicial' },
+      billedPlan: { name: 'Inicial', costUsd: 15 },
       estimatedUsd: 15,
+      costUsd: 15,
+      marginUsd: 0,
     })
+  })
+
+  it("keeps the organization's cost away from an admin", async () => {
+    const { service } = setup([number()])
+
+    const result = await service.overview(admin, '2026-10')
+
+    expect(result).not.toHaveProperty('totalCostUsd')
+    expect(result.numbers[0]).not.toHaveProperty('costUsd')
+    expect(result.numbers[0].plan).not.toHaveProperty('costUsd')
+    expect(result.numbers[0].billedPlan).not.toHaveProperty('costUsd')
+    expect(result.plans[0]).not.toHaveProperty('costUsd')
   })
 
   it('marks a number past its plan and shows the plan the month moved up to', async () => {
