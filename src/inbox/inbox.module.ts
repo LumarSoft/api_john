@@ -9,6 +9,6 @@ import { NovedadesModule } from '../novedades/novedades.module'
   imports: [NovedadesModule],
   controllers: [AdminInboxController],
   providers: [InboxService, BotNotifierService, BotTakeoverTimeoutService],
-  exports: [BotNotifierService],
+  exports: [BotNotifierService, InboxService],
 })
 export class InboxModule {}

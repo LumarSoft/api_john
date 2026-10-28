@@ -4,6 +4,7 @@ import { Prisma } from 'generated/prisma/client'
 import { NovedadesService } from '../novedades/novedades.service'
 import { NovedadType } from '../novedades/dto/list-novedades.dto'
 import { PrismaService } from '../prisma/prisma.service'
+import { InboxService } from '../inbox/inbox.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { CreateBotLeadDto } from './dto/create-bot-lead.dto'
 import { signAdjuntoList } from '../siniestros/adjunto-url'
@@ -93,6 +94,7 @@ export class SolicitudesService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly novedades: NovedadesService,
+    private readonly inbox: InboxService,
   ) {}
 
   // ─── Lead creation (web + bot) ─────────────────────────────
@@ -324,17 +326,20 @@ export class SolicitudesService {
           payload: true,
           notes: true,
           createdAt: true,
+          conversationId: true,
           selectedPlan: { select: { id: true, name: true, monthlyPrice: true, productType: true } },
         },
       })
       if (!lead) throw new NotFoundException(`Lead ${id} not found`)
+      const { conversationId, ...rest } = lead
       return {
         kind,
-        ...lead,
+        ...rest,
         payload: withSignedLeadAdjuntos(lead.payload),
         selectedPlan: lead.selectedPlan
           ? { ...lead.selectedPlan, monthlyPrice: Number(lead.selectedPlan.monthlyPrice) }
           : null,
+        conversation: await this.leadConversation(conversationId),
       }
     }
 
@@ -375,7 +380,45 @@ export class SolicitudesService {
       // All quoted coverages with their prices (cheapest first), so the admin sees
       // the same figures presented to the client.
       coverages: parseQuoteCoverages(result),
+      // Online quotes come from the web form: there is no WhatsApp chat behind them.
+      conversation: null,
     }
+  }
+
+  /** The WhatsApp chat a bot lead came from, as the panel's "Chat" tab shows it. */
+  private async leadConversation(conversationId: number | null) {
+    if (!conversationId) return null
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, deletedAt: null },
+      select: { id: true, status: true, contactName: true, contactNameManual: true },
+    })
+    if (!conversation) return null
+    return {
+      id: conversation.id,
+      status: conversation.status,
+      contactName: conversation.contactNameManual ?? conversation.contactName ?? null,
+    }
+  }
+
+  /**
+   * The chat behind a solicitud, read-only: how the customer got to ask for the
+   * coverage. Access follows the solicitud (an admin who can open it can read its
+   * chat), not the inbox scoping by producer code, and nothing is marked as read.
+   * Empty for solicitudes without a chat (web form, online quote).
+   */
+  async getMessages(producerId: number, codeIds: number[], kind: LeadKind, id: number) {
+    if (kind !== 'lead') return []
+    const lead = await this.prisma.contactLead.findFirst({
+      where: { id, producerId, deletedAt: null, OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] },
+      select: { conversationId: true },
+    })
+    if (!lead) throw new NotFoundException(`Lead ${id} not found`)
+    if (!lead.conversationId) return []
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: lead.conversationId, producerId, deletedAt: null },
+      select: { id: true },
+    })
+    return conversation ? this.inbox.listMessages(conversation.id) : []
   }
 
   async updateStatus(producerId: number, codeIds: number[], kind: LeadKind, id: number, dto: UpdateSolicitudDto) {

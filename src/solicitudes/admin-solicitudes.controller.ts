@@ -30,6 +30,12 @@ export class AdminSolicitudesController {
     return this.solicitudesService.getDetail(req.user.producerId, codeIds, params.kind, params.id)
   }
 
+  @Get(':kind/:id/messages')
+  async findMessages(@Param() params: SolicitudParamsDto, @Request() req: AuthenticatedRequest) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.solicitudesService.getMessages(req.user.producerId, codeIds, params.kind, params.id)
+  }
+
   @Patch(':kind/:id')
   async update(
     @Param() params: SolicitudParamsDto,

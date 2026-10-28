@@ -1,6 +1,7 @@
 import type { NovedadesService } from '../novedades/novedades.service'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
+import type { InboxService } from '../inbox/inbox.service'
 import { SolicitudesService } from './solicitudes.service'
 
 jest.mock('../siniestros/siniestro-upload.config', () => ({
@@ -26,6 +27,7 @@ describe('SolicitudesService — bot take-out documents', () => {
       prisma as unknown as PrismaService,
       {} as ConfigService,
       {} as NovedadesService,
+      {} as InboxService,
     )
     return { service, prisma }
   }
@@ -89,6 +91,7 @@ describe('SolicitudesService — bot take-out documents', () => {
       prisma as unknown as PrismaService,
       {} as ConfigService,
       {} as NovedadesService,
+      {} as InboxService,
     )
 
     const detail = (await service.getDetail(1, [1], 'lead', 9)) as unknown as {
@@ -96,5 +99,66 @@ describe('SolicitudesService — bot take-out documents', () => {
     }
 
     expect(detail.payload.adjuntos[0].url).toMatch(/^\/uploads\/leads\/a\.webp\?exp=\d+&sig=/)
+  })
+})
+
+describe('SolicitudesService — the chat behind a solicitud', () => {
+  function setup(lead: { conversationId: number | null } | null, conversation: Record<string, unknown> | null) {
+    const prisma = {
+      contactLead: {
+        findFirst: jest.fn().mockResolvedValue(lead && { id: 9, payload: {}, selectedPlan: null, ...lead }),
+      },
+      conversation: { findFirst: jest.fn().mockResolvedValue(conversation), updateMany: jest.fn() },
+    }
+    const inbox = { listMessages: jest.fn().mockResolvedValue([{ id: 1, role: 'user', content: 'hola' }]) }
+    const service = new SolicitudesService(
+      prisma as unknown as PrismaService,
+      {} as ConfigService,
+      {} as NovedadesService,
+      inbox as unknown as InboxService,
+    )
+    return { service, prisma, inbox }
+  }
+
+  it('hands the panel the chat of a bot lead, named as the inbox names it', async () => {
+    const { service } = setup(
+      { conversationId: 4 },
+      { id: 4, status: 'open', contactName: 'Perfil WA', contactNameManual: 'Juan (manual)' },
+    )
+
+    const detail = (await service.getDetail(1, [1], 'lead', 9)) as unknown as { conversation: unknown }
+
+    expect(detail.conversation).toEqual({ id: 4, status: 'open', contactName: 'Juan (manual)' })
+  })
+
+  it('has no chat for a web lead or an online quote', async () => {
+    const { service, prisma, inbox } = setup({ conversationId: null }, null)
+
+    const detail = (await service.getDetail(1, [1], 'lead', 9)) as unknown as { conversation: unknown }
+    expect(detail.conversation).toBeNull()
+    expect(prisma.conversation.findFirst).not.toHaveBeenCalled()
+
+    expect(await service.getMessages(1, [1], 'lead', 9)).toEqual([])
+    expect(await service.getMessages(1, [1], 'cotizacion', 3)).toEqual([])
+    expect(inbox.listMessages).not.toHaveBeenCalled()
+  })
+
+  it('reads the thread without marking the chat as read', async () => {
+    const { service, prisma, inbox } = setup({ conversationId: 4 }, { id: 4 })
+
+    const messages = await service.getMessages(1, [1], 'lead', 9)
+
+    expect(messages).toHaveLength(1)
+    expect(inbox.listMessages).toHaveBeenCalledWith(4)
+    expect(prisma.conversation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 4, producerId: 1 }) }),
+    )
+    expect(prisma.conversation.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('refuses a lead outside the admin scope', async () => {
+    const { service } = setup(null, null)
+
+    await expect(service.getMessages(1, [1], 'lead', 9)).rejects.toThrow('Lead 9 not found')
   })
 })

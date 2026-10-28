@@ -202,13 +202,7 @@ export class InboxService {
 
     // Not limited to the bot session: the session boundary moves after a few
     // idle minutes, and filtering by it hid every earlier conversation.
-    const latest = await this.prisma.message.findMany({
-      where: { conversationId, deletedAt: null, createdAt: { lte: readAt } },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: MAX_THREAD_MESSAGES,
-      select: { id: true, role: true, content: true, rawData: true, createdAt: true },
-    })
-    const messages = latest.reverse()
+    const messages = await this.listMessages(conversationId, readAt)
 
     // Do not clear a message that arrived after this fetch began. The
     // lastMessageAt guard makes opening a busy chat race-safe.
@@ -217,7 +211,22 @@ export class InboxService {
       data: { unreadCount: 0, lastReadAt: readAt },
     })
 
-    return messages.map(({ rawData, ...message }) => ({ ...message, media: messageMedia(rawData) }))
+    return messages
+  }
+
+  /**
+   * The stored thread, oldest first, without touching the unread counter. Used
+   * by getMessages and by read-only views of a chat (a solicitud's "Chat" tab),
+   * which must not clear the inbox alert for whoever attends the chat.
+   */
+  async listMessages(conversationId: number, upTo = new Date()) {
+    const latest = await this.prisma.message.findMany({
+      where: { conversationId, deletedAt: null, createdAt: { lte: upTo } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: MAX_THREAD_MESSAGES,
+      select: { id: true, role: true, content: true, rawData: true, createdAt: true },
+    })
+    return latest.reverse().map(({ rawData, ...message }) => ({ ...message, media: messageMedia(rawData) }))
   }
 
   /** Explicit deletion of ephemeral chats. Business records remain intact. */
