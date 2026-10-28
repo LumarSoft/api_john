@@ -20,19 +20,19 @@ export class AdminPricingController {
   }
 
   @Post()
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   create(@Body() dto: CreatePlanDto, @Request() req: AuthenticatedRequest) {
     return this.productPlansService.create(req.user.producerId, dto)
   }
 
   @Patch(':id')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdatePlanDto, @Request() req: AuthenticatedRequest) {
     return this.productPlansService.update(req.user.producerId, id, dto)
   }
 
   @Delete(':id')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   remove(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
     return this.productPlansService.remove(req.user.producerId, id)
   }

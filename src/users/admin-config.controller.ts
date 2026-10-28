@@ -26,7 +26,7 @@ export class AdminConfigController {
   }
 
   @Patch()
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   update(@Request() req: AuthenticatedRequest, @Body() dto: UpdateConfigDto) {
     return this.usersService.updateProducerConfig(req.user.producerId, dto)
   }
@@ -39,7 +39,7 @@ export class AdminConfigController {
 
   /** Only a SuperAdmin changes what the bot tells customers about payments and assistance. */
   @Patch('profile')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   updateProfile(@Request() req: AuthenticatedRequest, @Body() dto: UpdateBotProfileDto) {
     return this.usersService.updateBotProfile(req.user.producerId, dto)
   }

@@ -623,7 +623,7 @@ Configuración del bot de la organización del usuario autenticado, incluido qui
 
 Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot le deja un aviso a la oficina y sigue atendiendo al cliente. Vale para todos los números de la organización que no tengan los suyos (ver `PATCH /admin/phone-numbers/:id/assistant`).
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 
@@ -715,7 +715,7 @@ What the bot says that is particular to the organization: how it names it, the g
 
 Changes the fields sent; an empty string clears one. The bot reads it on its next message. Without `claimsEmail`, the default organization's claims keep going to `ADVISOR_EMAIL` and any other organization's are not e-mailed.
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body** (every field optional)
 
@@ -2350,7 +2350,7 @@ Lista todos los planes (activos e inactivos) del productor.
 
 ### POST /admin/pricing
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 
@@ -2371,7 +2371,7 @@ Lista todos los planes (activos e inactivos) del productor.
 Igual al body de creación pero todos los campos opcionales (`productType` no es
 modificable).
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 `200 OK` → plan actualizado
 `404 Not Found`
@@ -2380,7 +2380,7 @@ modificable).
 
 Soft delete del plan.
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 `200 OK` → `{ "ok": true }`
 `404 Not Found`
@@ -2464,7 +2464,7 @@ Current weekly schedule + active/upcoming closures.
 
 The organization's hours: they apply to every number that has no hours of its own (`PATCH /admin/phone-numbers/:id/assistant`).
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 
@@ -2480,7 +2480,7 @@ The organization's hours: they apply to every number that has no hours of its ow
 
 Adds a temporary closure (single day → `startDate == endDate`). Closures apply to every number of the organization.
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 
@@ -2496,7 +2496,7 @@ Adds a temporary closure (single day → `startDate == endDate`). Closures apply
 
 Soft-deletes a closure.
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 `200 OK` → `{ "ok": true }`
 `404 Not Found`
@@ -2568,7 +2568,7 @@ Lists every coverage code ever seen for the authenticated user's producer, order
 
 Updates one coverage. Any edit sets `isConfigured` to `true`.
 
-**Auth required:** Yes (SuperAdmin; every role reads `GET /admin/coberturas`)
+**Auth required:** Yes (SuperAdmin or Admin; every role reads `GET /admin/coberturas`)
 
 **Request body**
 
@@ -2604,7 +2604,7 @@ Updates one coverage. Any edit sets `isConfigured` to `true`.
 
 Persists a whole ordering in one call, for a drag-and-drop list.
 
-**Auth required:** Yes (SuperAdmin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 

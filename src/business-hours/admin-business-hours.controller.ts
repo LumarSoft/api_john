@@ -25,19 +25,19 @@ export class AdminBusinessHoursController {
   }
 
   @Patch('schedule')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   updateSchedule(@Request() req: AuthenticatedRequest, @Body() dto: UpdateScheduleDto) {
     return this.service.updateSchedule(req.user.producerId, dto)
   }
 
   @Post('closures')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   addClosure(@Request() req: AuthenticatedRequest, @Body() dto: CreateClosureDto) {
     return this.service.addClosure(req.user.producerId, dto)
   }
 
   @Delete('closures/:id')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   removeClosure(@Request() req: AuthenticatedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.service.removeClosure(req.user.producerId, id)
   }
