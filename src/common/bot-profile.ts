@@ -23,6 +23,12 @@ export interface BotProfile {
   transferBank: string | null
   /** Who gets the e-mail of each new claim. Never sent to the bot. */
   claimsEmail: string | null
+  /**
+   * What the bot adds, as a last line, after every quote it gives ("Un asesor
+   * seguro te va a poder mejorar el precio con una bonificación"). Null: the
+   * quote ends as the model wrote it.
+   */
+  quoteClosingNote: string | null
 }
 
 export const BOT_PROFILE_FIELDS = [
@@ -37,6 +43,7 @@ export const BOT_PROFILE_FIELDS = [
   'transferHolder',
   'transferBank',
   'claimsEmail',
+  'quoteClosingNote',
 ] as const satisfies ReadonlyArray<keyof BotProfile>
 
 /** The profile as the bot receives it on GET /bot/context. */
@@ -49,6 +56,8 @@ export interface BotContextProfile {
   cashPaymentPlaces: string | null
   /** Null when there is no account to transfer to: the office passes the data. */
   transfer: { alias: string | null; cbu: string | null; holder: string | null; bank: string | null } | null
+  /** The last line of every quote the bot gives; null = none. */
+  quoteClosingNote: string | null
 }
 
 const text = (value: unknown): string | null => {
@@ -123,5 +132,6 @@ export function toBotContextProfile(
       p.transferAlias || p.transferCbu
         ? { alias: p.transferAlias, cbu: p.transferCbu, holder: p.transferHolder, bank: p.transferBank }
         : null,
+    quoteClosingNote: p.quoteClosingNote,
   }
 }

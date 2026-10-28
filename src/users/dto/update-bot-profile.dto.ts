@@ -65,4 +65,10 @@ export class UpdateBotProfileDto {
   @IsEmail()
   @MaxLength(254)
   claimsEmail?: string
+
+  /** The last line of every quote the bot gives ("Un asesor seguro te va a poder mejorar el precio…"). Empty: none. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  quoteClosingNote?: string
 }

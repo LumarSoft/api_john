@@ -265,6 +265,7 @@ describe('BotService', () => {
         claimsPhone: null,
         cashPaymentPlaces: 'Rapipago o Pago Fácil',
         transfer: null,
+        quoteClosingNote: null,
       })
       expect(profile).not.toHaveProperty('claimsEmail')
     })

@@ -699,9 +699,12 @@ What the bot says that is particular to the organization: how it names it, the g
   "transferCbu": "0070081820000004432793",
   "transferHolder": "Triunfo Coop. de Seguros Ltda. (CUIT 30-50006577-6)",
   "transferBank": "Banco Galicia",
-  "claimsEmail": null
+  "claimsEmail": null,
+  "quoteClosingNote": "Un asesor seguro te va a poder mejorar el precio con una bonificación"
 }
 ```
+
+`quoteClosingNote` is the line the bot adds at the end of every quote it gives; `null` leaves the quote as the model wrote it.
 
 `404 Not Found`
 ```json
@@ -729,9 +732,10 @@ Changes the fields sent; an empty string clears one. The bot reads it on its nex
 | transferHolder | string | No | ≤ 160 |
 | transferBank | string | No | ≤ 80 |
 | claimsEmail | string | No | e-mail or empty |
+| quoteClosingNote | string | No | ≤ 300; empty → the quote ends without an extra line |
 
 ```json
-{ "towTruckPhone": "0800-555-1234", "transferAlias": "" }
+{ "towTruckPhone": "0800-555-1234", "transferAlias": "", "quoteClosingNote": "Un asesor seguro te va a poder mejorar el precio con una bonificación" }
 ```
 
 **Responses**
@@ -1518,12 +1522,13 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
       "cbu": "0070081820000004432793",
       "holder": "Triunfo Coop. de Seguros Ltda. (CUIT 30-50006577-6)",
       "bank": "Banco Galicia"
-    }
+    },
+    "quoteClosingNote": null
   }
 }
 ```
 
-`profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU. It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
+`profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU, `quoteClosingNote` is the line the bot appends to every quote (`null` = none). It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
 
 `404 Not Found` — Phone number not registered or producer inactive
 

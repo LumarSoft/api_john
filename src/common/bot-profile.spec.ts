@@ -14,6 +14,7 @@ describe('bot profile', () => {
       transferHolder: null,
       transferBank: null,
       claimsEmail: null,
+      quoteClosingNote: null,
     })
     expect(parseBotProfile(null).orgName).toBeNull()
     expect(parseBotProfile(['x']).orgName).toBeNull()
@@ -38,6 +39,15 @@ describe('bot profile', () => {
       holder: null,
       bank: 'Galicia',
     })
+  })
+
+  it('hands the bot the quote closing line as the organization wrote it', () => {
+    const base = { name: 'Norte SRL' }
+    expect(toBotContextProfile({ ...base, botProfile: {} }, false)?.quoteClosingNote).toBeNull()
+    expect(
+      toBotContextProfile({ ...base, botProfile: { quoteClosingNote: ' Un asesor te mejora el precio ' } }, false)
+        ?.quoteClosingNote,
+    ).toBe('Un asesor te mejora el precio')
   })
 
   it("falls back to the organization's own name", () => {
@@ -77,5 +87,12 @@ describe('overlayBotProfile', () => {
 
   it('stays null when neither has a profile', () => {
     expect(overlayBotProfile(null, null)).toBeNull()
+  })
+
+  it("gives a number its own quote closing line over the organization's", () => {
+    expect(overlayBotProfile({ quoteClosingNote: 'Org' }, {})?.quoteClosingNote).toBe('Org')
+    expect(overlayBotProfile({ quoteClosingNote: 'Org' }, { quoteClosingNote: 'Sucursal' })?.quoteClosingNote).toBe(
+      'Sucursal',
+    )
   })
 })
