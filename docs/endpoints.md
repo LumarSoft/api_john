@@ -958,12 +958,17 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 
 **Query parameters**
 
-| Parameter | Type   | Required | Description                                                       |
-|-----------|--------|----------|-------------------------------------------------------------------|
-| search    | string | No       | Filter by first name, last name, email, DNI, phone, or plate      |
-| status    | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`) |
-| page      | number | No       | Page number (default: 1)                                          |
-| pageSize  | number | No       | Results per page (default: 20, max: 100)                          |
+| Parameter      | Type   | Required | Description                                                       |
+|----------------|--------|----------|-------------------------------------------------------------------|
+| search         | string | No       | Filter by first name, last name, email, DNI, phone, or plate      |
+| status         | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`) |
+| producerCodeId | number | No       | Only the debt of this producer code's policies (must be accessible to the user) |
+| phoneNumberId  | number | No       | Only the codes this number serves (SuperAdmin section filter)     |
+| paymentMethod  | string | No       | Only policies with this medio de pago, as Triunfo names it (`Plan De Pago`, `Convenio`, `Débito Tarjeta`…); the values in scope come from `/admin/cobranzas/stats` |
+| page           | number | No       | Page number (default: 1)                                          |
+| pageSize       | number | No       | Results per page (default: 20, max: 100)                          |
+
+A client is listed when it is visible to the user (attributed to an accessible code, or holding a policy under one), but its counts and `totalDebt` only add up the cuotas of the policies that match the scope — the selected code(s) and medio de pago — so filtering by a code shows that code's debt, not the client's whole cartera. `paymentMethods` lists the medios de pago of those policies.
 
 **Responses**
 
@@ -979,6 +984,7 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
       "email": "maria@example.com",
       "phone": "+54 11 1234-5678",
       "riskTypes": ["auto", "home"],
+      "paymentMethods": ["Plan De Pago"],
       "licensePlate": "AB123CD",
       "pendingCount": 2,
       "overdueCount": 1,
@@ -1001,9 +1007,17 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 
 ### GET /admin/cobranzas/stats
 
-Returns aggregate debt stats across all clients for the authenticated producer. Includes both per-client counts (used by the segmented filter badges) and per-installment counts.
+Returns aggregate debt stats for the authenticated producer. Includes both per-client counts (used by the segmented filter badges) and per-installment counts. Takes the same scope filters as the list (`producerCodeId`, `phoneNumberId`, `paymentMethod`) so the KPIs follow it. `paymentMethods` lists the medios de pago found on the policies in scope (ignoring `paymentMethod` itself), for the panel's filter.
 
 **Auth required:** Yes (JWT user token)
+
+**Query parameters**
+
+| Parameter      | Type   | Required | Description                                            |
+|----------------|--------|----------|--------------------------------------------------------|
+| producerCodeId | number | No       | Only this producer code (must be accessible to the user) |
+| phoneNumberId  | number | No       | Only the codes this number serves                      |
+| paymentMethod  | string | No       | Only policies with this medio de pago                  |
 
 **Responses**
 
@@ -1017,7 +1031,8 @@ Returns aggregate debt stats across all clients for the authenticated producer. 
   "overdueInstallments": 18,
   "rejectedInstallments": 3,
   "pendingInstallments": 47,
-  "totalDebt": "284500.00"
+  "totalDebt": "284500.00",
+  "paymentMethods": ["Convenio", "Débito Tarjeta", "Plan De Pago"]
 }
 ```
 

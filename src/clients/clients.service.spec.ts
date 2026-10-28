@@ -80,3 +80,69 @@ describe('ClientsService.findPolizas (portal)', () => {
     expect(res).not.toHaveProperty('rawData')
   })
 })
+
+describe('ClientsService.findCobranzasForAdmin', () => {
+  const cuota = (status: string, amount: string, dueDate = '2026-09-10') => ({
+    status,
+    amount,
+    dueDate: new Date(dueDate),
+  })
+  const client = {
+    id: 1,
+    firstName: 'Ana',
+    lastName: 'Pérez',
+    dni: '1',
+    email: null,
+    phone: null,
+    policies: [
+      {
+        riskType: 'auto',
+        paymentMethod: 'Plan De Pago',
+        vehicle: { licensePlate: 'AB123CD' },
+        installments: [cuota('overdue', '100')],
+      },
+      {
+        riskType: 'moto',
+        paymentMethod: 'Convenio',
+        vehicle: null,
+        installments: [cuota('pending', '50', '2026-12-01')],
+      },
+    ],
+  }
+
+  function setup() {
+    const findMany = jest.fn().mockResolvedValue([client])
+    const service = new ClientsService({ client: { findMany } } as unknown as PrismaService)
+    return { service, findMany }
+  }
+
+  it('counts only the cuotas of live policies of the codes in scope, with the medio de pago asked for', async () => {
+    const { service, findMany } = setup()
+
+    const page = await service.findCobranzasForAdmin(1, [7, 9], { paymentMethod: 'Plan De Pago' })
+
+    const nested = findMany.mock.calls[0][0].select.policies.where
+    expect(nested).toMatchObject({
+      deletedAt: null,
+      producerCodeId: { in: [7, 9] },
+      paymentMethod: 'Plan De Pago',
+      NOT: [{ lastMovement: { startsWith: 'ANUL' } }, { lastMovement: { startsWith: 'RESCISION' } }],
+    })
+    expect(findMany.mock.calls[0][0].where.policies.some).toMatchObject({ producerCodeId: { in: [7, 9] } })
+    expect(page.data[0]).toMatchObject({
+      paymentMethods: ['Plan De Pago', 'Convenio'],
+      overdueCount: 1,
+      pendingCount: 1,
+      totalDebt: '150.00',
+      oldestOverdueDate: new Date('2026-09-10').toISOString(),
+    })
+  })
+
+  it('does not ask for a medio de pago when none is selected', async () => {
+    const { service, findMany } = setup()
+
+    await service.findCobranzasForAdmin(1, [7], {})
+
+    expect(findMany.mock.calls[0][0].select.policies.where).not.toHaveProperty('paymentMethod')
+  })
+})

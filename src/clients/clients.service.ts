@@ -439,7 +439,16 @@ export class ClientsService {
     const search = query.search?.trim()
 
     // A policy Triunfo cancelled keeps its unpaid cuotas; they are not debt.
-    const livePoliza = { deletedAt: null, ...notCancelledPolizaWhere() }
+    // Only the policies of the codes in scope count, so an admin filtering by
+    // a code sees that code's debt and not the client's whole cartera; the
+    // medio de pago narrows them the same way ("Plan De Pago" for the office
+    // chasing coupon payers).
+    const livePoliza: Prisma.PolicyWhereInput = {
+      deletedAt: null,
+      ...notCancelledPolizaWhere(),
+      producerCodeId: { in: codeIds },
+      ...(query.paymentMethod ? { paymentMethod: query.paymentMethod } : {}),
+    }
     const and: Prisma.ClientWhereInput[] = [this.clientVisibility(codeIds)]
     const where: Prisma.ClientWhereInput = {
       producerId,
@@ -477,6 +486,7 @@ export class ClientsService {
           where: livePoliza,
           select: {
             riskType: true,
+            paymentMethod: true,
             vehicle: { select: { licensePlate: true } },
             installments: {
               where: { deletedAt: null },
@@ -498,8 +508,10 @@ export class ClientsService {
       const totalDebt = [...pending, ...overdue, ...rejected].reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0)
 
       const riskTypes: RiskType[] = []
+      const paymentMethods: string[] = []
       for (const p of client.policies) {
         if (!riskTypes.includes(p.riskType)) riskTypes.push(p.riskType)
+        if (p.paymentMethod && !paymentMethods.includes(p.paymentMethod)) paymentMethods.push(p.paymentMethod)
       }
       const licensePlate = client.policies.find(p => p.vehicle?.licensePlate)?.vehicle?.licensePlate ?? null
 
@@ -516,6 +528,7 @@ export class ClientsService {
         email: client.email,
         phone: client.phone,
         riskTypes,
+        paymentMethods,
         licensePlate,
         pendingCount: pending.length,
         overdueCount: overdue.length,
@@ -557,9 +570,10 @@ export class ClientsService {
     return { data, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
   }
 
-  async getCobranzasStats(producerId: number, codeIds: number[]) {
+  async getCobranzasStats(producerId: number, codeIds: number[], paymentMethod?: string) {
     // Cuotas of a cancelled policy are not debt (see findCobranzasForAdmin).
-    const codeScope = { producerCodeId: { in: codeIds }, ...notCancelledPolizaWhere() }
+    const liveScope = { producerCodeId: { in: codeIds }, ...notCancelledPolizaWhere() }
+    const codeScope = { ...liveScope, ...(paymentMethod ? { paymentMethod } : {}) }
     const baseCuota = { deletedAt: null, policy: { producerId, deletedAt: null, ...codeScope } }
     // Count clients who have a policy IN an accessible code with a cuota of the
     // given status. Scoping by the policy's code (not the client's) naturally
@@ -607,6 +621,16 @@ export class ClientsService {
     // Negative-amount installments are insurer credits/adjustments, not debt — excluded from the owed total.
     const totalDebt = deudaCuotas.reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0).toFixed(2)
 
+    // The medios de pago the panel can filter by: whatever Triunfo stored on
+    // the policies in scope, whichever one is selected right now.
+    const methods = await this.prisma.policy.findMany({
+      where: { producerId, deletedAt: null, ...liveScope, paymentMethod: { not: null } },
+      distinct: ['paymentMethod'],
+      select: { paymentMethod: true },
+      orderBy: { paymentMethod: 'asc' },
+    })
+    const paymentMethods = methods.map(m => m.paymentMethod).filter((m): m is string => !!m)
+
     return {
       clientsWithDebt,
       clientsWithOverdue,
@@ -616,6 +640,7 @@ export class ClientsService {
       rejectedInstallments,
       pendingInstallments,
       totalDebt,
+      paymentMethods,
     }
   }
 }
