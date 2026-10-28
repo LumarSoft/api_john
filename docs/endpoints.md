@@ -390,6 +390,8 @@ Returns the authenticated user's profile.
 
 **Auth required:** Yes
 
+`organization.defaultPhoneNumber` (`{ id, number } | null`, absent on older APIs) is the office line: the active number billed to the organization's master code. The panel opens the SuperAdmin's sections (Whatsapp, Asuntos pendientes, Solicitudes, …) filtered by it; whatever came through no number (web, panel) is shown as its.
+
 **Responses**
 
 `200 OK`
@@ -1292,6 +1294,8 @@ Paginated list of novedades, unread first then newest.
 | clientId | number  | No       | Restrict to a single client's novedades |
 | page     | number  | No       | Default 1                              |
 | pageSize | number  | No       | Default 20, max 100                    |
+
+**Who sees what.** An admin sees only the matters that came through their own numbers (`Notification.phoneNumberId`, the Meta id of the number the chat came through); when one of their numbers is the organization's default number (the office line, billed to the master code) they also see what came through no number (web, panel, rows older than this column). The SuperAdmin sees everything; `phoneNumberId` (a PhoneNumber id) narrows to that number, the default number also bringing what came through none; a number that is not the organization's returns nothing. `producerCodeId` narrows by code as before.
 
 **Responses**
 
@@ -2295,6 +2299,8 @@ auto/moto (`QuoteRequest`) en un mismo stream. `UserAuthGuard`, scope al product
 | search      | string | No       | nombre, teléfono o email (≤120)                    |
 | page        | number | No       | ≥1                                                 |
 | pageSize    | number | No       | 1–100 (default 20)                                 |
+
+**Who sees what.** Same rule as `GET /admin/novedades`: an admin only the leads and online quote requests that came through their own numbers (`ContactLead.phoneNumberId`, `Quote.phoneNumberId`), plus what came through no number (web, panel) when the office line is theirs; the SuperAdmin everything, or the number of `phoneNumberId` (the default number also brings the web ones). `producerCodeId` narrows by code as before.
 
 **Responses**
 

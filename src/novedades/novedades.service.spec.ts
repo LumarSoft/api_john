@@ -82,6 +82,7 @@ describe('NovedadesService', () => {
           refId: 6,
           clientId: 3,
           producerCodeId: null,
+          phoneNumberId: null,
           title: 'Nuevo siniestro · Ana Gómez',
           body: 'choque',
         },
@@ -101,6 +102,7 @@ describe('NovedadesService', () => {
           refId: 1,
           clientId: null,
           producerCodeId: null,
+          phoneNumberId: null,
           title: 'Pedido de asesor · Ana Gómez',
           body: null,
         },
@@ -117,25 +119,43 @@ describe('NovedadesService', () => {
   })
 
   describe('listForAdmin', () => {
-    it("shows an admin the handoffs of their own numbers' chats and the rest by code", async () => {
-      prisma.notification.count.mockResolvedValue(0)
-      prisma.notification.findMany.mockResolvedValue([])
-      prisma.conversation.findMany.mockResolvedValue([{ id: 251 }])
+    it('shows an admin only what came through their own numbers, within their codes', async () => {
+      prisma.$transaction.mockResolvedValue([0, []])
 
-      await service.listForAdmin(5, { codeIds: [4], ownNumbers: ['BRANCH'] }, {})
+      await service.listForAdmin(5, { codeIds: [4], ownNumbers: ['BRANCH'], defaultNumber: 'OFFICE' }, {})
 
-      expect(prisma.conversation.findMany).toHaveBeenCalledWith({
-        where: { producerId: 5, phoneNumberId: { in: ['BRANCH'] } },
-        select: { id: true },
-      })
-      expect(prisma.notification.findMany.mock.calls[0][0].where).toEqual({
-        producerId: 5,
-        deletedAt: null,
-        OR: [
-          { type: NovedadType.HANDOFF, refId: { in: [251] } },
-          { type: { not: NovedadType.HANDOFF }, OR: [{ producerCodeId: { in: [4] } }, { producerCodeId: null }] },
-        ],
-      })
+      expect(prisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            producerId: 5,
+            AND: [
+              { OR: [{ producerCodeId: { in: [4] } }, { producerCodeId: null }] },
+              { phoneNumberId: { in: ['BRANCH'] } },
+            ],
+          }),
+        }),
+      )
+    })
+
+    it("counts what came through no number as the office's, the default number", async () => {
+      prisma.$transaction.mockResolvedValue([0, []])
+
+      await service.listForAdmin(
+        5,
+        { codeIds: [10], ownNumbers: null, filterNumber: 'OFFICE', defaultNumber: 'OFFICE' },
+        {},
+      )
+
+      expect(prisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [
+              { OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] },
+              { OR: [{ phoneNumberId: { in: ['OFFICE'] } }, { phoneNumberId: null }] },
+            ],
+          }),
+        }),
+      )
     })
 
     it('orders unread first then newest, and applies pagination defaults', async () => {

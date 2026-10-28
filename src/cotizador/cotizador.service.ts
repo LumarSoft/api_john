@@ -107,6 +107,8 @@ export class CotizadorService {
     userId: number | null,
     // How the number the quote is for offers the organization's coverages (null = as the organization).
     coverageOverrides: CoverageOverrides | null = null,
+    // Meta id of the WhatsApp number the quote came through (null for the web and the panel).
+    originPhoneNumberId: string | null = null,
   ): Promise<QuoteAutoResult> {
     const brandNumber = Number(dto.brand)
     const codiaNumber = Number(dto.model)
@@ -206,6 +208,7 @@ export class CotizadorService {
           // Anonymous/web quotes are credited to the org master code by default.
           producerCodeId: await this.resolveDefaultProducerCodeId(resolvedProducerId),
           userId,
+          phoneNumberId: originPhoneNumberId,
         },
         update: { result: result as Prisma.InputJsonValue },
       })
@@ -290,13 +293,20 @@ export class CotizadorService {
     if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
     // The number's own view of the coverages (which to offer, recommend and first).
     const overrides = parseCoverageOverrides(phone.coverageSettings)
-    return this.quoteVehicle(vehicleType, dto, phone.producerId, null, Object.keys(overrides).length ? overrides : null)
+    return this.quoteVehicle(
+      vehicleType,
+      dto,
+      phone.producerId,
+      null,
+      Object.keys(overrides).length ? overrides : null,
+      phoneNumberId,
+    )
   }
 
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {
     const cotizacion = await this.prisma.quote.findFirst({
       where: { quoteNumber, deletedAt: null },
-      select: { id: true, result: true, producerId: true, producerCodeId: true },
+      select: { id: true, result: true, producerId: true, producerCodeId: true, phoneNumberId: true },
     })
     if (!cotizacion) throw new NotFoundException(`Quote ${quoteNumber} not found`)
 
@@ -346,6 +356,7 @@ export class CotizadorService {
       refId: solicitud.id,
       name: `${dto.firstName} ${dto.lastName ?? ''}`.trim(),
       producerCodeId: cotizacion.producerCodeId,
+      phoneNumberId: cotizacion.phoneNumberId,
       summary: `Eligió cobertura ${dto.coverage}. Contacto: ${dto.phone}. Pendiente de gestionar contratación.`,
     })
 

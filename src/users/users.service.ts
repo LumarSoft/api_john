@@ -255,6 +255,18 @@ export class UsersService {
     if (!user) return null
     const { producer, ...profile } = user
     const brand = parseBotProfile(producer.botProfile)
+    // The office line: the active number billed to the master code. The panel
+    // opens the SuperAdmin's sections filtered by it.
+    const defaultPhoneNumber = await this.prisma.phoneNumber.findFirst({
+      where: {
+        producerId: user.producerId,
+        deletedAt: null,
+        isActive: true,
+        responsibleProducerCode: { isMaster: true },
+      },
+      orderBy: { id: 'asc' },
+      select: { id: true, number: true },
+    })
     return {
       ...profile,
       organization: {
@@ -262,6 +274,7 @@ export class UsersService {
         name: producer.name,
         displayName: brand.orgName ?? producer.name,
         shortName: brand.orgShortName,
+        defaultPhoneNumber,
       },
     }
   }

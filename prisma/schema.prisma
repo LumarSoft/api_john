@@ -680,6 +680,12 @@ model Notification {
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
   // Denormalized so the admin can filter/search novedades by client (DNI/name).
   // Nullable: a handoff from an unidentified WhatsApp number has no client yet.
+  // Meta id of the WhatsApp number this came through (as Conversation.phoneNumberId):
+  // the panel shows each branch only what came through its own number. Null = not
+  // from a chat (web, panel) or older than this column; it counts as the
+  // organization's default number's.
+  phoneNumberId String?
+
   clientId       Int?
   client         Client?       @relation(fields: [clientId], references: [id])
 
@@ -688,6 +694,7 @@ model Notification {
   @@index([producerId, type, createdAt])
   @@index([clientId])
   @@index([producerCodeId])
+  @@index([producerId, phoneNumberId])
 }
 
 // ─── COTIZACIONES ────────────────────────────────────────
@@ -713,8 +720,14 @@ model Quote {
   userId         Int?
   user           User?         @relation(fields: [userId], references: [id])
   quoteRequest   QuoteRequest?
+  // Meta id of the WhatsApp number this came through (as Conversation.phoneNumberId):
+  // the panel shows each branch only what came through its own number. Null = not
+  // from a chat (web, panel) or older than this column; it counts as the
+  // organization's default number's.
+  phoneNumberId String?
 
   @@index([producerCodeId])
+  @@index([producerId, phoneNumberId])
 }
 
 // ─── SOLICITUDES DE COBERTURA (LEADS) ────────────────────
@@ -774,6 +787,12 @@ model ContactLead {
   selectedPlanId Int? // set only for the fixed-price products (bolso, hogar)
   notes          String?    @db.Text
   conversationId Int? // set when the lead came from the WhatsApp bot
+  // Meta id of the WhatsApp number this came through (as Conversation.phoneNumberId):
+  // the panel shows each branch only what came through its own number. Null = not
+  // from a chat (web, panel) or older than this column; it counts as the
+  // organization's default number's.
+  phoneNumberId String?
+
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   deletedAt      DateTime?
@@ -787,6 +806,7 @@ model ContactLead {
 
   @@index([producerId, status, createdAt])
   @@index([producerCodeId])
+  @@index([producerId, phoneNumberId])
 }
 
 // ─── PLANES DE PRECIO FIJO (configurables por el admin) ───

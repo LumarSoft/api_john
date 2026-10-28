@@ -1009,6 +1009,7 @@ export class BotService {
       clienteNombre: `${client.firstName} ${client.lastName}`.trim(),
       descripcion: siniestro.description,
       producerCodeId: poliza.producerCodeId,
+      phoneNumberId,
     })
 
     return siniestro
@@ -1093,6 +1094,7 @@ export class BotService {
         waId: true,
         producerId: true,
         producerCodeId: true,
+        phoneNumberId: true,
         clientId: true,
         contactName: true,
         sessionStartedAt: true,
@@ -1120,6 +1122,7 @@ export class BotService {
       clientId: client ? conversation.clientId : null,
       clienteNombre,
       producerCodeId: conversation.producerCodeId,
+      phoneNumberId: conversation.phoneNumberId,
     })
 
     return { ok: true }

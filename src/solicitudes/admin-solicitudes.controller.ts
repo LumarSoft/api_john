@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Query, Request, UseGuards } from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
-import { ScopeService } from '../common/scope/scope.service'
+import { ScopeService, numberWhere } from '../common/scope/scope.service'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
 import { SolicitudesService } from './solicitudes.service'
 import { ListSolicitudesDto } from './dto/list-solicitudes.dto'
@@ -17,11 +17,10 @@ export class AdminSolicitudesController {
 
   @Get()
   async findAll(@Query() query: ListSolicitudesDto, @Request() req: AuthenticatedRequest) {
-    const codeIds = await this.scope.resolveScopedCodeIdsFor(req.user, {
-      producerCodeId: query.producerCodeId,
-      phoneNumberId: query.phoneNumberId,
-    })
-    return this.solicitudesService.listForAdmin(req.user.producerId, codeIds, query)
+    // A "productor" filter narrows by code; a "número" filter by the number the request came through.
+    const codeIds = await this.scope.resolveScopedCodeIds(req.user, query.producerCodeId)
+    const chats = await this.scope.resolveChatScope(req.user, codeIds, query.phoneNumberId)
+    return this.solicitudesService.listForAdmin(req.user.producerId, codeIds, query, numberWhere(chats))
   }
 
   @Get(':kind/:id')

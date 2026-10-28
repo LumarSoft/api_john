@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import type { ChatScope } from '../common/scope/scope.service'
+import { type ChatScope, numberWhere } from '../common/scope/scope.service'
 import { ListNovedadesDto, NovedadType, MatterCategory, MatterStatus, UpdateMatterDto } from './dto/list-novedades.dto'
 
 import { classifyMatter } from './classify-matter'
@@ -43,6 +43,8 @@ export class NovedadesService {
       clienteNombre: string
       descripcion: string
       producerCodeId?: number | null
+      /** Meta id of the number the claim came through; null from the panel. */
+      phoneNumberId?: string | null
     },
   ): Promise<void> {
     await this.safeCreate(producerId, {
@@ -51,6 +53,7 @@ export class NovedadesService {
       refId: input.siniestroId,
       clientId: input.clientId,
       producerCodeId: input.producerCodeId ?? null,
+      phoneNumberId: input.phoneNumberId ?? null,
       title: `Nuevo siniestro · ${input.clienteNombre}`,
       body: input.descripcion,
     })
@@ -64,6 +67,8 @@ export class NovedadesService {
       clientId: number | null
       clienteNombre: string
       producerCodeId?: number | null
+      /** Meta id of the number the chat came through. */
+      phoneNumberId?: string | null
     },
   ): Promise<void> {
     const body = input.reason?.trim() || null
@@ -90,6 +95,7 @@ export class NovedadesService {
       refId: input.conversationId,
       clientId: input.clientId,
       producerCodeId: input.producerCodeId ?? null,
+      phoneNumberId: input.phoneNumberId ?? null,
       title: `Pedido de asesor · ${input.clienteNombre}`,
       body,
     })
@@ -207,6 +213,7 @@ export class NovedadesService {
       refId: number
       clientId: number | null
       producerCodeId: number | null
+      phoneNumberId?: string | null
       title: string
       body: string | null
     },
@@ -220,6 +227,7 @@ export class NovedadesService {
           refId: data.refId,
           clientId: data.clientId,
           producerCodeId: data.producerCodeId,
+          phoneNumberId: data.phoneNumberId ?? null,
           title: data.title,
           body: data.body,
         },
@@ -238,23 +246,14 @@ export class NovedadesService {
   }
 
   /**
-   * The novedades a user sees: by code, as codeScope. For an admin a handoff
-   * (someone asking for a person) follows its chat instead: only those that
-   * came through one of their own numbers, like the inbox.
+   * The novedades a user sees: by code (codeScope) and by the number they came
+   * through (numberWhere): an admin only their own numbers', the SuperAdmin
+   * everything or the number they filtered by.
    */
-  private async matterScope(producerId: number, scope: ChatScope): Promise<Prisma.NotificationWhereInput> {
+  private matterScope(_producerId: number, scope: ChatScope): Prisma.NotificationWhereInput {
     const byCode = this.codeScope(scope.codeIds)
-    if (!scope.ownNumbers) return byCode
-    const chats = await this.prisma.conversation.findMany({
-      where: { producerId, phoneNumberId: { in: scope.ownNumbers } },
-      select: { id: true },
-    })
-    return {
-      OR: [
-        { type: NovedadType.HANDOFF, refId: { in: chats.map(c => c.id) } },
-        { type: { not: NovedadType.HANDOFF }, ...byCode },
-      ],
-    }
+    const byNumber = numberWhere(scope)
+    return Object.keys(byNumber).length ? { AND: [byCode, byNumber] } : byCode
   }
 
   async listForAdmin(producerId: number, scope: ChatScope, dto: ListNovedadesDto) {
@@ -264,7 +263,7 @@ export class NovedadesService {
     const where: Prisma.NotificationWhereInput = {
       producerId,
       deletedAt: null,
-      ...(await this.matterScope(producerId, scope)),
+      ...this.matterScope(producerId, scope),
       ...(dto.category ? { category: dto.category } : {}),
       ...(dto.status ? { status: dto.status } : dto.actionable ? { status: { not: MatterStatus.RESOLVED } } : {}),
       ...(dto.since ? { createdAt: { gt: new Date(dto.since) } } : {}),
@@ -318,14 +317,14 @@ export class NovedadesService {
   /** Clears notifications only, leaving their underlying business records intact. */
   async clearAll(producerId: number, scope: ChatScope) {
     const result = await this.prisma.notification.updateMany({
-      where: { producerId, deletedAt: null, ...(await this.matterScope(producerId, scope)) },
+      where: { producerId, deletedAt: null, ...this.matterScope(producerId, scope) },
       data: { deletedAt: new Date() },
     })
     return { clearedCount: result.count }
   }
 
   async getStats(producerId: number, scope: ChatScope) {
-    const visible = await this.matterScope(producerId, scope)
+    const visible = this.matterScope(producerId, scope)
     const base = { producerId, deletedAt: null, readAt: null, ...visible }
 
     const [unreadTotal, unreadClaims, unreadHandoff, unreadCancellations] = await this.prisma.$transaction([
@@ -368,6 +367,8 @@ export class NovedadesService {
       name: string
       summary: string
       producerCodeId?: number | null
+      /** Meta id of the number the request came through; null for the web. */
+      phoneNumberId?: string | null
     },
   ) {
     try {
@@ -395,6 +396,7 @@ export class NovedadesService {
         category: MatterCategory.COTIZACION,
         clientId: null,
         producerCodeId: input.producerCodeId ?? null,
+        phoneNumberId: input.phoneNumberId ?? null,
         title: `Solicitud de cotización · ${input.name}`,
         body: input.summary,
       })

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common'
+import type { NumberWhere } from '../common/scope/scope.service'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { NovedadesService } from '../novedades/novedades.service'
@@ -86,6 +87,8 @@ interface CreateLeadContext {
   producerId: number
   producerCodeId?: number | null
   conversationId?: number
+  /** Meta id of the number the chat came through (bot leads). */
+  phoneNumberId?: string | null
 }
 
 @Injectable()
@@ -108,7 +111,7 @@ export class SolicitudesService {
   async createBotLead(conversationId: number, dto: CreateBotLeadDto): Promise<{ id: number }> {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
-      select: { producerId: true, producerCodeId: true },
+      select: { producerId: true, producerCodeId: true, phoneNumberId: true },
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
     return this.createLead(dto, {
@@ -116,6 +119,7 @@ export class SolicitudesService {
       producerId: conversation.producerId,
       producerCodeId: conversation.producerCodeId,
       conversationId,
+      phoneNumberId: conversation.phoneNumberId,
     })
   }
 
@@ -170,6 +174,7 @@ export class SolicitudesService {
         payload: (dto.payload ?? {}) as Prisma.InputJsonValue,
         selectedPlanId: dto.selectedPlanId ?? null,
         conversationId: ctx.conversationId ?? null,
+        phoneNumberId: ctx.phoneNumberId ?? null,
       },
       select: { id: true },
     })
@@ -178,6 +183,7 @@ export class SolicitudesService {
       refId: lead.id,
       name: dto.contactName,
       producerCodeId: ctx.producerCodeId,
+      phoneNumberId: ctx.phoneNumberId ?? null,
       summary: `Solicita propuesta de ${dto.productType}. Contacto: ${dto.phone}. Pendiente de seguimiento por un asesor.`,
     })
     return lead
@@ -191,7 +197,7 @@ export class SolicitudesService {
    * normalized into one stream. Both sources are small for a broker, so they're
    * fetched, merged and paginated in memory rather than with a SQL UNION.
    */
-  async listForAdmin(producerId: number, codeIds: number[], dto: ListSolicitudesDto) {
+  async listForAdmin(producerId: number, codeIds: number[], dto: ListSolicitudesDto, numbers: NumberWhere = {}) {
     const page = dto.page && dto.page > 0 ? dto.page : 1
     const pageSize = dto.pageSize && dto.pageSize > 0 ? dto.pageSize : DEFAULT_PAGE_SIZE
     const search = dto.search?.trim().toLowerCase()
@@ -199,10 +205,10 @@ export class SolicitudesService {
     const items: SolicitudListItem[] = []
 
     if (dto.kind !== 'cotizacion') {
-      items.push(...(await this.loadLeads(producerId, codeIds, dto)))
+      items.push(...(await this.loadLeads(producerId, codeIds, dto, numbers)))
     }
     if (dto.kind !== 'lead') {
-      items.push(...(await this.loadCotizaciones(producerId, codeIds, dto)))
+      items.push(...(await this.loadCotizaciones(producerId, codeIds, dto, numbers)))
     }
 
     const filtered = search
@@ -221,14 +227,15 @@ export class SolicitudesService {
     producerId: number,
     codeIds: number[],
     dto: ListSolicitudesDto,
+    numbers: NumberWhere,
   ): Promise<SolicitudListItem[]> {
     const leads = await this.prisma.contactLead.findMany({
       where: {
         producerId,
         deletedAt: null,
-        // Include leads not yet attributed to a code (anonymous web leads) so any
-        // admin of the org can pick them up.
-        OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }],
+        // Leads not attributed to a code (anonymous web leads) stay visible by
+        // code; by number, a web lead counts as the organization's default number's.
+        AND: [{ OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }, numbers],
         ...(dto.status ? { status: dto.status } : {}),
         ...(dto.productType ? { productType: dto.productType } : {}),
       },
@@ -265,6 +272,7 @@ export class SolicitudesService {
     producerId: number,
     codeIds: number[],
     dto: ListSolicitudesDto,
+    numbers: NumberWhere,
   ): Promise<SolicitudListItem[]> {
     // The auto/moto Solicitud panel filters by vehicleType ("AUTO"/"MOTO").
     const vehicleType = dto.productType === 'auto' ? 'AUTO' : dto.productType === 'moto' ? 'MOTO' : undefined
@@ -278,7 +286,7 @@ export class SolicitudesService {
         quote: {
           producerId,
           deletedAt: null,
-          OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }],
+          AND: [{ OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }, numbers],
           ...(vehicleType ? { vehicleType } : {}),
         },
       },

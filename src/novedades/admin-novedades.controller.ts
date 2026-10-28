@@ -27,12 +27,11 @@ export class AdminNovedadesController {
 
   @Get()
   async findAll(@Query() query: ListNovedadesDto, @Request() req: AuthenticatedRequest) {
+    // A "productor" filter narrows by code; a "número" filter by the number the matter came through.
     const chats = await this.scope.resolveChatScope(
       req.user,
-      await this.scope.resolveScopedCodeIdsFor(req.user, {
-        producerCodeId: query.producerCodeId,
-        phoneNumberId: query.phoneNumberId,
-      }),
+      await this.scope.resolveScopedCodeIds(req.user, query.producerCodeId),
+      query.phoneNumberId,
     )
     return this.novedadesService.listForAdmin(req.user.producerId, chats, query)
   }
@@ -47,10 +46,8 @@ export class AdminNovedadesController {
   async getStats(@Query() query: ListNovedadesDto, @Request() req: AuthenticatedRequest) {
     const chats = await this.scope.resolveChatScope(
       req.user,
-      await this.scope.resolveScopedCodeIdsFor(req.user, {
-        producerCodeId: query.producerCodeId,
-        phoneNumberId: query.phoneNumberId,
-      }),
+      await this.scope.resolveScopedCodeIds(req.user, query.producerCodeId),
+      query.phoneNumberId,
     )
     return this.novedadesService.getStats(req.user.producerId, chats)
   }

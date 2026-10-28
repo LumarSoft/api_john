@@ -162,11 +162,21 @@ describe('UsersService bot profile', () => {
       email: 'admin@norte.test',
       producer: { name: 'SEGUROS NORTE SRL', slug: 'seguros-norte', botProfile: { orgName: 'Seguros Norte' } },
     })
+    ;(prisma as unknown as { phoneNumber: unknown }).phoneNumber = {
+      findFirst: jest.fn().mockResolvedValue({ id: 8, number: '+54 9 341 000-0000' }),
+    }
 
     await expect(service.getProfile(7)).resolves.toEqual({
       id: 7,
       email: 'admin@norte.test',
-      organization: { slug: 'seguros-norte', name: 'SEGUROS NORTE SRL', displayName: 'Seguros Norte', shortName: null },
+      organization: {
+        slug: 'seguros-norte',
+        name: 'SEGUROS NORTE SRL',
+        displayName: 'Seguros Norte',
+        shortName: null,
+        // The office line, billed to the master code: the panel's default section filter.
+        defaultPhoneNumber: { id: 8, number: '+54 9 341 000-0000' },
+      },
     })
   })
 })
