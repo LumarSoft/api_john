@@ -243,6 +243,12 @@ describe('BotService', () => {
       },
     })
 
+    it("stops the bot on a number whose own switch is off, while the organization's stays on", async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: false })
+
+      await expect(service.getContext('P2')).resolves.toEqual(expect.objectContaining({ botEnabled: false }))
+    })
+
     it("gives the bot the organization's own name and data", async () => {
       prisma.phoneNumber.findFirst.mockResolvedValue(
         producer({

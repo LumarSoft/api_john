@@ -154,6 +154,7 @@ export class BotService {
         staffNames: true,
         businessHours: true,
         botProfile: true,
+        botEnabled: true,
         producer: {
           select: {
             id: true,
@@ -190,7 +191,8 @@ export class BotService {
       producerName: name,
       producerSlug: slug,
       botName,
-      botEnabled,
+      // Off when the organization's switch or the number's own is off.
+      botEnabled: botEnabled && phoneNumber.botEnabled !== false,
       // Office people customers write to by name: the bot alerts them and keeps attending.
       staffNames: parseStaffNames(staffNames),
       attentionHours,
@@ -516,12 +518,18 @@ export class BotService {
     const cutoff = new Date(now - this.sessionTimeoutMs)
     const windowStart = new Date(cutoff.getTime() - WARNING_WINDOW_MS)
 
+    // Numbers whose own switch is off get no goodbye either: the office is
+    // attending those chats itself.
+    const offNumbers = await this.prisma.phoneNumber.findMany({
+      where: { botEnabled: false, deletedAt: null },
+      select: { phoneNumberId: true },
+    })
     const claimed = await this.prisma.conversation.findMany({
       where: {
         deletedAt: null,
         producer: { botEnabled: true },
         warnedAt: null,
-        phoneNumberId: { not: null },
+        phoneNumberId: { not: null, notIn: offNumbers.map(n => n.phoneNumberId) },
         lastMessageAt: { not: null, lte: cutoff },
       },
       take: limit,

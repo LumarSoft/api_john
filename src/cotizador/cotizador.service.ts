@@ -8,6 +8,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common'
+import { parseCoverageOverrides, type CoverageOverrides } from '../common/coverage-overrides'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { isAxiosError } from 'axios'
@@ -104,6 +105,8 @@ export class CotizadorService {
     dto: QuoteVehicleDto,
     producerId: number | null,
     userId: number | null,
+    // How the number the quote is for offers the organization's coverages (null = as the organization).
+    coverageOverrides: CoverageOverrides | null = null,
   ): Promise<QuoteAutoResult> {
     const brandNumber = Number(dto.brand)
     const codiaNumber = Number(dto.model)
@@ -231,6 +234,7 @@ export class CotizadorService {
       dto.manufactureYear,
       requiredCodes,
       vehicleType,
+      coverageOverrides,
     )
     const valuationMissing = this.isValuationMissing(result, quote)
     if (valuationMissing) {
@@ -281,10 +285,12 @@ export class CotizadorService {
   ): Promise<QuoteAutoResult> {
     const phone = await this.prisma.phoneNumber.findFirst({
       where: { phoneNumberId, isActive: true, deletedAt: null },
-      select: { producerId: true },
+      select: { producerId: true, coverageSettings: true },
     })
     if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
-    return this.quoteVehicle(vehicleType, dto, phone.producerId, null)
+    // The number's own view of the coverages (which to offer, recommend and first).
+    const overrides = parseCoverageOverrides(phone.coverageSettings)
+    return this.quoteVehicle(vehicleType, dto, phone.producerId, null, Object.keys(overrides).length ? overrides : null)
   }
 
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {

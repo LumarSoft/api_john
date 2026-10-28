@@ -1148,7 +1148,7 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 
 **Responses**
 
-`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat.
+`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat. `globalBotDisabled` is the organization's bot switch and `numberBotDisabled` the switch of the number the chat came through (`PATCH /admin/phone-numbers/:id/bot-status`): with either on, the office answers the chat without taking it over.
 ```json
 [
   {
@@ -1156,6 +1156,8 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
     "waId": "5493411234567",
     "status": "pending",
     "botPaused": false,
+    "globalBotDisabled": false,
+    "numberBotDisabled": false,
     "assignedToUserId": null,
     "assignedTo": null,
     "handedOverAt": null,
@@ -1492,7 +1494,7 @@ All `/bot/*` endpoints require the header `x-bot-secret` matching the `BOT_SECRE
 
 ### GET /bot/context/:phoneNumberId
 
-Resolves the producer (tenant) behind a Meta phone number ID, including its system prompt. `botName`, `staffNames`, the hours line and `profile` are the number's own where it has them (`PATCH /admin/phone-numbers/:id/assistant`) and the organization's for the rest.
+Resolves the producer (tenant) behind a Meta phone number ID, including its system prompt. `botName`, `staffNames`, the hours line and `profile` are the number's own where it has them (`PATCH /admin/phone-numbers/:id/assistant`) and the organization's for the rest. `botEnabled` is `false` when the organization's switch or the number's own (`PATCH /admin/phone-numbers/:id/bot-status`) is off.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -1549,7 +1551,7 @@ Live hours (formatted week, open now, today's closure) of the number: its own we
 
 ### POST /bot/numbers/:phoneNumberId/cotizador/:vehicleType
 
-A quote the bot asks for on a number: same body and response as `POST /cotizador/:vehicleType`, but the quote belongs to the number's organization and goes out with that organization's Triunfo account.
+A quote the bot asks for on a number: same body and response as `POST /cotizador/:vehicleType`, but the quote belongs to the number's organization, goes out with that organization's Triunfo account and offers, recommends and orders the car coverages as the number configured them (`coverageSettings` of `PATCH /admin/phone-numbers/:id/assistant`), with the organization's wording.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -2030,7 +2032,7 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 
-Every number also carries `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization) and `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own).
+Every number also carries `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization), `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own) and `botEnabled` (the number's own bot switch, see `PATCH /admin/phone-numbers/:id/bot-status`).
 
 ### GET /admin/phone-numbers/:id/assistant
 
@@ -2050,19 +2052,29 @@ A number's own assistant next to its organization's. Whatever the number leaves 
     "botName": "Sofi",
     "staffNames": ["Caro"],
     "businessHours": null,
-    "botProfile": { "orgName": "Seguros Norte Rafaela", "orgShortName": null, "transferAlias": "NORTE.RAFAELA", "claimsEmail": null, "...": null }
+    "botProfile": { "orgName": "Seguros Norte Rafaela", "orgShortName": null, "transferAlias": "NORTE.RAFAELA", "claimsEmail": null, "...": null },
+    "botEnabled": true,
+    "coverageSettings": { "C1": { "isActive": null, "highlighted": true, "sortOrder": 0 } }
   },
   "organization": {
     "name": "Seguros Norte SRL",
     "botName": "Nico",
     "staffNames": ["Mili", "Milagros"],
     "businessHours": { "mon": [{ "from": "08:00", "to": "16:00" }], "...": [] },
-    "botProfile": { "orgName": "Seguros Norte", "towTruckPhone": "0800-111-2222", "...": null }
-  }
+    "botProfile": { "orgName": "Seguros Norte", "towTruckPhone": "0800-111-2222", "...": null },
+    "botEnabled": true,
+    "coverages": [
+      { "id": 1, "code": "A", "name": "Responsabilidad civil", "isActive": true, "highlighted": false, "sortOrder": 100, "needsReview": false },
+      { "id": 3, "code": "C1", "name": "Terceros completo", "isActive": true, "highlighted": true, "sortOrder": 300, "needsReview": false }
+    ]
+  },
+  "lastBotStatusChange": { "botEnabled": true, "at": "2026-10-28T15:00:00.000Z", "by": "sucursal@norte.test" }
 }
 ```
 
 `canEdit` is `true`: whoever sees a number may configure it.
+
+`own.coverageSettings` is how this number offers the organization's coverages, keyed by Triunfo code and holding only the fields it changes (`isActive`: whether it offers it, `highlighted`: whether it recommends it, `sortOrder`: its place in the list); each `null` field is the organization's. `organization.coverages` are the coverages as the organization offers them (`GET /admin/coberturas` reduced), which the number's own settings start from. The wording, the year windows and the "nothing says what it includes" rule stay the organization's; moto quotes keep Triunfo's fixed catalog. `own.botEnabled` and `lastBotStatusChange` are the number's own bot switch and who last flipped it.
 
 `404 Not Found` — the number is not of the caller's organization, or an admin asked for a number not billed to one of their codes
 
@@ -2080,16 +2092,42 @@ Changes a number's own assistant. Only the fields sent change; clearing one give
 | staffNames | string[] | No | up to 10 names of max 30; empty and repeated dropped; empty list = the organization's |
 | businessHours | object \| null | No | same shape and rules as `PATCH /admin/business-hours/schedule`; `null` = the organization's |
 | botProfile | object | No | same fields and limits as `PATCH /admin/config/profile`; an empty string = the organization's |
+| coverageSettings | object \| null | No | `{ "<code>": { "isActive"?: boolean \| null, "highlighted"?: boolean \| null, "sortOrder"?: 0–999 \| null } }` for codes of `organization.coverages`; a `null` field (or a code left out) = the organization's; `null` = every coverage as the organization's |
 
 ```json
-{ "botName": "Sofi", "staffNames": ["Caro"], "businessHours": null, "botProfile": { "transferAlias": "NORTE.RAFAELA" } }
+{ "botName": "Sofi", "staffNames": ["Caro"], "businessHours": null, "botProfile": { "transferAlias": "NORTE.RAFAELA" }, "coverageSettings": { "C1": { "highlighted": true, "sortOrder": 0 }, "D2": { "isActive": false } } }
 ```
 
 **Responses**
 
 `200 OK` — same body as `GET /admin/phone-numbers/:id/assistant`
 
-`400 Bad Request` — invalid hours or profile field
+`400 Bad Request` — invalid hours or profile field, a coverage code the organization does not have, or a coverage field that is not a boolean / an order out of range
+
+`404 Not Found` — the number is not of the caller's organization, or an admin on a number that is not billed to one of their codes
+
+### PATCH /admin/phone-numbers/:id/bot-status
+
+The number's own bot switch. Off, the bot stops answering on this number only (messages keep arriving to the inbox, where the chat reads as attended by a person and the office can answer without taking it); the organization's other numbers go on. The organization-wide switch (`PATCH /admin/config/bot-status`) still stops every number. Same scope as the assistant: the SuperAdmin on any number, an admin on the numbers billed to one of their codes. A real flip writes a `BotStatusChange` row with `phoneNumberId` and is announced like the organization-wide one (same channels, the number in the name); setting the current state again does nothing.
+
+**Auth required:** Yes (SUPERADMIN on any number; ADMIN on the numbers billed to one of their codes)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| botEnabled | boolean | Yes | — |
+
+```json
+{ "botEnabled": false }
+```
+
+**Responses**
+
+`200 OK`
+```json
+{ "id": 8, "botEnabled": false, "lastBotStatusChange": { "botEnabled": false, "at": "2026-10-28T15:00:00.000Z", "by": "sucursal@norte.test" } }
+```
 
 `404 Not Found` — the number is not of the caller's organization, or an admin on a number that is not billed to one of their codes
 

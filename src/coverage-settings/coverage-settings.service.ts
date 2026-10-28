@@ -5,6 +5,7 @@ import { UpdateCoverageSettingDto } from './dto/update-coverage-setting.dto'
 import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
 import { defaultCopyFor, motoCopyFor } from './coverage-defaults'
 import { VehicleType } from '../infoauto/infoauto.types'
+import type { CoverageOverrides } from '../common/coverage-overrides'
 
 const SETTING_SELECT = {
   id: true,
@@ -136,6 +137,10 @@ export class CoverageSettingsService {
    * on: by default for the everyday codes, or by an admin from the panel. A code with
    * neither is hidden — describing it by its letter promised destrucción total
    * on coverages that do not have it — and the admin screen flags it for review.
+   *
+   * A number may offer, recommend and order the organization's coverages its
+   * own way (`overrides`, from PhoneNumber.coverageSettings); the wording, the
+   * year windows and the "nothing says what it includes" rule stay the organization's.
    */
   async apply<T extends QuotedCoverage>(
     producerId: number,
@@ -143,6 +148,7 @@ export class CoverageSettingsService {
     vehicleYear: number,
     requiredCodes: readonly string[] = [],
     vehicleType: VehicleType = VehicleType.AUTO,
+    overrides: CoverageOverrides | null = null,
   ): Promise<Array<T & CoverageDisplay>> {
     if (coverages.length === 0) return []
 
@@ -181,18 +187,20 @@ export class CoverageSettingsService {
         // without text): offering it would mean guessing.
         const wording = setting ? this.wordingOf(setting) : this.defaultWording(c.code)
         if (wording.benefits.length === 0) return false
-        if (!this.isOffered(c.code, setting)) return false
+        if (!(overrides?.[c.code]?.isActive ?? this.isOffered(c.code, setting))) return false
         return !setting || inYearRange(vehicleYear, setting.yearFrom, setting.yearTo)
       })
       .map(c => {
         const setting = byCode.get(c.code)
+        const own = overrides?.[c.code]
         return {
           ...c,
           ...(setting ? this.wordingOf(setting) : this.defaultWording(c.code)),
           deductible: defaultCopyFor(c.code).deductible ?? null,
           highlighted:
-            !!setting?.highlighted && inYearRange(vehicleYear, setting.highlightYearFrom, setting.highlightYearTo),
-          _order: setting?.sortOrder ?? defaultCopyFor(c.code).sortOrder,
+            (own?.highlighted ?? !!setting?.highlighted) &&
+            inYearRange(vehicleYear, setting?.highlightYearFrom ?? null, setting?.highlightYearTo ?? null),
+          _order: own?.sortOrder ?? setting?.sortOrder ?? defaultCopyFor(c.code).sortOrder,
         }
       })
       .sort((a, b) => Number(b.highlighted) - Number(a.highlighted) || a._order - b._order)

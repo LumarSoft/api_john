@@ -4,6 +4,11 @@ import { Prisma, Role } from 'generated/prisma/client'
 import type { PrismaService } from '../prisma/prisma.service'
 import { PhoneNumbersService } from './phone-numbers.service'
 import { UsageService } from '../usage/usage.service'
+import type { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
+import type { BotStatusAlertService } from '../users/bot-status-alert.service'
+
+const noCoverages = { listForAdmin: jest.fn().mockResolvedValue([]) } as unknown as CoverageSettingsService
+const noAlerts = { notify: jest.fn().mockResolvedValue(undefined) } as unknown as BotStatusAlertService
 
 describe('monthly phone number report', () => {
   function setup() {
@@ -40,7 +45,7 @@ describe('monthly phone number report', () => {
       userProducerCode: { findMany: jest.fn().mockResolvedValue([{ producerCodeId: 11 }]) },
     }
     const usage = new UsageService(prisma as any, { get: () => undefined } as unknown as ConfigService)
-    return { prisma, service: new PhoneNumbersService(prisma as any, usage as any) }
+    return { prisma, service: new PhoneNumbersService(prisma as any, usage as any, noCoverages, noAlerts) }
   }
 
   const ownerOnly = ['pricing', 'plan', 'prorated', 'billedUsd', 'totalCostUsd', 'marginUsd', 'metaBillableMessages']
@@ -167,8 +172,14 @@ describe("a number's own assistant", () => {
       userProducerCode: {
         findMany: jest.fn().mockResolvedValue(userCodes.map(producerCodeId => ({ producerCodeId }))),
       },
+      botStatusChange: { findFirst: jest.fn().mockResolvedValue(null) },
     }
-    const service = new PhoneNumbersService(prisma as unknown as PrismaService, {} as UsageService)
+    const service = new PhoneNumbersService(
+      prisma as unknown as PrismaService,
+      {} as UsageService,
+      noCoverages,
+      noAlerts,
+    )
     return { prisma, service }
   }
 
@@ -246,5 +257,177 @@ describe("a number's own assistant", () => {
       service.updateAssistant(8, superAdmin, { businessHours: { mon: [{ from: '14:00', to: '09:00' }] } }),
     ).rejects.toBeInstanceOf(BadRequestException)
     expect(prisma.phoneNumber.update).not.toHaveBeenCalled()
+  })
+})
+
+describe("a number's own bot switch", () => {
+  function setup(stored: Record<string, unknown> = {}, userCodes: number[] = []) {
+    const phone = {
+      id: 8,
+      number: '+54 9 341 000-0000',
+      botEnabled: true,
+      responsibleProducerCodeId: 11,
+      producer: { name: 'Seguros Norte SRL' },
+      ...stored,
+    }
+    const prisma = {
+      phoneNumber: { findFirst: jest.fn().mockResolvedValue(phone), update: jest.fn().mockResolvedValue({ id: 8 }) },
+      botStatusChange: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ createdAt: new Date('2026-10-28T15:00:00.000Z') }),
+      },
+      user: { findFirst: jest.fn().mockResolvedValue({ email: 'sucursal@norte.test' }) },
+      userProducerCode: {
+        findMany: jest.fn().mockResolvedValue(userCodes.map(producerCodeId => ({ producerCodeId }))),
+      },
+      $transaction: jest.fn().mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops)),
+    }
+    const alerts = { notify: jest.fn().mockResolvedValue(undefined) }
+    const service = new PhoneNumbersService(
+      prisma as unknown as PrismaService,
+      {} as UsageService,
+      noCoverages,
+      alerts as unknown as BotStatusAlertService,
+    )
+    return { prisma, service, alerts }
+  }
+
+  it('lets the admin of the number switch it off, audits it and announces it', async () => {
+    const { service, prisma, alerts } = setup({}, [11])
+
+    const result = await service.setBotEnabled(8, { id: 4, producerId: 1, role: Role.ADMIN }, false)
+
+    expect(result).toMatchObject({ id: 8, botEnabled: false })
+    expect(prisma.phoneNumber.update).toHaveBeenCalledWith({
+      where: { id: 8 },
+      data: { botEnabled: false },
+      select: { id: true },
+    })
+    expect(prisma.botStatusChange.create).toHaveBeenCalledWith({
+      data: { producerId: 1, phoneNumberId: 8, botEnabled: false, userId: 4 },
+      select: { createdAt: true },
+    })
+    expect(alerts.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        producerName: 'Seguros Norte SRL · +54 9 341 000-0000',
+        botEnabled: false,
+        actorEmail: 'sucursal@norte.test',
+      }),
+    )
+  })
+
+  it('does nothing when the number is already in that state', async () => {
+    const { service, prisma, alerts } = setup({ botEnabled: false })
+
+    await service.setBotEnabled(8, { id: 2, producerId: 1, role: Role.SUPERADMIN }, false)
+
+    expect(prisma.phoneNumber.update).not.toHaveBeenCalled()
+    expect(alerts.notify).not.toHaveBeenCalled()
+  })
+
+  it('refuses an admin on a number that is not billed to one of their codes', async () => {
+    const { service, prisma } = setup({}, [12])
+
+    await expect(service.setBotEnabled(8, { id: 4, producerId: 1, role: Role.ADMIN }, false)).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    expect(prisma.phoneNumber.update).not.toHaveBeenCalled()
+  })
+})
+
+describe("a number's own coverages", () => {
+  function setup() {
+    const prisma = {
+      phoneNumber: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 8,
+          number: '+54 9 341 000-0000',
+          responsibleProducerCodeId: 11,
+          botName: null,
+          staffNames: null,
+          businessHours: null,
+          botProfile: null,
+          botEnabled: true,
+          coverageSettings: { A: { isActive: false } },
+          producer: {
+            name: 'Seguros Norte SRL',
+            botName: 'Nico',
+            staffNames: null,
+            businessHours: null,
+            botProfile: null,
+            botEnabled: true,
+          },
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      userProducerCode: { findMany: jest.fn().mockResolvedValue([]) },
+      botStatusChange: { findFirst: jest.fn().mockResolvedValue(null) },
+    }
+    const coverages = {
+      listForAdmin: jest.fn().mockResolvedValue([
+        {
+          id: 1,
+          code: 'A',
+          name: 'Responsabilidad civil',
+          isActive: true,
+          highlighted: false,
+          sortOrder: 100,
+          needsReview: false,
+        },
+        {
+          id: 2,
+          code: 'C1',
+          name: 'Terceros completo',
+          isActive: true,
+          highlighted: true,
+          sortOrder: 300,
+          needsReview: false,
+        },
+      ]),
+    }
+    const service = new PhoneNumbersService(
+      prisma as unknown as PrismaService,
+      {} as UsageService,
+      coverages as unknown as CoverageSettingsService,
+      noAlerts,
+    )
+    return { prisma, service }
+  }
+  const superAdmin = { id: 2, producerId: 1, role: Role.SUPERADMIN }
+
+  it("shows the number's own choices next to the organization's coverages", async () => {
+    const { service } = setup()
+
+    const view = await service.getAssistant(8, superAdmin)
+
+    expect(view.own.coverageSettings).toEqual({ A: { isActive: false, highlighted: null, sortOrder: null } })
+    expect(view.organization.coverages.map(c => [c.code, c.isActive, c.highlighted])).toEqual([
+      ['A', true, false],
+      ['C1', true, true],
+    ])
+  })
+
+  it('saves only what the number changes and refuses a code the organization does not have', async () => {
+    const { service, prisma } = setup()
+
+    await service.updateAssistant(8, superAdmin, {
+      coverageSettings: { C1: { highlighted: false, sortOrder: 1 }, A: { isActive: null } },
+    })
+    expect(prisma.phoneNumber.update).toHaveBeenCalledWith({
+      where: { id: 8 },
+      data: { coverageSettings: { C1: { isActive: null, highlighted: false, sortOrder: 1 } } },
+    })
+
+    await expect(
+      service.updateAssistant(8, superAdmin, { coverageSettings: { Z9: { isActive: true } } }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  it('gives the coverages back to the organization with null', async () => {
+    const { service, prisma } = setup()
+
+    await service.updateAssistant(8, superAdmin, { coverageSettings: null })
+
+    expect(prisma.phoneNumber.update.mock.calls[0][0].data).toEqual({ coverageSettings: Prisma.DbNull })
   })
 })

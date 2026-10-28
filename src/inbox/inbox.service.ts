@@ -170,14 +170,17 @@ export class InboxService {
       select: CONVERSATION_LIST_SELECT,
     })
 
-    const [agenda, lastInbound] = await Promise.all([
+    const [agenda, lastInbound, offNumbers] = await Promise.all([
       this.agendaNames(producerId, conversations),
       this.lastInboundByConversation(conversations.map(c => c.id)),
+      this.numbersWithBotOff(producerId),
     ])
 
     return conversations.map(({ messages, producer, _count, ...conversation }) => ({
       ...withContact(conversation, agenda.get(`${conversation.phoneNumberId}:${conversation.waId}`)),
       globalBotDisabled: !producer.botEnabled,
+      // The number's own switch is off: the office answers this chat like a taken one.
+      numberBotDisabled: !!conversation.phoneNumberId && offNumbers.has(conversation.phoneNumberId),
       customerMessageCount: _count.messages,
       // `lastMessageAt` can point at a bot/agent reply. The dedicated inbound
       // timestamp lets the web panel notify only when the customer wrote.
@@ -428,12 +431,25 @@ export class InboxService {
     }
   }
 
+  /** Meta ids of the organization's numbers whose own bot switch is off. */
+  private async numbersWithBotOff(producerId: number): Promise<Set<string>> {
+    const numbers = await this.prisma.phoneNumber.findMany({
+      where: { producerId, botEnabled: false, deletedAt: null },
+      select: { phoneNumberId: true },
+    })
+    return new Set(numbers.map(n => n.phoneNumberId))
+  }
+
   /** Checks shared by every reply from the panel; returns the conversation. */
   private async assertCanSend(conversationId: number, producerId: number, scope: ChatScope) {
     // Fix #2: producerId in DB query, not post-fetch check.
     const conversation = await this.findAndVerify(conversationId, producerId, scope)
 
-    if (!conversation.botPaused && conversation.producer.botEnabled) {
+    if (
+      !conversation.botPaused &&
+      conversation.producer.botEnabled &&
+      !(await this.numbersWithBotOff(producerId)).has(conversation.phoneNumberId ?? '')
+    ) {
       throw new ForbiddenException('Take over the conversation before sending messages')
     }
     if (!conversation.phoneNumberId) {

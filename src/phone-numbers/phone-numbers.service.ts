@@ -4,7 +4,10 @@ import { PrismaService } from '../prisma/prisma.service'
 import { UsageService, currentPeriod } from '../usage/usage.service'
 import { parseSchedule, validateSchedule } from '../business-hours/schedule'
 import { mergeBotProfile, parseBotProfile } from '../common/bot-profile'
+import { normalizeCoverageOverrides, parseCoverageOverrides } from '../common/coverage-overrides'
 import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
+import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
+import { BotStatusAlertService } from '../users/bot-status-alert.service'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
@@ -40,6 +43,8 @@ export class PhoneNumbersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly usage: UsageService,
+    private readonly coverages: CoverageSettingsService,
+    private readonly botStatusAlerts: BotStatusAlertService,
   ) {}
 
   /**
@@ -66,6 +71,7 @@ export class PhoneNumbersService {
         phoneNumberId: true,
         number: true,
         isActive: true,
+        botEnabled: true,
         ...ASSISTANT_SELECT,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
@@ -106,6 +112,8 @@ export class PhoneNumbersService {
         phoneNumberId: n.phoneNumberId,
         number: n.number,
         isActive: n.isActive,
+        // The number's own bot switch (the organization's is in GET /admin/config).
+        botEnabled: n.botEnabled,
         // The AI budget guards our OpenAI cost: the SuperAdmin only learns that the AI paused.
         ...(isOwner ? { monthlyBudgetUsd: n.monthlyBudgetUsd != null ? Number(n.monthlyBudgetUsd) : null } : {}),
         ...(seesActivity ? { budgetExceededAt: n.budgetExceededAt } : {}),
@@ -231,14 +239,20 @@ export class PhoneNumbersService {
         id: true,
         number: true,
         responsibleProducerCodeId: true,
+        botEnabled: true,
+        coverageSettings: true,
         ...ASSISTANT_SELECT,
-        producer: { select: { name: true, ...ASSISTANT_SELECT } },
+        producer: { select: { name: true, botEnabled: true, ...ASSISTANT_SELECT } },
       },
     })
     if (!phone || !this.inScope(await this.numberScope(user), phone.responsibleProducerCodeId)) {
       throw new NotFoundException(`Phone number ${id} not found`)
     }
     const { producer } = phone
+    const [coverages, lastBotStatusChange] = await Promise.all([
+      this.coverages.listForAdmin(user.producerId),
+      this.lastBotStatusChange(phone.id),
+    ])
 
     return {
       id: phone.id,
@@ -250,6 +264,10 @@ export class PhoneNumbersService {
         staffNames: parseStaffNames(phone.staffNames),
         businessHours: phone.businessHours == null ? null : parseSchedule(phone.businessHours),
         botProfile: parseBotProfile(phone.botProfile),
+        // The number's own switch; who last flipped it is in lastBotStatusChange.
+        botEnabled: phone.botEnabled,
+        // Only what the number changes about each coverage, keyed by code.
+        coverageSettings: parseCoverageOverrides(phone.coverageSettings),
       },
       organization: {
         name: producer.name,
@@ -257,8 +275,84 @@ export class PhoneNumbersService {
         staffNames: parseStaffNames(producer.staffNames),
         businessHours: parseSchedule(producer.businessHours),
         botProfile: parseBotProfile(producer.botProfile),
+        botEnabled: producer.botEnabled,
+        // The coverages as the organization offers them: what the number's own settings start from.
+        coverages: coverages.map(c => ({
+          id: c.id,
+          code: c.code,
+          name: c.name,
+          isActive: c.isActive,
+          highlighted: c.highlighted,
+          sortOrder: c.sortOrder,
+          needsReview: c.needsReview,
+        })),
       },
+      lastBotStatusChange,
     }
+  }
+
+  /**
+   * The number's own bot switch: off, the bot stops answering on this number
+   * while the organization's other numbers go on. Same scope as the assistant
+   * (the SuperAdmin any number, an admin those billed to one of their codes).
+   * A real flip is audited (BotStatusChange with the number) and announced like
+   * the organization-wide one; setting the current state again does nothing.
+   */
+  async setBotEnabled(id: number, user: PanelUser, botEnabled: boolean) {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { id, producerId: user.producerId, deletedAt: null },
+      select: {
+        id: true,
+        number: true,
+        botEnabled: true,
+        responsibleProducerCodeId: true,
+        producer: { select: { name: true } },
+      },
+    })
+    if (!phone || !this.inScope(await this.numberScope(user), phone.responsibleProducerCodeId)) {
+      throw new NotFoundException(`Phone number ${id} not found`)
+    }
+    if (phone.botEnabled === botEnabled) {
+      return { id: phone.id, botEnabled, lastBotStatusChange: await this.lastBotStatusChange(phone.id) }
+    }
+
+    const previous = await this.prisma.botStatusChange.findFirst({
+      where: { phoneNumberId: phone.id, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    })
+    const [, change] = await this.prisma.$transaction([
+      this.prisma.phoneNumber.update({ where: { id: phone.id }, data: { botEnabled }, select: { id: true } }),
+      this.prisma.botStatusChange.create({
+        data: { producerId: user.producerId, phoneNumberId: phone.id, botEnabled, userId: user.id || null },
+        select: { createdAt: true },
+      }),
+    ])
+
+    const actor = user.id ? await this.prisma.user.findFirst({ where: { id: user.id }, select: { email: true } }) : null
+    // Best-effort announcement; the switch is already persisted.
+    void this.botStatusAlerts
+      .notify({
+        producerId: user.producerId,
+        producerName: `${phone.producer.name} · ${phone.number}`,
+        botEnabled,
+        actorEmail: actor?.email ?? null,
+        at: change.createdAt,
+        since: previous?.createdAt ?? null,
+      })
+      .catch(() => undefined)
+
+    return { id: phone.id, botEnabled, lastBotStatusChange: await this.lastBotStatusChange(phone.id) }
+  }
+
+  /** Who last flipped the number's own switch and when, for the panel. */
+  private async lastBotStatusChange(phoneNumberId: number) {
+    const change = await this.prisma.botStatusChange.findFirst({
+      where: { phoneNumberId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: { botEnabled: true, createdAt: true, user: { select: { email: true } } },
+    })
+    return change ? { botEnabled: change.botEnabled, at: change.createdAt, by: change.user?.email ?? null } : null
   }
 
   /**
@@ -287,6 +381,12 @@ export class PhoneNumbersService {
     if (dto.botProfile !== undefined) {
       const own = Object.entries(mergeBotProfile(phone.botProfile, dto.botProfile)).filter(([, v]) => v != null)
       data.botProfile = own.length ? (Object.fromEntries(own) as Prisma.InputJsonObject) : Prisma.DbNull
+    }
+    if (dto.coverageSettings !== undefined) {
+      // Only codes the organization has a coverage for; what is left unset is the organization's.
+      const codes = (await this.coverages.listForAdmin(user.producerId)).map(c => c.code)
+      const overrides = normalizeCoverageOverrides(dto.coverageSettings, codes)
+      data.coverageSettings = overrides ? (overrides as unknown as Prisma.InputJsonObject) : Prisma.DbNull
     }
     await this.prisma.phoneNumber.update({ where: { id }, data })
     return this.getAssistant(id, user)

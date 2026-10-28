@@ -42,6 +42,7 @@ describe('InboxService.listConversations', () => {
     ])
     const groupBy = jest.fn().mockResolvedValue([{ conversationId: 7, _max: { createdAt: lastInboundMessageAt } }])
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: { findMany },
       message: { groupBy },
       whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },
@@ -63,6 +64,7 @@ describe('InboxService.listConversations', () => {
         clientIsContact: false,
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
         globalBotDisabled: true,
+        numberBotDisabled: false,
         customerMessageCount: 4,
         lastInboundMessageAt,
         lastMessage: {
@@ -95,6 +97,7 @@ describe('InboxService.listConversations', () => {
 describe('InboxService.listConversations contact vs. consulted client', () => {
   function setup(conversation: Record<string, unknown>, contacts: unknown[] = []) {
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: {
         findMany: jest
           .fn()
@@ -182,6 +185,7 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
 describe('InboxService.updateContact', () => {
   function setup() {
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: {
         findFirst: jest
           .fn()
@@ -247,6 +251,7 @@ describe('InboxService.getMessages', () => {
     process.env.JWT_SECRET = 'test-secret'
     const createdAt = new Date('2026-09-30T12:00:00.000Z')
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: {
         findFirst: jest.fn().mockResolvedValue({
           id: 7,
@@ -317,7 +322,10 @@ describe('InboxService.sendMessage with global human attention', () => {
     const prisma = {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
-      phoneNumber: { findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }) },
+      phoneNumber: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }),
+      },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { sendMessage: jest.fn().mockResolvedValue(undefined) }
@@ -350,7 +358,7 @@ describe('InboxService.sendMessage on a number that is off WhatsApp', () => {
     const prisma = {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
-      phoneNumber: { findUnique: jest.fn().mockResolvedValue(phone) },
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn().mockResolvedValue(phone) },
       $transaction: jest.fn(),
     }
     const notifier = { sendMessage: jest.fn() }
@@ -387,7 +395,10 @@ describe('InboxService.sendMessage on a number that is off WhatsApp', () => {
 
 describe('InboxService.autoReleaseToBot', () => {
   function setup(updated: number) {
-    const prisma = { conversation: { updateMany: jest.fn().mockResolvedValue({ count: updated }) } }
+    const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
+      conversation: { updateMany: jest.fn().mockResolvedValue({ count: updated }) },
+    }
     const notifier = { resetFlow: jest.fn().mockResolvedValue(undefined) }
     const novedades = novedadesMock()
     const service = new InboxService(
@@ -436,6 +447,7 @@ describe('InboxService.deleteConversations', () => {
       notification: { updateMany: jest.fn() },
     }
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { resetFlow: jest.fn().mockResolvedValue(undefined) }
@@ -539,7 +551,10 @@ describe('InboxService.sendMedia', () => {
     const prisma = {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
-      phoneNumber: { findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }) },
+      phoneNumber: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }),
+      },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { sendMedia }
@@ -629,6 +644,7 @@ describe("an admin's inbox", () => {
 
   function setup(conversation: Record<string, jest.Mock>) {
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation,
       message: { groupBy: jest.fn().mockResolvedValue([]) },
       whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },

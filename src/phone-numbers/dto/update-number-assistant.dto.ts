@@ -29,4 +29,12 @@ export class UpdateNumberAssistantDto {
   @ValidateNested()
   @Type(() => UpdateBotProfileDto)
   botProfile?: UpdateBotProfileDto
+
+  /**
+   * How this number offers the organization's coverages: { "<code>": { isActive, highlighted, sortOrder } },
+   * only the fields it changes; checked in the service. null = as the organization.
+   */
+  @IsOptional()
+  @IsObject()
+  coverageSettings?: Record<string, unknown> | null
 }

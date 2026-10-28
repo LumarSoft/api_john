@@ -20,6 +20,7 @@ import { PhoneNumbersService } from './phone-numbers.service'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
+import { SetNumberBotStatusDto } from './dto/set-number-bot-status.dto'
 
 @UseGuards(UserAuthGuard, RolesGuard)
 @Roles(Role.SUPERADMIN)
@@ -51,6 +52,18 @@ export class AdminPhoneNumbersController {
     @Body() dto: UpdateNumberAssistantDto,
   ) {
     return this.service.updateAssistant(id, req.user, dto)
+  }
+
+  // The number's own bot switch: the admin of the number (or the SuperAdmin)
+  // stops the bot on this number only. Every real flip is audited and announced.
+  @Patch(':id/bot-status')
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  setBotStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: SetNumberBotStatusDto,
+  ) {
+    return this.service.setBotEnabled(id, req.user, dto.botEnabled)
   }
 
   @Post()

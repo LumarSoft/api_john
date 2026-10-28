@@ -90,9 +90,13 @@ model BotStatusChange {
   // Admin who flipped the switch. Null when it did not come from a logged-in user.
   userId     Int?
   user       User?    @relation(fields: [userId], references: [id])
+  // The number the flip was for; null = the organization-wide switch.
+  phoneNumberId Int?
+  phoneNumber   PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
 
   @@index([producerId, createdAt])
   @@index([userId])
+  @@index([phoneNumberId])
 }
 
 // ─── MEJORAS ─────────────────────────────────────────────
@@ -347,6 +351,15 @@ model PhoneNumber {
   businessHours Json?
   // Only the Producer.botProfile fields this number changes (same flat shape).
   botProfile    Json?
+  // The number's own switch: false stops the bot on this number only (the
+  // organization's switch, Producer.botEnabled, stops every number). The
+  // admin of the number flips it; every flip is a BotStatusChange row.
+  botEnabled    Boolean @default(true)
+  // The number's view of the organization's coverages: { "<code>": { isActive,
+  // highlighted, sortOrder } } with only the fields it changes. Wording and
+  // year windows stay the organization's. Null = offers them as the organization does.
+  coverageSettings Json?
+  botStatusChanges BotStatusChange[]
 
   @@index([responsibleProducerCodeId])
   @@index([wabaAccountId])

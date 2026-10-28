@@ -174,7 +174,14 @@ describe('CotizadorService motorcycle offers', () => {
       null,
     )
     expect(result.coverages.map(c => c.code)).toEqual(codes.filter(c => ['A', 'B4', 'B1', 'B'].includes(c)))
-    expect(settings.apply).toHaveBeenCalledWith(1, expect.any(Array), 2025, ['A', 'B4', 'B1', 'B'], VehicleType.MOTO)
+    expect(settings.apply).toHaveBeenCalledWith(
+      1,
+      expect.any(Array),
+      2025,
+      ['A', 'B4', 'B1', 'B'],
+      VehicleType.MOTO,
+      null,
+    )
     expect(result.messages.some(message => message.includes('cobertura B4.'))).toBe(!codes.includes('B4'))
     expect(result.messages.some(message => message.includes('cobertura B.'))).toBe(!codes.includes('B'))
   })
@@ -424,7 +431,7 @@ describe('CotizadorService bot quotes per organization', () => {
 
     expect(prisma.phoneNumber.findFirst).toHaveBeenCalledWith({
       where: { phoneNumberId: '555', isActive: true, deletedAt: null },
-      select: { producerId: true },
+      select: { producerId: true, coverageSettings: true },
     })
     expect(triunfo.getAuth).toHaveBeenCalledWith(2)
   })
