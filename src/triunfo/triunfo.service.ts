@@ -36,7 +36,7 @@ export interface TriunfoCuotaDato {
   NumeroCuota: number
   FechaVtoCuota: string
   ImporteCuota: string
-  Estado: string // "PAGADA" | "PENDIENTE" | "VENCIDA" etc.
+  Estado: string // "PENDIENTE" | "PAGADA" | "ANULADA" | "EN PRELIQUIDACIÓN" (what production really sends)
   FechaCancelada?: string
 }
 

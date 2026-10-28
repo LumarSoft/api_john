@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
-import { expiringPolizaWhere, inForcePolizaWhere } from '../common/poliza-vigencia'
+import { expiringPolizaWhere, inForcePolizaWhere, notCancelledPolizaWhere } from '../common/poliza-vigencia'
 
 const EXPIRING_WINDOW_DAYS = 30
 const RENEWAL_MONTHS = 6
@@ -44,7 +44,8 @@ export class DashboardService {
     const cotizacionLead = { deletedAt: null, quote: { producerId, deletedAt: null, ...codeOrNull } }
     const contactLead = { producerId, deletedAt: null, ...codeOrNull }
     const poliza = { producerId, deletedAt: null, ...code }
-    const cuota = { deletedAt: null, policy: { producerId, deletedAt: null, ...code } }
+    // Cuotas of a policy Triunfo cancelled are not debt, as in cobranzas.
+    const cuota = { deletedAt: null, policy: { producerId, deletedAt: null, ...code, ...notCancelledPolizaWhere() } }
     const siniestro = { producerId, deletedAt: null, ...code }
 
     const [
@@ -122,7 +123,7 @@ export class DashboardService {
     const cuotas = await this.prisma.installment.findMany({
       where: {
         deletedAt: null,
-        policy: { producerId, deletedAt: null, producerCodeId: { in: codeIds } },
+        policy: { producerId, deletedAt: null, producerCodeId: { in: codeIds }, ...notCancelledPolizaWhere() },
         status: { in: ['pending', 'overdue', 'rejected'] },
       },
       select: { amount: true },

@@ -952,6 +952,8 @@ Hello World!
 
 Returns a paginated worklist of clients that owe money, enriched with debt stats and total debt per client. Results are filtered to debtors and ordered by urgency (oldest overdue installment first, then largest debt). Used by the admin Cobranzas page. `oldestOverdueDate` is the ISO date of the client's oldest overdue installment, or `null` when the client has no overdue installments.
 
+**What counts as debt.** Only cuotas of policies Triunfo has not cancelled (`lastMovement` not starting with `ANUL`/`RESCISION`): a cancelled policy keeps its unpaid cuotas, and they are not owed. Cuotas Triunfo reports as `ANULADA` are soft deleted by the cartera sync, and one `EN PRELIQUIDACIÓN` (the debit was sent to the bank) stays `pending`, never `overdue`, until the next novedad says paid or rejected. A `pending` cuota whose due date went by is marked `overdue` every night at 00:15 (Argentina), so a policy with no recent novedad still shows its debt. The same rules apply to `/admin/cobranzas/stats`, the asegurados KPIs and the dashboard.
+
 **Auth required:** Yes (JWT user token)
 
 **Query parameters**

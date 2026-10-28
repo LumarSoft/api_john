@@ -2,7 +2,13 @@ import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { TriunfoService } from '../triunfo/triunfo.service'
 import { riesgosOf } from '../common/poliza-detail'
-import { CarteraSyncService, resolveRiskType } from './cartera-sync.service'
+import {
+  CarteraSyncService,
+  isCancelledEstado,
+  isCollectingEstado,
+  mapCuotaStatus,
+  resolveRiskType,
+} from './cartera-sync.service'
 
 describe('CarteraSyncService on boot', () => {
   function setup(env: Record<string, string>) {
@@ -101,5 +107,52 @@ describe('resolveRiskType', () => {
     expect(
       resolveRiskType(null, 194, covering(['CATEGORIA 1', 'MUERTE'], ['CATEGORIA 1', 'INCAP.TOTAL/PARCIAL'])),
     ).toBe('life')
+  })
+})
+
+describe('mapCuotaStatus', () => {
+  const now = new Date('2026-10-28T12:00:00Z')
+  const past = new Date('2026-10-10')
+  const future = new Date('2026-11-10')
+
+  it('maps what Triunfo really sends', () => {
+    expect(mapCuotaStatus('PAGADA', past, now)).toBe('paid')
+    expect(mapCuotaStatus('PENDIENTE', future, now)).toBe('pending')
+    expect(mapCuotaStatus('PENDIENTE', past, now)).toBe('overdue')
+    expect(mapCuotaStatus('RECHAZADA', past, now)).toBe('rejected')
+  })
+
+  it('keeps a cuota sent to the bank pending past its due date', () => {
+    // 2,336 cuotas "EN PRELIQUIDACIÓN" were shown as overdue: the month's debits.
+    expect(mapCuotaStatus('EN PRELIQUIDACIÓN', past, now)).toBe('pending')
+    expect(isCollectingEstado('EN PRELIQUIDACIÓN')).toBe(true)
+    expect(isCollectingEstado('PENDIENTE')).toBe(false)
+  })
+
+  it('tells an ANULADA cuota apart so the sync soft deletes it', () => {
+    expect(isCancelledEstado('ANULADA')).toBe(true)
+    expect(isCancelledEstado(' anulada ')).toBe(true)
+    expect(isCancelledEstado('PAGADA')).toBe(false)
+    expect(isCancelledEstado(null)).toBe(false)
+  })
+})
+
+describe('CarteraSyncService.markOverdueInstallments', () => {
+  it('flips pending cuotas past their due date, leaving the ones sent to the bank alone', async () => {
+    const updateMany = jest.fn().mockResolvedValue({ count: 3 })
+    const service = new CarteraSyncService(
+      { installment: { updateMany } } as unknown as PrismaService,
+      {} as TriunfoService,
+      { get: () => undefined } as unknown as ConfigService,
+    )
+
+    await expect(service.markOverdueInstallments(new Date('2026-10-28T03:00:00Z'))).resolves.toBe(3)
+
+    const { where, data } = updateMany.mock.calls[0][0]
+    expect(data).toEqual({ status: 'overdue' })
+    expect(where.status).toBe('pending')
+    expect(where.deletedAt).toBeNull()
+    expect(where.dueDate.lt.toISOString()).toMatch(/^2026-10-2[78]/)
+    expect(where.OR).toEqual([{ providerStatus: null }, { NOT: { providerStatus: { startsWith: 'EN PRELIQ' } } }])
   })
 })

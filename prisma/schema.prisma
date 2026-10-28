@@ -602,6 +602,10 @@ model Installment {
   amount    Decimal           @db.Decimal(12, 2)
   dueDate   DateTime?
   status    InstallmentStatus @default(pending)
+  // Triunfo's own cuota state as it came ("PENDIENTE", "PAGADA", "ANULADA",
+  // "EN PRELIQUIDACIÓN"…), kept beside our status: an ANULADA cuota is soft
+  // deleted and one EN PRELIQUIDACIÓN (sent to the bank) is never overdue.
+  providerStatus String?
   deletedAt DateTime?
 
   policyId Int

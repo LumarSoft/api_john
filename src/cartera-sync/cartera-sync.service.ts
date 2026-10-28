@@ -129,13 +129,30 @@ function sortBySuplemento(novedades: TriunfoNovedad[]): TriunfoNovedad[] {
   return [...novedades].sort((a, b) => Number(a.Suplemento ?? 0) - Number(b.Suplemento ?? 0))
 }
 
-// Map Triunfo cuota Estado to our status values
-function mapCuotaStatus(estado: string, dueDate: Date | null): InstallmentStatus {
+/**
+ * Map Triunfo cuota Estado to our status values. The states Triunfo really
+ * sends are PENDIENTE, PAGADA, ANULADA and EN PRELIQUIDACIÓN; the last one is
+ * a debit already sent to the bank or card, neither paid nor overdue until the
+ * next novedad says so. Mapping it by its due date showed every automatic
+ * debit of the month as overdue, and the office saw debt that did not exist.
+ */
+export function mapCuotaStatus(estado: string, dueDate: Date | null, now: Date = new Date()): InstallmentStatus {
   const upper = (estado ?? '').toUpperCase()
   if (upper === 'PAGADA' || upper === 'COBRADA') return 'paid'
   if (upper === 'RECHAZADA' || upper === 'RECHAZADO' || upper === 'DEBITO_RECHAZADO') return 'rejected'
-  if (dueDate && dueDate < new Date()) return 'overdue'
+  if (isCollectingEstado(upper)) return 'pending'
+  if (dueDate && dueDate < now) return 'overdue'
   return 'pending'
+}
+
+/** Sent to the bank: pending whatever the due date says (see mapCuotaStatus). */
+export function isCollectingEstado(estado: string | null | undefined): boolean {
+  return (estado ?? '').toUpperCase().startsWith('EN PRELIQ')
+}
+
+/** An ANULADA cuota does not exist for the platform: it is soft deleted. */
+export function isCancelledEstado(estado: string | null | undefined): boolean {
+  return (estado ?? '').trim().toUpperCase() === 'ANULADA'
 }
 
 // ─── Service ─────────────────────────────────────────────
@@ -174,6 +191,28 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       return
     }
     void this.runGuarded().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
+  }
+
+  // "overdue" used to be stamped only when a policy came through the sync, so
+  // a cuota of a policy with no novedad in the three-month window stayed
+  // "pending" past its due date for good (and the reverse: one stamped overdue
+  // on its due date). This pass keeps the status honest every night, with no
+  // Triunfo call. A cuota sent to the bank (EN PRELIQUIDACIÓN) is left alone:
+  // the next novedad says whether it was paid or rejected.
+  @Cron('15 0 * * *', { timeZone: 'America/Argentina/Buenos_Aires' })
+  async markOverdueInstallments(now = new Date()): Promise<number> {
+    const today = new Date(localISODate(now))
+    const { count } = await this.prisma.installment.updateMany({
+      where: {
+        deletedAt: null,
+        status: 'pending',
+        dueDate: { lt: today },
+        OR: [{ providerStatus: null }, { NOT: { providerStatus: { startsWith: 'EN PRELIQ' } } }],
+      },
+      data: { status: 'overdue' },
+    })
+    if (count) this.logger.log(`Cuotas marked overdue: ${count}`)
+    return count
   }
 
   // Keeps policies/cuotas fresh in production. Runs at 06:00 and 20:00 Argentina
@@ -523,24 +562,37 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     for (const cuota of cuotasDatos) {
       const dueDate = isoDate(cuota.FechaVtoCuota)
       const status = mapCuotaStatus(cuota.Estado, dueDate)
+      const providerStatus = (cuota.Estado ?? '').trim() || null
+      const cancelled = isCancelledEstado(providerStatus)
+      const where = { policyId_number: { policyId: poliza.id, number: cuota.NumeroCuota } }
 
       await this.prisma.installment.upsert({
-        where: {
-          policyId_number: { policyId: poliza.id, number: cuota.NumeroCuota },
-        },
+        where,
         create: {
           policyId: poliza.id,
           number: cuota.NumeroCuota,
           amount: cuota.ImporteCuota,
           dueDate,
           status,
+          providerStatus,
+          deletedAt: cancelled ? new Date() : null,
         },
         update: {
           amount: cuota.ImporteCuota,
           dueDate,
           status,
+          providerStatus,
+          // A cuota that is no longer ANULADA comes back; one that still is
+          // keeps the date it was first cancelled on.
+          ...(cancelled ? {} : { deletedAt: null }),
         },
       })
+      if (cancelled) {
+        await this.prisma.installment.updateMany({
+          where: { ...where.policyId_number, deletedAt: null },
+          data: { deletedAt: new Date() },
+        })
+      }
     }
   }
 }

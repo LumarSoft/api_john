@@ -1,4 +1,10 @@
-import { paymentStatus, validityStatus, inForcePolizaWhere, isCancelledMovimiento } from './poliza-vigencia'
+import {
+  paymentStatus,
+  validityStatus,
+  inForcePolizaWhere,
+  isCancelledMovimiento,
+  notCancelledPolizaWhere,
+} from './poliza-vigencia'
 
 describe('poliza vigencia', () => {
   const now = new Date('2026-09-30T12:00:00Z')
@@ -33,6 +39,12 @@ describe('poliza vigencia', () => {
     ['RENOVACION', false],
   ])('isCancelledMovimiento(%s) = %s', (lastMovement, expected) => {
     expect(isCancelledMovimiento(lastMovement)).toBe(expected)
+  })
+
+  it('builds a where-clause that leaves cancelled policies out, whatever their dates', () => {
+    expect(notCancelledPolizaWhere()).toEqual({
+      NOT: [{ lastMovement: { startsWith: 'ANUL' } }, { lastMovement: { startsWith: 'RESCISION' } }],
+    })
   })
 
   it('builds a where-clause that requires started, not ended and not cancelled', () => {

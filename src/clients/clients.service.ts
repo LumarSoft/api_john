@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { validityStatus, expiringPolizaWhere, inForcePolizaWhere } from '../common/poliza-vigencia'
+import {
+  validityStatus,
+  expiringPolizaWhere,
+  inForcePolizaWhere,
+  notCancelledPolizaWhere,
+} from '../common/poliza-vigencia'
 import { productOf, riesgosOf } from '../common/poliza-detail'
 import { ClientStatusFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
 import { CollectionStatusFilter, ListCobranzasDto } from './dto/list-cobranzas.dto'
@@ -309,7 +314,7 @@ export class ClientsService {
       this.prisma.policy.count({ where: { AND: [activePoliza, expiringPolizaWhere(expiringLimit, now)] } }),
       this.prisma.policy.count({ where: { ...activePoliza, validTo: { lt: now } } }),
       this.prisma.installment.count({
-        where: { deletedAt: null, status: 'overdue', policy: { producerId, deletedAt: null, ...codeScope } },
+        where: { deletedAt: null, status: 'overdue', policy: { ...activePoliza, ...notCancelledPolizaWhere() } },
       }),
     ])
 
@@ -433,11 +438,13 @@ export class ClientsService {
     const pageSize = query.pageSize ?? 20
     const search = query.search?.trim()
 
+    // A policy Triunfo cancelled keeps its unpaid cuotas; they are not debt.
+    const livePoliza = { deletedAt: null, ...notCancelledPolizaWhere() }
     const and: Prisma.ClientWhereInput[] = [this.clientVisibility(codeIds)]
     const where: Prisma.ClientWhereInput = {
       producerId,
       deletedAt: null,
-      policies: { some: { deletedAt: null, installments: { some: { deletedAt: null } } } },
+      policies: { some: { ...livePoliza, installments: { some: { deletedAt: null } } } },
       AND: and,
     }
 
@@ -467,7 +474,7 @@ export class ClientsService {
         email: true,
         phone: true,
         policies: {
-          where: { deletedAt: null },
+          where: livePoliza,
           select: {
             riskType: true,
             vehicle: { select: { licensePlate: true } },
@@ -551,7 +558,8 @@ export class ClientsService {
   }
 
   async getCobranzasStats(producerId: number, codeIds: number[]) {
-    const codeScope = { producerCodeId: { in: codeIds } }
+    // Cuotas of a cancelled policy are not debt (see findCobranzasForAdmin).
+    const codeScope = { producerCodeId: { in: codeIds }, ...notCancelledPolizaWhere() }
     const baseCuota = { deletedAt: null, policy: { producerId, deletedAt: null, ...codeScope } }
     // Count clients who have a policy IN an accessible code with a cuota of the
     // given status. Scoping by the policy's code (not the client's) naturally
