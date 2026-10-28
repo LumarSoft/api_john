@@ -502,17 +502,49 @@ describe('BotService', () => {
       const result = await service.getOrCreateConversation('P1', 'wa1')
 
       expect(result.newSession).toBe(true)
-      expect(result.lastHumanReply).toEqual({ content: 'Pasame las fotos que tenés', createdAt: old.toISOString() })
+      expect(result.lastHumanReply).toEqual({
+        content: 'Pasame las fotos que tenés',
+        createdAt: old.toISOString(),
+        kind: 'person',
+      })
       expect(result.previousActivityAt).toBe(old.toISOString())
       const where = prisma.message.findFirst.mock.calls[0][0].where
       expect(where.OR).toEqual([{ role: 'agent' }, { source: 'app_echo' }])
-      // Looks back two hours, not just into the current session.
-      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThanOrEqual(2 * 60 * 60_000)
-      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeLessThan(3 * 60 * 60_000)
+      // Looks back three days (for the platform's notices), not just into the current session.
+      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThanOrEqual(72 * 60 * 60_000)
+      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeLessThan(73 * 60 * 60_000)
+    })
+
+    it('stops reporting what a person wrote after two hours, but a notice of the platform for three days', async () => {
+      const conversation = (old: Date) => ({
+        id: 7,
+        sessionStartedAt: old,
+        lastMessageAt: old,
+        phoneNumberId: 'P1',
+        client: null,
+      })
+
+      const person = new Date(Date.now() - 3 * 60 * 60_000)
+      prisma.conversation.findFirst.mockResolvedValue(conversation(person))
+      prisma.message.findFirst.mockResolvedValueOnce({ content: 'Dale, te aviso', createdAt: person, rawData: null })
+      await expect(service.getOrCreateConversation('P1', 'wa1')).resolves.toMatchObject({ lastHumanReply: null })
+
+      const notice = new Date(Date.now() - 30 * 60 * 60_000)
+      prisma.conversation.findFirst.mockResolvedValue(conversation(notice))
+      prisma.message.findFirst
+        .mockResolvedValueOnce({
+          content: 'Hola Ana, tu póliza venció…',
+          createdAt: notice,
+          rawData: { notice: 'policy_expiry' },
+        })
+        .mockResolvedValueOnce(null)
+      await expect(service.getOrCreateConversation('P1', 'wa1')).resolves.toMatchObject({
+        lastHumanReply: { content: 'Hola Ana, tu póliza venció…', kind: 'notice' },
+      })
     })
 
     it('drops the human reply once the bot answered after it', async () => {
-      const old = new Date(Date.now() - 3 * 60 * 60_000)
+      const old = new Date(Date.now() - 90 * 60_000)
       prisma.conversation.findFirst.mockResolvedValue({
         id: 7,
         sessionStartedAt: old,

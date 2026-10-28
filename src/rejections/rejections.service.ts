@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  HttpException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -15,8 +14,12 @@ import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../common/scope/scope.service'
 import { whatsAppIds } from '../common/phone-match'
 import { BotNotifierService } from '../inbox/bot-notifier.service'
+import { describeFailure, pickSender, pickWhatsApp, SEND_GAP_MS, Sender, sleep } from '../notices/notice-delivery'
+import { NoticeDeliveryService } from '../notices/notice-delivery.service'
 import { CreatePaymentRejectionImportDto, PaymentRejectionRowDto } from './dto/payment-rejection.dto'
 import { channelOf, noticeParams, renderNotice } from './rejection-notice'
+
+export { pickSender, pickWhatsApp } from '../notices/notice-delivery'
 
 const { READY, SKIPPED, SENDING, SENT, FAILED, MARKED } = PaymentRejectionStatus
 
@@ -29,12 +32,6 @@ const SKIP_REASON = {
 
 /** Rows the office can still send or mark: never sent, left out, or failed. */
 const OPEN_STATUSES: PaymentRejectionStatus[] = [READY, SKIPPED, FAILED]
-
-/**
- * Pause between notices. Meta caps throughput per number, and a burst of the
- * same template to dozens of people is what its quality checks flag as spam.
- */
-const SEND_GAP_MS = 1500
 
 const REJECTION_SELECT = {
   id: true,
@@ -64,12 +61,6 @@ const REJECTION_SELECT = {
 
 type RejectionRow = Prisma.PaymentRejectionGetPayload<{ select: typeof REJECTION_SELECT }>
 
-/** A WhatsApp number that can send, with the codes it serves. */
-interface Sender {
-  phoneNumberId: string
-  codeIds: number[]
-}
-
 /**
  * "Rechazos": the office loads Triunfo's Excel of rejected automatic debits and
  * the bot tells each client on WhatsApp, with the approved template
@@ -87,6 +78,7 @@ export class RejectionsService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly scope: ScopeService,
     private readonly botNotifier: BotNotifierService,
+    private readonly delivery: NoticeDeliveryService,
     config: ConfigService,
   ) {
     this.template = config.get<string>('PAYMENT_REJECTION_TEMPLATE') || undefined
@@ -165,7 +157,7 @@ export class RejectionsService implements OnModuleInit {
       const client = policyByCertificate.get(row.certificateNumber)?.client
       return [row.mobilePhone, row.homePhone, client?.deletedAt ? null : client?.phone]
     }
-    const knownWaIds = await this.knownWaIds(
+    const knownWaIds = await this.delivery.knownWaIds(
       producerId,
       dto.rows.flatMap(row => phoneSources(row).flatMap(whatsAppIds)),
     )
@@ -255,7 +247,7 @@ export class RejectionsService implements OnModuleInit {
     }
     await this.assertImport(user, importId)
 
-    const senders = await this.senders(user.producerId)
+    const senders = await this.delivery.senders(user.producerId)
     if (!senders.length) {
       throw new ConflictException('No hay un número de WhatsApp conectado para enviar los avisos. Revisalo en Números.')
     }
@@ -362,10 +354,7 @@ export class RejectionsService implements OnModuleInit {
       amount: row.amount.toNumber(),
       reason: row.reason,
     })
-    const existing = await this.prisma.conversation.findUnique({
-      where: { waId_producerId: { waId, producerId: row.producerId } },
-      select: { id: true, clientId: true, phoneNumberId: true },
-    })
+    const existing = await this.delivery.findConversation(waId, row.producerId)
     const phoneNumberId = pickSender(ctx.senders, existing?.phoneNumberId, row.producerCodeId)
 
     try {
@@ -385,7 +374,13 @@ export class RejectionsService implements OnModuleInit {
     }
 
     try {
-      const conversationId = await this.recordInChat(row, existing, phoneNumberId, renderNotice(params))
+      const conversationId = await this.delivery.recordInChat(
+        { ...row, waId },
+        existing,
+        phoneNumberId,
+        renderNotice(params),
+        { paymentRejectionId: row.id, notice: 'payment_rejection' },
+      )
       await this.prisma.paymentRejection.update({
         where: { id },
         data: { status: SENT, sentAt: new Date(), error: null, conversationId },
@@ -398,86 +393,6 @@ export class RejectionsService implements OnModuleInit {
         data: { status: SENT, sentAt: new Date(), error: 'Se envió, pero no quedó registrado en el chat del panel.' },
       })
     }
-  }
-
-  /**
-   * The notice as the office's message in the client's chat (created when they
-   * never wrote): the inbox shows it, and for the next days the bot reads what
-   * the client writes as an answer to it instead of greeting them from scratch.
-   */
-  private recordInChat(
-    row: {
-      id: number
-      waId: string | null
-      producerId: number
-      producerCodeId: number | null
-      clientId: number | null
-    },
-    existing: { id: number; clientId: number | null } | null,
-    phoneNumberId: string,
-    content: string,
-  ): Promise<number> {
-    return this.prisma.$transaction(async tx => {
-      const now = new Date()
-      let conversationId: number
-      if (existing) {
-        conversationId = existing.id
-        if (!existing.clientId && row.clientId) {
-          await tx.conversation.update({
-            where: { id: existing.id },
-            data: { clientId: row.clientId, clientLinkedAt: now },
-          })
-        }
-      } else {
-        const created = await tx.conversation.create({
-          data: {
-            waId: row.waId as string,
-            producerId: row.producerId,
-            phoneNumberId,
-            producerCodeId: row.producerCodeId,
-            clientId: row.clientId,
-            clientLinkedAt: row.clientId ? now : null,
-            sessionStartedAt: now,
-          },
-          select: { id: true },
-        })
-        conversationId = created.id
-      }
-      const message = await tx.message.create({
-        data: { conversationId, role: 'agent', content, rawData: { paymentRejectionId: row.id } },
-        select: { createdAt: true },
-      })
-      await tx.conversation.update({ where: { id: conversationId }, data: { lastMessageAt: message.createdAt } })
-      return conversationId
-    })
-  }
-
-  /** Active numbers that can send, the ones on a connected WABA first. */
-  private async senders(producerId: number): Promise<Sender[]> {
-    const phones = await this.prisma.phoneNumber.findMany({
-      where: {
-        producerId,
-        isActive: true,
-        deletedAt: null,
-        OR: [{ wabaAccountId: null }, { wabaAccount: { disconnectedAt: null } }],
-      },
-      orderBy: { id: 'asc' },
-      select: {
-        phoneNumberId: true,
-        wabaAccountId: true,
-        responsibleProducerCodeId: true,
-        servedCodes: { select: { producerCodeId: true } },
-      },
-    })
-    return phones
-      .sort((a, b) => Number(b.wabaAccountId != null) - Number(a.wabaAccountId != null))
-      .map(p => ({
-        phoneNumberId: p.phoneNumberId,
-        codeIds: [
-          ...(p.responsibleProducerCodeId != null ? [p.responsibleProducerCodeId] : []),
-          ...p.servedCodes.map(s => s.producerCodeId),
-        ],
-      }))
   }
 
   // ─── Helpers ───────────────────────────────────────────
@@ -517,16 +432,6 @@ export class RejectionsService implements OnModuleInit {
     })
     return new Set(previous.map(p => installmentKey(p.certificateNumber, p.installmentNumber, p.dueDate)))
   }
-
-  /** WhatsApp ids among `candidates` that already have a chat: they surely use WhatsApp. */
-  private async knownWaIds(producerId: number, candidates: string[]): Promise<Set<string>> {
-    if (!candidates.length) return new Set()
-    const chats = await this.prisma.conversation.findMany({
-      where: { producerId, waId: { in: [...new Set(candidates)] } },
-      select: { waId: true },
-    })
-    return new Set(chats.map(c => c.waId))
-  }
 }
 
 /** Rows of the codes the user may see, plus rows not tied to any code. */
@@ -536,31 +441,6 @@ function rowScope(codeIds: number[]): Prisma.PaymentRejectionWhereInput {
 
 function installmentKey(certificate: string, installment: number, dueDate: Date): string {
   return `${certificate}:${installment}:${dueDate.toISOString().slice(0, 10)}`
-}
-
-/**
- * The first phone, in order of preference, that reads as one WhatsApp id. A
- * mobile whose `15` split is ambiguous counts only if one reading already
- * wrote to us.
- */
-export function pickWhatsApp(
-  phones: Array<string | null | undefined>,
-  known: Set<string>,
-): { phone: string; waId: string } | null {
-  for (const phone of phones) {
-    if (!phone) continue
-    const ids = whatsAppIds(phone)
-    const waId = ids.length === 1 ? ids[0] : ids.find(id => known.has(id))
-    if (waId) return { phone, waId }
-  }
-  return null
-}
-
-/** The number the client already talks to, else one serving the policy's code, else the first. */
-export function pickSender(senders: Sender[], current: string | null | undefined, codeId: number | null): string {
-  if (current && senders.some(s => s.phoneNumberId === current)) return current
-  const forCode = codeId != null ? senders.find(s => s.codeIds.includes(codeId)) : undefined
-  return (forCode ?? senders[0]).phoneNumberId
 }
 
 function toResponse(row: RejectionRow) {
@@ -579,14 +459,4 @@ function toResponse(row: RejectionRow) {
     amount: row.amount.toNumber(),
     message: renderNotice(params),
   }
-}
-
-/** Why WhatsApp did not take the notice, for the office. */
-function describeFailure(error: unknown): string {
-  if (error instanceof HttpException && error.getStatus() === 502) return error.message.slice(0, 500)
-  return 'No se pudo enviar: el bot no respondió. Probá de nuevo en unos minutos.'
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }

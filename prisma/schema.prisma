@@ -72,6 +72,7 @@ model Producer {
   tasks                   Task[]
   paymentRejectionImports PaymentRejectionImport[]
   paymentRejections       PaymentRejection[]
+  policyExpiryNotices     PolicyExpiryNotice[]
   triunfoCredential       TriunfoCredential?
 }
 
@@ -85,11 +86,11 @@ model BotStatusChange {
   createdAt  DateTime  @default(now())
   deletedAt  DateTime?
 
-  producerId Int
-  producer   Producer @relation(fields: [producerId], references: [id])
+  producerId    Int
+  producer      Producer     @relation(fields: [producerId], references: [id])
   // Admin who flipped the switch. Null when it did not come from a logged-in user.
-  userId     Int?
-  user       User?    @relation(fields: [userId], references: [id])
+  userId        Int?
+  user          User?        @relation(fields: [userId], references: [id])
   // The number the flip was for; null = the organization-wide switch.
   phoneNumberId Int?
   phoneNumber   PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
@@ -256,6 +257,7 @@ model ProducerCode {
   servedByPhones       PhoneNumberProducerCode[]
   usageMonthly         UsageMonthly[]
   paymentRejections    PaymentRejection[]
+  policyExpiryNotices  PolicyExpiryNotice[]
 
   @@unique([producerId, code])
   @@index([producerId, isActive])
@@ -346,15 +348,15 @@ model PhoneNumber {
   // The number's own assistant, for a branch or a producer that answers on its
   // own line. Each one left null takes the organization's value (same field on
   // Producer), so a number nobody configured behaves exactly as before.
-  botName       String? @db.VarChar(60)
-  staffNames    String? @db.VarChar(255)
-  businessHours Json?
+  botName          String?           @db.VarChar(60)
+  staffNames       String?           @db.VarChar(255)
+  businessHours    Json?
   // Only the Producer.botProfile fields this number changes (same flat shape).
-  botProfile    Json?
+  botProfile       Json?
   // The number's own switch: false stops the bot on this number only (the
   // organization's switch, Producer.botEnabled, stops every number). The
   // admin of the number flips it; every flip is a BotStatusChange row.
-  botEnabled    Boolean @default(true)
+  botEnabled       Boolean           @default(true)
   // The number's view of the organization's coverages: { "<code>": { isActive,
   // highlighted, sortOrder } } with only the fields it changes. Wording and
   // year windows stay the organization's. Null = offers them as the organization does.
@@ -478,6 +480,7 @@ model User {
   paymentRejectionImports PaymentRejectionImport[]
   policiesHidden          Policy[]                 @relation("policies_hidden")
   paymentRejectionsSent   PaymentRejection[]
+  policyExpiryNoticesSent PolicyExpiryNotice[]     @relation("policy_expiry_notices_sent")
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
@@ -498,17 +501,18 @@ model Client {
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
-  producerId        Int
-  producer          Producer           @relation(fields: [producerId], references: [id])
+  producerId          Int
+  producer            Producer             @relation(fields: [producerId], references: [id])
   // Triunfo agent code that owns this client's cartera. Nullable during migration;
   // back-filled to the org master code, then refined per Triunfo cartera.
-  producerCodeId    Int?
-  producerCode      ProducerCode?      @relation(fields: [producerCodeId], references: [id])
-  conversations     Conversation[]
-  policies          Policy[]
-  claims            Claim[]
-  notifications     Notification[]
-  paymentRejections PaymentRejection[]
+  producerCodeId      Int?
+  producerCode        ProducerCode?        @relation(fields: [producerCodeId], references: [id])
+  conversations       Conversation[]
+  policies            Policy[]
+  claims              Claim[]
+  notifications       Notification[]
+  paymentRejections   PaymentRejection[]
+  policyExpiryNotices PolicyExpiryNotice[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
@@ -545,10 +549,10 @@ model Policy {
   // Taken out of the "pólizas vencidas" worklist by hand: the office knows
   // it will not be renewed (vehicle sold, insured elsewhere…). The cartera
   // sync never touches these, so the choice survives every novedad.
-  hiddenAt     DateTime?
-  hiddenReason String?
-  hiddenById   Int?
-  hiddenBy     User?     @relation("policies_hidden", fields: [hiddenById], references: [id])
+  hiddenAt          DateTime?
+  hiddenReason      String?
+  hiddenById        Int?
+  hiddenBy          User?     @relation("policies_hidden", fields: [hiddenById], references: [id])
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
@@ -565,6 +569,7 @@ model Policy {
   installments      Installment[]
   claims            Claim[]
   paymentRejections PaymentRejection[]
+  expiryNotices     PolicyExpiryNotice[]
 
   @@unique([certificateNumber, producerId])
   @@index([producerCodeId])
@@ -605,16 +610,16 @@ enum InstallmentStatus {
 }
 
 model Installment {
-  id        Int               @id @default(autoincrement())
-  number    Int
-  amount    Decimal           @db.Decimal(12, 2)
-  dueDate   DateTime?
-  status    InstallmentStatus @default(pending)
+  id             Int               @id @default(autoincrement())
+  number         Int
+  amount         Decimal           @db.Decimal(12, 2)
+  dueDate        DateTime?
+  status         InstallmentStatus @default(pending)
   // Triunfo's own cuota state as it came ("PENDIENTE", "PAGADA", "ANULADA",
   // "EN PRELIQUIDACIÓN"…), kept beside our status: an ANULADA cuota is soft
   // deleted and one EN PRELIQUIDACIÓN (sent to the bank) is never overdue.
   providerStatus String?
-  deletedAt DateTime?
+  deletedAt      DateTime?
 
   policyId Int
   policy   Policy @relation(fields: [policyId], references: [id])
@@ -696,10 +701,10 @@ model Notification {
   // the panel shows each branch only what came through its own number. Null = not
   // from a chat (web, panel) or older than this column; it counts as the
   // organization's default number's.
-  phoneNumberId String?
+  phoneNumberId  String?
 
-  clientId       Int?
-  client         Client?       @relation(fields: [clientId], references: [id])
+  clientId Int?
+  client   Client? @relation(fields: [clientId], references: [id])
 
   @@index([producerId, status, category, createdAt])
   @@index([producerId, readAt])
@@ -736,7 +741,7 @@ model Quote {
   // the panel shows each branch only what came through its own number. Null = not
   // from a chat (web, panel) or older than this column; it counts as the
   // organization's default number's.
-  phoneNumberId String?
+  phoneNumberId  String?
 
   @@index([producerCodeId])
   @@index([producerId, phoneNumberId])
@@ -803,11 +808,11 @@ model ContactLead {
   // the panel shows each branch only what came through its own number. Null = not
   // from a chat (web, panel) or older than this column; it counts as the
   // organization's default number's.
-  phoneNumberId String?
+  phoneNumberId  String?
 
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
-  deletedAt      DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   producerId     Int
   producer       Producer      @relation(fields: [producerId], references: [id])
@@ -891,27 +896,28 @@ model Conversation {
   assignedTo       User?              @relation("assigned_conversations", fields: [assignedToUserId], references: [id])
   handedOverAt     DateTime?
 
-  producerId        Int
-  producer          Producer           @relation(fields: [producerId], references: [id])
+  producerId          Int
+  producer            Producer             @relation(fields: [producerId], references: [id])
   // Triunfo agent code this chat resolves to. Set when the client identifies
   // (DNI/patente) — a number shared by several codes routes to the right code by
   // identification, not by the number. Drives inbox scoping for admins.
-  producerCodeId    Int?
-  producerCode      ProducerCode?      @relation(fields: [producerCodeId], references: [id])
-  clientId          Int? // se vincula cuando el cliente se identifica por DNI
-  client            Client?            @relation(fields: [clientId], references: [id])
+  producerCodeId      Int?
+  producerCode        ProducerCode?        @relation(fields: [producerCodeId], references: [id])
+  clientId            Int? // se vincula cuando el cliente se identifica por DNI
+  client              Client?              @relation(fields: [clientId], references: [id])
   // When the current client link was made. A chat can be about someone else's
   // policy (a relative writes with the holder's DNI): unless the client's phone
   // is this WhatsApp number, the link only lasts for the session it was made in.
-  clientLinkedAt    DateTime?
+  clientLinkedAt      DateTime?
   // WhatsApp profile name of whoever writes from this number (Meta `contacts`).
   // The inbox shows it instead of the linked client when they are not the same person.
-  contactName       String?            @db.VarChar(191)
+  contactName         String?              @db.VarChar(191)
   // Name an advisor set by hand in the inbox. Wins over the address book and
   // the WhatsApp profile name, which the bot refreshes on every message.
-  contactNameManual String?            @db.VarChar(191)
-  messages          Message[]
-  paymentRejections PaymentRejection[]
+  contactNameManual   String?              @db.VarChar(191)
+  messages            Message[]
+  paymentRejections   PaymentRejection[]
+  policyExpiryNotices PolicyExpiryNotice[]
 
   @@unique([waId, producerId])
   @@index([producerCodeId])
@@ -1186,4 +1192,42 @@ model PaymentRejection {
   @@index([importId, rowNumber])
   // Finds an earlier notice for the same installment (the Excels overlap in time).
   @@index([producerId, certificateNumber, installmentNumber])
+}
+
+enum PolicyExpiryNoticeStatus {
+  SENDING
+  SENT
+  FAILED
+  MARKED
+}
+
+// A WhatsApp notice that a policy ran out, sent from the cobranzas "pólizas
+// vencidas" worklist with the Meta template POLICY_EXPIRY_TEMPLATE, or MARKED
+// when the office told the client by other means. One row per attempt.
+model PolicyExpiryNotice {
+  id        Int                      @id @default(autoincrement())
+  status    PolicyExpiryNoticeStatus @default(SENDING)
+  phone     String?                  @db.VarChar(40)
+  waId      String?                  @db.VarChar(20)
+  error     String?                  @db.VarChar(500)
+  sentAt    DateTime?
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  deletedAt DateTime?
+
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
+  policyId       Int
+  policy         Policy        @relation(fields: [policyId], references: [id])
+  clientId       Int
+  client         Client        @relation(fields: [clientId], references: [id])
+  conversationId Int?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  sentById       Int?
+  sentBy         User?         @relation("policy_expiry_notices_sent", fields: [sentById], references: [id])
+
+  @@index([policyId, createdAt])
+  @@index([producerId, status])
 }

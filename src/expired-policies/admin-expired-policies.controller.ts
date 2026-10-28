@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Query, Request, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Request, UseGuards } from '@nestjs/common'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { ScopeService } from '../common/scope/scope.service'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
 import { HidePolicyDto } from './dto/hide-policy.dto'
 import { ListExpiredPoliciesDto } from './dto/list-expired-policies.dto'
+import { PolicyIdsDto } from './dto/policy-ids.dto'
 import { ExpiredPoliciesService } from './expired-policies.service'
 
 @UseGuards(UserAuthGuard)
@@ -21,6 +22,18 @@ export class AdminExpiredPoliciesController {
       phoneNumberId: query.phoneNumberId,
     })
     return this.expiredPolicies.list(req.user.producerId, codeIds, query)
+  }
+
+  @Post('send')
+  async send(@Body() body: PolicyIdsDto, @Request() req: AuthenticatedRequest) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.expiredPolicies.send(req.user, codeIds, body.ids)
+  }
+
+  @Post('mark')
+  async mark(@Body() body: PolicyIdsDto, @Request() req: AuthenticatedRequest) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.expiredPolicies.mark(req.user, codeIds, body.ids)
   }
 
   @Patch(':id/hide')

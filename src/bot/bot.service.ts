@@ -42,11 +42,23 @@ const WARNING_WINDOW_MS = 10 * 60_000
 // days, a chat answered from the app at 14:06 got nothing from the bot but
 // "le pasé tu consulta a la oficina" (28/10).
 const HUMAN_REPLY_LOOKBACK_MS = 2 * 60 * 60_000
+// A notice the platform sent on its own (a rechazo, a póliza vencida) is
+// answered days later — "sí, quiero renovar" the next morning — and that
+// answer is for the office, not a fresh conversation with the bot.
+const NOTICE_LOOKBACK_MS = 72 * 60 * 60_000
 // A photo sent outside the guided claim steps only joins an open claim filed
 // this recently; an older claim is not where an unrelated photo belongs.
 const LOOSE_PHOTO_CLAIM_WINDOW_MS = 48 * 60 * 60_000
 
 const toDateStr = (d: Date): string => d.toISOString().slice(0, 10)
+
+type HumanReplyKind = 'person' | 'notice'
+
+/** A message the platform wrote on its own: a rechazo or póliza vencida notice (see NoticeDeliveryService). */
+function isPlatformNotice(rawData: unknown): boolean {
+  if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return false
+  return 'notice' in rawData || 'paymentRejectionId' in rawData
+}
 
 interface ClientLink {
   waId: string
@@ -383,16 +395,22 @@ export class BotService {
     // answering that person from someone starting a new conversation. Only
     // while that person spoke last: once the bot answered after them, the
     // customer's "ok" or "sí" is for the bot.
-    const humanReply = await this.prisma.message.findFirst({
+    const latestReply = await this.prisma.message.findFirst({
       where: {
         conversationId: conversation.id,
         deletedAt: null,
         OR: [{ role: 'agent' }, { source: 'app_echo' }],
-        createdAt: { gte: new Date(Date.now() - HUMAN_REPLY_LOOKBACK_MS) },
+        createdAt: { gte: new Date(Date.now() - NOTICE_LOOKBACK_MS) },
       },
       orderBy: { createdAt: 'desc' },
-      select: { content: true, createdAt: true },
+      select: { content: true, createdAt: true, rawData: true },
     })
+    // A person's reply counts for two hours; a notice of the platform for three days.
+    const kind: HumanReplyKind = isPlatformNotice(latestReply?.rawData) ? 'notice' : 'person'
+    const humanReply =
+      latestReply && (kind === 'notice' || Date.now() - latestReply.createdAt.getTime() <= HUMAN_REPLY_LOOKBACK_MS)
+        ? latestReply
+        : null
     const botSpokeAfter = humanReply
       ? await this.prisma.message.findFirst({
           where: {
@@ -451,7 +469,7 @@ export class BotService {
       flowState,
       messages: messages.reverse(),
       lastHumanReply: lastHumanReply
-        ? { content: lastHumanReply.content, createdAt: lastHumanReply.createdAt.toISOString() }
+        ? { content: lastHumanReply.content, createdAt: lastHumanReply.createdAt.toISOString(), kind }
         : null,
       // When this number last talked to us before this message, across sessions:
       // someone who wrote a few hours ago does not need the full introduction again.

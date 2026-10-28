@@ -4,6 +4,7 @@ import type { PrismaService } from '../prisma/prisma.service'
 import type { ScopeService } from '../common/scope/scope.service'
 import type { BotNotifierService } from '../inbox/bot-notifier.service'
 import type { PaymentRejectionRowDto } from './dto/payment-rejection.dto'
+import { NoticeDeliveryService } from '../notices/notice-delivery.service'
 import { RejectionsService, pickSender, pickWhatsApp } from './rejections.service'
 
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
@@ -72,6 +73,7 @@ function setup(template: string | null = 'aviso_rechazo_pago') {
     prisma as unknown as PrismaService,
     scope as unknown as ScopeService,
     botNotifier as unknown as BotNotifierService,
+    new NoticeDeliveryService(prisma as unknown as PrismaService),
     config as unknown as ConfigService,
   )
   return { service, prisma, scope, botNotifier }
@@ -186,7 +188,11 @@ describe('RejectionsService.send', () => {
       select: { id: true },
     })
     expect(prisma.message.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ conversationId: 40, role: 'agent', rawData: { paymentRejectionId: 1 } }),
+      data: expect.objectContaining({
+        conversationId: 40,
+        role: 'agent',
+        rawData: { paymentRejectionId: 1, notice: 'payment_rejection' },
+      }),
       select: { createdAt: true },
     })
     expect(prisma.paymentRejection.update).toHaveBeenLastCalledWith({

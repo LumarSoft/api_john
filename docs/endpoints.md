@@ -15,7 +15,7 @@ Registers a new user.
 **Request body**
 
 | Field    | Type   | Required | Constraints          |
-|----------|--------|----------|----------------------|
+| -------- | ------ | -------- | -------------------- |
 | email    | string | Yes      | Valid email format   |
 | password | string | Yes      | Minimum 6 characters |
 
@@ -29,6 +29,7 @@ Registers a new user.
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "id": 1,
@@ -39,6 +40,7 @@ Registers a new user.
 ```
 
 `409 Conflict` — Email already in use
+
 ```json
 {
   "statusCode": 409,
@@ -60,7 +62,7 @@ Authenticates a user and returns a JWT access token.
 **Request body**
 
 | Field    | Type   | Required | Constraints        |
-|----------|--------|----------|--------------------|
+| -------- | ------ | -------- | ------------------ |
 | email    | string | Yes      | Valid email format |
 | password | string | Yes      | Non-empty string   |
 
@@ -74,6 +76,7 @@ Authenticates a user and returns a JWT access token.
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "access_token": "<jwt>"
@@ -81,6 +84,7 @@ Authenticates a user and returns a JWT access token.
 ```
 
 `401 Unauthorized` — Invalid credentials
+
 ```json
 {
   "statusCode": 401,
@@ -103,8 +107,8 @@ Requests a vehicle insurance quote from the Triunfo API. `vehicleType` is the pa
 
 **Path params**
 
-| Param       | Type   | Constraints     |
-|-------------|--------|-----------------|
+| Param       | Type   | Constraints      |
+| ----------- | ------ | ---------------- |
 | vehicleType | string | `auto` or `moto` |
 
 The raw Triunfo response is persisted as `Quote` (with `vehicleType`); the endpoint returns a normalized result with one entry per coverage that is meant to be shown.
@@ -112,21 +116,21 @@ The raw Triunfo response is persisted as `Quote` (with `vehicleType`); the endpo
 Two rules are applied on top of what Triunfo returns:
 
 - **Payment methods** — only `Débito Automático` (`1`) and `Plan de Pago` (`9`) are exposed. `Contado` (`6`) is quoted by Triunfo but never shown; see `src/common/payment-methods.ts`.
-- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see *Admin — Coberturas*). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes always return A, B4 and B1 with fixed moto wording.
+- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see _Admin — Coberturas_). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes always return A, B4 and B1 with fixed moto wording.
 
 `Valor` is sent as `"0"` so Triunfo resolves the market value itself and returns it in `vehicleValue`; the InfoAuto valuation endpoints are not part of the current subscription.
 
 **Request body**
 
-| Field           | Type   | Required | Constraints                              |
-|-----------------|--------|----------|------------------------------------------|
-| brand           | string | Yes      | InfoAuto brand id                        |
-| model           | string | Yes      | InfoAuto CODIA                           |
-| manufactureYear | number | Yes      | Integer between 1900 and current year +1 |
-| postalCode      | number | Yes      | Integer between 1000 and 9499 (Argentine postal code) |
-| coverage        | string | No       | Triunfo coverage code — empty quotes all |
-| zeroKm          | boolean | No      | Brand new, not registered: sent as `CeroKM` 1. Only for the current or previous model year |
-| hasGnc          | boolean | No      | Cars: the vehicle has GNC. Not priced yet (the accessory code is unknown): `messages` says the price leaves the equipment out |
+| Field           | Type    | Required | Constraints                                                                                                                   |
+| --------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| brand           | string  | Yes      | InfoAuto brand id                                                                                                             |
+| model           | string  | Yes      | InfoAuto CODIA                                                                                                                |
+| manufactureYear | number  | Yes      | Integer between 1900 and current year +1                                                                                      |
+| postalCode      | number  | Yes      | Integer between 1000 and 9499 (Argentine postal code)                                                                         |
+| coverage        | string  | No       | Triunfo coverage code — empty quotes all                                                                                      |
+| zeroKm          | boolean | No       | Brand new, not registered: sent as `CeroKM` 1. Only for the current or previous model year                                    |
+| hasGnc          | boolean | No       | Cars: the vehicle has GNC. Not priced yet (the accessory code is unknown): `messages` says the price leaves the equipment out |
 
 ```json
 {
@@ -140,6 +144,7 @@ Two rules are applied on top of what Triunfo returns:
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "quoteNumber": "15464992",
@@ -187,20 +192,20 @@ Records the coverage request (lead) for an existing quote: the coverage the visi
 
 **Request body**
 
-| Field      | Type   | Required | Constraints                                          |
-|------------|--------|----------|------------------------------------------------------|
-| coverage   | string | Yes      | Triunfo coverage code chosen by the visitor (≤ 10)   |
-| startDate  | string | Yes      | ISO date `YYYY-MM-DD`, today or later                |
-| personType | string | Yes      | `FISICA` or `JURIDICA`                               |
-| firstName  | string | Yes      | ≤ 80 — razón social when `personType` is `JURIDICA`  |
-| lastName   | string | No       | ≤ 80                                                 |
-| email      | string | Yes      | Valid email                                          |
-| phone      | string | Yes      | ≤ 25                                                 |
-| birthDate  | string | No       | ISO date `YYYY-MM-DD`                                |
-| docType    | string | Yes      | `DNI`, `CUIL`, `CUIT` or `PASAPORTE`                 |
-| docNumber  | string | Yes      | ≤ 15                                                 |
-| address    | string | Yes      | ≤ 160                                                |
-| paymentMethod | string | Yes   | `CREDIT`, `DEBIT` or `OTHER` — preferred method only |
+| Field         | Type   | Required | Constraints                                          |
+| ------------- | ------ | -------- | ---------------------------------------------------- |
+| coverage      | string | Yes      | Triunfo coverage code chosen by the visitor (≤ 10)   |
+| startDate     | string | Yes      | ISO date `YYYY-MM-DD`, today or later                |
+| personType    | string | Yes      | `FISICA` or `JURIDICA`                               |
+| firstName     | string | Yes      | ≤ 80 — razón social when `personType` is `JURIDICA`  |
+| lastName      | string | No       | ≤ 80                                                 |
+| email         | string | Yes      | Valid email                                          |
+| phone         | string | Yes      | ≤ 25                                                 |
+| birthDate     | string | No       | ISO date `YYYY-MM-DD`                                |
+| docType       | string | Yes      | `DNI`, `CUIL`, `CUIT` or `PASAPORTE`                 |
+| docNumber     | string | Yes      | ≤ 15                                                 |
+| address       | string | Yes      | ≤ 160                                                |
+| paymentMethod | string | Yes      | `CREDIT`, `DEBIT` or `OTHER` — preferred method only |
 
 Card data is never taken or stored: an agent contacts the applicant to finish the payment when issuing the policy. Card fields are rejected as unknown properties.
 
@@ -224,6 +229,7 @@ Card data is never taken or stored: an agent contacts the applicant to finish th
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "quoteNumber": "15465802",
@@ -253,20 +259,21 @@ Returns a paginated list of vehicle brands for the brand selector.
 **Path params**
 
 | Param       | Type   | Constraints      |
-|-------------|--------|------------------|
+| ----------- | ------ | ---------------- |
 | vehicleType | string | `auto` or `moto` |
 
 **Query params**
 
-| Param        | Type   | Required | Constraints       |
-|--------------|--------|----------|-------------------|
-| query_string | string | No       | Max 100 chars     |
-| page         | number | No       | Integer ≥ 1       |
-| page_size    | number | No       | Integer 1–100     |
+| Param        | Type   | Required | Constraints   |
+| ------------ | ------ | -------- | ------------- |
+| query_string | string | No       | Max 100 chars |
+| page         | number | No       | Integer ≥ 1   |
+| page_size    | number | No       | Integer 1–100 |
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -289,7 +296,7 @@ Returns the groups (model families, e.g. "Corolla", "Hilux") for a given brand.
 **Path params**
 
 | Param       | Type    | Required | Constraints      |
-|-------------|---------|----------|------------------|
+| ----------- | ------- | -------- | ---------------- |
 | vehicleType | string  | Yes      | `auto` or `moto` |
 | brandId     | integer | Yes      |                  |
 
@@ -298,11 +305,10 @@ Returns the groups (model families, e.g. "Corolla", "Hilux") for a given brand.
 **Responses**
 
 `200 OK`
+
 ```json
 {
-  "data": [
-    { "id": 101, "name": "Corolla", "prices": true, "prices_from": 2015, "prices_to": 2024 }
-  ],
+  "data": [{ "id": 101, "name": "Corolla", "prices": true, "prices_from": 2015, "prices_to": 2024 }],
   "pagination": { "total": 8, "page": 1, "page_size": 10, "total_pages": 1, "next_page": null }
 }
 ```
@@ -325,7 +331,7 @@ names such as `NAVI 110` without knowing technical classifications such as
 **Path params**
 
 | Param       | Type    | Required | Constraints      |
-|-------------|---------|----------|------------------|
+| ----------- | ------- | -------- | ---------------- |
 | vehicleType | string  | Yes      | `auto` or `moto` |
 | brandId     | integer | Yes      |                  |
 
@@ -345,7 +351,7 @@ The `codia` is the identifier used in `POST /cotizador/:vehicleType` as the `mod
 **Path params**
 
 | Param       | Type    | Required | Constraints      |
-|-------------|---------|----------|------------------|
+| ----------- | ------- | -------- | ---------------- |
 | vehicleType | string  | Yes      | `auto` or `moto` |
 | brandId     | integer | Yes      |                  |
 | groupId     | integer | Yes      |                  |
@@ -355,6 +361,7 @@ The `codia` is the identifier used in `POST /cotizador/:vehicleType` as the `mod
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -395,6 +402,7 @@ Returns the authenticated user's profile.
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "id": 2,
@@ -426,10 +434,10 @@ Updates the authenticated user's own email and/or password (settings screen).
 
 **Request body**
 
-| Field    | Type   | Required | Constraints          |
-|----------|--------|----------|----------------------|
-| email    | string | No       | Valid email format   |
-| password | string | No       | Minimum 6 characters |
+| Field    | Type   | Required | Constraints                                                                         |
+| -------- | ------ | -------- | ----------------------------------------------------------------------------------- |
+| email    | string | No       | Valid email format                                                                  |
+| password | string | No       | Minimum 6 characters                                                                |
 | name     | string | No       | Max 80 characters; how the office calls the person ("Mili"). Empty string clears it |
 
 ```json
@@ -442,6 +450,7 @@ Updates the authenticated user's own email and/or password (settings screen).
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "id": 2,
@@ -456,6 +465,7 @@ Updates the authenticated user's own email and/or password (settings screen).
 `401 Unauthorized` — Missing or invalid token
 
 `409 Conflict` — Email already in use
+
 ```json
 { "statusCode": 409, "message": "Email already in use", "error": "Conflict" }
 ```
@@ -471,6 +481,7 @@ Lists all (non-deleted) administrators of the authenticated user's producer.
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -496,10 +507,10 @@ Creates a new administrator (sub-admin) under the authenticated user's producer.
 
 **Request body**
 
-| Field    | Type   | Required | Constraints          |
-|----------|--------|----------|----------------------|
-| email    | string | Yes      | Valid email format   |
-| password | string | Yes      | Minimum 6 characters |
+| Field    | Type   | Required | Constraints                                                 |
+| -------- | ------ | -------- | ----------------------------------------------------------- |
+| email    | string | Yes      | Valid email format                                          |
+| password | string | Yes      | Minimum 6 characters                                        |
 | name     | string | No       | Max 80 characters; how the office calls the person ("Mili") |
 
 ```json
@@ -512,6 +523,7 @@ Creates a new administrator (sub-admin) under the authenticated user's producer.
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "id": 3,
@@ -526,6 +538,7 @@ Creates a new administrator (sub-admin) under the authenticated user's producer.
 `401 Unauthorized` — Missing or invalid token
 
 `409 Conflict` — Email already in use
+
 ```json
 { "statusCode": 409, "message": "Email already in use", "error": "Conflict" }
 ```
@@ -540,15 +553,16 @@ Updates an administrator's email and/or password.
 
 **Request body**
 
-| Field    | Type   | Required | Constraints          |
-|----------|--------|----------|----------------------|
-| email    | string | No       | Valid email format   |
-| password | string | No       | Minimum 6 characters |
+| Field    | Type   | Required | Constraints                                                                         |
+| -------- | ------ | -------- | ----------------------------------------------------------------------------------- |
+| email    | string | No       | Valid email format                                                                  |
+| password | string | No       | Minimum 6 characters                                                                |
 | name     | string | No       | Max 80 characters; how the office calls the person ("Mili"). Empty string clears it |
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "id": 3,
@@ -563,6 +577,7 @@ Updates an administrator's email and/or password.
 `401 Unauthorized` — Missing or invalid token
 
 `404 Not Found` — User does not exist within the producer
+
 ```json
 { "statusCode": 404, "message": "User with id 3 not found", "error": "Not Found" }
 ```
@@ -580,6 +595,7 @@ Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own
 **Responses**
 
 `200 OK`
+
 ```json
 { "id": 3 }
 ```
@@ -587,6 +603,7 @@ Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own
 `401 Unauthorized` — Missing or invalid token
 
 `403 Forbidden` — Attempting to delete your own account
+
 ```json
 { "statusCode": 403, "message": "You cannot delete your own account", "error": "Forbidden" }
 ```
@@ -606,6 +623,7 @@ Configuración del bot de la organización del usuario autenticado, incluido qui
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "botName": "Nico",
@@ -629,10 +647,10 @@ Actualiza el nombre con el que se presenta el bot y los nombres de las personas 
 
 **Request body**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| botName | string | No | máx. 60 caracteres |
-| staffNames | string[] | No | hasta 10 nombres de máx. 30 caracteres; se descartan vacíos y repetidos |
+| Field      | Type     | Required | Constraints                                                             |
+| ---------- | -------- | -------- | ----------------------------------------------------------------------- |
+| botName    | string   | No       | máx. 60 caracteres                                                      |
+| staffNames | string[] | No       | hasta 10 nombres de máx. 30 caracteres; se descartan vacíos y repetidos |
 
 ```json
 { "botName": "Nico", "staffNames": ["Mili", "Milagros"] }
@@ -641,6 +659,7 @@ Actualiza el nombre con el que se presenta el bot y los nombres de las personas 
 **Responses**
 
 `200 OK`
+
 ```json
 { "botName": "Nico", "botEnabled": true, "staffNames": ["Mili", "Milagros"] }
 ```
@@ -655,9 +674,9 @@ Switch global: enciende o apaga todas las respuestas automáticas del bot de la 
 
 **Request body**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| botEnabled | boolean | Yes | — |
+| Field      | Type    | Required | Constraints |
+| ---------- | ------- | -------- | ----------- |
+| botEnabled | boolean | Yes      | —           |
 
 ```json
 { "botEnabled": false }
@@ -666,16 +685,19 @@ Switch global: enciende o apaga todas las respuestas automáticas del bot de la 
 **Responses**
 
 `200 OK`
+
 ```json
 { "botName": "Nico", "botEnabled": false }
 ```
 
 `403 Forbidden`
+
 ```json
 { "statusCode": 403, "message": "Forbidden resource", "error": "Forbidden" }
 ```
 
 `404 Not Found`
+
 ```json
 { "statusCode": 404, "message": "Producer not found", "error": "Not Found" }
 ```
@@ -689,6 +711,7 @@ What the bot says that is particular to the organization: how it names it, the g
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "orgName": "John Pellegrini Management Group",
@@ -709,6 +732,7 @@ What the bot says that is particular to the organization: how it names it, the g
 `quoteClosingNote` is the line the bot adds at the end of every quote it gives; `null` leaves the quote as the model wrote it.
 
 `404 Not Found`
+
 ```json
 { "statusCode": 404, "message": "Producer not found", "error": "Not Found" }
 ```
@@ -721,23 +745,27 @@ Changes the fields sent; an empty string clears one. The bot reads it on its nex
 
 **Request body** (every field optional)
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| orgName | string | No | ≤ 120 |
-| orgShortName | string | No | ≤ 30 |
-| orgLegalName | string | No | ≤ 160 |
-| towTruckPhone | string | No | ≤ 40 |
-| claimsPhone | string | No | ≤ 40; empty → the bot gives Triunfo's line |
-| cashPaymentPlaces | string | No | ≤ 200; empty → "Rapipago o Pago Fácil" |
-| transferAlias | string | No | ≤ 60 |
-| transferCbu | string | No | ≤ 30 |
-| transferHolder | string | No | ≤ 160 |
-| transferBank | string | No | ≤ 80 |
-| claimsEmail | string | No | e-mail or empty |
-| quoteClosingNote | string | No | ≤ 300; empty → the quote ends without an extra line |
+| Field             | Type   | Required | Constraints                                         |
+| ----------------- | ------ | -------- | --------------------------------------------------- |
+| orgName           | string | No       | ≤ 120                                               |
+| orgShortName      | string | No       | ≤ 30                                                |
+| orgLegalName      | string | No       | ≤ 160                                               |
+| towTruckPhone     | string | No       | ≤ 40                                                |
+| claimsPhone       | string | No       | ≤ 40; empty → the bot gives Triunfo's line          |
+| cashPaymentPlaces | string | No       | ≤ 200; empty → "Rapipago o Pago Fácil"              |
+| transferAlias     | string | No       | ≤ 60                                                |
+| transferCbu       | string | No       | ≤ 30                                                |
+| transferHolder    | string | No       | ≤ 160                                               |
+| transferBank      | string | No       | ≤ 80                                                |
+| claimsEmail       | string | No       | e-mail or empty                                     |
+| quoteClosingNote  | string | No       | ≤ 300; empty → the quote ends without an extra line |
 
 ```json
-{ "towTruckPhone": "0800-555-1234", "transferAlias": "", "quoteClosingNote": "Un asesor seguro te va a poder mejorar el precio con una bonificación" }
+{
+  "towTruckPhone": "0800-555-1234",
+  "transferAlias": "",
+  "quoteClosingNote": "Un asesor seguro te va a poder mejorar el precio con una bonificación"
+}
 ```
 
 **Responses**
@@ -745,11 +773,13 @@ Changes the fields sent; an empty string clears one. The bot reads it on its nex
 `200 OK` — the whole profile, as in `GET /admin/config/profile`
 
 `400 Bad Request`
+
 ```json
 { "statusCode": 400, "message": ["claimsEmail must be an email"], "error": "Bad Request" }
 ```
 
 `403 Forbidden`
+
 ```json
 { "statusCode": 403, "message": "Forbidden resource", "error": "Forbidden" }
 ```
@@ -766,18 +796,19 @@ Returns a paginated, searchable and filterable list of insured clients (asegurad
 
 **Query parameters**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `search` | string | No | Max 120 chars. Matches first name, last name, email, DNI, phone or vehicle plate (`dominio`). |
-| `riskType` | enum | No | One of `auto`, `home`, `life`, `commercial`, `other`. Filters clients with at least one policy of that risk. |
-| `status` | enum | No | One of `vigente` (has an in-force policy), `por_vencer` (a policy expiring within 30 days), `vencida` (has policies but none in force), `sin_polizas` (no policies). |
-| `sort` | enum | No | One of `nombre_asc` (default), `nombre_desc`, `reciente`. |
-| `page` | int | No | `>= 1`. Defaults to 1. |
-| `pageSize` | int | No | `1..100`. Defaults to 20. |
+| Field      | Type   | Required | Constraints                                                                                                                                                          |
+| ---------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search`   | string | No       | Max 120 chars. Matches first name, last name, email, DNI, phone or vehicle plate (`dominio`).                                                                        |
+| `riskType` | enum   | No       | One of `auto`, `home`, `life`, `commercial`, `other`. Filters clients with at least one policy of that risk.                                                         |
+| `status`   | enum   | No       | One of `vigente` (has an in-force policy), `por_vencer` (a policy expiring within 30 days), `vencida` (has policies but none in force), `sin_polizas` (no policies). |
+| `sort`     | enum   | No       | One of `nombre_asc` (default), `nombre_desc`, `reciente`.                                                                                                            |
+| `page`     | int    | No       | `>= 1`. Defaults to 1.                                                                                                                                               |
+| `pageSize` | int    | No       | `1..100`. Defaults to 20.                                                                                                                                            |
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -799,7 +830,16 @@ Returns a paginated, searchable and filterable list of insured clients (asegurad
           "validFrom": "2026-01-01T00:00:00.000Z",
           "validTo": "2027-01-01T00:00:00.000Z",
           "premium": "150000.00",
-          "vehicle": { "id": 5, "licensePlate": "AB123CD", "brand": "Toyota", "model": "Corolla", "version": null, "year": 2022, "coverage": "C", "sumInsured": "12000000.00" }
+          "vehicle": {
+            "id": 5,
+            "licensePlate": "AB123CD",
+            "brand": "Toyota",
+            "model": "Corolla",
+            "version": null,
+            "year": 2022,
+            "coverage": "C",
+            "sumInsured": "12000000.00"
+          }
         }
       ]
     }
@@ -822,6 +862,7 @@ Returns aggregate portfolio metrics for the dashboard/stat bar.
 **Responses**
 
 `200 OK`
+
 ```json
 { "totalClients": 134, "inForce": 210, "expiringSoon": 12, "expired": 8, "overdueInstallments": 5 }
 ```
@@ -841,6 +882,7 @@ Returns the full detail of a single insured client, including every policy with 
 `401 Unauthorized` — Missing or invalid token
 
 `404 Not Found` — Client does not exist within the producer
+
 ```json
 { "statusCode": 404, "message": "Client 99 not found", "error": "Not Found" }
 ```
@@ -854,9 +896,14 @@ Documents Triunfo has for one policy of the client, fetched live (`RESTDocumento
 **Responses**
 
 `200 OK`
+
 ```json
 [
-  { "code": "1050", "name": "Tarjeta verde (Mercosur)", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..." },
+  {
+    "code": "1050",
+    "name": "Tarjeta verde (Mercosur)",
+    "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..."
+  },
   { "code": "1020", "name": "Póliza", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/hpolizap?..." }
 ]
 ```
@@ -897,6 +944,7 @@ siniestros. All metrics are scoped to the authenticated user's producer.
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "kpis": {
@@ -939,10 +987,10 @@ Returns a health-check string. Not intended for production use.
 **Responses**
 
 `200 OK`
+
 ```
 Hello World!
 ```
-
 
 ---
 
@@ -958,21 +1006,22 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 
 **Query parameters**
 
-| Parameter      | Type   | Required | Description                                                       |
-|----------------|--------|----------|-------------------------------------------------------------------|
-| search         | string | No       | Filter by first name, last name, email, DNI, phone, or plate      |
-| status         | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`) |
-| producerCodeId | number | No       | Only the debt of this producer code's policies (must be accessible to the user) |
-| phoneNumberId  | number | No       | Only the codes this number serves (SuperAdmin section filter)     |
+| Parameter      | Type   | Required | Description                                                                                                                                                        |
+| -------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| search         | string | No       | Filter by first name, last name, email, DNI, phone, or plate                                                                                                       |
+| status         | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`)                                                                                            |
+| producerCodeId | number | No       | Only the debt of this producer code's policies (must be accessible to the user)                                                                                    |
+| phoneNumberId  | number | No       | Only the codes this number serves (SuperAdmin section filter)                                                                                                      |
 | paymentMethod  | string | No       | Only policies with this medio de pago, as Triunfo names it (`Plan De Pago`, `Convenio`, `Débito Tarjeta`…); the values in scope come from `/admin/cobranzas/stats` |
-| page           | number | No       | Page number (default: 1)                                          |
-| pageSize       | number | No       | Results per page (default: 20, max: 100)                          |
+| page           | number | No       | Page number (default: 1)                                                                                                                                           |
+| pageSize       | number | No       | Results per page (default: 20, max: 100)                                                                                                                           |
 
 A client is listed when it is visible to the user (attributed to an accessible code, or holding a policy under one), but its counts and `totalDebt` only add up the cuotas of the policies that match the scope — the selected code(s) and medio de pago — so filtering by a code shows that code's debt, not the client's whole cartera. `paymentMethods` lists the medios de pago of those policies.
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -1013,15 +1062,16 @@ Returns aggregate debt stats for the authenticated producer. Includes both per-c
 
 **Query parameters**
 
-| Parameter      | Type   | Required | Description                                            |
-|----------------|--------|----------|--------------------------------------------------------|
+| Parameter      | Type   | Required | Description                                              |
+| -------------- | ------ | -------- | -------------------------------------------------------- |
 | producerCodeId | number | No       | Only this producer code (must be accessible to the user) |
-| phoneNumberId  | number | No       | Only the codes this number serves                      |
-| paymentMethod  | string | No       | Only policies with this medio de pago                  |
+| phoneNumberId  | number | No       | Only the codes this number serves                        |
+| paymentMethod  | string | No       | Only policies with this medio de pago                    |
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "clientsWithDebt": 12,
@@ -1048,20 +1098,21 @@ The "pólizas vencidas" worklist of the Cobranzas screen: policies that ran out 
 
 **Query parameters**
 
-| Parameter      | Type    | Required | Description                                                        |
-|----------------|---------|----------|--------------------------------------------------------------------|
-| search         | string  | No       | Client name or DNI, certificate number or plate                    |
-| producerCodeId | number  | No       | Only this producer code (must be accessible to the user)           |
-| phoneNumberId  | number  | No       | Only the codes this number serves                                  |
-| paymentMethod  | string  | No       | Only policies with this medio de pago                              |
+| Parameter      | Type    | Required | Description                                                          |
+| -------------- | ------- | -------- | -------------------------------------------------------------------- |
+| search         | string  | No       | Client name or DNI, certificate number or plate                      |
+| producerCodeId | number  | No       | Only this producer code (must be accessible to the user)             |
+| phoneNumberId  | number  | No       | Only the codes this number serves                                    |
+| paymentMethod  | string  | No       | Only policies with this medio de pago                                |
 | hidden         | boolean | No       | `true` lists the hidden policies instead (default: the visible ones) |
-| sort           | string  | No       | `oldest` (longest expired first, default) \| `recent`              |
-| page           | number  | No       | Page number (default: 1)                                           |
-| pageSize       | number  | No       | Results per page (default: 25, max: 100)                           |
+| sort           | string  | No       | `oldest` (longest expired first, default) \| `recent`                |
+| page           | number  | No       | Page number (default: 1)                                             |
+| pageSize       | number  | No       | Results per page (default: 25, max: 100)                             |
 
 **Responses**
 
-`200 OK` — `hiddenCount` is how many policies in scope are hidden, whatever `hidden` says.
+`200 OK` — `hiddenCount` is how many policies in scope are hidden, whatever `hidden` says. `templateReady` says whether `POLICY_EXPIRY_TEMPLATE` is configured (else notices can only be marked). `notice` is the last WhatsApp notice tried for the policy (`SENDING` | `SENT` | `FAILED` | `MARKED`), or `null`.
+
 ```json
 {
   "data": [
@@ -1076,14 +1127,29 @@ The "pólizas vencidas" worklist of the Cobranzas screen: policies that ran out 
       "daysExpired": 75,
       "paymentMethod": "Plan De Pago",
       "producerCode": { "id": 7, "code": "14831" },
-      "client": { "id": 1, "firstName": "María", "lastName": "García", "dni": "12345678", "phone": "+54 9 341 555-1234", "email": null },
+      "client": {
+        "id": 1,
+        "firstName": "María",
+        "lastName": "García",
+        "dni": "12345678",
+        "phone": "+54 9 341 555-1234",
+        "email": null
+      },
       "unpaidInstallments": 1,
       "hiddenAt": null,
-      "hiddenReason": null
+      "hiddenReason": null,
+      "notice": {
+        "id": 31,
+        "status": "SENT",
+        "sentAt": "2026-10-28T18:40:12.000Z",
+        "createdAt": "2026-10-28T18:40:10.000Z",
+        "error": null
+      }
     }
   ],
   "total": 195,
   "hiddenCount": 12,
+  "templateReady": true,
   "page": 1,
   "pageSize": 25,
   "totalPages": 8
@@ -1102,13 +1168,14 @@ Takes a policy out of the worklist for good (it will not be renewed). The carter
 
 **Request body**
 
-| Field  | Type   | Required | Constraints |
-|--------|--------|----------|-------------|
+| Field  | Type   | Required | Constraints                               |
+| ------ | ------ | -------- | ----------------------------------------- |
 | reason | string | No       | Max 120 characters, e.g. "Vendió el auto" |
 
 **Responses**
 
 `200 OK`
+
 ```json
 { "id": 812, "hiddenAt": "2026-10-28T18:02:11.000Z", "hiddenReason": "Vendió el auto" }
 ```
@@ -1126,11 +1193,61 @@ Brings a hidden policy back to the worklist.
 **Responses**
 
 `200 OK`
+
 ```json
 { "id": 812, "hiddenAt": null, "hiddenReason": null }
 ```
 
 `404 Not Found` — No such policy in the user's scope
+
+---
+
+### POST /admin/cobranzas/vencidas/send
+
+Tells the clients of the chosen policies on WhatsApp that the policy ran out, with the Meta template `POLICY_EXPIRY_TEMPLATE` (Utility, 5 variables: first name, organization name as the bot names it, certificate, plate or product, end date). Same pipeline as Rechazos: one `PolicyExpiryNotice` per policy, claimed as `SENDING` and delivered one by one in the background (poll the list while any `notice.status` is `SENDING`); each notice lands in the client's chat as a message from the office, and the bot treats the client's answer in the next 3 days as a reply to it (handed to the office). The sender is the number the client already talks to, else one serving the policy's code.
+
+A policy is left out, and reported in `skipped`, when the client has no usable phone (`NO_PHONE`), was told in the last 30 days — sent or marked — (`ALREADY_NOTIFIED`), or has a notice still going out (`SENDING`). Hidden policies and policies outside the user's codes are ignored.
+
+**Auth required:** Yes (JWT user token)
+
+**Request body**
+
+| Field | Type     | Required | Constraints                    |
+| ----- | -------- | -------- | ------------------------------ |
+| ids   | number[] | Yes      | 1–500 policy ids from the list |
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "sent": 3, "skipped": [{ "policyId": 815, "reason": "NO_PHONE" }] }
+```
+
+`400 Bad Request` — None of the chosen policies can be sent
+`409 Conflict` — `POLICY_EXPIRY_TEMPLATE` is not configured, or no WhatsApp number is connected
+
+---
+
+### POST /admin/cobranzas/vencidas/mark
+
+The office told these clients by other means (a call, in person): a `MARKED` notice is recorded so the list shows it and they are not sent a WhatsApp for 30 days. A policy with a notice still going out is skipped.
+
+**Auth required:** Yes (JWT user token)
+
+**Request body**
+
+| Field | Type     | Required | Constraints                    |
+| ----- | -------- | -------- | ------------------------------ |
+| ids   | number[] | Yes      | 1–500 policy ids from the list |
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "marked": 2 }
+```
 
 ## Admin — Siniestros
 
@@ -1147,7 +1264,7 @@ Paginated list of the producer's claims, newest first.
 **Query params**
 
 | Param    | Type   | Required | Constraints                                              |
-|----------|--------|----------|----------------------------------------------------------|
+| -------- | ------ | -------- | -------------------------------------------------------- |
 | status   | string | No       | `pending`, `in_progress` or `resolved`                   |
 | search   | string | No       | Matches client name, DNI, certificado or official number |
 | page     | number | No       | Default 1                                                |
@@ -1156,6 +1273,7 @@ Paginated list of the producer's claims, newest first.
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -1169,7 +1287,14 @@ Paginated list of the producer's claims, newest first.
       "attachments": null,
       "createdAt": "2026-06-12T13:05:00.000Z",
       "updatedAt": "2026-06-12T13:05:00.000Z",
-      "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456", "email": "evelyn@example.com", "phone": "5491155556666" },
+      "client": {
+        "id": 3,
+        "firstName": "EVELYN",
+        "lastName": "BENITEZ",
+        "dni": "30123456",
+        "email": "evelyn@example.com",
+        "phone": "5491155556666"
+      },
       "policy": {
         "id": 12,
         "certificateNumber": "334455",
@@ -1199,6 +1324,7 @@ Claim counters for the admin dashboard. `withoutInsurerNumber` counts claims not
 **Responses**
 
 `200 OK`
+
 ```json
 { "pending": 3, "inProgress": 1, "resolved": 14, "withoutInsurerNumber": 4 }
 ```
@@ -1223,12 +1349,12 @@ Progresses the claim and/or records the official Triunfo number after filing it 
 
 **Request body**
 
-| Field                | Type   | Required | Constraints                              |
-|----------------------|--------|----------|------------------------------------------|
-| status               | string | No*      | `pending`, `in_progress` or `resolved`   |
-| insurerClaimNumber   | string | No*      | Max 50 chars                             |
+| Field              | Type   | Required | Constraints                            |
+| ------------------ | ------ | -------- | -------------------------------------- |
+| status             | string | No\*     | `pending`, `in_progress` or `resolved` |
+| insurerClaimNumber | string | No\*     | Max 50 chars                           |
 
-*At least one field is required.
+\*At least one field is required.
 
 ```json
 { "status": "in_progress", "insurerClaimNumber": "SIN-884213" }
@@ -1254,14 +1380,15 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 
 **Query params**
 
-| Param  | Type   | Required | Constraints                                                  |
-|--------|--------|----------|--------------------------------------------------------------|
-| status | string | No       | `open`, `pending` or `closed`                                |
+| Param  | Type   | Required | Constraints                                                            |
+| ------ | ------ | -------- | ---------------------------------------------------------------------- |
+| status | string | No       | `open`, `pending` or `closed`                                          |
 | search | string | No       | Matches client name, DNI, contact name or the WhatsApp number (`waId`) |
 
 **Responses**
 
 `200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat. `globalBotDisabled` is the organization's bot switch and `numberBotDisabled` the switch of the number the chat came through (`PATCH /admin/phone-numbers/:id/bot-status`): with either on, the office answers the chat without taking it over.
+
 ```json
 [
   {
@@ -1302,10 +1429,10 @@ Manual fix of who a chat belongs to. `contactName` sets the name shown for whoev
 
 **Request body**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| contactName | string \| null | No | ≤ 191 chars; empty or `null` = automatic name |
-| unlinkClient | boolean | No | `true` removes the linked client |
+| Field        | Type           | Required | Constraints                                   |
+| ------------ | -------------- | -------- | --------------------------------------------- |
+| contactName  | string \| null | No       | ≤ 191 chars; empty or `null` = automatic name |
+| unlinkClient | boolean        | No       | `true` removes the linked client              |
 
 ```json
 { "contactName": "John Pellegrini", "unlinkClient": true }
@@ -1326,10 +1453,17 @@ Full stored history of a conversation in chronological order — not limited to 
 **Responses**
 
 `200 OK`
+
 ```json
 [
   { "id": 41, "role": "user", "content": "Hola", "createdAt": "2026-06-12T13:00:00.000Z", "media": null },
-  { "id": 42, "role": "assistant", "content": "¡Hola! ¿Sos cliente?", "createdAt": "2026-06-12T13:00:02.000Z", "media": null }
+  {
+    "id": 42,
+    "role": "assistant",
+    "content": "¡Hola! ¿Sos cliente?",
+    "createdAt": "2026-06-12T13:00:02.000Z",
+    "media": null
+  }
 ]
 ```
 
@@ -1343,14 +1477,15 @@ Sends a photo or a PDF to the customer from the Whatsapp section, with an option
 
 **Request body** (`multipart/form-data`)
 
-| Field   | Type   | Required | Constraints |
-|---------|--------|----------|-------------|
+| Field   | Type   | Required | Constraints                                                                                            |
+| ------- | ------ | -------- | ------------------------------------------------------------------------------------------------------ |
 | file    | file   | Yes      | `image/jpeg` or `image/png` up to 5 MB (WhatsApp's limit for photos), or `application/pdf` up to 16 MB |
-| caption | string | No       | Max 1024 characters |
+| caption | string | No       | Max 1024 characters                                                                                    |
 
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "id": 87,
@@ -1397,20 +1532,21 @@ Paginated list of novedades, unread first then newest.
 
 **Query params**
 
-| Param    | Type    | Required | Constraints                          |
-|----------|---------|----------|--------------------------------------|
-| type     | string  | No       | `siniestro` or `handoff`               |
-| unread   | boolean | No       | `true` returns only unread novedades   |
+| Param    | Type    | Required | Constraints                             |
+| -------- | ------- | -------- | --------------------------------------- |
+| type     | string  | No       | `siniestro` or `handoff`                |
+| unread   | boolean | No       | `true` returns only unread novedades    |
 | search   | string  | No       | Matches the linked client's name or DNI |
 | clientId | number  | No       | Restrict to a single client's novedades |
-| page     | number  | No       | Default 1                              |
-| pageSize | number  | No       | Default 20, max 100                    |
+| page     | number  | No       | Default 1                               |
+| pageSize | number  | No       | Default 20, max 100                     |
 
 **Who sees what.** An admin sees only the matters that came through their own numbers (`Notification.phoneNumberId`, the Meta id of the number the chat came through); when one of their numbers is the organization's default number (the office line, billed to the master code) they also see what came through no number (web, panel, rows older than this column). The SuperAdmin sees everything; `phoneNumberId` (a PhoneNumber id) narrows to that number, the default number also bringing what came through none; a number that is not the organization's returns nothing. `producerCodeId` narrows by code as before.
 
 **Responses**
 
 `200 OK` — `client` is the linked insured (null for an unidentified handoff).
+
 ```json
 {
   "data": [
@@ -1455,6 +1591,7 @@ Unread counters for the sidebar badge and category filters.
 **Responses**
 
 `200 OK`
+
 ```json
 { "unreadTotal": 3, "unreadClaims": 2, "unreadHandoff": 1 }
 ```
@@ -1468,12 +1605,13 @@ Marks every unread novedad as read. Restrict to one category with `?type=`.
 **Query params**
 
 | Param | Type   | Required | Constraints              |
-|-------|--------|----------|--------------------------|
+| ----- | ------ | -------- | ------------------------ |
 | type  | string | No       | `siniestro` or `handoff` |
 
 **Responses**
 
 `200 OK`
+
 ```json
 { "updated": 3 }
 ```
@@ -1495,6 +1633,7 @@ Marks a single novedad as read (idempotent — re-marking a read novedad is a no
 Internal tasks the office leaves each other, outside the bot ("Tareas" in the panel): a call to return, a document to send. Someone creates a task for a person of the same organization, who works it, moves it between `PENDING`, `IN_PROGRESS` and `DONE`, and can reply in its comments. A task is visible to whoever created it, whoever has it assigned and any SuperAdmin of the organization; tasks are not scoped by producer code. All endpoints require a user JWT.
 
 A task in every response:
+
 ```json
 {
   "id": 12,
@@ -1511,26 +1650,33 @@ A task in every response:
   "createdBy": { "id": 1, "name": "John", "email": "john@example.com" },
   "assignedTo": { "id": 2, "name": "Mili", "email": "mili@example.com" },
   "comments": [
-    { "id": 4, "body": "Le dejé mensaje", "createdAt": "2026-10-13T15:00:00.000Z", "user": { "id": 2, "name": "Mili", "email": "mili@example.com" } }
+    {
+      "id": 4,
+      "body": "Le dejé mensaje",
+      "createdAt": "2026-10-13T15:00:00.000Z",
+      "user": { "id": 2, "name": "Mili", "email": "mili@example.com" }
+    }
   ]
 }
 ```
+
 `seenAt` is null while the assignee has not seen the task, or when someone else replied after they last looked.
 
 ### GET /admin/tasks
 
 **Auth required:** Yes (user JWT)
 
-| Query  | Values | Default | Meaning |
-|--------|--------|---------|---------|
-| view   | `mine`, `created`, `all` | `mine` | Assigned to me, created by me, or the whole office (`all` returns everything only to a SuperAdmin; anyone else gets the tasks they created or have assigned) |
-| status | `open`, `done` | `open` | Pending + in progress (soonest due date first), or the latest 100 finished |
+| Query  | Values                   | Default | Meaning                                                                                                                                                      |
+| ------ | ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| view   | `mine`, `created`, `all` | `mine`  | Assigned to me, created by me, or the whole office (`all` returns everything only to a SuperAdmin; anyone else gets the tasks they created or have assigned) |
+| status | `open`, `done`           | `open`  | Pending + in progress (soonest due date first), or the latest 100 finished                                                                                   |
 
 `200 OK` — Array of tasks.
 
 ### GET /admin/tasks/stats
 
 `200 OK` — Open tasks assigned to the user and how many of them are unseen, for the menu badge.
+
 ```json
 { "open": 3, "unseen": 1 }
 ```
@@ -1540,6 +1686,7 @@ A task in every response:
 People a task can be assigned to: the organization's users (the platform OWNER excluded).
 
 `200 OK`
+
 ```json
 [{ "id": 2, "name": "Mili", "email": "mili@example.com", "role": "ADMIN" }]
 ```
@@ -1549,6 +1696,7 @@ People a task can be assigned to: the organization's users (the platform OWNER e
 Marks every task assigned to the user as seen (the panel calls it when the user opens their tasks).
 
 `201 Created`
+
 ```json
 { "seen": 2 }
 ```
@@ -1557,14 +1705,14 @@ Marks every task assigned to the user as seen (the panel calls it when the user 
 
 **Request body**
 
-| Field            | Type   | Required | Constraints |
-|------------------|--------|----------|-------------|
-| title            | string | Yes      | 1–200 characters |
-| description      | string | No       | Max 5000 characters |
+| Field            | Type   | Required | Constraints                                     |
+| ---------------- | ------ | -------- | ----------------------------------------------- |
+| title            | string | Yes      | 1–200 characters                                |
+| description      | string | No       | Max 5000 characters                             |
 | assignedToUserId | number | Yes      | A user of the same organization (not the OWNER) |
-| dueDate          | string | No       | `YYYY-MM-DD` |
-| contactName      | string | No       | Max 120 characters |
-| contactPhone     | string | No       | Max 40 characters |
+| dueDate          | string | No       | `YYYY-MM-DD`                                    |
+| contactName      | string | No       | Max 120 characters                              |
+| contactPhone     | string | No       | Max 40 characters                               |
 
 `201 Created` — The task. A task someone assigns to themselves is created as seen.
 
@@ -1583,6 +1731,7 @@ Any field of `POST /admin/tasks`, plus `status` (`PENDING`, `IN_PROGRESS`, `DONE
 Soft-deletes the task. Only its creator or a SuperAdmin.
 
 `200 OK`
+
 ```json
 { "ok": true }
 ```
@@ -1593,8 +1742,8 @@ Soft-deletes the task. Only its creator or a SuperAdmin.
 
 **Request body**
 
-| Field | Type   | Required | Constraints |
-|-------|--------|----------|-------------|
+| Field | Type   | Required | Constraints       |
+| ----- | ------ | -------- | ----------------- |
 | body  | string | Yes      | 1–2000 characters |
 
 `201 Created` — The task with its comments. A reply from anyone but the assignee marks the task as unseen for the assignee.
@@ -1616,6 +1765,7 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "producerId": 1,
@@ -1660,6 +1810,7 @@ Live hours (formatted week, open now, today's closure) of the number: its own we
 `200 OK` — as `GET /public/hours`
 
 `404 Not Found`
+
 ```json
 { "statusCode": 404, "message": "Phone number 123 is not registered", "error": "Not Found" }
 ```
@@ -1675,13 +1826,19 @@ A quote the bot asks for on a number: same body and response as `POST /cotizador
 `201 Created` — as `POST /cotizador/:vehicleType`
 
 `404 Not Found`
+
 ```json
 { "statusCode": 404, "message": "Phone number 123 is not registered", "error": "Not Found" }
 ```
 
 `503 Service Unavailable` — the organization has no Triunfo credentials
+
 ```json
-{ "statusCode": 503, "message": "La organización 2 no tiene configurada la integración con Triunfo", "error": "Service Unavailable" }
+{
+  "statusCode": 503,
+  "message": "La organización 2 no tiene configurada la integración con Triunfo",
+  "error": "Service Unavailable"
+}
 ```
 
 ### GET /bot/conversation/:phoneNumberId/:waId
@@ -1690,7 +1847,7 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 
 **Inactivity timeout (lazy):** if more than `SESSION_TIMEOUT_MINUTES` (env, default 5) elapsed since the last message, a new session is started — older messages are excluded from the response (they remain in the DB until the retention job) and `newSession` is `true` so the bot can greet the user again. There is no background job: the boundary is evaluated on each inbound message.
 
-**Earlier human replies:** `lastHumanReply` is the last message a person from the office wrote in this chat (inbox reply or WhatsApp Business app) within the last 2 hours, whatever the session, or `null`. It is `null` as well once the bot has replied after that person, since the customer is then talking to the bot. `previousActivityAt` is when the chat had activity before this request, also across sessions (`null` for a brand-new chat or after a reset). The bot uses them to stay out of a conversation a person was having and to skip its full introduction for someone it talked to a few hours ago.
+**Earlier human replies:** `lastHumanReply` is the last message a person from the office wrote in this chat (inbox reply or WhatsApp Business app) within the last 2 hours, whatever the session, or `null`. It carries `kind`: `"person"` for a reply someone typed, or `"notice"` for a message the platform sent on its own (a rechazo or póliza vencida notice), which is reported for 3 days instead, since the client answers those the next morning. It is `null` as well once the bot has replied after that person, since the customer is then talking to the bot. `previousActivityAt` is when the chat had activity before this request, also across sessions (`null` for a brand-new chat or after a reset). The bot uses them to stay out of a conversation a person was having and to skip its full introduction for someone it talked to a few hours ago.
 
 **Linked client:** `client` is returned only while the link applies to whoever is writing: always when the client's stored phone is this `waId`, otherwise only within the session in which they identified. Someone who identified with another person's DNI is treated as unidentified on their next session, so the bot asks again instead of greeting them as that person. The client-scoped endpoints below apply the same rule.
 
@@ -1703,6 +1860,7 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "conversationId": 7,
@@ -1731,6 +1889,7 @@ Resets the conversation session (used by the secret `/reset` dev command in the 
 **Responses**
 
 `201 Created`
+
 ```json
 { "ok": true }
 ```
@@ -1745,8 +1904,8 @@ Persists the bot's deterministic flow state for a conversation (the serialized `
 
 **Request body**
 
-| Field       | Type           | Required | Constraints                          |
-|-------------|----------------|----------|--------------------------------------|
+| Field       | Type           | Required | Constraints                              |
+| ----------- | -------------- | -------- | ---------------------------------------- |
 | `flowState` | string \| null | Yes      | string ≤ 20000 chars, or `null` to clear |
 
 ```json
@@ -1756,6 +1915,7 @@ Persists the bot's deterministic flow state for a conversation (the serialized `
 **Responses**
 
 `201 Created`
+
 ```json
 { "ok": true }
 ```
@@ -1773,10 +1933,9 @@ Every claimed chat is finalized, but a conversation is only **returned** (so the
 **Responses**
 
 `201 Created`
+
 ```json
-[
-  { "conversationId": 7, "waId": "5491155556666", "phoneNumberId": "123456789012345" }
-]
+[{ "conversationId": 7, "waId": "5491155556666", "phoneNumberId": "123456789012345" }]
 ```
 
 ### POST /bot/conversation/:conversationId/message
@@ -1787,13 +1946,13 @@ Persists a message in the conversation.
 
 **Request body**
 
-| Field   | Type   | Required | Constraints              |
-|---------|--------|----------|--------------------------|
-| role    | string | Yes      | `user` or `assistant`    |
-| content | string | Yes      | Non-empty, max 10000 chars |
-| media   | object | No       | Upload metadata (`url`, `originalName`, `mimeType`, `size`, `tipo?`) |
-| contactName | string | No   | Sender's WhatsApp profile name (inbound only), max 191 chars; stored on the conversation |
-| keepActivity | boolean | No | `true` stores the message for the transcript without counting it as activity (no `lastMessageAt`/`warnedAt`/unread change). Used for the inactivity goodbye. |
+| Field        | Type    | Required | Constraints                                                                                                                                                  |
+| ------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| role         | string  | Yes      | `user` or `assistant`                                                                                                                                        |
+| content      | string  | Yes      | Non-empty, max 10000 chars                                                                                                                                   |
+| media        | object  | No       | Upload metadata (`url`, `originalName`, `mimeType`, `size`, `tipo?`)                                                                                         |
+| contactName  | string  | No       | Sender's WhatsApp profile name (inbound only), max 191 chars; stored on the conversation                                                                     |
+| keepActivity | boolean | No       | `true` stores the message for the transcript without counting it as activity (no `lastMessageAt`/`warnedAt`/unread change). Used for the inactivity goodbye. |
 
 ```json
 { "role": "user", "content": "Quiero cotizar mi auto" }
@@ -1802,6 +1961,7 @@ Persists a message in the conversation.
 **Responses**
 
 `201 Created`
+
 ```json
 { "id": 43, "role": "user", "content": "Quiero cotizar mi auto", "createdAt": "2026-06-12T13:01:00.000Z" }
 ```
@@ -1818,10 +1978,10 @@ Only the clients the conversation's number serves are found: on a branch's numbe
 
 **Request body**
 
-| Field | Type   | Required | Constraints   |
-|-------|--------|----------|---------------|
-| dni   | string | One of   | 6–11 chars    |
-| plate | string | One of   | 5–10 chars    |
+| Field | Type   | Required | Constraints |
+| ----- | ------ | -------- | ----------- |
+| dni   | string | One of   | 6–11 chars  |
+| plate | string | One of   | 5–10 chars  |
 
 ```json
 { "dni": "30123456" }
@@ -1830,6 +1990,7 @@ Only the clients the conversation's number serves are found: on a branch's numbe
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "client": {
@@ -1857,10 +2018,10 @@ Leaves a `baja_poliza` notification for the office with the policy, the client's
 
 **Request body**
 
-| Field    | Type   | Required | Constraints              |
-|----------|--------|----------|--------------------------|
+| Field    | Type   | Required | Constraints               |
+| -------- | ------ | -------- | ------------------------- |
 | policyId | number | Yes      | Integer ≥ 1, the client's |
-| reason   | string | No       | ≤ 300 chars              |
+| reason   | string | No       | ≤ 300 chars               |
 
 ```json
 { "policyId": 833, "reason": "Vendí el vehículo" }
@@ -1869,6 +2030,7 @@ Leaves a `baja_poliza` notification for the office with the policy, the client's
 **Responses**
 
 `201 Created`
+
 ```json
 { "id": 17 }
 ```
@@ -1886,6 +2048,7 @@ Links the conversation to the one client of the producer whose cartera phone is 
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "client": {
@@ -1912,6 +2075,7 @@ Policies of the identified client **in force today**, with vehicle summary.
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -1939,6 +2103,7 @@ Account status per policy: unpaid installments (pending / overdue / rejected), p
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -1972,10 +2137,19 @@ Codes: `1050` Tarjeta verde (Mercosur), `1000` Certificado de cobertura, `1040` 
 **Responses**
 
 `200 OK`
+
 ```json
 [
-  { "code": "1050", "name": "Tarjeta verde (Mercosur)", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..." },
-  { "code": "1000", "name": "Certificado de cobertura", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/hcertificadoau?..." }
+  {
+    "code": "1050",
+    "name": "Tarjeta verde (Mercosur)",
+    "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..."
+  },
+  {
+    "code": "1000",
+    "name": "Certificado de cobertura",
+    "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/hcertificadoau?..."
+  }
 ]
 ```
 
@@ -2008,6 +2182,7 @@ Claims filed by the identified client, newest first, with their internal trackin
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -2033,12 +2208,12 @@ Files a new claim for one of the identified client's policies and notifies the a
 
 **Request body**
 
-| Field       | Type   | Required | Constraints            |
-|-------------|--------|----------|------------------------|
-| policyId    | number | Yes      | Policy of the client   |
-| type        | string | Yes      | Max 50 chars           |
-| occurredAt  | string | Yes      | ISO date (incident)    |
-| description | string | Yes      | Max 5000 chars         |
+| Field       | Type   | Required | Constraints          |
+| ----------- | ------ | -------- | -------------------- |
+| policyId    | number | Yes      | Policy of the client |
+| type        | string | Yes      | Max 50 chars         |
+| occurredAt  | string | Yes      | ISO date (incident)  |
+| description | string | Yes      | Max 5000 chars       |
 
 ```json
 { "policyId": 12, "type": "auto", "occurredAt": "2026-06-11", "description": "Granizo, daños en capot y techo" }
@@ -2047,6 +2222,7 @@ Files a new claim for one of the identified client's policies and notifies the a
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "id": 6,
@@ -2080,12 +2256,13 @@ is capped at 5 attachments, keeping the most recent. Sent as `multipart/form-dat
 **Request body** (`multipart/form-data`)
 
 | Field    | Type   | Required | Constraints                                        |
-|----------|--------|----------|----------------------------------------------------|
+| -------- | ------ | -------- | -------------------------------------------------- |
 | adjuntos | file[] | Yes      | 1–5 files, ≤5 MB each, jpeg/png/webp/heic/pdf only |
 
 **Responses**
 
 `201 Created`
+
 ```json
 { "claimId": 6, "attachmentCount": 2 }
 ```
@@ -2104,11 +2281,11 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 
 **Request body**
 
-| Field       | Type   | Required | Constraints |
-|-------------|--------|----------|-------------|
+| Field       | Type   | Required | Constraints                                                              |
+| ----------- | ------ | -------- | ------------------------------------------------------------------------ |
 | event       | string | No       | Meta's event, ≤ 64 chars. Missing = `PARTNER_REMOVED` (older bot builds) |
-| reason      | string | No       | `disconnection_info.reason`, e.g. `BUSINESS_DOWNGRADE`, ≤ 64 chars |
-| initiatedBy | string | No       | `USER` or `SYSTEM`, ≤ 32 chars |
+| reason      | string | No       | `disconnection_info.reason`, e.g. `BUSINESS_DOWNGRADE`, ≤ 64 chars       |
+| initiatedBy | string | No       | `USER` or `SYSTEM`, ≤ 32 chars                                           |
 
 ```json
 { "event": "PARTNER_REMOVED", "reason": "BUSINESS_DOWNGRADE", "initiatedBy": "USER" }
@@ -2117,6 +2294,7 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 **Responses**
 
 `201 Created`
+
 ```json
 { "known": false, "checked": 1, "disconnected": 1 }
 ```
@@ -2139,11 +2317,11 @@ Running Embedded Signup again for a number that Meta dropped reuses its `PhoneNu
 
 Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role, and no tenant role receives an amount in USD:
 
-| Role | `usage` fields | Number fields |
-|---|---|---|
-| ADMIN | `period`, `tokens` (one per message sent) | no budget fields |
-| SUPERADMIN | plus `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
-| OWNER | plus `pricing`, `plan`, `prorated`, `billedUsd`, `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` | `monthlyBudgetUsd`, `budgetExceededAt` |
+| Role       | `usage` fields                                                                                                                       | Number fields                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| ADMIN      | `period`, `tokens` (one per message sent)                                                                                            | no budget fields                                 |
+| SUPERADMIN | plus `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens`                                               | `budgetExceededAt` (the AI paused for the month) |
+| OWNER      | plus `pricing`, `plan`, `prorated`, `billedUsd`, `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` | `monthlyBudgetUsd`, `budgetExceededAt`           |
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 
@@ -2158,6 +2336,7 @@ A number's own assistant next to its organization's. Whatever the number leaves 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "id": 8,
@@ -2167,7 +2346,13 @@ A number's own assistant next to its organization's. Whatever the number leaves 
     "botName": "Sofi",
     "staffNames": ["Caro"],
     "businessHours": null,
-    "botProfile": { "orgName": "Seguros Norte Rafaela", "orgShortName": null, "transferAlias": "NORTE.RAFAELA", "claimsEmail": null, "...": null },
+    "botProfile": {
+      "orgName": "Seguros Norte Rafaela",
+      "orgShortName": null,
+      "transferAlias": "NORTE.RAFAELA",
+      "claimsEmail": null,
+      "...": null
+    },
     "botEnabled": true,
     "coverageSettings": { "C1": { "isActive": null, "highlighted": true, "sortOrder": 0 } }
   },
@@ -2179,8 +2364,24 @@ A number's own assistant next to its organization's. Whatever the number leaves 
     "botProfile": { "orgName": "Seguros Norte", "towTruckPhone": "0800-111-2222", "...": null },
     "botEnabled": true,
     "coverages": [
-      { "id": 1, "code": "A", "name": "Responsabilidad civil", "isActive": true, "highlighted": false, "sortOrder": 100, "needsReview": false },
-      { "id": 3, "code": "C1", "name": "Terceros completo", "isActive": true, "highlighted": true, "sortOrder": 300, "needsReview": false }
+      {
+        "id": 1,
+        "code": "A",
+        "name": "Responsabilidad civil",
+        "isActive": true,
+        "highlighted": false,
+        "sortOrder": 100,
+        "needsReview": false
+      },
+      {
+        "id": 3,
+        "code": "C1",
+        "name": "Terceros completo",
+        "isActive": true,
+        "highlighted": true,
+        "sortOrder": 300,
+        "needsReview": false
+      }
     ]
   },
   "lastBotStatusChange": { "botEnabled": true, "at": "2026-10-28T15:00:00.000Z", "by": "sucursal@norte.test" }
@@ -2201,16 +2402,22 @@ Changes a number's own assistant. Only the fields sent change; clearing one give
 
 **Request body**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| botName | string | No | max 60; empty = the organization's |
-| staffNames | string[] | No | up to 10 names of max 30; empty and repeated dropped; empty list = the organization's |
-| businessHours | object \| null | No | same shape and rules as `PATCH /admin/business-hours/schedule`; `null` = the organization's |
-| botProfile | object | No | same fields and limits as `PATCH /admin/config/profile`; an empty string = the organization's |
-| coverageSettings | object \| null | No | `{ "<code>": { "isActive"?: boolean \| null, "highlighted"?: boolean \| null, "sortOrder"?: 0–999 \| null } }` for codes of `organization.coverages`; a `null` field (or a code left out) = the organization's; `null` = every coverage as the organization's |
+| Field            | Type           | Required | Constraints                                                                                                                                                                                                                                                   |
+| ---------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| botName          | string         | No       | max 60; empty = the organization's                                                                                                                                                                                                                            |
+| staffNames       | string[]       | No       | up to 10 names of max 30; empty and repeated dropped; empty list = the organization's                                                                                                                                                                         |
+| businessHours    | object \| null | No       | same shape and rules as `PATCH /admin/business-hours/schedule`; `null` = the organization's                                                                                                                                                                   |
+| botProfile       | object         | No       | same fields and limits as `PATCH /admin/config/profile`; an empty string = the organization's                                                                                                                                                                 |
+| coverageSettings | object \| null | No       | `{ "<code>": { "isActive"?: boolean \| null, "highlighted"?: boolean \| null, "sortOrder"?: 0–999 \| null } }` for codes of `organization.coverages`; a `null` field (or a code left out) = the organization's; `null` = every coverage as the organization's |
 
 ```json
-{ "botName": "Sofi", "staffNames": ["Caro"], "businessHours": null, "botProfile": { "transferAlias": "NORTE.RAFAELA" }, "coverageSettings": { "C1": { "highlighted": true, "sortOrder": 0 }, "D2": { "isActive": false } } }
+{
+  "botName": "Sofi",
+  "staffNames": ["Caro"],
+  "businessHours": null,
+  "botProfile": { "transferAlias": "NORTE.RAFAELA" },
+  "coverageSettings": { "C1": { "highlighted": true, "sortOrder": 0 }, "D2": { "isActive": false } }
+}
 ```
 
 **Responses**
@@ -2229,9 +2436,9 @@ The number's own bot switch. Off, the bot stops answering on this number only (m
 
 **Request body**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| botEnabled | boolean | Yes | — |
+| Field      | Type    | Required | Constraints |
+| ---------- | ------- | -------- | ----------- |
+| botEnabled | boolean | Yes      | —           |
 
 ```json
 { "botEnabled": false }
@@ -2240,8 +2447,13 @@ The number's own bot switch. Off, the bot stops answering on this number only (m
 **Responses**
 
 `200 OK`
+
 ```json
-{ "id": 8, "botEnabled": false, "lastBotStatusChange": { "botEnabled": false, "at": "2026-10-28T15:00:00.000Z", "by": "sucursal@norte.test" } }
+{
+  "id": 8,
+  "botEnabled": false,
+  "lastBotStatusChange": { "botEnabled": false, "at": "2026-10-28T15:00:00.000Z", "by": "sucursal@norte.test" }
+}
 ```
 
 `404 Not Found` — the number is not of the caller's organization, or an admin on a number that is not billed to one of their codes
@@ -2261,7 +2473,7 @@ Crea un lead desde el cotizador web público (productor por defecto).
 **Request body**
 
 | Field          | Type   | Required | Constraints                                            |
-|----------------|--------|----------|--------------------------------------------------------|
+| -------------- | ------ | -------- | ------------------------------------------------------ |
 | productType    | string | Yes      | bici, comercio, praxis, personas, bolso, hogar         |
 | contactName    | string | Yes      | 1–120 chars                                            |
 | phone          | string | Yes      | 1–30 chars                                             |
@@ -2272,6 +2484,7 @@ Crea un lead desde el cotizador web público (productor por defecto).
 **Responses**
 
 `201 Created`
+
 ```json
 { "id": 12 }
 ```
@@ -2286,13 +2499,14 @@ Stores a WhatsApp voice note so the inbox can play it next to its transcription.
 
 **Request body** (`multipart/form-data`)
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| audio | file | Yes | `audio/ogg`, `audio/mpeg`, `audio/mp4`, `audio/aac`, `audio/amr` or `audio/webm`; max 16 MB |
+| Field | Type | Required | Constraints                                                                                 |
+| ----- | ---- | -------- | ------------------------------------------------------------------------------------------- |
+| audio | file | Yes      | `audio/ogg`, `audio/mpeg`, `audio/mp4`, `audio/aac`, `audio/amr` or `audio/webm`; max 16 MB |
 
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "filename": "1791230000000-123.ogg",
@@ -2340,7 +2554,7 @@ Adjunta las fotos que el cliente manda por WhatsApp para contratar una cotizaci�
 **Request body** (`multipart/form-data`)
 
 | Field    | Type   | Required | Constraints                                        |
-|----------|--------|----------|----------------------------------------------------|
+| -------- | ------ | -------- | -------------------------------------------------- |
 | adjuntos | file[] | Yes      | 1–5 files, ≤5 MB each, jpeg/png/webp/heic/pdf only |
 
 **Query:** `tipo` (opcional) — `dni_frente` \| `dni_dorso` \| `tarjeta_azul`
@@ -2348,6 +2562,7 @@ Adjunta las fotos que el cliente manda por WhatsApp para contratar una cotizaci�
 **Responses**
 
 `201 Created`
+
 ```json
 { "leadId": 12, "attachmentCount": 3 }
 ```
@@ -2368,6 +2583,7 @@ el cotizador web público.
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -2402,31 +2618,41 @@ auto/moto (`QuoteRequest`) en un mismo stream. `UserAuthGuard`, scope al product
 
 **Query params**
 
-| Field       | Type   | Required | Constraints                                        |
-|-------------|--------|----------|----------------------------------------------------|
-| status      | string | No       | NEW, CONTACTED, CLOSED                              |
+| Field       | Type   | Required | Constraints                                                |
+| ----------- | ------ | -------- | ---------------------------------------------------------- |
+| status      | string | No       | NEW, CONTACTED, CLOSED                                     |
 | productType | string | No       | auto, moto, bici, comercio, praxis, personas, bolso, hogar |
-| kind        | string | No       | lead, cotizacion                                   |
-| search      | string | No       | nombre, teléfono o email (≤120)                    |
-| page        | number | No       | ≥1                                                 |
-| pageSize    | number | No       | 1–100 (default 20)                                 |
+| kind        | string | No       | lead, cotizacion                                           |
+| search      | string | No       | nombre, teléfono o email (≤120)                            |
+| page        | number | No       | ≥1                                                         |
+| pageSize    | number | No       | 1–100 (default 20)                                         |
 
 **Who sees what.** Same rule as `GET /admin/novedades`: an admin only the leads and online quote requests that came through their own numbers (`ContactLead.phoneNumberId`, `Quote.phoneNumberId`), plus what came through no number (web, panel) when the office line is theirs; the SuperAdmin everything, or the number of `phoneNumberId` (the default number also brings the web ones). `producerCodeId` narrows by code as before.
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
     {
-      "id": 12, "kind": "lead", "productType": "hogar",
-      "contactName": "María P.", "phone": "3410000000", "email": null,
-      "summary": "Plan Hogar Integral", "channel": "WEB",
-      "status": "NEW", "createdAt": "2026-06-22T20:00:00.000Z"
+      "id": 12,
+      "kind": "lead",
+      "productType": "hogar",
+      "contactName": "María P.",
+      "phone": "3410000000",
+      "email": null,
+      "summary": "Plan Hogar Integral",
+      "channel": "WEB",
+      "status": "NEW",
+      "createdAt": "2026-06-22T20:00:00.000Z"
     }
   ],
-  "total": 1, "page": 1, "pageSize": 20, "totalPages": 1
+  "total": 1,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1
 }
 ```
 
@@ -2447,10 +2673,10 @@ Actualiza el seguimiento de una solicitud.
 
 **Request body**
 
-| Field  | Type   | Required | Constraints              |
-|--------|--------|----------|--------------------------|
-| status | string | No       | NEW, CONTACTED, CLOSED   |
-| notes  | string | No       | ≤2000                    |
+| Field  | Type   | Required | Constraints            |
+| ------ | ------ | -------- | ---------------------- |
+| status | string | No       | NEW, CONTACTED, CLOSED |
+| notes  | string | No       | ≤2000                  |
 
 `200 OK` → `{ "ok": true }`
 `400 Bad Request` — nada para actualizar
@@ -2471,15 +2697,15 @@ Lista todos los planes (activos e inactivos) del productor.
 
 **Request body**
 
-| Field         | Type     | Required | Constraints                  |
-|---------------|----------|----------|------------------------------|
-| productType   | string   | Yes      | bolso, hogar                 |
-| name          | string   | Yes      | 1–80                         |
-| monthlyPrice  | number   | Yes      | ≥0, 2 decimales              |
-| description   | string   | No       | ≤500                         |
-| coverageItems | string[] | Yes      | ≤20 items, cada uno ≤120     |
-| isActive      | boolean  | No       | default true                 |
-| sortOrder     | number   | No       | ≥0, default 0                |
+| Field         | Type     | Required | Constraints              |
+| ------------- | -------- | -------- | ------------------------ |
+| productType   | string   | Yes      | bolso, hogar             |
+| name          | string   | Yes      | 1–80                     |
+| monthlyPrice  | number   | Yes      | ≥0, 2 decimales          |
+| description   | string   | No       | ≤500                     |
+| coverageItems | string[] | Yes      | ≤20 items, cada uno ≤120 |
+| isActive      | boolean  | No       | default true             |
+| sortOrder     | number   | No       | ≥0, default 0            |
 
 `201 Created` → plan creado
 
@@ -2517,6 +2743,7 @@ Triunfo (auto/moto) and `ProductPlan` (bolso/hogar).
 **Auth required:** No
 
 `200 OK`
+
 ```json
 [
   {
@@ -2539,6 +2766,7 @@ Public attention window of the default producer (`DEFAULT_PRODUCER_SLUG`, defaul
 **Auth required:** No
 
 `200 OK`
+
 ```json
 { "attentionHours": "Lunes a viernes de 8 a 16 hs" }
 ```
@@ -2570,9 +2798,17 @@ Current weekly schedule + active/upcoming closures.
 **Auth required:** Yes (Bearer, type `user`)
 
 `200 OK`
+
 ```json
 {
-  "weekly": { "mon": [{ "from": "09:00", "to": "12:00" }, { "from": "17:00", "to": "19:30" }], "sat": [], "sun": [] },
+  "weekly": {
+    "mon": [
+      { "from": "09:00", "to": "12:00" },
+      { "from": "17:00", "to": "19:30" }
+    ],
+    "sat": [],
+    "sun": []
+  },
   "closures": [{ "id": 3, "startDate": "2026-06-24", "endDate": "2026-06-24", "reason": "Día de la Bandera" }]
 }
 ```
@@ -2585,8 +2821,8 @@ The organization's hours: they apply to every number that has no hours of its ow
 
 **Request body**
 
-| Field  | Type   | Required | Constraints |
-|--------|--------|----------|-------------|
+| Field  | Type   | Required | Constraints                                                                |
+| ------ | ------ | -------- | -------------------------------------------------------------------------- |
 | weekly | object | Yes      | 7 day keys; each an array of `{from,to}` HH:mm, `from` < `to`, no overlaps |
 
 `200 OK` → `{ "weekly": { ... } }`
@@ -2601,11 +2837,11 @@ Adds a temporary closure (single day → `startDate == endDate`). Closures apply
 
 **Request body**
 
-| Field     | Type   | Required | Constraints |
-|-----------|--------|----------|-------------|
-| startDate | string | Yes      | YYYY-MM-DD |
+| Field     | Type   | Required | Constraints             |
+| --------- | ------ | -------- | ----------------------- |
+| startDate | string | Yes      | YYYY-MM-DD              |
 | endDate   | string | Yes      | YYYY-MM-DD, ≥ startDate |
-| reason    | string | Yes      | 1–160 chars |
+| reason    | string | Yes      | 1–160 chars             |
 
 `201 Created` → `{ "id": 3, "startDate": "...", "endDate": "...", "reason": "..." }`
 
@@ -2625,6 +2861,7 @@ Live hours for the default producer: formatted week, open-now and ready copy.
 **Auth required:** No
 
 `200 OK`
+
 ```json
 {
   "formatted": "Lunes a viernes de 9 a 12 y de 17 a 19:30 hs · Sábado de 9 a 13 hs",
@@ -2656,6 +2893,7 @@ Lists every coverage code ever seen for the authenticated user's producer, order
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -2689,19 +2927,19 @@ Updates one coverage. Any edit sets `isConfigured` to `true`.
 
 **Request body**
 
-| Field       | Type     | Required | Constraints                                              |
-|-------------|----------|----------|----------------------------------------------------------|
-| name        | string   | No       | ≤ 80                                                     |
-| tagline     | string   | No       | ≤ 160                                                    |
-| benefits    | string[] | No       | ≤ 12 items, each ≤ 150 chars                             |
-| exclusions  | string[] | No       | What it does not include; ≤ 12 items, each ≤ 150 chars   |
-| isActive    | boolean  | No       | `false` hides the coverage from every quote              |
-| highlighted | boolean  | No       | Renders the "La más elegida" badge                       |
-| sortOrder   | number   | No       | Integer ≥ 0                                              |
-| yearFrom    | number   | No       | Vehicle year 1900–2100, or `null` for no lower bound     |
-| yearTo      | number   | No       | Vehicle year 1900–2100, or `null` for no upper bound     |
-| highlightYearFrom | number | No | First vehicle year the coverage is recommended for (1900–2100), or `null` |
-| highlightYearTo   | number | No | Last vehicle year the coverage is recommended for (1900–2100), or `null` |
+| Field             | Type     | Required | Constraints                                                               |
+| ----------------- | -------- | -------- | ------------------------------------------------------------------------- |
+| name              | string   | No       | ≤ 80                                                                      |
+| tagline           | string   | No       | ≤ 160                                                                     |
+| benefits          | string[] | No       | ≤ 12 items, each ≤ 150 chars                                              |
+| exclusions        | string[] | No       | What it does not include; ≤ 12 items, each ≤ 150 chars                    |
+| isActive          | boolean  | No       | `false` hides the coverage from every quote                               |
+| highlighted       | boolean  | No       | Renders the "La más elegida" badge                                        |
+| sortOrder         | number   | No       | Integer ≥ 0                                                               |
+| yearFrom          | number   | No       | Vehicle year 1900–2100, or `null` for no lower bound                      |
+| yearTo            | number   | No       | Vehicle year 1900–2100, or `null` for no upper bound                      |
+| highlightYearFrom | number   | No       | First vehicle year the coverage is recommended for (1900–2100), or `null` |
+| highlightYearTo   | number   | No       | Last vehicle year the coverage is recommended for (1900–2100), or `null`  |
 
 ```json
 { "name": "Todo Riesgo Premium", "isActive": true, "yearFrom": 2015, "highlighted": true, "highlightYearFrom": 2010 }
@@ -2725,14 +2963,19 @@ Persists a whole ordering in one call, for a drag-and-drop list.
 
 **Request body**
 
-| Field             | Type   | Required | Constraints              |
-|-------------------|--------|----------|--------------------------|
-| items             | array  | Yes      | 1–100 entries            |
-| items[].id        | number | Yes      | Coverage id              |
-| items[].sortOrder | number | Yes      | Integer ≥ 0              |
+| Field             | Type   | Required | Constraints   |
+| ----------------- | ------ | -------- | ------------- |
+| items             | array  | Yes      | 1–100 entries |
+| items[].id        | number | Yes      | Coverage id   |
+| items[].sortOrder | number | Yes      | Integer ≥ 0   |
 
 ```json
-{ "items": [{ "id": 1, "sortOrder": 100 }, { "id": 2, "sortOrder": 200 }] }
+{
+  "items": [
+    { "id": 1, "sortOrder": 100 },
+    { "id": 2, "sortOrder": 200 }
+  ]
+}
 ```
 
 **Responses**
@@ -2744,7 +2987,6 @@ Persists a whole ordering in one call, for a drag-and-drop list.
 `401 Unauthorized` — Missing or invalid token
 
 `404 Not Found` — One of the ids does not belong to this producer
-
 
 ### Eliminar chats de la bandeja
 
@@ -2759,7 +3001,6 @@ Persists a whole ordering in one call, for a drag-and-drop list.
 - El panel exige confirmación y mantiene el modal abierto si la operación falla.
   No borra las conversaciones de la aplicación de WhatsApp del cliente.
 
-
 ### Limpiar novedades
 
 `DELETE /admin/novedades` requiere autenticación de administración. Limpia todas
@@ -2767,7 +3008,6 @@ las novedades accesibles de la organización y códigos del usuario, sin filtros
 por página, estado o categoría. Responde `{ "clearedCount": 15 }`. Aplica borrado
 lógico solo a Notification (novedades): conserva chats, siniestros, solicitudes y sus estados.
 Las nuevas novedades continúan registrándose. El panel exige confirmación.
-
 
 ## Mejoras
 
@@ -2789,14 +3029,15 @@ paneles que todavía no paginan; `area` y `pageSize` se ignoran en ese caso).
 
 **Query params**
 
-| Param    | Type   | Required | Constraints |
-|----------|--------|----------|-------------|
-| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
-| pageSize | int    | No       | `1..50`. Default 10 |
+| Param    | Type   | Required | Constraints                                              |
+| -------- | ------ | -------- | -------------------------------------------------------- |
+| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada                  |
+| pageSize | int    | No       | `1..50`. Default 10                                      |
 | area     | string | No       | `BOT` \| `BANDEJA` \| `COTIZADOR` \| `PANEL` \| `PORTAL` |
 
 `200 OK` (con `page`). `total` y `totalPages` cuentan el área filtrada;
 `areaCounts` cuenta todas las publicadas por área, sin el filtro (para los chips).
+
 ```json
 {
   "data": [
@@ -2854,18 +3095,26 @@ responde una página; sin `page`, el array completo como antes de paginar.
 
 **Query params**
 
-| Param    | Type   | Required | Constraints |
-|----------|--------|----------|-------------|
-| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
-| pageSize | int    | No       | `1..50`. Default 10 |
+| Param    | Type   | Required | Constraints                                |
+| -------- | ------ | -------- | ------------------------------------------ |
+| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada    |
+| pageSize | int    | No       | `1..50`. Default 10                        |
 | filter   | string | No       | `all` (default) \| `drafts` \| `published` |
 
 `200 OK` (con `page`) → `{ data, total, page, pageSize, totalPages, counts }`.
 Cada elemento de `data` tiene los campos de `GET /admin/improvements` más
 `producerId`, `producer: { id, name } | null`, `createdAt` y `updatedAt`.
 `counts` es el tamaño de cada lista, sin el filtro:
+
 ```json
-{ "data": [], "total": 3, "page": 1, "pageSize": 10, "totalPages": 1, "counts": { "all": 32, "drafts": 3, "published": 29 } }
+{
+  "data": [],
+  "total": 3,
+  "page": 1,
+  "pageSize": 10,
+  "totalPages": 1,
+  "counts": { "all": 32, "drafts": 3, "published": 29 }
+}
 ```
 
 `200 OK` (sin `page`) → array con los mismos objetos que `data`.
@@ -2880,20 +3129,26 @@ Cada elemento de `data` tiene los campos de `GET /admin/improvements` más
 
 **Request body**
 
-| Field      | Type           | Required | Constraints |
-|------------|----------------|----------|-------------|
-| title      | string         | Yes      | 1–140 chars |
-| summary    | string         | Yes      | 1–500 chars |
-| beforeText | string         | No       | ≤ 5000 chars; vacío = sin "antes" |
-| afterText  | string         | No       | ≤ 5000 chars |
-| example    | string         | No       | ≤ 5000 chars; una línea por mensaje |
+| Field      | Type           | Required | Constraints                                              |
+| ---------- | -------------- | -------- | -------------------------------------------------------- |
+| title      | string         | Yes      | 1–140 chars                                              |
+| summary    | string         | Yes      | 1–500 chars                                              |
+| beforeText | string         | No       | ≤ 5000 chars; vacío = sin "antes"                        |
+| afterText  | string         | No       | ≤ 5000 chars                                             |
+| example    | string         | No       | ≤ 5000 chars; una línea por mensaje                      |
 | area       | string         | Yes      | `BOT` \| `BANDEJA` \| `COTIZADOR` \| `PANEL` \| `PORTAL` |
-| releasedOn | string \| null | No       | YYYY-MM-DD |
-| producerId | number \| null | No       | organización existente; null/omitido = todas |
-| published  | boolean        | No       | true = publicar ya; si no, queda en borrador |
+| releasedOn | string \| null | No       | YYYY-MM-DD                                               |
+| producerId | number \| null | No       | organización existente; null/omitido = todas             |
+| published  | boolean        | No       | true = publicar ya; si no, queda en borrador             |
 
 ```json
-{ "title": "Nueva sección Mejoras", "summary": "Acá vamos a ir contando…", "area": "PANEL", "producerId": 1, "published": false }
+{
+  "title": "Nueva sección Mejoras",
+  "summary": "Acá vamos a ir contando…",
+  "area": "PANEL",
+  "producerId": 1,
+  "published": false
+}
 ```
 
 `201 Created` → la mejora (formato de `GET /owner/improvements`)
@@ -2924,7 +3179,6 @@ Borrado lógico.
 
 `404 Not Found` — Improvement not found
 
-
 ## Propuestas de mejora
 
 Ideas que los usuarios de una organización le mandan a Lumar desde "Mejoras ›
@@ -2945,12 +3199,13 @@ antes de paginar.
 
 **Query params**
 
-| Param    | Type | Required | Constraints |
-|----------|------|----------|-------------|
+| Param    | Type | Required | Constraints                             |
+| -------- | ---- | -------- | --------------------------------------- |
 | page     | int  | No       | ≥ 1. Si viene, la respuesta es paginada |
-| pageSize | int  | No       | `1..50`. Default 10 |
+| pageSize | int  | No       | `1..50`. Default 10                     |
 
 `200 OK` (sin `page`; con `page`, estos objetos van en `data`)
+
 ```json
 [
   {
@@ -2974,7 +3229,7 @@ antes de paginar.
 **Request body**
 
 | Field       | Type   | Required | Constraints  |
-|-------------|--------|----------|--------------|
+| ----------- | ------ | -------- | ------------ |
 | title       | string | Yes      | 1–140 chars  |
 | description | string | Yes      | 1–5000 chars |
 
@@ -2992,15 +3247,16 @@ más nuevas primero. Con `page` responde una página de las abiertas (ni `DONE` 
 
 **Query params**
 
-| Param    | Type   | Required | Constraints |
-|----------|--------|----------|-------------|
+| Param    | Type   | Required | Constraints                             |
+| -------- | ------ | -------- | --------------------------------------- |
 | page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
-| pageSize | int    | No       | `1..50`. Default 10 |
-| filter   | string | No       | `open` (default) \| `all` |
+| pageSize | int    | No       | `1..50`. Default 10                     |
+| filter   | string | No       | `open` (default) \| `all`               |
 
 `200 OK` (con `page`) → `{ data, total, page, pageSize, totalPages, counts }`;
 cada elemento con el formato de `GET /admin/improvement-proposals` sin `mine`, más
 `producer`. `counts` es el tamaño de cada lista, sin el filtro:
+
 ```json
 { "data": [], "total": 4, "page": 1, "pageSize": 10, "totalPages": 1, "counts": { "open": 4, "all": 11 } }
 ```
@@ -3023,10 +3279,10 @@ Cantidad de propuestas en estado `NEW`.
 
 **Request body**
 
-| Field    | Type   | Required | Constraints |
-|----------|--------|----------|-------------|
+| Field    | Type   | Required | Constraints                                                |
+| -------- | ------ | -------- | ---------------------------------------------------------- |
 | status   | string | No       | `NEW` \| `REVIEWING` \| `PLANNED` \| `DONE` \| `DISCARDED` |
-| response | string | No       | ≤ 5000 chars; vacío = sin respuesta |
+| response | string | No       | ≤ 5000 chars; vacío = sin respuesta                        |
 
 `respondedAt` se actualiza solo cuando cambia la respuesta.
 
@@ -3060,6 +3316,7 @@ solo ve las filas de sus códigos y las que no tienen código.
 **Auth required:** Yes (Bearer, admin)
 
 `200 OK`
+
 ```json
 {
   "templateReady": true,
@@ -3084,31 +3341,31 @@ Guarda las filas de un Excel y devuelve la carga como `GET /admin/rejections/:id
 
 **Request body**
 
-| Field        | Type   | Required | Constraints |
-|--------------|--------|----------|-------------|
-| fileName     | string | Yes      | ≤ 255 chars |
-| periodLabel  | string | No       | ≤ 120 chars (título del Excel) |
+| Field        | Type   | Required | Constraints                                   |
+| ------------ | ------ | -------- | --------------------------------------------- |
+| fileName     | string | Yes      | ≤ 255 chars                                   |
+| periodLabel  | string | No       | ≤ 120 chars (título del Excel)                |
 | producerCode | string | No       | dígitos; código de "Intermediario: 10484 - …" |
-| rows         | array  | Yes      | 1 a 1000 filas |
+| rows         | array  | Yes      | 1 a 1000 filas                                |
 
 Cada fila:
 
-| Field             | Type    | Required | Constraints |
-|-------------------|---------|----------|-------------|
-| rowNumber         | number  | Yes      | entero ≥ 1 (fila del Excel) |
-| holderName        | string  | Yes      | ≤ 160 chars |
-| branch            | number  | No       | "Art." |
-| certificateNumber | string  | Yes      | dígitos |
-| endorsementNumber | number  | No       | |
-| installmentNumber | number  | Yes      | entero ≥ 0 |
-| dueDate           | string  | Yes      | `YYYY-MM-DD` |
-| amount            | number  | Yes      | ≥ 0 |
-| entity            | string  | Yes      | ≤ 80 chars |
+| Field             | Type    | Required | Constraints                                           |
+| ----------------- | ------- | -------- | ----------------------------------------------------- |
+| rowNumber         | number  | Yes      | entero ≥ 1 (fila del Excel)                           |
+| holderName        | string  | Yes      | ≤ 160 chars                                           |
+| branch            | number  | No       | "Art."                                                |
+| certificateNumber | string  | Yes      | dígitos                                               |
+| endorsementNumber | number  | No       |                                                       |
+| installmentNumber | number  | Yes      | entero ≥ 0                                            |
+| dueDate           | string  | Yes      | `YYYY-MM-DD`                                          |
+| amount            | number  | Yes      | ≥ 0                                                   |
+| entity            | string  | Yes      | ≤ 80 chars                                            |
 | accountLast4      | string  | No       | hasta 4 dígitos (nunca el CBU o la tarjeta completos) |
-| reason            | string  | Yes      | ≤ 120 chars |
-| stillPending      | boolean | Yes      | "¿Cuota aún pendiente?" = SI |
-| mobilePhone       | string  | No       | ≤ 40 chars |
-| homePhone         | string  | No       | ≤ 40 chars |
+| reason            | string  | Yes      | ≤ 120 chars                                           |
+| stillPending      | boolean | Yes      | "¿Cuota aún pendiente?" = SI                          |
+| mobilePhone       | string  | No       | ≤ 40 chars                                            |
+| homePhone         | string  | No       | ≤ 40 chars                                            |
 
 ```json
 {
@@ -3117,10 +3374,20 @@ Cada fila:
   "producerCode": "10484",
   "rows": [
     {
-      "rowNumber": 5, "holderName": "PEREZ JUAN", "branch": 465, "certificateNumber": "1234567",
-      "endorsementNumber": 0, "installmentNumber": 2, "dueDate": "2026-09-28", "amount": 90315,
-      "entity": "NACION ARGENTINA", "accountLast4": "6025", "reason": "FALTA DE FONDOS",
-      "stillPending": true, "mobilePhone": "341159990001", "homePhone": "341159990001"
+      "rowNumber": 5,
+      "holderName": "PEREZ JUAN",
+      "branch": 465,
+      "certificateNumber": "1234567",
+      "endorsementNumber": 0,
+      "installmentNumber": 2,
+      "dueDate": "2026-09-28",
+      "amount": 90315,
+      "entity": "NACION ARGENTINA",
+      "accountLast4": "6025",
+      "reason": "FALTA DE FONDOS",
+      "stillPending": true,
+      "mobilePhone": "341159990001",
+      "homePhone": "341159990001"
     }
   ]
 }
@@ -3139,6 +3406,7 @@ Una carga con sus filas y el texto exacto que recibe (o recibió) cada cliente.
 **Auth required:** Yes (Bearer, admin)
 
 `200 OK`
+
 ```json
 {
   "id": 3,
@@ -3149,13 +3417,29 @@ Una carga con sus filas y el texto exacto que recibe (o recibió) cada cliente.
   "templateReady": true,
   "rows": [
     {
-      "id": 11, "rowNumber": 5, "holderName": "PEREZ JUAN", "branch": 465,
-      "certificateNumber": "1234567", "endorsementNumber": 0, "installmentNumber": 2,
-      "dueDate": "2026-09-28", "amount": 90315, "entity": "NACION ARGENTINA", "channel": "ACCOUNT",
-      "accountLast4": "6025", "reason": "FALTA DE FONDOS", "stillPending": true,
-      "phone": "341159990001", "waId": "5493419990001", "status": "READY", "skipReason": null,
-      "error": null, "sentAt": null, "conversationId": null,
-      "client": { "id": 60, "firstName": "JUAN", "lastName": "PEREZ" }, "sentBy": null,
+      "id": 11,
+      "rowNumber": 5,
+      "holderName": "PEREZ JUAN",
+      "branch": 465,
+      "certificateNumber": "1234567",
+      "endorsementNumber": 0,
+      "installmentNumber": 2,
+      "dueDate": "2026-09-28",
+      "amount": 90315,
+      "entity": "NACION ARGENTINA",
+      "channel": "ACCOUNT",
+      "accountLast4": "6025",
+      "reason": "FALTA DE FONDOS",
+      "stillPending": true,
+      "phone": "341159990001",
+      "waId": "5493419990001",
+      "status": "READY",
+      "skipReason": null,
+      "error": null,
+      "sentAt": null,
+      "conversationId": null,
+      "client": { "id": 60, "firstName": "JUAN", "lastName": "PEREZ" },
+      "sentBy": null,
       "message": "Hola Juan, te escribimos de JP Management Group, …"
     }
   ]
@@ -3174,8 +3458,8 @@ avisos). El panel consulta la carga hasta que ninguna quede en `SENDING`.
 
 **Request body**
 
-| Field | Type     | Required | Constraints |
-|-------|----------|----------|-------------|
+| Field | Type     | Required | Constraints                       |
+| ----- | -------- | -------- | --------------------------------- |
 | ids   | number[] | Yes      | 1 a 1000 ids de filas de la carga |
 
 `201 Created` → la carga, con las filas en `SENDING`
@@ -3222,6 +3506,7 @@ Each organization quotes, syncs its cartera and downloads documents with its own
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "configured": true,
@@ -3233,6 +3518,7 @@ Each organization quotes, syncs its cartera and downloads documents with its own
 ```
 
 `404 Not Found`
+
 ```json
 { "statusCode": 404, "message": "Organization 9 not found", "error": "Not Found" }
 ```
@@ -3245,11 +3531,11 @@ Asks Triunfo for a token with the credentials and saves them only if it accepts 
 
 **Request body**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| productor | string | Yes | numeric Triunfo producer code |
-| username | string | Yes | ≤ 100 |
-| password | string | Yes | ≤ 200 |
+| Field     | Type   | Required | Constraints                   |
+| --------- | ------ | -------- | ----------------------------- |
+| productor | string | Yes      | numeric Triunfo producer code |
+| username  | string | Yes      | ≤ 100                         |
+| password  | string | Yes      | ≤ 200                         |
 
 ```json
 { "productor": "20001", "username": "NORTE", "password": "••••••" }
@@ -3260,13 +3546,23 @@ Asks Triunfo for a token with the credentials and saves them only if it accepts 
 `200 OK` — as `GET /owner/organizations/:id/triunfo`
 
 `400 Bad Request` — Triunfo refused them
+
 ```json
-{ "statusCode": 400, "message": "No se pudo obtener token de Triunfo — Usuario o contraseña incorrectos", "error": "Bad Request" }
+{
+  "statusCode": 400,
+  "message": "No se pudo obtener token de Triunfo — Usuario o contraseña incorrectos",
+  "error": "Bad Request"
+}
 ```
 
 `502 Bad Gateway` — Triunfo could not be reached; nothing was saved
+
 ```json
-{ "statusCode": 502, "message": "No se pudo contactar a Triunfo para validar las credenciales. Probá de nuevo.", "error": "Bad Gateway" }
+{
+  "statusCode": 502,
+  "message": "No se pudo contactar a Triunfo para validar las credenciales. Probá de nuevo.",
+  "error": "Bad Gateway"
+}
 ```
 
 ### DELETE /owner/organizations/:id/triunfo
@@ -3278,4 +3574,3 @@ Removes the organization's own credentials (soft delete).
 **Responses**
 
 `200 OK` — as `GET /owner/organizations/:id/triunfo`, with `configured: false`
-
