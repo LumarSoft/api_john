@@ -51,8 +51,6 @@ export interface BillablePhone {
   serviceStartedAt: Date | null
   /** Free tokens of the first month of service (a new account's "Prueba"); 0 otherwise. */
   trialTokens?: number
-  /** The plan the office chose for the number; null = the smallest of the catalog. */
-  plan?: CatalogPlan | null
   /** The organization's active plans. */
   catalog?: CatalogPlan[]
 }
@@ -84,7 +82,7 @@ export interface MonthlyBill {
   billedUsd: number
   /** What the organization pays the platform for the month. */
   costUsd: number
-  /** True when the number's own plan was prorated for the first month of service. */
+  /** True when the smallest plan was prorated for the first month of service. */
   prorated: boolean
 }
 
@@ -200,7 +198,6 @@ export class UsageService {
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
         trialTokens: true,
-        tokenPlan: { select: { id: true, name: true, tokens: true, priceUsd: true } },
       },
     })
   }
@@ -222,22 +219,18 @@ export class UsageService {
   }
 
   /**
-   * The plan a month of `tokens` is billed on: the number's own plan while it
-   * covers them, else the smallest plan of the catalog that does, and past the
-   * largest plan that same plan plus blocks of COMMERCIAL_TOKEN_BLOCK_SIZE: the
-   * cost at the unit price, the price at the largest plan's own price per token.
-   * With no catalog at all, plain blocks at cost.
+   * The plan a month of `tokens` is billed on. Nobody picks it: the number is
+   * placed on the smallest plan of the catalog that covers the tokens it sent,
+   * and past the largest plan on that plan plus blocks of
+   * COMMERCIAL_TOKEN_BLOCK_SIZE: the cost at the unit price, the price at the
+   * largest plan's own price per token. With no catalog at all, plain blocks at cost.
    */
-  planFor(tokens: number, catalog: CatalogPlan[] = [], assigned: CatalogPlan | null = null): TokenPlan {
+  planFor(tokens: number, catalog: CatalogPlan[] = []): TokenPlan {
     const { blockTokens } = this.commercialPricing
-    if (assigned && tokens <= assigned.tokens) return this.asPlan(assigned)
     const sorted = [...catalog].sort((a, b) => a.tokens - b.tokens || a.id - b.id)
     const covering = sorted.find(p => p.tokens >= tokens)
     if (covering) return this.asPlan(covering)
-    const largest = [assigned, ...sorted].reduce<CatalogPlan | null>(
-      (best, p) => (p && (!best || p.tokens > best.tokens) ? p : best),
-      null,
-    )
+    const largest = sorted.at(-1) ?? null
     const base = largest?.tokens ?? 0
     const extraBlocks = Math.max(1, Math.ceil((tokens - base) / blockTokens))
     const includedTokens = base + extraBlocks * blockTokens
@@ -260,23 +253,22 @@ export class UsageService {
    * One token per message sent. A new account's number sends its first
    * COMMERCIAL_TRIAL_TOKENS of its first month free ("Prueba"); the rest of the
    * month, and every later month, is billed on the plan that covers the tokens
-   * (planFor), so a busy month moves up and a quiet one comes back to the
-   * number's own plan. An active number pays at least its own plan (or the
-   * smallest of the catalog); in its first month of service, with no trial, that
-   * plan is prorated from the day it went live. A number that never went live,
-   * or that was switched off and sent nothing, is not billed.
+   * (planFor), so a busy month moves up and a quiet one comes back down. An
+   * active number pays at least the smallest plan; in its first month of
+   * service, with no trial, that minimum is prorated from the day it went live.
+   * A number that never went live, or that was switched off and sent nothing,
+   * is not billed.
    */
   billFor(phone: BillablePhone, usage: MonthlyBillableUsage | undefined, period = currentPeriod()): MonthlyBill {
     const tokens = usage?.metaMessages ?? 0
     const catalog = phone.catalog ?? []
-    const assigned = phone.plan ?? null
     const startPeriod = phone.serviceStartedAt ? currentPeriod(phone.serviceStartedAt) : null
     if (!startPeriod || startPeriod > period || (!phone.isActive && tokens === 0)) {
       return {
         tokens,
         billableTokens: 0,
         trialTokens: 0,
-        plan: this.planFor(0, catalog, assigned),
+        plan: this.planFor(0, catalog),
         billedUsd: 0,
         costUsd: 0,
         prorated: false,
@@ -296,10 +288,10 @@ export class UsageService {
         prorated: false,
       }
     }
-    const plan = this.planFor(billableTokens, catalog, assigned)
-    const ownPlanId = assigned?.id ?? [...catalog].sort((a, b) => a.tokens - b.tokens)[0]?.id ?? null
+    const plan = this.planFor(billableTokens, catalog)
+    const smallestId = [...catalog].sort((a, b) => a.tokens - b.tokens)[0]?.id ?? null
     const share =
-      firstMonth && trialTokens === 0 && plan.id != null && plan.id === ownPlanId
+      firstMonth && trialTokens === 0 && plan.id != null && plan.id === smallestId
         ? serviceShareOfMonth(period, phone.serviceStartedAt!)
         : 1
     return {
@@ -508,7 +500,6 @@ export class UsageService {
       producerId: number
       isActive: boolean
       trialTokens: number
-      tokenPlan: { id: number; name: string; tokens: number; priceUsd: unknown } | null
     },
     rowId: number,
     usage: MonthlyBillableUsage,
@@ -522,7 +513,6 @@ export class UsageService {
           isActive: phone.isActive,
           serviceStartedAt: starts.get(phone.id) ?? null,
           trialTokens: phone.trialTokens,
-          plan: phone.tokenPlan ? this.catalogPlan(phone.tokenPlan) : null,
           catalog,
         },
         usage,
@@ -596,7 +586,6 @@ export class UsageService {
             monthlyBudgetUsd: true,
             budgetExceededAt: true,
             trialTokens: true,
-            tokenPlan: { select: { id: true, name: true, tokens: true, priceUsd: true } },
           },
         },
         producerCode: { select: { id: true, code: true, holderName: true } },
@@ -615,7 +604,6 @@ export class UsageService {
           isActive: r.phoneNumber.isActive,
           serviceStartedAt: starts.get(r.phoneNumber.id) ?? null,
           trialTokens: r.phoneNumber.trialTokens,
-          plan: r.phoneNumber.tokenPlan ? this.catalogPlan(r.phoneNumber.tokenPlan) : null,
           catalog,
         },
         r,

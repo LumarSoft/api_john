@@ -1,8 +1,7 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common'
+import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { CreateClosureDto } from './dto/create-closure.dto'
 import { UpdateScheduleDto } from './dto/update-schedule.dto'
 import {
   type ActiveClosure,
@@ -16,13 +15,6 @@ import {
 
 const toDateStr = (d: Date): string => d.toISOString().slice(0, 10)
 
-export interface ClosureView {
-  id: number
-  startDate: string
-  endDate: string
-  reason: string
-}
-
 @Injectable()
 export class BusinessHoursService {
   constructor(
@@ -30,16 +22,14 @@ export class BusinessHoursService {
     private readonly configService: ConfigService,
   ) {}
 
-  /** Admin view: the weekly schedule plus the upcoming/active closures. */
-  async getConfig(producerId: number): Promise<{ weekly: WeeklySchedule; closures: ClosureView[] }> {
+  /** Admin view: the organization's weekly schedule (closures are each number's). */
+  async getConfig(producerId: number): Promise<{ weekly: WeeklySchedule }> {
     const producer = await this.prisma.producer.findFirst({
       where: { id: producerId, deletedAt: null },
       select: { businessHours: true },
     })
     if (!producer) throw new NotFoundException('Producer not found')
-
-    const closures = await this.listClosures(producerId)
-    return { weekly: parseSchedule(producer.businessHours), closures }
+    return { weekly: parseSchedule(producer.businessHours) }
   }
 
   async updateSchedule(producerId: number, dto: UpdateScheduleDto): Promise<{ weekly: WeeklySchedule }> {
@@ -57,92 +47,56 @@ export class BusinessHoursService {
     return { weekly }
   }
 
-  async addClosure(producerId: number, dto: CreateClosureDto): Promise<ClosureView> {
-    if (dto.startDate > dto.endDate) {
-      throw new BadRequestException('startDate must be on or before endDate')
-    }
-    const created = await this.prisma.businessClosure.create({
-      data: {
-        producerId,
-        startDate: new Date(`${dto.startDate}T00:00:00Z`),
-        endDate: new Date(`${dto.endDate}T00:00:00Z`),
-        reason: dto.reason.trim(),
-      },
-      select: { id: true, startDate: true, endDate: true, reason: true },
+  /**
+   * Live status for the default producer — the public endpoint for the web: the
+   * office line's (the active number billed to the master code) hours and
+   * closures, or the organization's hours when it has no such number.
+   */
+  async getStatusForDefault(): Promise<HoursStatus> {
+    const producerId = await this.resolveDefaultProducerId()
+    const office = await this.prisma.phoneNumber.findFirst({
+      where: { producerId, deletedAt: null, isActive: true, responsibleProducerCode: { isMaster: true } },
+      orderBy: { id: 'asc' },
+      select: { id: true, businessHours: true, producer: { select: { businessHours: true } } },
     })
-    return {
-      id: created.id,
-      startDate: toDateStr(created.startDate),
-      endDate: toDateStr(created.endDate),
-      reason: created.reason,
+    if (office) {
+      return computeStatus(
+        parseSchedule(office.businessHours ?? office.producer.businessHours),
+        await this.activeClosures(office.id),
+      )
     }
-  }
-
-  async removeClosure(producerId: number, id: number): Promise<{ ok: true }> {
-    const closure = await this.prisma.businessClosure.findFirst({
-      where: { id, producerId, deletedAt: null },
-      select: { id: true },
-    })
-    if (!closure) throw new NotFoundException('Closure not found')
-    await this.prisma.businessClosure.update({ where: { id }, data: { deletedAt: new Date() } })
-    return { ok: true }
-  }
-
-  /** Live status (formatted hours + open-now + today's closure) for a producer. */
-  async getStatus(producerId: number): Promise<HoursStatus> {
     const producer = await this.prisma.producer.findFirst({
       where: { id: producerId, deletedAt: null },
       select: { businessHours: true },
     })
     if (!producer) throw new NotFoundException('Producer not found')
-
-    const closures = await this.activeClosures(producerId)
-    return computeStatus(parseSchedule(producer.businessHours), closures)
-  }
-
-  /** Live status for the default producer — the public endpoint for the web. */
-  async getStatusForDefault(): Promise<HoursStatus> {
-    return this.getStatus(await this.resolveDefaultProducerId())
+    return computeStatus(parseSchedule(producer.businessHours), [])
   }
 
   /**
    * Live status for a WhatsApp number — what the bot tells its customers: the
-   * number's own weekly hours if it has them, its organization's otherwise.
-   * Closures (holidays) are the organization's for every number.
+   * number's own weekly hours if it has them, its organization's otherwise, and
+   * the number's own holidays and closures.
    */
   async getStatusForNumber(phoneNumberId: string): Promise<HoursStatus> {
     const phone = await this.prisma.phoneNumber.findFirst({
       where: { phoneNumberId, isActive: true, deletedAt: null },
-      select: { producerId: true, businessHours: true, producer: { select: { businessHours: true } } },
+      select: { id: true, businessHours: true, producer: { select: { businessHours: true } } },
     })
     if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
-    const closures = await this.activeClosures(phone.producerId)
-    return computeStatus(parseSchedule(phone.businessHours ?? phone.producer.businessHours), closures)
+    return computeStatus(
+      parseSchedule(phone.businessHours ?? phone.producer.businessHours),
+      await this.activeClosures(phone.id),
+    )
   }
 
   // ─── Helpers ───────────────────────────────────────────────
 
-  /** Upcoming + active closures (endDate today or later), for the admin list. */
-  private async listClosures(producerId: number): Promise<ClosureView[]> {
+  /** A number's active closures as plain date strings for the open-now computation. */
+  private async activeClosures(phoneId: number): Promise<ActiveClosure[]> {
     const today = new Date(`${toDateStr(new Date())}T00:00:00Z`)
     const rows = await this.prisma.businessClosure.findMany({
-      where: { producerId, deletedAt: null, endDate: { gte: today } },
-      orderBy: { startDate: 'asc' },
-      select: { id: true, startDate: true, endDate: true, reason: true },
-    })
-    return rows.map(r => ({
-      id: r.id,
-      startDate: toDateStr(r.startDate),
-      endDate: toDateStr(r.endDate),
-      reason: r.reason,
-    }))
-  }
-
-  /** Active closures as plain date strings for the open-now computation. */
-  private async activeClosures(producerId: number): Promise<ActiveClosure[]> {
-    const today = new Date(`${toDateStr(new Date())}T00:00:00Z`)
-    const rows = await this.prisma.businessClosure.findMany({
-      where: { producerId, deletedAt: null, endDate: { gte: today } },
+      where: { phoneNumberId: phoneId, deletedAt: null, endDate: { gte: today } },
       select: { startDate: true, endDate: true, reason: true },
     })
     return rows.map(r => ({ startDate: toDateStr(r.startDate), endDate: toDateStr(r.endDate), reason: r.reason }))

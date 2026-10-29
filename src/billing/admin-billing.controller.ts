@@ -17,7 +17,7 @@ import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
 import { BillingService } from './billing.service'
-import { CreateTokenPlanDto, SetNumberPlanDto, UpdateTokenPlanDto } from './dto/token-plan.dto'
+import { CreateTokenPlanDto, UpdateTokenPlanDto } from './dto/token-plan.dto'
 
 /** "Facturación" in the panel: the organization's token plans and each number's month. */
 @UseGuards(UserAuthGuard, RolesGuard)
@@ -57,14 +57,5 @@ export class AdminBillingController {
   @Roles(Role.SUPERADMIN)
   removePlan(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
     return this.billing.removePlan(req.user.producerId, id)
-  }
-
-  @Patch('numbers/:id/plan')
-  setNumberPlan(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: SetNumberPlanDto,
-    @Request() req: AuthenticatedRequest,
-  ) {
-    return this.billing.setNumberPlan(req.user, id, dto.planId)
   }
 }

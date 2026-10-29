@@ -79,7 +79,6 @@ function withContact<T extends ConversationContact>(conversation: T, agendaName?
 
 const CONVERSATION_LIST_SELECT = {
   ...CONVERSATION_SUMMARY_SELECT,
-  producer: { select: { botEnabled: true } },
   // The latest message of any role feeds the list preview; the latest inbound
   // one is read separately (see lastInboundByConversation).
   messages: {
@@ -176,9 +175,8 @@ export class InboxService {
       this.numbersWithBotOff(producerId),
     ])
 
-    return conversations.map(({ messages, producer, _count, ...conversation }) => ({
+    return conversations.map(({ messages, _count, ...conversation }) => ({
       ...withContact(conversation, agenda.get(`${conversation.phoneNumberId}:${conversation.waId}`)),
-      globalBotDisabled: !producer.botEnabled,
       // The number's own switch is off: the office answers this chat like a taken one.
       numberBotDisabled: !!conversation.phoneNumberId && offNumbers.has(conversation.phoneNumberId),
       customerMessageCount: _count.messages,
@@ -445,11 +443,7 @@ export class InboxService {
     // Fix #2: producerId in DB query, not post-fetch check.
     const conversation = await this.findAndVerify(conversationId, producerId, scope)
 
-    if (
-      !conversation.botPaused &&
-      conversation.producer.botEnabled &&
-      !(await this.numbersWithBotOff(producerId)).has(conversation.phoneNumberId ?? '')
-    ) {
+    if (!conversation.botPaused && !(await this.numbersWithBotOff(producerId)).has(conversation.phoneNumberId ?? '')) {
       throw new ForbiddenException('Take over the conversation before sending messages')
     }
     if (!conversation.phoneNumberId) {
@@ -555,7 +549,6 @@ export class InboxService {
         waId: true,
         producerId: true,
         botPaused: true,
-        producer: { select: { botEnabled: true } },
         phoneNumberId: true,
         sessionStartedAt: true,
       },

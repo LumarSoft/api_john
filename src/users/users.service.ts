@@ -3,7 +3,6 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common'
 import * as bcrypt from 'bcrypt'
@@ -15,13 +14,6 @@ import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 import { UpdateProfileDto } from './dto/update-profile.dto'
-import { BotStatusAlertService } from './bot-status-alert.service'
-
-/** Admin who flips the organization-wide bot switch. */
-export interface BotStatusActor {
-  id: number
-  email: string
-}
 
 const SAFE_SELECT = {
   id: true,
@@ -39,34 +31,19 @@ const SAFE_SELECT = {
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name)
+  constructor(private readonly prisma: PrismaService) {}
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly botStatusAlerts: BotStatusAlertService,
-  ) {}
-
-  /** Bot/producer configuration shown in the admin "Configuración" screen. */
+  /**
+   * Bot/producer configuration shown in the admin "Configuración" screen. The
+   * bot is switched on and off per number (Números → Asistente), not here.
+   */
   async getProducerConfig(producerId: number) {
     const producer = await this.prisma.producer.findFirst({
       where: { id: producerId, deletedAt: null },
-      select: { botName: true, botEnabled: true, staffNames: true },
+      select: { botName: true, staffNames: true },
     })
     if (!producer) throw new NotFoundException('Producer not found')
-    const lastChange = await this.prisma.botStatusChange.findFirst({
-      where: { producerId, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      select: { botEnabled: true, createdAt: true, user: { select: { email: true } } },
-    })
-    return {
-      botName: producer.botName,
-      botEnabled: producer.botEnabled,
-      staffNames: parseStaffNames(producer.staffNames),
-      // Who last flipped the switch and when, so the screen can show it.
-      lastBotStatusChange: lastChange
-        ? { botEnabled: lastChange.botEnabled, at: lastChange.createdAt, by: lastChange.user?.email ?? null }
-        : null,
-    }
+    return { botName: producer.botName, staffNames: parseStaffNames(producer.staffNames) }
   }
 
   /**
@@ -86,13 +63,9 @@ export class UsersService {
     const updated = await this.prisma.producer.update({
       where: { id: producerId },
       data,
-      select: { botName: true, botEnabled: true, staffNames: true },
+      select: { botName: true, staffNames: true },
     })
-    return {
-      botName: updated.botName,
-      botEnabled: updated.botEnabled,
-      staffNames: parseStaffNames(updated.staffNames),
-    }
+    return { botName: updated.botName, staffNames: parseStaffNames(updated.staffNames) }
   }
 
   /** The organization's bot profile, as stored (null fields = not configured). */
@@ -119,58 +92,6 @@ export class UsersService {
       data: { botProfile: profile as unknown as Prisma.InputJsonObject },
     })
     return profile
-  }
-
-  /**
-   * Enables/disables every automated bot response for this organization.
-   *
-   * Every real flip is recorded in BotStatusChange and announced to the owner
-   * (BotStatusAlertService): the switch used to leave no trace, and the office
-   * turned the bot off for days without anyone knowing. Setting the same state
-   * again is a no-op so a double click never produces a second audit row.
-   */
-  async setBotEnabled(producerId: number, botEnabled: boolean, actor: BotStatusActor | null = null) {
-    const producer = await this.prisma.producer.findFirst({
-      where: { id: producerId, deletedAt: null },
-      select: { id: true, name: true, botName: true, botEnabled: true },
-    })
-    if (!producer) throw new NotFoundException('Producer not found')
-
-    if (producer.botEnabled === botEnabled) {
-      return { botName: producer.botName, botEnabled: producer.botEnabled }
-    }
-
-    const previous = await this.prisma.botStatusChange.findFirst({
-      where: { producerId, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      select: { createdAt: true },
-    })
-
-    const [updated, change] = await this.prisma.$transaction([
-      this.prisma.producer.update({
-        where: { id: producerId },
-        data: { botEnabled },
-        select: { botName: true, botEnabled: true },
-      }),
-      this.prisma.botStatusChange.create({
-        data: { producerId, botEnabled, userId: actor?.id ?? null },
-        select: { createdAt: true },
-      }),
-    ])
-
-    // Best-effort announcement; the switch is already persisted.
-    void this.botStatusAlerts
-      .notify({
-        producerId,
-        producerName: producer.name,
-        botEnabled,
-        actorEmail: actor?.email ?? null,
-        at: change.createdAt,
-        since: previous?.createdAt ?? null,
-      })
-      .catch(err => this.logger.warn(`Bot status alert failed: ${(err as Error).message}`))
-
-    return updated
   }
 
   findAll(producerId: number) {

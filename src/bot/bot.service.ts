@@ -175,7 +175,6 @@ export class BotService {
             name: true,
             slug: true,
             botName: true,
-            botEnabled: true,
             staffNames: true,
             businessHours: true,
             botProfile: true,
@@ -190,7 +189,7 @@ export class BotService {
     }
 
     const { producer } = phoneNumber
-    const { id, name, slug, botEnabled, systemPrompt } = producer
+    const { id, name, slug, systemPrompt } = producer
     // A branch's own number may name its assistant, office people, hours and
     // data differently; whatever it leaves empty is the organization's.
     const { botName, staffNames, businessHours, botProfile } = effectiveAssistant(producer, phoneNumber)
@@ -205,8 +204,8 @@ export class BotService {
       producerName: name,
       producerSlug: slug,
       botName,
-      // Off when the organization's switch or the number's own is off.
-      botEnabled: botEnabled && phoneNumber.botEnabled !== false,
+      // The bot is switched on and off per number.
+      botEnabled: phoneNumber.botEnabled !== false,
       // Office people customers write to by name: the bot alerts them and keeps attending.
       staffNames: parseStaffNames(staffNames),
       attentionHours,
@@ -547,7 +546,6 @@ export class BotService {
     const claimed = await this.prisma.conversation.findMany({
       where: {
         deletedAt: null,
-        producer: { botEnabled: true },
         warnedAt: null,
         phoneNumberId: { not: null, notIn: offNumbers.map(n => n.phoneNumberId) },
         lastMessageAt: { not: null, lte: cutoff },
@@ -600,20 +598,22 @@ export class BotService {
     if (candidates.length === 0) return []
 
     // The weekly schedule of the number the chat came through (its own or, if it
-    // has none, its organization's) + the organization's closures decide whether
-    // we are open now: outside hours (or on a holiday) the chat is finalized silently.
-    const numberHours = await this.numberSchedules(candidates.map(c => String(c.phoneNumberId)))
-    const producerIds = [...new Set(candidates.map(c => c.producer.id))]
+    // has none, its organization's) + that number's closures decide whether we
+    // are open now: outside hours (or on a holiday) the chat is finalized silently.
+    const metaIds = [...new Set(candidates.map(c => String(c.phoneNumberId)))]
+    const numberHours = await this.numberSchedules(metaIds)
     const today = new Date(`${toDateStr(new Date())}T00:00:00Z`)
     const closureRows = await this.prisma.businessClosure.findMany({
-      where: { producerId: { in: producerIds }, deletedAt: null, endDate: { gte: today } },
-      select: { producerId: true, startDate: true, endDate: true, reason: true },
+      where: { phoneNumber: { phoneNumberId: { in: metaIds } }, deletedAt: null, endDate: { gte: today } },
+      select: { startDate: true, endDate: true, reason: true, phoneNumber: { select: { phoneNumberId: true } } },
     })
-    const closuresByProducer = new Map<number, ActiveClosure[]>()
+    const closuresByNumber = new Map<string, ActiveClosure[]>()
     for (const r of closureRows) {
-      const list = closuresByProducer.get(r.producerId) ?? []
+      const key = r.phoneNumber?.phoneNumberId
+      if (!key) continue
+      const list = closuresByNumber.get(key) ?? []
       list.push({ startDate: toDateStr(r.startDate), endDate: toDateStr(r.endDate), reason: r.reason })
-      closuresByProducer.set(r.producerId, list)
+      closuresByNumber.set(key, list)
     }
 
     const out: {
@@ -625,7 +625,7 @@ export class BotService {
     }[] = []
     for (const c of candidates) {
       const schedule = numberHours.get(String(c.phoneNumberId)) ?? c.producer.businessHours
-      const status = computeStatus(parseSchedule(schedule), closuresByProducer.get(c.producer.id) ?? [])
+      const status = computeStatus(parseSchedule(schedule), closuresByNumber.get(String(c.phoneNumberId)) ?? [])
       out.push({
         conversationId: c.id,
         waId: c.waId,

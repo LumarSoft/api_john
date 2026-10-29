@@ -157,7 +157,6 @@ export class OwnerService {
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
         trialTokens: true,
-        tokenPlan: { select: { id: true, name: true, tokens: true, priceUsd: true } },
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true } } } },
         usageMonthly: {
@@ -189,7 +188,6 @@ export class OwnerService {
           isActive: p.isActive,
           serviceStartedAt: starts.get(p.id) ?? null,
           trialTokens: p.trialTokens,
-          plan: p.tokenPlan ? this.usage.catalogPlan(p.tokenPlan) : null,
           catalog,
         },
         u,

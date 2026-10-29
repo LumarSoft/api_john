@@ -50,7 +50,6 @@ const catalog = [
   { id: 2, name: 'Estándar', tokens: 500, priceUsd: 25, costUsd: 25 },
   { id: 3, name: 'Profesional', tokens: 1000, priceUsd: 50, costUsd: 50 },
 ]
-const estandar = catalog[1]
 
 describe('token plans', () => {
   it('prices every plan at the fixed unit price, whatever its size', () => {
@@ -72,12 +71,6 @@ describe('token plans', () => {
     expect(service.planFor(300, catalog)).toMatchObject({ name: 'Inicial' })
     expect(service.planFor(301, catalog)).toMatchObject({ name: 'Estándar', priceUsd: 25 })
     expect(service.planFor(1000, catalog)).toMatchObject({ name: 'Profesional', priceUsd: 50 })
-  })
-
-  it('keeps a number on its own plan while it covers the month', () => {
-    const { service } = setup()
-    expect(service.planFor(200, catalog, estandar)).toMatchObject({ id: 2, name: 'Estándar', priceUsd: 25 })
-    expect(service.planFor(900, catalog, estandar)).toMatchObject({ id: 3, name: 'Profesional' })
   })
 
   it('charges blocks of 1,000 at the same unit price past the largest plan', () => {
@@ -147,10 +140,10 @@ describe('token plans', () => {
     })
   })
 
-  it('charges the number its own plan for a quiet month and recalculates every month', () => {
+  it('charges the smallest plan for a quiet month and places every month by its tokens', () => {
     const { service } = setup()
     expect(service.billFor({ ...live, catalog }, undefined, '2026-09').billedUsd).toBe(15)
-    expect(service.billFor({ ...live, catalog, plan: estandar }, undefined, '2026-09').billedUsd).toBe(25)
+    expect(service.billFor({ ...live, catalog }, { metaMessages: 450 }, '2026-09').billedUsd).toBe(25)
     expect(service.billFor({ ...live, catalog }, { metaMessages: 1200 }, '2026-09').billedUsd).toBe(100)
     expect(service.billFor({ ...live, catalog }, { metaMessages: 280 }, '2026-10').billedUsd).toBe(15)
   })

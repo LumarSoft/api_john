@@ -11,6 +11,7 @@ import { BotStatusAlertService } from '../users/bot-status-alert.service'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
+import { CreateClosureDto } from '../business-hours/dto/create-closure.dto'
 import { describeDisconnectReason } from '../whatsapp-onboarding/whatsapp-connection-monitor.service'
 
 /** Who asks about a number's assistant. */
@@ -38,6 +39,19 @@ const hasOwnAssistant = (n: StoredAssistant): boolean =>
  * serves + a monthly OpenAI budget. The list embeds the month's tokens so the
  * office sees its consumption at a glance.
  */
+const CLOSURE_SELECT = { id: true, startDate: true, endDate: true, reason: true, source: true } as const
+
+function toClosureView(c: { id: number; startDate: Date; endDate: Date; reason: string; source: string | null }) {
+  return {
+    id: c.id,
+    startDate: c.startDate.toISOString().slice(0, 10),
+    endDate: c.endDate.toISOString().slice(0, 10),
+    reason: c.reason,
+    // True for a national holiday loaded by the sync; false for one the office added.
+    holiday: c.source === 'holiday',
+  }
+}
+
 /** A billed plan as an admin may see it: without what it costs the organization. */
 function withoutCost<T extends { costUsd: number }>(plan: T): Omit<T, 'costUsd'> {
   const { costUsd: _cost, ...rest } = plan
@@ -81,7 +95,6 @@ export class PhoneNumbersService {
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
         trialTokens: true,
-        tokenPlan: { select: { id: true, name: true, tokens: true, priceUsd: true } },
         wabaAccount: { select: { disconnectedAt: true, disconnectReason: true } },
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true, holderName: true } } } },
@@ -116,7 +129,6 @@ export class PhoneNumbersService {
           isActive: n.isActive,
           serviceStartedAt: starts.get(n.id) ?? null,
           trialTokens: n.trialTokens,
-          plan: n.tokenPlan ? this.usage.catalogPlan(n.tokenPlan) : null,
           catalog,
         },
         usage,
@@ -268,16 +280,17 @@ export class PhoneNumbersService {
         botEnabled: true,
         coverageSettings: true,
         ...ASSISTANT_SELECT,
-        producer: { select: { name: true, botEnabled: true, ...ASSISTANT_SELECT } },
+        producer: { select: { name: true, ...ASSISTANT_SELECT } },
       },
     })
     if (!phone || !this.inScope(await this.numberScope(user), phone.responsibleProducerCodeId)) {
       throw new NotFoundException(`Phone number ${id} not found`)
     }
     const { producer } = phone
-    const [coverages, lastBotStatusChange] = await Promise.all([
+    const [coverages, lastBotStatusChange, closures] = await Promise.all([
       this.coverages.listForAdmin(user.producerId),
       this.lastBotStatusChange(phone.id),
+      this.upcomingClosures(phone.id),
     ])
 
     return {
@@ -294,6 +307,8 @@ export class PhoneNumbersService {
         botEnabled: phone.botEnabled,
         // Only what the number changes about each coverage, keyed by code.
         coverageSettings: parseCoverageOverrides(phone.coverageSettings),
+        // Its holidays and closures, upcoming or under way (national holidays included).
+        closures,
       },
       organization: {
         name: producer.name,
@@ -301,7 +316,6 @@ export class PhoneNumbersService {
         staffNames: parseStaffNames(producer.staffNames),
         businessHours: parseSchedule(producer.businessHours),
         botProfile: parseBotProfile(producer.botProfile),
-        botEnabled: producer.botEnabled,
         // The coverages as the organization offers them: what the number's own settings start from.
         coverages: coverages.map(c => ({
           id: c.id,
@@ -321,8 +335,9 @@ export class PhoneNumbersService {
    * The number's own bot switch: off, the bot stops answering on this number
    * while the organization's other numbers go on. Same scope as the assistant
    * (the SuperAdmin any number, an admin those billed to one of their codes).
-   * A real flip is audited (BotStatusChange with the number) and announced like
-   * the organization-wide one; setting the current state again does nothing.
+   * A real flip is audited (BotStatusChange with the number) and announced to
+   * the owner; setting the current state again does nothing. There is no
+   * organization-wide switch: each number is turned on and off here.
    */
   async setBotEnabled(id: number, user: PanelUser, botEnabled: boolean) {
     const phone = await this.prisma.phoneNumber.findFirst({
@@ -422,6 +437,64 @@ export class PhoneNumbersService {
    * The codes whose numbers the user sees and configures: an admin's own codes.
    * Null = every number of the organization (SuperAdmin and OWNER).
    */
+  // ─── Holidays and closures ─────────────────────────────
+
+  /**
+   * Closes one number for a day or a range (a holiday, vacations): its bot says
+   * so and promises the next opening. Only this number: a branch's closure never
+   * closes the others. Same scope as the assistant.
+   */
+  async addClosure(id: number, user: PanelUser, dto: CreateClosureDto) {
+    const phone = await this.findConfigurable(id, user)
+    if (dto.startDate > dto.endDate) throw new BadRequestException('La fecha de inicio es posterior a la de fin')
+    const created = await this.prisma.businessClosure.create({
+      data: {
+        producerId: user.producerId,
+        phoneNumberId: phone.id,
+        startDate: new Date(`${dto.startDate}T00:00:00Z`),
+        endDate: new Date(`${dto.endDate}T00:00:00Z`),
+        reason: dto.reason.trim(),
+      },
+      select: CLOSURE_SELECT,
+    })
+    return toClosureView(created)
+  }
+
+  /** Reopens a number on a closed day; a national holiday removed here stays removed for this number only. */
+  async removeClosure(id: number, closureId: number, user: PanelUser) {
+    const phone = await this.findConfigurable(id, user)
+    const closure = await this.prisma.businessClosure.findFirst({
+      where: { id: closureId, phoneNumberId: phone.id, deletedAt: null },
+      select: { id: true },
+    })
+    if (!closure) throw new NotFoundException(`Closure ${closureId} not found`)
+    await this.prisma.businessClosure.update({ where: { id: closureId }, data: { deletedAt: new Date() } })
+    return { ok: true }
+  }
+
+  /** The number's closures that end today or later, soonest first. */
+  private async upcomingClosures(phoneId: number) {
+    const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`)
+    const rows = await this.prisma.businessClosure.findMany({
+      where: { phoneNumberId: phoneId, deletedAt: null, endDate: { gte: today } },
+      orderBy: { startDate: 'asc' },
+      select: CLOSURE_SELECT,
+    })
+    return rows.map(toClosureView)
+  }
+
+  /** A number the user may configure (the SuperAdmin any, an admin those billed to its codes). */
+  private async findConfigurable(id: number, user: PanelUser) {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { id, producerId: user.producerId, deletedAt: null },
+      select: { id: true, responsibleProducerCodeId: true },
+    })
+    if (!phone || !this.inScope(await this.numberScope(user), phone.responsibleProducerCodeId)) {
+      throw new NotFoundException(`Phone number ${id} not found`)
+    }
+    return phone
+  }
+
   private async numberScope(user: PanelUser): Promise<number[] | null> {
     if (user.role === Role.OWNER || user.role === Role.SUPERADMIN) return null
     if (!user.id) return []

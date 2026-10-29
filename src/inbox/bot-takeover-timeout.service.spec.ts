@@ -16,10 +16,15 @@ describe('BotTakeoverTimeoutService', () => {
     lastCustomerAt: Date | null,
     env: Record<string, string> = {},
     numberHours: unknown = null,
+    closures: Array<{ startDate: Date; endDate: Date; reason: string }> = [],
   ) {
     const prisma = {
       phoneNumber: {
         findMany: jest.fn().mockResolvedValue([{ phoneNumberId: 'P1', businessHours: numberHours }]),
+      },
+      // The holidays of the chat's number (P1).
+      businessClosure: {
+        findMany: jest.fn().mockResolvedValue(closures.map(c => ({ ...c, phoneNumber: { phoneNumberId: 'P1' } }))),
       },
       conversation: {
         findMany: jest
@@ -49,24 +54,27 @@ describe('BotTakeoverTimeoutService', () => {
     return { service, prisma, inbox }
   }
 
-  it('treats a holiday like closed hours: back to the bot after 30 min without the operator', async () => {
+  it("treats a holiday of the chat's number like closed hours: back to the bot after 30 min without the operator", async () => {
     const holiday = {
-      businessClosures: [
-        {
-          startDate: new Date('2026-09-30T00:00:00Z'),
-          endDate: new Date('2026-09-30T00:00:00Z'),
-          reason: 'feriado nacional (Prueba)',
-        },
-      ],
+      startDate: new Date('2026-09-30T00:00:00Z'),
+      endDate: new Date('2026-09-30T00:00:00Z'),
+      reason: 'feriado nacional (Prueba)',
     }
-    const { service, inbox } = setup(
-      { handedOverAt: minutesBefore(openNow, 40), producer: holiday },
+    const { service, inbox, prisma } = setup(
+      { handedOverAt: minutesBefore(openNow, 40) },
       minutesBefore(openNow, 31),
       minutesBefore(openNow, 3),
+      {},
+      null,
+      [holiday],
     )
 
     await expect(service.releaseIdleTakeovers(openNow)).resolves.toBe(1)
     expect(inbox.autoReleaseToBot).toHaveBeenCalled()
+    // Only that number's closures count: another branch's holiday does not close this chat.
+    expect(prisma.businessClosure.findMany.mock.calls[0][0].where).toMatchObject({
+      phoneNumber: { phoneNumberId: { in: ['P1'] } },
+    })
   })
 
   describe('within business hours', () => {

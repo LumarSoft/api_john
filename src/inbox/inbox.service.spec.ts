@@ -28,7 +28,6 @@ describe('InboxService.listConversations', () => {
         contactName: null,
         client: null,
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
-        producer: { botEnabled: false },
         messages: [
           {
             role: 'assistant',
@@ -42,7 +41,8 @@ describe('InboxService.listConversations', () => {
     ])
     const groupBy = jest.fn().mockResolvedValue([{ conversationId: 7, _max: { createdAt: lastInboundMessageAt } }])
     const prisma = {
-      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
+      // P1's own bot switch is off: the office answers this chat.
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([{ phoneNumberId: 'P1' }]) },
       conversation: { findMany },
       message: { groupBy },
       whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },
@@ -63,8 +63,7 @@ describe('InboxService.listConversations', () => {
         client: null,
         clientIsContact: false,
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
-        globalBotDisabled: true,
-        numberBotDisabled: false,
+        numberBotDisabled: true,
         customerMessageCount: 4,
         lastInboundMessageAt,
         lastMessage: {
@@ -86,7 +85,6 @@ describe('InboxService.listConversations', () => {
         select: expect.objectContaining({
           messages: expect.objectContaining({ where: { deletedAt: null }, take: 1 }),
           _count: { select: { messages: { where: { role: 'user', deletedAt: null } } } },
-          producer: { select: { botEnabled: true } },
         }),
         orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       }),
@@ -99,11 +97,7 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
     const prisma = {
       phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([
-            { producer: { botEnabled: true }, messages: [], _count: { messages: 1 }, ...conversation },
-          ]),
+        findMany: jest.fn().mockResolvedValue([{ messages: [], _count: { messages: 1 }, ...conversation }]),
       },
       message: { groupBy: jest.fn().mockResolvedValue([]) },
       whatsAppContact: { findMany: jest.fn().mockResolvedValue(contacts) },
@@ -187,9 +181,7 @@ describe('InboxService.updateContact', () => {
     const prisma = {
       phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: {
-        findFirst: jest
-          .fn()
-          .mockResolvedValue({ id: 7, waId: '549341', producerId: 1, producer: { botEnabled: true } }),
+        findFirst: jest.fn().mockResolvedValue({ id: 7, waId: '549341', producerId: 1 }),
         update: jest.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
           Promise.resolve({
             id: 7,
@@ -258,7 +250,6 @@ describe('InboxService.getMessages', () => {
           waId: '549341',
           producerId: 1,
           botPaused: false,
-          producer: { botEnabled: true },
           phoneNumberId: 'P1',
           sessionStartedAt: null,
         }),
@@ -302,7 +293,7 @@ describe('InboxService.getMessages', () => {
   })
 })
 
-describe('InboxService.sendMessage with global human attention', () => {
+describe('InboxService.sendMessage on a number with its bot off', () => {
   it('allows an advisor reply without taking the chat individually', async () => {
     const now = new Date()
     const conversation = {
@@ -310,7 +301,6 @@ describe('InboxService.sendMessage with global human attention', () => {
       waId: '549341',
       producerId: 1,
       botPaused: false,
-      producer: { botEnabled: false },
       phoneNumberId: 'P1',
       sessionStartedAt: now,
     }
@@ -323,7 +313,8 @@ describe('InboxService.sendMessage with global human attention', () => {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
       phoneNumber: {
-        findMany: jest.fn().mockResolvedValue([]),
+        // P1's own bot switch is off.
+        findMany: jest.fn().mockResolvedValue([{ phoneNumberId: 'P1' }]),
         findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }),
       },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
@@ -351,7 +342,6 @@ describe('InboxService.sendMessage on a number that is off WhatsApp', () => {
       waId: '549341',
       producerId: 1,
       botPaused: true,
-      producer: { botEnabled: true },
       phoneNumberId: 'P1',
       sessionStartedAt: now,
     }
@@ -532,7 +522,6 @@ describe('InboxService.sendMedia', () => {
     waId: '549341',
     producerId: 1,
     botPaused: true,
-    producer: { botEnabled: true },
     phoneNumberId: 'P1',
     sessionStartedAt: now,
   }

@@ -60,31 +60,23 @@ export class BotTakeoverTimeoutService {
           waId: true,
           phoneNumberId: true,
           handedOverAt: true,
-          producer: {
-            select: {
-              businessHours: true,
-              // A holiday is closed like a night: nobody is going to answer.
-              businessClosures: {
-                where: { deletedAt: null, endDate: { gte: new Date(now.getTime() - 24 * 60 * 60_000) } },
-                select: { startDate: true, endDate: true, reason: true },
-              },
-            },
-          },
+          producer: { select: { businessHours: true } },
         },
       })
 
       // A branch's number may keep its own hours; the rest use the organization's.
+      // A holiday of the chat's number is closed like a night: nobody is going to answer.
       const numberHours = await this.numberSchedules(paused.map(c => c.phoneNumberId))
+      const numberClosures = await this.numberClosures(
+        paused.map(c => c.phoneNumberId),
+        new Date(now.getTime() - 24 * 60 * 60_000),
+      )
 
       let released = 0
       for (const conversation of paused) {
         const lastHuman = await this.lastHumanActivity(conversation.id, conversation.handedOverAt)
         const lastCustomer = await this.lastCustomerMessage(conversation.id)
-        const closures: ActiveClosure[] = (conversation.producer?.businessClosures ?? []).map(c => ({
-          startDate: c.startDate.toISOString().slice(0, 10),
-          endDate: c.endDate.toISOString().slice(0, 10),
-          reason: c.reason,
-        }))
+        const closures = (conversation.phoneNumberId && numberClosures.get(conversation.phoneNumberId)) || []
         const hours =
           (conversation.phoneNumberId && numberHours.get(conversation.phoneNumberId)) ??
           conversation.producer?.businessHours
@@ -105,6 +97,29 @@ export class BotTakeoverTimeoutService {
   }
 
   /** Weekly hours of the numbers that have their own, by Meta phone number ID. */
+  /** Each number's closures that may be active now, by Meta phone number ID. */
+  private async numberClosures(phoneNumberIds: (string | null)[], since: Date): Promise<Map<string, ActiveClosure[]>> {
+    const ids = [...new Set(phoneNumberIds.filter((id): id is string => !!id))]
+    if (!ids.length) return new Map()
+    const rows = await this.prisma.businessClosure.findMany({
+      where: { deletedAt: null, endDate: { gte: since }, phoneNumber: { phoneNumberId: { in: ids } } },
+      select: { startDate: true, endDate: true, reason: true, phoneNumber: { select: { phoneNumberId: true } } },
+    })
+    const byNumber = new Map<string, ActiveClosure[]>()
+    for (const r of rows) {
+      const key = r.phoneNumber?.phoneNumberId
+      if (!key) continue
+      const list = byNumber.get(key) ?? []
+      list.push({
+        startDate: r.startDate.toISOString().slice(0, 10),
+        endDate: r.endDate.toISOString().slice(0, 10),
+        reason: r.reason,
+      })
+      byNumber.set(key, list)
+    }
+    return byNumber
+  }
+
   private async numberSchedules(phoneNumberIds: (string | null)[]): Promise<Map<string, unknown>> {
     const ids = [...new Set(phoneNumberIds.filter((id): id is string => !!id))]
     if (!ids.length) return new Map()

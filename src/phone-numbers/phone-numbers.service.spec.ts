@@ -191,6 +191,20 @@ describe("a number's own assistant", () => {
         findMany: jest.fn().mockResolvedValue(userCodes.map(producerCodeId => ({ producerCodeId }))),
       },
       botStatusChange: { findFirst: jest.fn().mockResolvedValue(null) },
+      businessClosure: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 30,
+            startDate: new Date('2026-11-23T00:00:00Z'),
+            endDate: new Date('2026-11-23T00:00:00Z'),
+            reason: 'feriado nacional: Soberanía Nacional',
+            source: 'holiday',
+          },
+        ]),
+        findFirst: jest.fn().mockResolvedValue({ id: 30 }),
+        create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 31, source: null, ...data })),
+        update: jest.fn().mockResolvedValue({}),
+      },
     }
     const service = new PhoneNumbersService(
       prisma as unknown as PrismaService,
@@ -216,6 +230,52 @@ describe("a number's own assistant", () => {
     })
     expect(view.own.botProfile.towTruckPhone).toBeNull()
     expect(view.organization.botProfile.towTruckPhone).toBe('0800-111-2222')
+    // The number's own holidays; there is no organization-wide switch any more.
+    expect(view.own.closures).toEqual([
+      {
+        id: 30,
+        startDate: '2026-11-23',
+        endDate: '2026-11-23',
+        reason: 'feriado nacional: Soberanía Nacional',
+        holiday: true,
+      },
+    ])
+    expect(view.organization).not.toHaveProperty('botEnabled')
+  })
+
+  it("closes and reopens only this number: a branch's holiday never closes the others", async () => {
+    const { service, prisma } = setup({}, [11])
+
+    await expect(
+      service.addClosure(8, admin, {
+        startDate: '2026-12-24',
+        endDate: '2026-12-26',
+        reason: ' Vacaciones de la sucursal ',
+      }),
+    ).resolves.toEqual({
+      id: 31,
+      startDate: '2026-12-24',
+      endDate: '2026-12-26',
+      reason: 'Vacaciones de la sucursal',
+      holiday: false,
+    })
+    expect(prisma.businessClosure.create.mock.calls[0][0].data).toMatchObject({ producerId: 1, phoneNumberId: 8 })
+
+    await expect(service.removeClosure(8, 30, admin)).resolves.toEqual({ ok: true })
+    expect(prisma.businessClosure.findFirst.mock.calls[0][0].where).toMatchObject({ id: 30, phoneNumberId: 8 })
+
+    await expect(
+      service.addClosure(8, admin, { startDate: '2026-12-26', endDate: '2026-12-24', reason: 'Al revés' }),
+    ).rejects.toThrow('posterior')
+  })
+
+  it("refuses the holidays of a number outside an admin's codes", async () => {
+    const { service, prisma } = setup({}, [99])
+
+    await expect(
+      service.addClosure(8, admin, { startDate: '2026-12-24', endDate: '2026-12-24', reason: 'x' }),
+    ).rejects.toThrow('not found')
+    expect(prisma.businessClosure.create).not.toHaveBeenCalled()
   })
 
   it('saves only what the number changes and gives back the rest to the organization', async () => {
@@ -373,13 +433,13 @@ describe("a number's own coverages", () => {
             staffNames: null,
             businessHours: null,
             botProfile: null,
-            botEnabled: true,
           },
         }),
         update: jest.fn().mockResolvedValue({}),
       },
       userProducerCode: { findMany: jest.fn().mockResolvedValue([]) },
       botStatusChange: { findFirst: jest.fn().mockResolvedValue(null) },
+      businessClosure: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const coverages = {
       listForAdmin: jest.fn().mockResolvedValue([

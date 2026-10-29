@@ -209,14 +209,14 @@ describe('BotService', () => {
   })
 
   describe('getContext', () => {
-    it('exposes the organization-wide bot switch', async () => {
+    it('answers on a number whose own switch is on: there is no organization-wide switch', async () => {
       prisma.phoneNumber.findFirst.mockResolvedValue({
+        botEnabled: true,
         producer: {
           id: 1,
           name: 'John',
           slug: 'john',
           botName: 'Nico',
-          botEnabled: false,
           businessHours: null,
           systemPrompt: 'x',
           isActive: true,
@@ -224,8 +224,9 @@ describe('BotService', () => {
       })
 
       await expect(service.getContext('P1')).resolves.toEqual(
-        expect.objectContaining({ producerId: 1, botEnabled: false }),
+        expect.objectContaining({ producerId: 1, botEnabled: true }),
       )
+      expect(prisma.phoneNumber.findFirst.mock.calls[0][0].select.producer.select).not.toHaveProperty('botEnabled')
     })
 
     const producer = (over: Record<string, unknown>) => ({
@@ -234,7 +235,6 @@ describe('BotService', () => {
         name: 'Seguros Norte SRL',
         slug: 'seguros-norte',
         botName: null,
-        botEnabled: true,
         businessHours: null,
         botProfile: null,
         systemPrompt: 'x',
@@ -243,7 +243,7 @@ describe('BotService', () => {
       },
     })
 
-    it("stops the bot on a number whose own switch is off, while the organization's stays on", async () => {
+    it('stops the bot on a number whose own switch is off', async () => {
       prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: false })
 
       await expect(service.getContext('P2')).resolves.toEqual(expect.objectContaining({ botEnabled: false }))
@@ -875,11 +875,13 @@ describe('BotService', () => {
           data: { warnedAt: expect.any(Date) },
         }),
       )
-      expect(prisma.conversation.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ producer: { botEnabled: true } }),
-        }),
-      )
+      // Numbers whose own switch is off are left out (there is no organization-wide switch).
+      expect(prisma.conversation.findMany.mock.calls[0][0].where).not.toHaveProperty('producer')
+      expect(prisma.conversation.findMany.mock.calls[0][0].where.phoneNumberId).toHaveProperty('notIn')
+      // Closures are the chat's number's.
+      expect(prisma.businessClosure.findMany.mock.calls[0][0].where).toMatchObject({
+        phoneNumber: { phoneNumberId: { in: ['P1'] } },
+      })
       expect(result).toHaveLength(1)
       expect(result[0]).toEqual(
         expect.objectContaining({ conversationId: 7, waId: 'wa1', phoneNumberId: 'P1', isOpenNow: true }),

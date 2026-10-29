@@ -61,12 +61,3 @@ export class UpdateTokenPlanDto {
   @Min(0)
   sortOrder?: number
 }
-
-/** The plan a number moves to; null puts it back on the organization's smallest. */
-export class SetNumberPlanDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  planId?: number | null
-}

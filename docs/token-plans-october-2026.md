@@ -3,7 +3,8 @@
 ## Tarifa comercial del servicio: costo fijo por token, planes y precios a medida
 
 Desde el 29 de octubre de 2026 cada número se factura con un plan de tokens
-que la organización elige de su propio catálogo, a mes vencido. Reemplaza los
+del catálogo de su organización, a mes vencido. El plan no lo elige nadie:
+cada mes el número queda en el plan que corresponde a los tokens que envió. Reemplaza los
 bloques fijos de 1.000 tokens a USD 60 del 27 de octubre.
 
 - 1 token = 1 mensaje que la plataforma envía por WhatsApp: respuestas del bot,
@@ -21,18 +22,17 @@ bloques fijos de 1.000 tokens a USD 60 del 27 de octubre.
   recibe el catálogo inicial a costo: Inicial (500 tokens, USD 25) y
   Profesional (1.000 tokens, USD 50). Un ejemplo de precios con margen
   (tarifa B): Inicial USD 30, Profesional USD 60.
-- Cada número tiene un plan. Lo elige el administrador del número o el
-  SuperAdmin desde Facturación; un número sin plan está en el más chico del
-  catálogo. El cambio rige en el mes en curso.
-- El mes se factura en el plan que cubre los tokens: el del número mientras
-  alcance; si se pasa, el plan más chico del catálogo que lo cubra; pasado el
-  plan más grande, ese plan más bloques de `COMMERCIAL_TOKEN_BLOCK_SIZE`
-  (1.000): el costo al costo por token y el precio al precio por token del
-  plan más grande. El bot nunca se detiene por tokens.
-- Un número activo paga al menos su plan, aunque no envíe mensajes. En su
-  primer mes de servicio, sin prueba, ese plan se prorratea desde el día en
-  que salió el primer mensaje (el día de inicio cuenta). Si ese mes se pasa de
-  su plan, se cobra completo el plan que lo cubre.
+- Ni el SuperAdmin ni los administradores asignan planes a los números. Cada
+  mes el número queda en el plan más chico del catálogo que cubre los tokens
+  que envió, y sube de plan a medida que envía más; el mes siguiente vuelve a
+  empezar desde cero. Pasado el plan más grande, ese plan más bloques de
+  `COMMERCIAL_TOKEN_BLOCK_SIZE` (1.000): el costo al costo por token y el
+  precio al precio por token del plan más grande. El bot nunca se detiene por
+  tokens.
+- Un número activo paga al menos el plan más chico, aunque no envíe mensajes.
+  En su primer mes de servicio, sin prueba, ese mínimo se prorratea desde el
+  día en que salió el primer mensaje (el día de inicio cuenta). Si ese mes
+  pasa al plan siguiente, se cobra completo.
 - Plan Prueba: los números de una cuenta nueva (organización creada desde
   `COMMERCIAL_TRIAL_FROM`, 29 de octubre de 2026) envían gratis sus primeros
   `COMMERCIAL_TRIAL_TOKENS` (100) del primer mes de servicio, sin costo ni
@@ -49,11 +49,11 @@ con margen (Inicial USD 30, Profesional USD 60):
 |---|---|---|---|---|
 | Cuenta nueva, primer mes, 80 mensajes | 80 | Prueba (100 gratis) | USD 0 | USD 0 |
 | Cuenta nueva, primer mes, 350 mensajes | 350 (250 pagos) | Inicial (500) | USD 25 | USD 30 |
-| Número en Inicial, mes tranquilo | 180 | Inicial (500) | USD 25 | USD 30 |
-| Número en Inicial que se pasa | 900 | Profesional (1.000) | USD 50 | USD 60 |
+| Mes tranquilo | 180 | Inicial (500) | USD 25 | USD 30 |
+| Mes con más movimiento | 900 | Profesional (1.000) | USD 50 | USD 60 |
 | Número que supera el plan más grande | 1.430 | Profesional + 1.000 | USD 100 | USD 120 |
 | Número que supera el plan más grande | 2.150 | Profesional + 2.000 | USD 150 | USD 180 |
-| Número en Inicial que salió el 21 de octubre, 100 mensajes | 100 | Inicial, 11 de 31 días | USD 8,87 | USD 10,65 |
+| Número sin prueba que salió el 21 de octubre, 100 mensajes | 100 | Inicial, 11 de 31 días | USD 8,87 | USD 10,65 |
 
 El inicio de servicio es el primer evento de consumo del primer mes con
 registros del número (`UsageEvent` dentro del primer `UsageMonthly.period`).
@@ -71,15 +71,14 @@ facturado menos costo de proveedores.
 
 Qué ve cada rol (pantallas Facturación y Números):
 
-- Admin (productor): los números facturados a sus códigos, el plan de cada uno
-  con su precio, la barra de consumo del mes (tokens usados sobre los del
-  plan, más los de prueba en el primer mes) y el importe estimado del mes a los
-  precios del catálogo. Puede cambiar el plan de sus números. Nunca ve el
-  costo de la organización.
+- Admin (productor): los números facturados a sus códigos, el plan en el que
+  está cada uno este mes con su precio, la barra de consumo (tokens usados
+  sobre los del plan, más los de prueba en el primer mes) y el plan al que
+  pasa si sigue enviando. Nunca ve el costo de la organización.
 - SuperAdmin: lo mismo para todos los números de la organización, más el
-  costo y el margen de cada número y del mes, el catálogo (crear, editar,
-  retirar planes; precio y costo lado a lado) y, en Números, los mensajes y
-  las llamadas y tokens de OpenAI.
+  costo de cada plan, el catálogo (crear, editar, retirar planes; precio y
+  costo lado a lado) y, en Números, los mensajes y las llamadas y tokens de
+  OpenAI.
 - Owner: además, el costo de los proveedores y su ganancia (detalle de cada
   organización) y el presupuesto de IA.
 
@@ -110,9 +109,13 @@ existente. Los números existentes quedan sin plan asignado (el más chico) y
 sin prueba (`trialTokens = 0`): ninguna cuenta actual es nueva.
 
 Actualizar API y frontend juntos: el panel suma la sección Facturación y lee
-el plan y el importe de cada número en Números. El bot no cambia. Las
+el plan y el importe de cada número en Números.
+
+Desde la migración `20261029010000_per_number_switch_holidays_and_plans` el
+plan ya no se asigna: se borra `PhoneNumber.tokenPlanId` y cada número queda
+en el plan que cubren sus tokens del mes. El bot no cambia. Las
 propuestas comerciales con cada tarifa están en `propuestas/` (tarifa A y B).
 
 `billedUsd` de cada `UsageMonthly` se recalcula con cada mensaje registrado y
-al leer los reportes, así que un cambio de plan o de catálogo se refleja en
-el mes en curso sin tareas adicionales.
+al leer los reportes, así que un cambio del catálogo se refleja en el mes en
+curso sin tareas adicionales.

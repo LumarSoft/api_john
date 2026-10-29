@@ -10,6 +10,7 @@ describe('BusinessHoursService per WhatsApp number', () => {
       phoneNumber: {
         findFirst: jest.fn().mockResolvedValue(
           phone && {
+            id: 40 + phone.producerId,
             producerId: phone.producerId,
             businessHours: phone.businessHours ?? null,
             producer: { businessHours: phone.organizationHours ?? null },
@@ -22,12 +23,13 @@ describe('BusinessHoursService per WhatsApp number', () => {
     return { service, prisma }
   }
 
-  it("answers with the hours of the number's organization", async () => {
+  it("answers with the hours of the number's organization and the number's own closures", async () => {
     const { service, prisma } = setup({ producerId: 2, organizationHours: closedAllWeek })
 
     await expect(service.getStatusForNumber('555')).resolves.toMatchObject({ isOpenNow: false })
+    // A branch's holiday never closes another branch.
     expect(prisma.businessClosure.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ producerId: 2 }) }),
+      expect.objectContaining({ where: expect.objectContaining({ phoneNumberId: 42 }) }),
     )
   })
 

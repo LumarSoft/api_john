@@ -11,14 +11,13 @@ const rolesOf = (handler: unknown): Role[] | undefined => Reflect.getMetadata(RO
 // What applies to the whole organization is read by everyone and changed by
 // any admin (SuperAdmin or Admin; the OWNER passes every gate), since 28/10 when
 // the office asked for the whole Configuración screen to be open to its admins.
-// A number's own assistant is open to its admins too.
+// A number's own assistant, bot switch and holidays are open to its admins too;
+// since 29/10 there is no organization-wide bot switch nor shared holidays.
 describe('who changes the organization settings', () => {
   it.each([
     ['assistant name and office people', AdminConfigController.prototype.update],
     ['organization profile', AdminConfigController.prototype.updateProfile],
     ['weekly hours', AdminBusinessHoursController.prototype.updateSchedule],
-    ['add a closure', AdminBusinessHoursController.prototype.addClosure],
-    ['remove a closure', AdminBusinessHoursController.prototype.removeClosure],
     ['coverage', AdminCoverageSettingsController.prototype.update],
     ['coverage order', AdminCoverageSettingsController.prototype.reorder],
     ['create a price', AdminPricingController.prototype.create],
@@ -37,11 +36,16 @@ describe('who changes the organization settings', () => {
     expect(rolesOf(handler)).toBeUndefined()
   })
 
-  it("lets admins read and change a number's own assistant", () => {
+  it("lets admins read and change a number's own assistant, bot switch and holidays", () => {
     expect(rolesOf(AdminPhoneNumbersController.prototype.getAssistant)).toEqual([Role.SUPERADMIN, Role.ADMIN])
     expect(rolesOf(AdminPhoneNumbersController.prototype.updateAssistant)).toEqual([Role.SUPERADMIN, Role.ADMIN])
     expect(rolesOf(AdminPhoneNumbersController.prototype.setBotStatus)).toEqual([Role.SUPERADMIN, Role.ADMIN])
-    // Stopping the bot is an emergency action: every admin may flip either switch.
-    expect(rolesOf(AdminConfigController.prototype.setBotStatus)).toEqual([Role.SUPERADMIN, Role.ADMIN])
+    expect(rolesOf(AdminPhoneNumbersController.prototype.addClosure)).toEqual([Role.SUPERADMIN, Role.ADMIN])
+    expect(rolesOf(AdminPhoneNumbersController.prototype.removeClosure)).toEqual([Role.SUPERADMIN, Role.ADMIN])
+  })
+
+  it('has no organization-wide bot switch nor organization holidays', () => {
+    expect(AdminConfigController.prototype).not.toHaveProperty('setBotStatus')
+    expect(AdminBusinessHoursController.prototype).not.toHaveProperty('addClosure')
   })
 })

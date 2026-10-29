@@ -32,9 +32,6 @@ model Producer {
   // Milagros"), comma separated. A message that names one of them alerts the
   // office, and the bot keeps attending the customer.
   staffNames    String?   @db.VarChar(255)
-  // Organization-wide emergency switch. False stops every automated WhatsApp
-  // response while inbound messages continue to be stored in the inbox.
-  botEnabled    Boolean   @default(true)
   // Weekly business hours (Mon–Sun) shown across every channel (WhatsApp bot and
   // the public web) and used to compute "open now". Single source of truth edited
   // from the admin "Horarios" screen. JSON shape: { mon: [{from,to}], ..., sun: [] }
@@ -78,9 +75,9 @@ model Producer {
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
-// One row per flip of the organization-wide bot switch (Producer.botEnabled),
-// so the owner can see who turned the bot off, when and for how long. The
-// switch itself used to leave no trace at all.
+// One row per flip of a number's bot switch (PhoneNumber.botEnabled), so the
+// owner can see who turned the bot off, when and for how long. Rows without a
+// number are the organization-wide switch that existed until 29/10/2026.
 model BotStatusChange {
   id         Int       @id @default(autoincrement())
   botEnabled Boolean
@@ -290,18 +287,24 @@ model BusinessClosure {
   // Why the office is closed (required) — quoted back to users by the bot.
   reason    String    @db.VarChar(160)
   // Null = loaded by an admin. "holiday" = an Argentine national holiday loaded
-  // by HolidaySyncService; a deleted one stays deleted (the sync sees it and
-  // does not create it again), so an admin can open on a holiday.
+  // into every number by HolidaySyncService; a deleted one stays deleted (the
+  // sync sees it and does not create it again), so a branch can open on a holiday.
   source    String?   @db.VarChar(16)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  producerId Int
-  producer   Producer @relation(fields: [producerId], references: [id])
+  producerId    Int
+  producer      Producer     @relation(fields: [producerId], references: [id])
+  // The number it closes. Every closure belongs to one number: a branch's
+  // holiday never closes the others. Null only on the organization-wide rows
+  // from before 29/10/2026, which the migration copied into each number.
+  phoneNumberId Int?
+  phoneNumber   PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
 
   @@index([producerId, startDate, endDate])
   @@index([source, startDate])
+  @@index([phoneNumberId, startDate, endDate])
 }
 
 model PhoneNumber {
@@ -354,20 +357,18 @@ model PhoneNumber {
   businessHours    Json?
   // Only the Producer.botProfile fields this number changes (same flat shape).
   botProfile       Json?
-  // The number's own switch: false stops the bot on this number only (the
-  // organization's switch, Producer.botEnabled, stops every number). The
-  // admin of the number flips it; every flip is a BotStatusChange row.
+  // The bot's switch, one per number (there is no organization-wide one): false
+  // stops the bot on this number only. The admin of the number flips it; every
+  // flip is a BotStatusChange row.
   botEnabled       Boolean           @default(true)
   // The number's view of the organization's coverages: { "<code>": { isActive,
   // highlighted, sortOrder } } with only the fields it changes. Wording and
   // year windows stay the organization's. Null = offers them as the organization does.
   coverageSettings Json?
   botStatusChanges BotStatusChange[]
-  // The token plan the office chose for this number (Facturación). Null = the
-  // smallest active plan of the organization. A month that goes past it is
-  // billed on the plan that covers it (see UsageService.planFor).
-  tokenPlanId      Int?
-  tokenPlan        TokenPlan?        @relation(fields: [tokenPlanId], references: [id])
+  // The number's own holidays and closures: a branch's closure never closes
+  // another branch. National holidays are loaded into each number.
+  businessClosures BusinessClosure[]
   // Free tokens of the number's first month of service: the "Prueba" plan of
   // a new account (COMMERCIAL_TRIAL_TOKENS, organizations created from
   // COMMERCIAL_TRIAL_FROM on). 0 for the numbers of older accounts.
@@ -1242,7 +1243,9 @@ model PolicyExpiryNotice {
   @@index([producerId, status])
 }
 
-// A token plan the organization offers its numbers (Facturación): a size in
+// A token plan of the organization's catalog (Facturación). Nobody assigns a
+// plan to a number: each month a number is placed on the smallest plan that
+// covers the tokens it sent (UsageService.planFor). A plan is a size in
 // tokens at the platform's fixed unit price (COMMERCIAL_TOKEN_PRICE_USD, USD
 // 0.05: 500 = USD 25, 1.000 = USD 50). The SuperAdmin picks the sizes, never
 // the price. priceUsd is stored as it was when the plan was saved.
@@ -1257,9 +1260,8 @@ model TokenPlan {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  producerId   Int
-  producer     Producer      @relation(fields: [producerId], references: [id])
-  phoneNumbers PhoneNumber[]
+  producerId Int
+  producer   Producer @relation(fields: [producerId], references: [id])
 
   @@index([producerId, isActive, sortOrder])
 }

@@ -651,7 +651,7 @@ Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own
 
 ### GET /admin/config
 
-Configuración del bot de la organización del usuario autenticado, incluido quién fue el último en encender o apagar el bot y cuándo.
+Configuración del bot de la organización del usuario autenticado. El bot se enciende y apaga por número (`PATCH /admin/phone-numbers/:id/bot-status`); no hay un interruptor de toda la organización desde el 29/10/2026.
 
 **Auth required:** Yes (admin)
 
@@ -662,17 +662,11 @@ Configuración del bot de la organización del usuario autenticado, incluido qui
 ```json
 {
   "botName": "Nico",
-  "botEnabled": false,
-  "staffNames": ["Mili", "Milagros"],
-  "lastBotStatusChange": {
-    "botEnabled": false,
-    "at": "2026-10-06T11:12:00.000Z",
-    "by": "mili@jpmg.com"
-  }
+  "staffNames": ["Mili", "Milagros"]
 }
 ```
 
-`lastBotStatusChange` es `null` cuando el switch nunca se usó desde que existe la auditoría. `staffNames` son los nombres de las personas de la oficina a las que los clientes les escriben por nombre (lista vacía si no hay).
+`staffNames` son los nombres de las personas de la oficina a las que los clientes les escriben por nombre (lista vacía si no hay).
 
 ### PATCH /admin/config
 
@@ -700,42 +694,6 @@ Actualiza el nombre con el que se presenta el bot y los nombres de las personas 
 ```
 
 `403 Forbidden` — the caller is not a SuperAdmin
-
-### PATCH /admin/config/bot-status
-
-Switch global: enciende o apaga todas las respuestas automáticas del bot de la organización. Los mensajes entrantes se siguen guardando en la bandeja. Cada cambio real queda registrado en `BotStatusChange` (quién, cuándo) y se anuncia al dueño por los canales configurados (`BOT_STATUS_ALERT_EMAIL`, `BOT_STATUS_ALERT_PHONE` + `BOT_STATUS_ALERT_TEMPLATE`); sin configuración el aviso solo se loguea. Repetir el estado actual no genera registro ni aviso. Lo puede usar cualquier administrador, no solo el SuperAdmin; para apagar el bot en un solo número está `PATCH /admin/phone-numbers/:id/bot-status`.
-
-**Auth required:** Yes (SuperAdmin or Admin)
-
-**Request body**
-
-| Field      | Type    | Required | Constraints |
-| ---------- | ------- | -------- | ----------- |
-| botEnabled | boolean | Yes      | —           |
-
-```json
-{ "botEnabled": false }
-```
-
-**Responses**
-
-`200 OK`
-
-```json
-{ "botName": "Nico", "botEnabled": false }
-```
-
-`403 Forbidden`
-
-```json
-{ "statusCode": 403, "message": "Forbidden resource", "error": "Forbidden" }
-```
-
-`404 Not Found`
-
-```json
-{ "statusCode": 404, "message": "Producer not found", "error": "Not Found" }
-```
 
 ### GET /admin/config/profile
 
@@ -1286,13 +1244,13 @@ The office told these clients by other means (a call, in person): a `MARKED` not
 
 ## Admin — Facturación (planes por tokens)
 
-Every WhatsApp number is billed monthly on a token plan (1 token = 1 message the platform sends). A plan **costs** the organization its tokens at the platform's fixed unit price (`COMMERCIAL_TOKEN_PRICE_USD`, USD 0.05: 500 = USD 25, 1.000 = USD 50); the organization's SuperAdmin chooses the sizes offered (the catalog) and the **price** its productores pay for each, never below the cost. A number is on one plan (null = the smallest of the catalog); a month that goes past it is billed on the smallest plan that covers it, and past the largest plan in blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (cost at the unit price, price at the largest plan's price per token). The numbers of an organization created from `COMMERCIAL_TRIAL_FROM` on send their first `COMMERCIAL_TRIAL_TOKENS` of their first month free ("Prueba"). Full rules and examples: `docs/token-plans-october-2026.md`.
+Every WhatsApp number is billed monthly on a token plan (1 token = 1 message the platform sends). A plan **costs** the organization its tokens at the platform's fixed unit price (`COMMERCIAL_TOKEN_PRICE_USD`, USD 0.05: 500 = USD 25, 1.000 = USD 50); the organization's SuperAdmin chooses the sizes offered (the catalog) and the **price** its productores pay for each, never below the cost. Nobody assigns a plan to a number: each month it is placed on the smallest plan that covers the tokens it sent, moving up as it sends more, and past the largest plan in blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (cost at the unit price, price at the largest plan's price per token). An active number pays at least the smallest plan. The numbers of an organization created from `COMMERCIAL_TRIAL_FROM` on send their first `COMMERCIAL_TRIAL_TOKENS` of their first month free ("Prueba"). Full rules and examples: `docs/token-plans-october-2026.md`.
 
-All endpoints require an employee JWT. ADMIN (a productor) sees and moves the numbers billed to its codes and only ever sees prices; SUPERADMIN (and OWNER) sees every number with its cost and margin, and manages the catalog.
+All endpoints require an employee JWT. ADMIN (a productor) sees the numbers billed to its codes and only ever sees prices; SUPERADMIN (and OWNER) sees every number and each plan's cost, and manages the catalog.
 
 ### GET /admin/billing
 
-The running month of every number in scope: its plan, how far into it the month is (for the consumption bar) and what it adds up to.
+The running month of every number in scope: the plan its tokens placed it on, how far into that plan it is (the consumption bar) and the plan it moves to next.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -1304,7 +1262,7 @@ The running month of every number in scope: its plan, how far into it the month 
 
 **Responses**
 
-`200 OK` — `includedTokens` is the bar's denominator: the number's own plan (or the smallest) plus the trial of a first month. `billedPlan` is what the month is billed on right now (`trial: true` while the trial covers it); `exceeded` means the month went past the number's own plan; `estimatedUsd` is the price the productor pays. `costUsd`, `marginUsd`, `totalCostUsd`, `totalMarginUsd` and the `costUsd` inside `plan`/`plans`/`billedPlan` come only for SUPERADMIN and OWNER.
+`200 OK` — `includedTokens` is the bar's denominator: the trial's free tokens while they last (`plan.trial: true`), then the plan's tokens plus the trial. `nextPlan` is the next plan of the catalog, or the next block past the largest. `plan.costUsd` and the `costUsd` of `plans` come only for SUPERADMIN and OWNER.
 ```json
 {
   "period": "2026-11",
@@ -1318,24 +1276,16 @@ The running month of every number in scope: its plan, how far into it the month 
       "number": "+54 9 341 275-7294",
       "isActive": true,
       "responsibleCode": { "id": 1, "code": "11425", "holderName": null },
-      "plan": { "id": 1, "name": "Inicial", "tokens": 500, "priceUsd": 30, "costUsd": 25 },
+      "plan": { "id": 1, "name": "Inicial", "includedTokens": 500, "priceUsd": 30, "costUsd": 25, "trial": false, "blocks": 1 },
       "trialTokens": 0,
       "tokensUsed": 120,
       "includedTokens": 500,
       "remainingTokens": 380,
       "percentUsed": 24,
-      "exceeded": false,
-      "billedPlan": { "id": 1, "name": "Inicial", "includedTokens": 500, "priceUsd": 30, "costUsd": 25, "trial": false, "blocks": 1 },
-      "estimatedUsd": 30,
-      "prorated": false,
-      "costUsd": 25,
-      "marginUsd": 5,
+      "nextPlan": { "name": "Profesional", "tokens": 1000 },
       "updatedAt": "2026-11-12T18:40:12.000Z"
     }
-  ],
-  "totalEstimatedUsd": 30,
-  "totalCostUsd": 25,
-  "totalMarginUsd": 5
+  ]
 }
 ```
 
@@ -1345,7 +1295,7 @@ The running month of every number in scope: its plan, how far into it the month 
 
 ### GET /admin/billing/plans
 
-The organization's catalog. The SuperAdmin also gets the retired (`isActive: false`) plans and each plan's `costUsd` and `marginUsd`; `numbersOnPlan` counts the numbers on each.
+The organization's catalog. The SuperAdmin also gets the switched-off (`isActive: false`) plans and each plan's `costUsd` and `marginUsd`.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -1353,7 +1303,7 @@ The organization's catalog. The SuperAdmin also gets the retired (`isActive: fal
 ```json
 {
   "unitPriceUsd": 0.05,
-  "plans": [{ "id": 1, "name": "Inicial", "tokens": 500, "priceUsd": 30, "costUsd": 25, "marginUsd": 5, "isActive": true, "sortOrder": 0, "numbersOnPlan": 2 }]
+  "plans": [{ "id": 1, "name": "Inicial", "tokens": 500, "priceUsd": 30, "costUsd": 25, "marginUsd": 5, "isActive": true, "sortOrder": 0 }]
 }
 ```
 
@@ -1381,7 +1331,7 @@ Adds a plan to the catalog. Its cost is `tokens × COMMERCIAL_TOKEN_PRICE_USD`; 
 
 ### PATCH /admin/billing/plans/:id
 
-Renames, resizes, reprices, reorders or switches a plan on or off. A resized plan keeps its price unless that would fall below the new cost, in which case it is raised to it. A plan switched off is not offered any more but the numbers on it keep it.
+Renames, resizes, reprices, reorders or switches a plan on or off. A resized plan keeps its price unless that would fall below the new cost, in which case it is raised to it. A plan switched off no longer places any number.
 
 **Auth required:** Yes (SUPERADMIN, OWNER)
 
@@ -1393,7 +1343,7 @@ Renames, resizes, reprices, reorders or switches a plan on or off. A resized pla
 
 ### DELETE /admin/billing/plans/:id
 
-Retires a plan (soft delete); the numbers on it fall back to the organization's smallest plan.
+Retires a plan (soft delete): from then on numbers are placed on the remaining plans.
 
 **Auth required:** Yes (SUPERADMIN, OWNER)
 
@@ -1403,26 +1353,6 @@ Retires a plan (soft delete); the numbers on it fall back to the organization's 
 ```
 
 ---
-
-### PATCH /admin/billing/numbers/:id/plan
-
-Moves a number to another plan of the catalog, with effect on the running month. An ADMIN may move only the numbers billed to its codes.
-
-**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
-
-**Request body**
-
-| Field  | Type   | Required | Constraints                                                     |
-|--------|--------|----------|-----------------------------------------------------------------|
-| planId | number | No       | An active plan of the organization; omitted or null = the smallest |
-
-`200 OK`
-```json
-{ "id": 8, "planId": 2 }
-```
-
-`400 Bad Request` — The plan is not offered
-`404 Not Found` — No such number in the user's scope
 
 ## Admin — Siniestros
 
@@ -2494,7 +2424,7 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 | Role       | `usage` fields                                                                                                                       | Number fields                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| ADMIN      | `period`, `tokens` (one per message sent), `trialTokens`, `plan` (the plan the month is billed on, see Facturación; its price, never its cost), `prorated`, `billedUsd` (the price)                                                                                            | no budget fields                                 |
+| ADMIN      | `period`, `tokens` (one per message sent), `trialTokens`, `plan` (the plan the month's tokens placed the number on, see Facturación; its price, never its cost), `prorated`, `billedUsd` (the price)                                                                                            | no budget fields                                 |
 | SUPERADMIN | plus `costUsd` (what the organization pays the platform), `plan.costUsd`, `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens`                                               | `budgetExceededAt` (the AI paused for the month) |
 | OWNER      | plus `pricing` (`unitPriceUsd`, `blockTokens`, `blockPriceUsd`, `trialTokens`), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` | `monthlyBudgetUsd`, `budgetExceededAt`           |
 
@@ -2504,7 +2434,7 @@ Every number also carries `assistant` (`{ "botName": "Sofi" | null, "customized"
 
 ### GET /admin/phone-numbers/:id/assistant
 
-A number's own assistant next to its organization's. Whatever the number leaves empty (`null`, empty list, `null` field of `botProfile`) is the organization's: that is what the bot uses on this number (`GET /bot/context`, `GET /bot/numbers/:phoneNumberId/hours`, the inactivity notice, the takeover sweep and the claims e-mail). Closures (holidays) are always the organization's. The transfer account goes as a whole: a number with any `transfer*` field of its own uses only its own account fields, never the organization's alias with its own CBU or the other way around.
+A number's own assistant next to its organization's. Whatever the number leaves empty (`null`, empty list, `null` field of `botProfile`) is the organization's: that is what the bot uses on this number (`GET /bot/context`, `GET /bot/numbers/:phoneNumberId/hours`, the inactivity notice, the takeover sweep and the claims e-mail). Holidays and closures are each number's own (`own.closures`, upcoming and under way, national holidays included with `holiday: true`): there are no organization-wide ones. The transfer account goes as a whole: a number with any `transfer*` field of its own uses only its own account fields, never the organization's alias with its own CBU or the other way around.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -2605,7 +2535,7 @@ Changes a number's own assistant. Only the fields sent change; clearing one give
 
 ### PATCH /admin/phone-numbers/:id/bot-status
 
-The number's own bot switch. Off, the bot stops answering on this number only (messages keep arriving to the inbox, where the chat reads as attended by a person and the office can answer without taking it); the organization's other numbers go on. The organization-wide switch (`PATCH /admin/config/bot-status`) still stops every number. Same scope as the assistant: the SuperAdmin on any number, an admin on the numbers billed to one of their codes. A real flip writes a `BotStatusChange` row with `phoneNumberId` and is announced like the organization-wide one (same channels, the number in the name); setting the current state again does nothing.
+The number's own bot switch. Off, the bot stops answering on this number only (messages keep arriving to the inbox, where the chat reads as attended by a person and the office can answer without taking it); the organization's other numbers go on. There is no organization-wide switch: each number is turned on and off here. Same scope as the assistant: the SuperAdmin on any number, an admin on the numbers billed to one of their codes. A real flip writes a `BotStatusChange` row with `phoneNumberId` and is announced to the owner (the number in the name); setting the current state again does nothing.
 
 **Auth required:** Yes (SUPERADMIN on any number; ADMIN on the numbers billed to one of their codes)
 
@@ -2632,6 +2562,38 @@ The number's own bot switch. Off, the bot stops answering on this number only (m
 ```
 
 `404 Not Found` — the number is not of the caller's organization, or an admin on a number that is not billed to one of their codes
+
+### POST /admin/phone-numbers/:id/closures
+
+Closes one number for a day or a range (a holiday, vacations): its bot tells customers so and promises the next opening, and the takeover sweep treats the day as closed. Only this number: a branch's closure never closes the others. Same scope as the assistant.
+
+**Auth required:** Yes (SUPERADMIN on any number; ADMIN on the numbers billed to one of their codes)
+
+**Request body**
+
+| Field     | Type   | Required | Constraints             |
+| --------- | ------ | -------- | ----------------------- |
+| startDate | string | Yes      | YYYY-MM-DD              |
+| endDate   | string | Yes      | YYYY-MM-DD, ≥ startDate |
+| reason    | string | Yes      | 1–160 chars             |
+
+`201 Created`
+
+```json
+{ "id": 31, "startDate": "2026-12-24", "endDate": "2026-12-26", "reason": "Vacaciones de la sucursal", "holiday": false }
+```
+
+`400 Bad Request` — `startDate` after `endDate`
+`404 Not Found` — the number is not in the caller's scope
+
+### DELETE /admin/phone-numbers/:id/closures/:closureId
+
+Reopens the number on a closed day (soft delete). A national holiday removed here stays removed for this number only: the sync does not bring it back, and the other numbers keep it.
+
+**Auth required:** Yes (same scope as above)
+
+`200 OK` → `{ "ok": true }`
+`404 Not Found` — no such closure on that number
 
 ## Cotización — Leads (productos sin cotización online)
 
@@ -2950,25 +2912,28 @@ Public attention window of the default producer (`DEFAULT_PRODUCER_SLUG`, defaul
 
 ## Business hours
 
-Weekly schedule (Mon–Sun, split shifts supported) + temporary closures. Single
-source of truth for the bot and the public web. Admin routes are scoped to the
-caller's producer; the public route serves the default producer.
+The organization's weekly schedule (Mon–Sun, split shifts supported): the hours of
+every number without its own. Holidays and closures belong to each number
+(`POST/DELETE /admin/phone-numbers/:id/closures`): a branch's closure never closes
+the others. Admin routes are scoped to the caller's producer; the public route
+serves the default producer's office line.
 
 Schedule JSON shape: `{ mon: [{ "from": "09:00", "to": "12:00" }], ..., sun: [] }`
 (empty array = closed that day).
 
-National holidays are loaded automatically as closures of every active
-organization (`HolidaySyncService`: on boot and every Monday 05:00 ART, from
+National holidays are loaded automatically as closures of every number of every
+active organization (`HolidaySyncService`: on boot and every day 05:00 ART, from
 api.argentinadatos.com, which mirrors argentina.gob.ar/feriados). They carry
-`source: "holiday"` and reason `feriado nacional: <nombre>`. Deleting one from the
-admin screen sticks (the sync does not create it again); an upcoming one that
-disappears from its year's calendar is removed. Env: `HOLIDAY_SYNC_ENABLED`
+`source: "holiday"` and reason `feriado nacional: <nombre>`. Deleting one from a
+number sticks for that number only (the sync does not create it again, and the
+other numbers keep it); an upcoming one that disappears from its year's calendar
+is removed. Env: `HOLIDAY_SYNC_ENABLED`
 (`false` turns it off), `HOLIDAY_TYPES` (default `inamovible,trasladable`; add
 `puente` to also close on días no laborables con fines turísticos).
 
 ### GET /admin/business-hours
 
-Current weekly schedule + active/upcoming closures.
+The organization's weekly schedule.
 
 **Auth required:** Yes (Bearer, type `user`)
 
@@ -2983,8 +2948,7 @@ Current weekly schedule + active/upcoming closures.
     ],
     "sat": [],
     "sun": []
-  },
-  "closures": [{ "id": 3, "startDate": "2026-06-24", "endDate": "2026-06-24", "reason": "Día de la Bandera" }]
+  }
 }
 ```
 
@@ -3004,34 +2968,9 @@ The organization's hours: they apply to every number that has no hours of its ow
 `400 Bad Request` → invalid HH:mm / overlapping ranges
 `403 Forbidden` → the caller is not a SuperAdmin
 
-### POST /admin/business-hours/closures
-
-Adds a temporary closure (single day → `startDate == endDate`). Closures apply to every number of the organization.
-
-**Auth required:** Yes (SuperAdmin or Admin)
-
-**Request body**
-
-| Field     | Type   | Required | Constraints             |
-| --------- | ------ | -------- | ----------------------- |
-| startDate | string | Yes      | YYYY-MM-DD              |
-| endDate   | string | Yes      | YYYY-MM-DD, ≥ startDate |
-| reason    | string | Yes      | 1–160 chars             |
-
-`201 Created` → `{ "id": 3, "startDate": "...", "endDate": "...", "reason": "..." }`
-
-### DELETE /admin/business-hours/closures/:id
-
-Soft-deletes a closure.
-
-**Auth required:** Yes (SuperAdmin or Admin)
-
-`200 OK` → `{ "ok": true }`
-`404 Not Found`
-
 ### GET /public/hours
 
-Live hours for the default producer: formatted week, open-now and ready copy.
+Live hours for the default producer's office line (the active number billed to the master code: its own hours or the organization's, and its own closures): formatted week, open-now and ready copy.
 
 **Auth required:** No
 

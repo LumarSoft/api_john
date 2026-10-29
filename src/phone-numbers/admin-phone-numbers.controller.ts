@@ -21,6 +21,7 @@ import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
 import { SetNumberBotStatusDto } from './dto/set-number-bot-status.dto'
+import { CreateClosureDto } from '../business-hours/dto/create-closure.dto'
 
 @UseGuards(UserAuthGuard, RolesGuard)
 @Roles(Role.SUPERADMIN)
@@ -64,6 +65,27 @@ export class AdminPhoneNumbersController {
     @Body() dto: SetNumberBotStatusDto,
   ) {
     return this.service.setBotEnabled(id, req.user, dto.botEnabled)
+  }
+
+  // The number's own holidays and closures: a branch's closure never closes the others.
+  @Post(':id/closures')
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  addClosure(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: AuthenticatedRequest,
+    @Body() dto: CreateClosureDto,
+  ) {
+    return this.service.addClosure(id, req.user, dto)
+  }
+
+  @Delete(':id/closures/:closureId')
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  removeClosure(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('closureId', ParseIntPipe) closureId: number,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.service.removeClosure(id, closureId, req.user)
   }
 
   @Post()
