@@ -172,7 +172,7 @@ export class UsersService {
   async getProfile(userId: number) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { ...SAFE_SELECT, producer: { select: { name: true, slug: true, botProfile: true } } },
+      select: { ...SAFE_SELECT, producer: { select: { name: true, slug: true, botProfile: true, logoUrl: true } } },
     })
     if (!user) return null
     const { producer, ...profile } = user
@@ -196,6 +196,8 @@ export class UsersService {
         name: producer.name,
         displayName: brand.orgName ?? producer.name,
         shortName: brand.orgShortName,
+        // The organization's logo (API-relative URL), or null for its initials.
+        logoUrl: producer.logoUrl,
         defaultPhoneNumber,
       },
     }

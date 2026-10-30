@@ -777,6 +777,62 @@ Changes the fields sent; an empty string clears one. The bot reads it on its nex
 { "statusCode": 403, "message": "Forbidden resource", "error": "Forbidden" }
 ```
 
+## Organización — Logo
+
+The organization's logo shows in the Polisend panel after login and on the printable policy card (`organization.logoUrl` in `GET /users/me`; null = the organization's initials). An upload (PNG, JPG or WebP, up to 2 MB; SVG is refused) is stored as a 256×256 WebP under `/uploads/logos`, served publicly, and the previous file is removed.
+
+### POST /admin/config/logo
+
+Sets the logo of the user's organization. Multipart form with one file field `file`.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+**Responses**
+
+`201 Created`
+```json
+{ "logoUrl": "/uploads/logos/org-1-1793336940678.webp" }
+```
+
+`400 Bad Request` — "El logo tiene que ser PNG, JPG o WebP." / "No se pudo leer la imagen del logo." / "Falta la imagen del logo."
+`403 Forbidden` — ADMIN
+
+---
+
+### DELETE /admin/config/logo
+
+Removes the organization's logo: the panel goes back to its initials.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+`200 OK`
+```json
+{ "logoUrl": null }
+```
+
+---
+
+### POST /owner/organizations/:id/logo
+
+The owner sets any organization's logo. Same body and responses as `POST /admin/config/logo`; `404 Not Found` when the organization does not exist.
+
+**Auth required:** Yes (OWNER)
+
+---
+
+### DELETE /owner/organizations/:id/logo
+
+The owner removes an organization's logo.
+
+**Auth required:** Yes (OWNER)
+
+`200 OK`
+```json
+{ "logoUrl": null }
+```
+
+---
+
 ## Admin — Asegurados
 
 All endpoints are scoped to the authenticated user's `producerId` and require a `user` JWT.

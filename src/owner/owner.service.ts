@@ -61,6 +61,7 @@ export class OwnerService {
         slug: true,
         masterCode: true,
         botName: true,
+        logoUrl: true,
         isActive: true,
         createdAt: true,
         _count: { select: { producerCodes: true, users: true, phoneNumbers: true, clients: true } },
@@ -72,6 +73,7 @@ export class OwnerService {
       slug: o.slug,
       masterCode: o.masterCode,
       botName: o.botName,
+      logoUrl: o.logoUrl,
       isActive: o.isActive,
       createdAt: o.createdAt,
       counts: {
@@ -87,7 +89,16 @@ export class OwnerService {
   async getOrganization(id: number) {
     const org = await this.prisma.producer.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, name: true, slug: true, masterCode: true, botName: true, isActive: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        masterCode: true,
+        botName: true,
+        logoUrl: true,
+        isActive: true,
+        createdAt: true,
+      },
     })
     if (!org) throw new NotFoundException(`Organization ${id} not found`)
 
@@ -471,7 +482,7 @@ export class OwnerService {
   private async uniqueSlug(base: string): Promise<string> {
     let candidate = base
     let n = 1
-    // eslint-disable-next-line no-constant-condition
+
     while (true) {
       const taken = await this.prisma.producer.findUnique({ where: { slug: candidate }, select: { id: true } })
       if (!taken) return candidate
