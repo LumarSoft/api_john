@@ -14,6 +14,7 @@ import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
 import { CreateClosureDto } from '../business-hours/dto/create-closure.dto'
 import { describeDisconnectReason } from '../whatsapp-onboarding/whatsapp-connection-monitor.service'
+import { metaPortfolio } from '../whatsapp-onboarding/meta-portfolio'
 
 /** Who asks about a number's assistant. */
 interface PanelUser {
@@ -93,7 +94,17 @@ export class PhoneNumbersService {
         planPausedAt: true,
         extraBlocks: true,
         extraBlocksPeriod: true,
-        wabaAccount: { select: { disconnectedAt: true, disconnectReason: true } },
+        wabaAccount: {
+          select: {
+            disconnectedAt: true,
+            disconnectReason: true,
+            wabaName: true,
+            businessId: true,
+            businessName: true,
+            businessVerification: true,
+            portfolioCheckedAt: true,
+          },
+        },
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true, holderName: true } } } },
         usageMonthly: {
@@ -152,6 +163,8 @@ export class PhoneNumbersService {
         disconnectReasonLabel: n.wabaAccount?.disconnectedAt
           ? describeDisconnectReason(n.wabaAccount.disconnectReason)
           : null,
+        // The Meta business portfolio that owns the number's WhatsApp account (null until Meta was read).
+        portfolio: metaPortfolio(n.wabaAccount),
         responsibleCode: n.responsibleProducerCode,
         servedCodes: n.servedCodes.map(s => s.producerCode),
         // Its own assistant name (null = the organization's) and whether it changes anything.

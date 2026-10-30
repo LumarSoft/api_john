@@ -2666,6 +2666,25 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 
 Running Embedded Signup again for a number that Meta dropped reuses its `PhoneNumber` row, so the month's usage, the budget and the producer codes stay with it: the row with the same Meta id is revived (even if it is still listed, instead of answering `409`); on Coexistence, if Meta hands out a new `phone_number_id`, the latest deleted or disconnected row of the same WABA (or with the same display number) is re-pointed and its chats move with it. The response adds `"reconnected": true`. `409 Conflict` is only returned when the number is live in another organization. `GET /admin/phone-numbers` now includes `disconnectedAt`, `disconnectReason` and `disconnectReasonLabel` for each number.
 
+### Meta portfolio of each number
+
+`GET /admin/phone-numbers` (every role that sees the number) and `GET /owner/organizations/:id` include `portfolio` for
+each number: the Meta business portfolio that owns its WhatsApp account, read from Graph
+(`GET /{waba-id}?fields=name,owner_business_info,business_verification_status`) at onboarding, once a day and at boot
+for accounts never read. `null` until Meta was read.
+
+```json
+{
+  "portfolio": {
+    "wabaName": "John Pellegrini Management Group",
+    "businessId": "1754170539213714",
+    "businessName": "JPMG - Oficina rosario",
+    "verification": "not_verified",
+    "checkedAt": "2026-10-30T14:20:00.000Z"
+  }
+}
+```
+
 ### What each role gets from `GET /admin/phone-numbers`
 
 Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role, and no tenant role receives an amount in USD:

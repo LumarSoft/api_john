@@ -1040,6 +1040,13 @@ model WabaAccount {
   // the number stopped delivering webhooks (usually: nobody opened the app in 13 days).
   disconnectedAt   DateTime?
   disconnectReason String?   @db.VarChar(64)
+  // What Meta says about the account (WhatsappPortfolioService, refreshed at onboarding and daily): its name, the
+  // business portfolio that owns it and that portfolio's verification status. Null until first read.
+  wabaName             String?   @db.VarChar(255)
+  businessId           String?   @db.VarChar(64)
+  businessName         String?   @db.VarChar(255)
+  businessVerification String?   @db.VarChar(32)
+  portfolioCheckedAt   DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

@@ -17,6 +17,7 @@ import { initialPlanId } from '../usage/initial-plan'
 import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 import { describeGraphError } from './graph-errors'
+import { WhatsappPortfolioService } from './whatsapp-portfolio.service'
 
 interface MetaPhoneNumberStatus {
   id?: string
@@ -56,6 +57,7 @@ export class WhatsappOnboardingService {
     private readonly config: ConfigService,
     private readonly http: HttpService,
     private readonly scope: ScopeService,
+    private readonly portfolio: WhatsappPortfolioService,
   ) {}
 
   private get graphBase(): string {
@@ -144,6 +146,9 @@ export class WhatsappOnboardingService {
         disconnectReason: null,
       },
     })
+
+    // Which business portfolio owns the account, for the panel. Read-only; a failure does not stop the onboarding.
+    await this.portfolio.refreshWith(waba.id, dto.wabaId, accessToken)
 
     const phoneNumber = existing
       ? await this.reconnectNumber(existing, {

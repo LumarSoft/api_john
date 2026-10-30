@@ -9,6 +9,7 @@ import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
 import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
 import { UsageService, acceptedBlocks, currentPeriod, pausedIn } from '../usage/usage.service'
 import { legacyPricing, withLegacyPlan } from '../usage/legacy-token-fields'
+import { metaPortfolio } from '../whatsapp-onboarding/meta-portfolio'
 
 const round2 = <T extends Record<string, number>>(o: T): T =>
   Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 100) / 100])) as T
@@ -181,6 +182,15 @@ export class OwnerService {
         extraBlocksPeriod: true,
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true } } } },
+        wabaAccount: {
+          select: {
+            wabaName: true,
+            businessId: true,
+            businessName: true,
+            businessVerification: true,
+            portfolioCheckedAt: true,
+          },
+        },
         usageMonthly: {
           where: { period },
           select: {
@@ -222,6 +232,8 @@ export class OwnerService {
         isActive: p.isActive,
         responsibleCode: p.responsibleProducerCode,
         servedCodes: p.servedCodes.map(s => s.producerCode),
+        // The Meta business portfolio that owns the number's WhatsApp account.
+        portfolio: metaPortfolio(p.wabaAccount),
         budget: {
           monthlyBudgetUsd: p.monthlyBudgetUsd != null ? Number(p.monthlyBudgetUsd) : null,
           exceededAt: p.budgetExceededAt,

@@ -2,6 +2,9 @@ import { BadRequestException, ConflictException, ForbiddenException, NotFoundExc
 import { Role } from 'generated/prisma/client'
 import { WhatsappOnboardingService } from './whatsapp-onboarding.service'
 
+// Reading the Meta portfolio never stops an onboarding.
+const portfolio = { refreshWith: jest.fn().mockResolvedValue(null) }
+
 /** ScopeService stand-in: the codes the caller may use. */
 const scopeOf = (codes: number[]) => ({
   resolveAccessibleProducerCodeIds: jest.fn().mockResolvedValue(codes),
@@ -20,7 +23,13 @@ describe('WhatsappOnboardingService', () => {
     }
     const config = { get: jest.fn(), getOrThrow: jest.fn() }
     const http = { get: jest.fn(), post: jest.fn() }
-    const service = new WhatsappOnboardingService(prisma as any, config as any, http as any, scopeOf([]) as any)
+    const service = new WhatsappOnboardingService(
+      prisma as any,
+      config as any,
+      http as any,
+      scopeOf([]) as any,
+      portfolio as any,
+    )
 
     jest.spyOn(service as any, 'exchangeCode').mockResolvedValue({ accessToken: 'token', expiresAt: null })
     jest.spyOn(service as any, 'resolvePhoneNumberId').mockResolvedValue('PHONE-1')
@@ -78,6 +87,7 @@ describe('WhatsappOnboardingService', () => {
         config as any,
         { get: jest.fn(), post: jest.fn() } as any,
         scopeOf(options.codes ?? [11, 14]) as any,
+        portfolio as any,
       )
 
       const exchange = jest
@@ -200,6 +210,7 @@ describe('WhatsappOnboardingService', () => {
         config as any,
         { get: jest.fn(), post: jest.fn() } as any,
         scopeOf(options.codes ?? [14]) as any,
+        portfolio as any,
       )
       const exchange = jest
         .spyOn(service as any, 'exchangeCode')
