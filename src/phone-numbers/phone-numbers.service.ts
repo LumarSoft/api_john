@@ -52,12 +52,6 @@ function toClosureView(c: { id: number; startDate: Date; endDate: Date; reason: 
   }
 }
 
-/** A billed plan as an admin may see it: without what it costs the organization. */
-function withoutCost<T extends { costUsd: number }>(plan: T): Omit<T, 'costUsd'> {
-  const { costUsd: _cost, ...rest } = plan
-  return rest
-}
-
 @Injectable()
 export class PhoneNumbersService {
   constructor(
@@ -71,10 +65,10 @@ export class PhoneNumbersService {
    * Numbers of an organization with the running month's figures.
    *
    * What the caller sees depends on the role:
-   *   - ADMIN: the tokens of the month (one per message sent), the number's plan
-   *     and what the month adds up to at the catalog's prices
-   *   - SUPERADMIN: also the messages and the OpenAI calls and tokens
-   *   - OWNER (Lumar): also the provider cost and the margin
+   *   - ADMIN: the messages of the month, the number's plan and what the month
+   *     adds up to at the catalog's prices
+   *   - SUPERADMIN: also the OpenAI calls and tokens
+   *   - OWNER (Lumar): also what Meta and OpenAI cost and the profit (billed − Meta)
    */
   async list(producerId: number, role?: Role, period = currentPeriod(), userId?: number) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || period > currentPeriod())
@@ -94,7 +88,7 @@ export class PhoneNumbersService {
         ...ASSISTANT_SELECT,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
-        trialTokens: true,
+        planId: true,
         wabaAccount: { select: { disconnectedAt: true, disconnectReason: true } },
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true, holderName: true } } } },
@@ -119,19 +113,16 @@ export class PhoneNumbersService {
 
     const [starts, catalog] = await Promise.all([
       this.usage.serviceStarts(numbers.map(n => n.id)),
-      this.usage.catalogFor(producerId),
+      this.usage.catalog(),
     ])
     return numbers.map(n => {
       const usage = n.usageMonthly[0]
       const cost = Number(usage?.totalCostUsd ?? 0)
+      const metaCost = Number(usage?.metaCostUsd ?? 0)
       const bill = this.usage.billFor(
-        {
-          isActive: n.isActive,
-          serviceStartedAt: starts.get(n.id) ?? null,
-          trialTokens: n.trialTokens,
-          catalog,
-        },
+        { isActive: n.isActive, serviceStartedAt: starts.get(n.id) ?? null, planId: n.planId },
         usage,
+        catalog,
         period,
       )
 
@@ -158,17 +149,15 @@ export class PhoneNumbersService {
         canConfigureAssistant: this.inScope(scope, n.responsibleProducerCode?.id ?? null),
         usage: {
           period,
-          // What the client pays for: one token per message sent, on the plan that covers the month.
-          tokens: bill.tokens,
-          trialTokens: bill.trialTokens,
-          // The plan's cost to the organization is the SuperAdmin's and the owner's, not the productor's.
-          plan: seesActivity ? bill.plan : withoutCost(bill.plan),
+          // What the organization pays for: the messages sent, on the plan that covers the month.
+          messages: bill.messages,
+          assignedPlan: bill.assignedPlan,
+          plan: bill.plan,
+          upgraded: bill.upgraded,
           prorated: bill.prorated,
           billedUsd: bill.billedUsd,
           ...(seesActivity
             ? {
-                // What the organization pays the platform for the number this month.
-                costUsd: bill.costUsd,
                 metaMessages: usage?.metaMessages ?? 0,
                 metaConversations: usage?.metaConversations ?? 0,
                 openaiCalls: usage?.openaiCalls ?? 0,
@@ -176,15 +165,14 @@ export class PhoneNumbersService {
                 outputTokens: usage?.openaiOutputTokens ?? 0,
               }
             : {}),
-          // Our cost and margin: owner only.
+          // Our cost and profit: owner only. OpenAI is prepaid, so the profit is billed minus Meta.
           ...(isOwner
             ? {
-                pricing: this.usage.commercialPricing,
                 metaBillableMessages: usage?.metaBillableMessages ?? 0,
                 openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
-                metaCostUsd: Number(usage?.metaCostUsd ?? 0),
+                metaCostUsd: metaCost,
                 totalCostUsd: cost,
-                marginUsd: Math.round((bill.costUsd - cost) * 100) / 100,
+                marginUsd: Math.round((bill.billedUsd - metaCost) * 100) / 100,
               }
             : {}),
         },
@@ -209,11 +197,8 @@ export class PhoneNumbersService {
       producerId,
     )
 
-    // A new account's number starts with the trial tokens of its first month.
-    const organization = await this.prisma.producer.findUniqueOrThrow({
-      where: { id: producerId },
-      select: { createdAt: true },
-    })
+    // A new account's number starts on the trial plan.
+    const planId = await this.usage.initialPlanIdFor(producerId)
     const phone = await this.prisma.phoneNumber.create({
       data: {
         phoneNumberId: dto.phoneNumberId,
@@ -221,7 +206,7 @@ export class PhoneNumbersService {
         producerId,
         responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
         monthlyBudgetUsd: this.budgetFrom(dto, role) ?? null,
-        trialTokens: this.usage.trialTokensFor(organization.createdAt),
+        planId,
       },
       select: { id: true },
     })

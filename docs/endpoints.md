@@ -1242,50 +1242,55 @@ The office told these clients by other means (a call, in person): a `MARKED` not
 { "marked": 2 }
 ```
 
-## Admin — Facturación (planes por tokens)
+## Facturación (planes de mensajes)
 
-Every WhatsApp number is billed monthly on a token plan (1 token = 1 message the platform sends). A plan **costs** the organization its tokens at the platform's fixed unit price (`COMMERCIAL_TOKEN_PRICE_USD`, USD 0.05: 500 = USD 25, 1.000 = USD 50); the organization's SuperAdmin chooses the sizes offered (the catalog) and the **price** its productores pay for each, never below the cost. Nobody assigns a plan to a number: each month it is placed on the smallest plan that covers the tokens it sent, moving up as it sends more, and past the largest plan in blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (cost at the unit price, price at the largest plan's price per token). An active number pays at least the smallest plan. The numbers of an organization created from `COMMERCIAL_TRIAL_FROM` on send their first `COMMERCIAL_TRIAL_TOKENS` of their first month free ("Prueba"). Full rules and examples: `docs/token-plans-october-2026.md`.
-
-All endpoints require an employee JWT. ADMIN (a productor) sees the numbers billed to its codes and only ever sees prices; SUPERADMIN (and OWNER) sees every number and each plan's cost, and manages the catalog.
+Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends, template notices). The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). When a number sends more messages than its plan includes it **moves up** to the smallest active plan that covers them and stays there; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and the SuperAdmins an e-mail. Past the largest plan the month adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message, with one notice on the first message over. An active number pays at least its plan; in its first month of service, on its own paid plan, the plan is prorated from the day it went live. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost; the profit is billed − Meta (OpenAI is prepaid). Rules and examples: `docs/message-plans-october-2026.md`.
 
 ### GET /admin/billing
 
-The running month of every number in scope: the plan its tokens placed it on, how far into that plan it is (the consumption bar) and the plan it moves to next.
+The month of every number in scope: its assigned plan, the plan the month is billed on, how far into it the number is (the consumption bar) and the plan it moves to next. ADMIN sees the numbers billed to its codes; SUPERADMIN (and OWNER) every number of the organization plus the month's total.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
 **Query parameters**
 
-| Parameter | Type   | Required | Description                                                 |
-|-----------|--------|----------|-------------------------------------------------------------|
-| period    | string | No       | `YYYY-MM`, not after the current month (default: current)   |
+| Parameter | Type   | Required | Description                                               |
+|-----------|--------|----------|-----------------------------------------------------------|
+| period    | string | No       | `YYYY-MM`, not after the current month (default: current) |
 
 **Responses**
 
-`200 OK` — `includedTokens` is the bar's denominator: the trial's free tokens while they last (`plan.trial: true`), then the plan's tokens plus the trial. `nextPlan` is the next plan of the catalog, or the next block past the largest. `plan.costUsd` and the `costUsd` of `plans` come only for SUPERADMIN and OWNER.
+`200 OK` — `upgraded` is true when the month's messages passed the assigned plan or the number already moved up on its own this month (`movedUpAt`). `plan.id` is null past the largest plan (`extraBlocks` > 0). `totalBilledUsd` comes only for SUPERADMIN and OWNER.
 ```json
 {
-  "period": "2026-11",
-  "unitPriceUsd": 0.05,
-  "blockTokens": 1000,
-  "trialTokens": 100,
-  "plans": [{ "id": 1, "name": "Inicial", "tokens": 500, "priceUsd": 30, "costUsd": 25 }],
+  "period": "2026-10",
+  "blockMessages": 1000,
+  "plans": [
+    { "id": 1, "name": "Prueba", "messages": 100, "priceUsd": 0, "isTrial": true },
+    { "id": 2, "name": "Inicial", "messages": 500, "priceUsd": 25, "isTrial": false },
+    { "id": 3, "name": "Profesional", "messages": 1000, "priceUsd": 50, "isTrial": false }
+  ],
   "numbers": [
     {
-      "id": 8,
-      "number": "+54 9 341 275-7294",
+      "id": 1,
+      "number": "+54 9 11 0000-0000",
       "isActive": true,
-      "responsibleCode": { "id": 1, "code": "11425", "holderName": null },
-      "plan": { "id": 1, "name": "Inicial", "includedTokens": 500, "priceUsd": 30, "costUsd": 25, "trial": false, "blocks": 1 },
-      "trialTokens": 0,
-      "tokensUsed": 120,
-      "includedTokens": 500,
-      "remainingTokens": 380,
-      "percentUsed": 24,
-      "nextPlan": { "name": "Profesional", "tokens": 1000 },
-      "updatedAt": "2026-11-12T18:40:12.000Z"
+      "responsibleCode": { "id": 1, "code": "11425", "holderName": "JOHN PELLEGRINI MANAGEMENT GROUP SRL" },
+      "assignedPlan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
+      "plan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
+      "upgraded": true,
+      "movedUpAt": "2026-10-30T04:57:17.519Z",
+      "messagesUsed": 502,
+      "includedMessages": 1000,
+      "remainingMessages": 498,
+      "percentUsed": 50.2,
+      "nextPlan": { "name": "Profesional + 1.000", "messages": 2000, "priceUsd": 100 },
+      "billedUsd": 50,
+      "prorated": false,
+      "updatedAt": "2026-10-30T04:57:17.600Z"
     }
-  ]
+  ],
+  "totalBilledUsd": 50
 }
 ```
 
@@ -1293,63 +1298,170 @@ The running month of every number in scope: the plan its tokens placed it on, ho
 
 ---
 
-### GET /admin/billing/plans
+### PATCH /admin/billing/numbers/:id/plan
 
-The organization's catalog. The SuperAdmin also gets the switched-off (`isActive: false`) plans and each plan's `costUsd` and `marginUsd`.
-
-**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
-
-`200 OK`
-```json
-{
-  "unitPriceUsd": 0.05,
-  "plans": [{ "id": 1, "name": "Inicial", "tokens": 500, "priceUsd": 30, "costUsd": 25, "marginUsd": 5, "isActive": true, "sortOrder": 0 }]
-}
-```
-
----
-
-### POST /admin/billing/plans
-
-Adds a plan to the catalog. Its cost is `tokens × COMMERCIAL_TOKEN_PRICE_USD`; `priceUsd` is what the productores pay — at cost when left out, refused when below cost.
+Puts a number of the organization on a paid plan of the catalog. Clears the number's automatic upgrade mark.
 
 **Auth required:** Yes (SUPERADMIN, OWNER)
 
 **Request body**
 
-| Field     | Type   | Required | Constraints                                     |
-|-----------|--------|----------|-------------------------------------------------|
-| name      | string | Yes      | 1–60 characters                                 |
-| tokens    | number | Yes      | integer, 1–1,000,000                            |
-| priceUsd  | number | No       | ≥ the plan's cost, 2 decimals (default: the cost) |
-| sortOrder | number | No       | integer ≥ 0 (default: last)                     |
+| Field  | Type   | Required | Constraints                                |
+|--------|--------|----------|--------------------------------------------|
+| planId | number | Yes      | an active paid plan of the catalog         |
 
-`201 Created` — the plan as `GET /admin/billing/plans` lists it.
-`400 Bad Request` — "El precio no puede ser menor que el costo del plan (USD 25)."
-
----
-
-### PATCH /admin/billing/plans/:id
-
-Renames, resizes, reprices, reorders or switches a plan on or off. A resized plan keeps its price unless that would fall below the new cost, in which case it is raised to it. A plan switched off no longer places any number.
-
-**Auth required:** Yes (SUPERADMIN, OWNER)
-
-**Request body**: `name`, `tokens`, `priceUsd`, `isActive`, `sortOrder`, all optional.
-
-`200 OK` — the plan. `400 Bad Request` — price below cost. `404 Not Found` — no such plan in the organization.
-
----
-
-### DELETE /admin/billing/plans/:id
-
-Retires a plan (soft delete): from then on numbers are placed on the remaining plans.
-
-**Auth required:** Yes (SUPERADMIN, OWNER)
+**Responses**
 
 `200 OK`
 ```json
 { "ok": true }
+```
+
+`400 Bad Request` — "El plan de prueba lo recibe solo un número nuevo de una cuenta nueva."
+`403 Forbidden` — ADMIN
+`404 Not Found` — no such number in the organization, or no such active plan
+
+---
+
+### GET /owner/billing
+
+The platform's month: what each organization and number is billed, what Meta really charged, OpenAI apart, and the profit (billed − Meta).
+
+**Auth required:** Yes (OWNER)
+
+**Query parameters**: `period` (`YYYY-MM`, default current).
+
+`200 OK`
+```json
+{
+  "period": "2026-10",
+  "organizations": [
+    {
+      "id": 1,
+      "name": "John",
+      "isActive": true,
+      "numbers": [
+        {
+          "id": 1,
+          "number": "+54 9 11 0000-0000",
+          "isActive": true,
+          "responsibleCode": { "code": "11425", "holderName": "JOHN PELLEGRINI MANAGEMENT GROUP SRL" },
+          "plan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
+          "assignedPlan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
+          "upgraded": true,
+          "prorated": false,
+          "messages": 502,
+          "metaBillableMessages": 2,
+          "billedUsd": 50,
+          "metaCostUsd": 0.05,
+          "openaiCostUsd": 1.4,
+          "profitUsd": 49.95
+        }
+      ],
+      "totals": { "messages": 502, "metaBillableMessages": 2, "billedUsd": 50, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
+    }
+  ],
+  "totals": {
+    "organizations": 1,
+    "activeNumbers": 1,
+    "upgradedNumbers": 1,
+    "messages": 502,
+    "metaBillableMessages": 2,
+    "billedUsd": 50,
+    "metaCostUsd": 0.05,
+    "openaiCostUsd": 1.4,
+    "profitUsd": 49.95
+  }
+}
+```
+
+`400 Bad Request` — Invalid month. `403 Forbidden` — not the OWNER.
+
+---
+
+### GET /owner/plans
+
+The whole catalog, plans switched off included.
+
+**Auth required:** Yes (OWNER)
+
+`200 OK`
+```json
+{
+  "blockMessages": 1000,
+  "plans": [
+    { "id": 1, "name": "Prueba", "messages": 100, "priceUsd": 0, "isTrial": true, "isActive": true, "sortOrder": 0 },
+    { "id": 2, "name": "Inicial", "messages": 500, "priceUsd": 25, "isTrial": false, "isActive": true, "sortOrder": 1 }
+  ]
+}
+```
+
+---
+
+### POST /owner/plans
+
+Adds a plan to the catalog.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field     | Type    | Required | Constraints                                                  |
+|-----------|---------|----------|--------------------------------------------------------------|
+| name      | string  | Yes      | 1–60 characters                                              |
+| messages  | number  | Yes      | integer, 1–1,000,000                                         |
+| priceUsd  | number  | Yes      | 0–100,000, 2 decimals (0 allowed)                            |
+| isTrial   | boolean | No       | the trial plan; must be free, only one active (default false) |
+| sortOrder | number  | No       | integer ≥ 0 (default: last)                                  |
+
+`201 Created` — the plan as `GET /owner/plans` lists it.
+`400 Bad Request` — "El plan de prueba es gratis: su precio tiene que ser 0."
+`409 Conflict` — "Ya hay un plan de prueba activo (Prueba)."
+
+---
+
+### PATCH /owner/plans/:id
+
+Renames, resizes, reprices, reorders or switches a plan on or off. A plan switched off keeps its numbers but no number moves to it. The last active paid plan cannot be switched off.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**: `name`, `messages`, `priceUsd`, `isTrial`, `isActive`, `sortOrder`, all optional (same constraints as POST).
+
+`200 OK` — the plan. `400 Bad Request` — a paid trial, or the last active paid plan switched off. `404 Not Found` — no such plan. `409 Conflict` — a second active trial.
+
+---
+
+### DELETE /owner/plans/:id
+
+Retires a plan (soft delete); its numbers go back to the smallest paid plan. The last active paid plan cannot be retired.
+
+**Auth required:** Yes (OWNER)
+
+`200 OK`
+```json
+{ "ok": true }
+```
+
+---
+
+### GET /public/plans
+
+The active plans of the catalog, for the landing. Cached 5 minutes.
+
+**Auth required:** No
+
+`200 OK` — `blockPriceUsd` is the price of each block of `blockMessages` past the largest plan.
+```json
+{
+  "blockMessages": 1000,
+  "blockPriceUsd": 50,
+  "plans": [
+    { "name": "Prueba", "messages": 100, "priceUsd": 0, "isTrial": true },
+    { "name": "Inicial", "messages": 500, "priceUsd": 25, "isTrial": false },
+    { "name": "Profesional", "messages": 1000, "priceUsd": 50, "isTrial": false }
+  ]
+}
 ```
 
 ---

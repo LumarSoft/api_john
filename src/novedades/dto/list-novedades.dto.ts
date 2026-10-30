@@ -7,6 +7,8 @@ export enum NovedadType {
   BAJA_POLIZA = 'baja_poliza',
   LEAD = 'lead',
   SOLICITUD = 'solicitud',
+  /** A number moved up a plan, or passed the largest one (refId = PhoneNumber.id). */
+  PLAN = 'plan',
 }
 
 export enum MatterCategory {
