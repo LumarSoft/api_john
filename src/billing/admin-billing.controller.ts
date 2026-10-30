@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseIntPipe,
@@ -17,9 +18,9 @@ import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
 import { BillingService } from './billing.service'
-import { CreateTokenPlanDto, UpdateTokenPlanDto } from './dto/token-plan.dto'
+import { AssignPlanDto } from './dto/assign-plan.dto'
 
-/** "Facturación" in the panel: the organization's token plans and each number's month. */
+/** "Facturación" in the panel: each number's plan and month, and the SuperAdmin's plan assignment. */
 @UseGuards(UserAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.SUPERADMIN)
 @Controller('admin/billing')
@@ -31,31 +32,37 @@ export class AdminBillingController {
     return this.billing.overview(req.user, period || undefined)
   }
 
+  // ─── front_John's panel (legacy-token-fields.ts), until it redirects to Polisend ───
+
+  /** Its Planes tab: the owner's catalog, read-only, under the old names. */
   @Get('plans')
-  listPlans(@Request() req: AuthenticatedRequest) {
-    // The SuperAdmin manages the catalog and sees the retired plans too.
-    return this.billing.listPlans(req.user.producerId, req.user.role !== Role.ADMIN)
+  legacyPlans() {
+    return this.billing.legacyCatalog()
   }
 
   @Post('plans')
-  @Roles(Role.SUPERADMIN)
-  createPlan(@Body() dto: CreateTokenPlanDto, @Request() req: AuthenticatedRequest) {
-    return this.billing.createPlan(req.user.producerId, dto)
+  legacyCreatePlan(): never {
+    return refuseLegacyCatalogChange()
   }
 
   @Patch('plans/:id')
-  @Roles(Role.SUPERADMIN)
-  updatePlan(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateTokenPlanDto,
-    @Request() req: AuthenticatedRequest,
-  ) {
-    return this.billing.updatePlan(req.user.producerId, id, dto)
+  legacyUpdatePlan(): never {
+    return refuseLegacyCatalogChange()
   }
 
   @Delete('plans/:id')
-  @Roles(Role.SUPERADMIN)
-  removePlan(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
-    return this.billing.removePlan(req.user.producerId, id)
+  legacyRemovePlan(): never {
+    return refuseLegacyCatalogChange()
   }
+
+  @Patch('numbers/:id/plan')
+  @Roles(Role.SUPERADMIN)
+  assignPlan(@Param('id', ParseIntPipe) id: number, @Body() dto: AssignPlanDto, @Request() req: AuthenticatedRequest) {
+    return this.billing.assignPlan(req.user, id, dto.planId)
+  }
+}
+
+/** The catalog is the owner's now: the old panel's SuperAdmin plan editor can no longer change it. */
+function refuseLegacyCatalogChange(): never {
+  throw new ForbiddenException('Los planes ahora los define Lumarsoft para todas las organizaciones.')
 }

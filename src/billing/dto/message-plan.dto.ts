@@ -2,11 +2,11 @@ import { Type } from 'class-transformer'
 import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
 
 /**
- * A plan of the catalog: a name, a size in tokens and the price the organization
- * sells it for. The size costs the organization the fixed unit price; a price
- * left out means "at cost", and one below cost is refused.
+ * A plan of the platform's catalog (owner only): a name, how many messages it
+ * includes a month and its price. A price of 0 is allowed; the trial plan must
+ * be free and only one can be active.
  */
-export class CreateTokenPlanDto {
+export class CreateMessagePlanDto {
   @IsString()
   @MinLength(1)
   @MaxLength(60)
@@ -16,13 +16,17 @@ export class CreateTokenPlanDto {
   @IsInt()
   @Min(1)
   @Max(1_000_000)
-  tokens: number
+  messages: number
 
-  @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  priceUsd?: number
+  @Max(100_000)
+  priceUsd: number
+
+  @IsOptional()
+  @IsBoolean()
+  isTrial?: boolean
 
   @IsOptional()
   @Type(() => Number)
@@ -31,7 +35,7 @@ export class CreateTokenPlanDto {
   sortOrder?: number
 }
 
-export class UpdateTokenPlanDto {
+export class UpdateMessagePlanDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
@@ -43,13 +47,18 @@ export class UpdateTokenPlanDto {
   @IsInt()
   @Min(1)
   @Max(1_000_000)
-  tokens?: number
+  messages?: number
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
+  @Max(100_000)
   priceUsd?: number
+
+  @IsOptional()
+  @IsBoolean()
+  isTrial?: boolean
 
   @IsOptional()
   @IsBoolean()

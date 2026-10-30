@@ -22,8 +22,7 @@ describe('monthly phone number report', () => {
             number: '+5493416000000',
             phoneNumberId: 'PN',
             isActive: true,
-            trialTokens: 0,
-            tokenPlan: null,
+            planId: null,
             servedCodes: [],
             responsibleProducerCode: null,
             usageMonthly: [
@@ -43,23 +42,23 @@ describe('monthly phone number report', () => {
       },
       // In service since August, so September is a full month.
       usageMonthly: { groupBy: jest.fn().mockResolvedValue([{ phoneNumberId: 1, _min: { period: '2026-08' } }]) },
-      tokenPlan: {
+      messagePlan: {
         findMany: jest.fn().mockResolvedValue([
-          { id: 1, name: 'Inicial', tokens: 300, priceUsd: 15 },
-          { id: 2, name: 'Estándar', tokens: 500, priceUsd: 25 },
-          { id: 3, name: 'Profesional', tokens: 1000, priceUsd: 50 },
+          { id: 9, name: 'Prueba', messages: 100, priceUsd: 0, isTrial: true, isActive: true },
+          { id: 1, name: 'Inicial', messages: 500, priceUsd: 25, isTrial: false, isActive: true },
+          { id: 2, name: 'Profesional', messages: 1000, priceUsd: 50, isTrial: false, isActive: true },
         ]),
       },
       usageEvent: { groupBy: jest.fn().mockResolvedValue([]) },
       userProducerCode: { findMany: jest.fn().mockResolvedValue([{ producerCodeId: 11 }]) },
     }
-    const usage = new UsageService(prisma as any, { get: () => undefined } as unknown as ConfigService)
+    const usage = new UsageService(prisma as any, { get: () => undefined } as unknown as ConfigService, {} as any)
     return { prisma, service: new PhoneNumbersService(prisma as any, usage as any, noCoverages, noAlerts) }
   }
 
-  const ownerOnly = ['pricing', 'totalCostUsd', 'marginUsd', 'metaBillableMessages', 'openaiCostUsd', 'metaCostUsd']
+  const ownerOnly = ['totalCostUsd', 'marginUsd', 'metaBillableMessages', 'openaiCostUsd', 'metaCostUsd', 'pricing']
 
-  it('shows an admin the tokens of the month and its plan, never our cost', async () => {
+  it('shows an admin the messages of the month and its plan, never our cost', async () => {
     const { service, prisma } = setup()
     const [row] = await service.list(2, Role.ADMIN, '2026-09')
     expect(prisma.phoneNumber.findMany.mock.calls[0][0]).toMatchObject({
@@ -67,15 +66,26 @@ describe('monthly phone number report', () => {
       select: { usageMonthly: { where: { period: '2026-09' } } },
     })
     // Its plan and what the month adds up to, but never our cost.
+    const beyond = {
+      id: null,
+      name: 'Profesional + 1.000',
+      includedMessages: 2000,
+      priceUsd: 100,
+      trial: false,
+      extraBlocks: 1,
+    }
     expect(row.usage).toEqual({
       period: '2026-09',
+      messages: 1200,
+      assignedPlan: { id: 1, name: 'Inicial', includedMessages: 500, priceUsd: 25, trial: false, extraBlocks: 0 },
+      // The old "tokens" names repeat the same values for front_John's panel (legacy-token-fields.ts).
+      plan: { ...beyond, includedTokens: 2000, blocks: 2 },
       tokens: 1200,
-      trialTokens: 0,
-      plan: { id: null, name: 'Profesional + 1.000', includedTokens: 2000, priceUsd: 100, trial: false, blocks: 2 },
+      upgraded: true,
       prorated: false,
       billedUsd: 100,
     })
-    expect(row.usage).not.toHaveProperty('costUsd')
+    for (const field of ownerOnly) expect(row.usage).not.toHaveProperty(field)
     expect(row).not.toHaveProperty('monthlyBudgetUsd')
     expect(row).not.toHaveProperty('budgetExceededAt')
   })
@@ -84,7 +94,7 @@ describe('monthly phone number report', () => {
     const { service } = setup()
     const [row] = await service.list(2, Role.SUPERADMIN, '2026-09')
     expect(row.usage).toMatchObject({
-      tokens: 1200,
+      messages: 1200,
       metaMessages: 1200,
       openaiCalls: 80,
       inputTokens: 10000,
@@ -95,17 +105,18 @@ describe('monthly phone number report', () => {
     expect(row).toHaveProperty('budgetExceededAt')
   })
 
-  it('shows the owner the plan it bills, its price, the provider cost and the profit', async () => {
+  it('shows the owner the plan it bills, what Meta and OpenAI cost and the profit against Meta', async () => {
     const { service } = setup()
     const [row] = await service.list(2, Role.OWNER, '2026-09')
     expect(row.usage).toMatchObject({
-      tokens: 1200,
+      messages: 1200,
       openaiCalls: 80,
-      pricing: { unitPriceUsd: 0.05, blockTokens: 1000, blockPriceUsd: 50, trialTokens: 100 },
-      plan: { name: 'Profesional + 1.000', includedTokens: 2000, priceUsd: 100 },
+      plan: { name: 'Profesional + 1.000', includedMessages: 2000, priceUsd: 100 },
       billedUsd: 100,
+      metaCostUsd: 5.2,
+      openaiCostUsd: 0.01,
       totalCostUsd: 5.21,
-      marginUsd: 94.79,
+      marginUsd: 94.8,
       metaBillableMessages: 200,
     })
     expect(row).toHaveProperty('monthlyBudgetUsd')

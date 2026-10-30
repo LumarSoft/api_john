@@ -1,3 +1,6 @@
+> **Reemplazado el 2026-10-30** por `message-plans-october-2026.md` (catálogo único del Owner, plan asignado por
+> número, mensajes en vez de tokens).
+
 # Planes por tokens configurables desde el 29 de octubre de 2026
 
 ## Tarifa comercial del servicio: costo fijo por token, planes y precios a medida

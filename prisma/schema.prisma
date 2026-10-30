@@ -64,7 +64,7 @@ model Producer {
   notifications           Notification[]
   contactLeads            ContactLead[]
   productPlans            ProductPlan[]
-  tokenPlans              TokenPlan[]
+  messagePlans            MessagePlan[]
   businessClosures        BusinessClosure[]
   usageMonthly            UsageMonthly[]
   coverageSettings        CoverageSetting[]
@@ -373,13 +373,22 @@ model PhoneNumber {
   // The number's own holidays and closures: a branch's closure never closes
   // another branch. National holidays are loaded into each number.
   businessClosures BusinessClosure[]
-  // Free tokens of the number's first month of service: the "Prueba" plan of
-  // a new account (COMMERCIAL_TRIAL_TOKENS, organizations created from
-  // COMMERCIAL_TRIAL_FROM on). 0 for the numbers of older accounts.
+  // The plan the SuperAdmin assigned (null = the smallest paid plan of the
+  // catalog). When the number sends more messages than its plan includes, it
+  // moves up to the plan that covers them and stays there. A new account's
+  // number starts on the trial plan, valid only in its first month of service.
+  planId           Int?
+  plan             MessagePlan?      @relation(fields: [planId], references: [id], onDelete: SetNull)
+  // When the number last moved up a plan on its own (null once the SuperAdmin
+  // picks a plan): Facturación shows "subió de plan este mes" from it.
+  planUpgradedAt   DateTime?
+  // Legacy (billing before 2026-10-30, free first-month tokens). Unused; kept
+  // so an older API can still run against this database. Drop later.
   trialTokens      Int               @default(0)
 
   @@index([responsibleProducerCodeId])
   @@index([wabaAccountId])
+  @@index([planId])
 }
 
 // Monthly cost aggregate per phone number (one row per number per "YYYY-MM").
@@ -1253,19 +1262,34 @@ model PolicyExpiryNotice {
 // tokens at the platform's fixed unit price (COMMERCIAL_TOKEN_PRICE_USD, USD
 // 0.05: 500 = USD 25, 1.000 = USD 50). The SuperAdmin picks the sizes, never
 // the price. priceUsd is stored as it was when the plan was saved.
-model TokenPlan {
+/// A plan of the platform's catalog: a number of messages a WhatsApp number
+/// may send in a month for a price. Only the OWNER (Lumar) edits the catalog;
+/// it is the same for every organization (the SuperAdmin assigns a plan to each
+/// number, see PhoneNumber.planId). 1 message = 1 message the platform sends.
+/// The table and the `tokens` column keep their old names so nothing moves in
+/// the database.
+model MessagePlan {
   id        Int       @id @default(autoincrement())
   name      String    @db.VarChar(60)
-  tokens    Int
+  messages  Int       @map("tokens")
+  /// What the organization pays for the plan each month. 0 is allowed (Prueba).
   priceUsd  Decimal   @db.Decimal(10, 2)
+  /// The free plan of a new account's number in its first month of service.
+  isTrial   Boolean   @default(false)
   isActive  Boolean   @default(true)
   sortOrder Int       @default(0)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  producerId Int
-  producer   Producer @relation(fields: [producerId], references: [id])
+  /// Legacy (billing before 2026-10-30): each organization had its own catalog.
+  /// Null for every plan of the platform's catalog; old rows are retired.
+  producerId Int?
+  producer   Producer? @relation(fields: [producerId], references: [id])
+
+  phoneNumbers PhoneNumber[]
 
   @@index([producerId, isActive, sortOrder])
+  @@index([isActive, sortOrder])
+  @@map("TokenPlan")
 }

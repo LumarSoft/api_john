@@ -8,6 +8,7 @@ import { UpdateProducerCodeDto } from './dto/update-producer-code.dto'
 import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
 import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
 import { UsageService, currentPeriod } from '../usage/usage.service'
+import { legacyPricing, withLegacyPlan } from '../usage/legacy-token-fields'
 
 const round2 = <T extends Record<string, number>>(o: T): T =>
   Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 100) / 100])) as T
@@ -126,16 +127,20 @@ export class OwnerService {
     // Merge the per-code metrics onto the code rows so the panel has one object.
     const codesWithMetrics = codes.map(c => ({ ...c, ...(codeMetrics.get(c.id) ?? EMPTY_CODE_METRICS) }))
 
+    // OpenAI is prepaid: the profit is what we bill minus what Meta charges.
     const billing = numbers.reduce(
       (acc, n) => {
-        acc.costUsd += n.usage.totalCostUsd
+        acc.metaCostUsd += n.usage.metaCostUsd
+        acc.openaiCostUsd += n.usage.openaiCostUsd
         acc.billedUsd += n.usage.billedUsd
         acc.marginUsd += n.usage.marginUsd
         return acc
       },
-      { costUsd: 0, billedUsd: 0, marginUsd: 0 },
+      { metaCostUsd: 0, openaiCostUsd: 0, billedUsd: 0, marginUsd: 0 },
     )
 
+    const { blockMessages } = this.usage.commercialPricing
+    const rounded = round2(billing)
     return {
       ...org,
       codes: codesWithMetrics,
@@ -143,16 +148,19 @@ export class OwnerService {
       numbers,
       billing: {
         period: currentPeriod(),
-        pricing: this.usage.commercialPricing,
+        blockMessages,
         activeNumbers: numbers.filter(n => n.isActive).length,
-        ...round2(billing),
+        ...rounded,
+        // front_John's panel (legacy-token-fields.ts): what Meta and OpenAI cost, and the old pricing summary.
+        costUsd: Math.round((rounded.metaCostUsd + rounded.openaiCostUsd) * 100) / 100,
+        pricing: legacyPricing(await this.usage.catalog(), blockMessages),
       },
     }
   }
 
   /**
-   * Per-number breakdown for the running month: what it costs us, its tokens and
-   * plan, and what the organization is invoiced for it.
+   * Per-number breakdown for the running month: its messages and plan, what the
+   * organization is invoiced for it, and what Meta and OpenAI cost us.
    */
   private async phoneNumberDetail(producerId: number) {
     const period = currentPeriod()
@@ -167,7 +175,7 @@ export class OwnerService {
         isActive: true,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
-        trialTokens: true,
+        planId: true,
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true } } } },
         usageMonthly: {
@@ -187,21 +195,15 @@ export class OwnerService {
       },
     })
 
-    const [starts, catalog] = await Promise.all([
-      this.usage.serviceStarts(phones.map(p => p.id)),
-      this.usage.catalogFor(producerId),
-    ])
+    const [starts, catalog] = await Promise.all([this.usage.serviceStarts(phones.map(p => p.id)), this.usage.catalog()])
     return phones.map(p => {
       const u = p.usageMonthly[0]
       const cost = Number(u?.totalCostUsd ?? 0)
+      const metaCost = Number(u?.metaCostUsd ?? 0)
       const bill = this.usage.billFor(
-        {
-          isActive: p.isActive,
-          serviceStartedAt: starts.get(p.id) ?? null,
-          trialTokens: p.trialTokens,
-          catalog,
-        },
+        { isActive: p.isActive, serviceStartedAt: starts.get(p.id) ?? null, planId: p.planId },
         u,
+        catalog,
         period,
       )
 
@@ -227,14 +229,16 @@ export class OwnerService {
           metaConversations: u?.metaConversations ?? 0,
           metaCostUsd: Number(u?.metaCostUsd ?? 0),
           totalCostUsd: cost,
-          tokens: bill.tokens,
-          trialTokens: bill.trialTokens,
-          plan: bill.plan,
+          messages: bill.messages,
+          assignedPlan: bill.assignedPlan,
+          plan: withLegacyPlan(bill.plan, this.usage.commercialPricing.blockMessages),
+          // front_John's panel (legacy-token-fields.ts).
+          tokens: bill.messages,
+          upgraded: bill.upgraded,
           prorated: bill.prorated,
-          // What the platform invoices the organization, what the organization resells it for, and our margin.
-          billedUsd: bill.costUsd,
-          resaleUsd: bill.billedUsd,
-          marginUsd: Math.round((bill.costUsd - cost) * 100) / 100,
+          // What the platform invoices the organization, and what is left after Meta (OpenAI is prepaid).
+          billedUsd: bill.billedUsd,
+          marginUsd: Math.round((bill.billedUsd - metaCost) * 100) / 100,
         },
       }
     })
