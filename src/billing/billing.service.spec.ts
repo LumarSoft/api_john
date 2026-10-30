@@ -170,6 +170,21 @@ describe('the month of each number', () => {
     })
   })
 
+  it("repeats the month under the old token names for front_John's panel", async () => {
+    const { service } = setup([number()])
+    const result = await service.overview(superadmin, '2026-10')
+    expect(result).toMatchObject({ unitPriceUsd: 0.05, blockTokens: 1000, trialTokens: 100 })
+    expect(result.plans.find(p => p.name === 'Inicial')).toMatchObject({ messages: 500, tokens: 500 })
+    expect(result.numbers[0]).toMatchObject({
+      plan: { includedMessages: 500, includedTokens: 500, blocks: 1 },
+      tokensUsed: 120,
+      includedTokens: 500,
+      remainingTokens: 380,
+      trialTokens: 0,
+      nextPlan: { messages: 1000, tokens: 1000 },
+    })
+  })
+
   it('shows a busier number on the plan that covers it, and past the largest by blocks', async () => {
     const { service, prisma } = setup([
       number({ usageMonthly: [{ metaMessages: 900, updatedAt: null }] }),
@@ -216,6 +231,19 @@ describe('the month of each number', () => {
     const { service } = setup()
     await expect(service.overview(superadmin, '2026-13')).rejects.toThrow(BadRequestException)
     await expect(service.overview(superadmin, '2999-01')).rejects.toThrow(BadRequestException)
+  })
+})
+
+describe("front_John's panel, until it redirects to Polisend", () => {
+  it('reads the active catalog under the old names', async () => {
+    const { service } = setup()
+    const result = await service.legacyCatalog()
+    expect(result.unitPriceUsd).toBe(0.05)
+    expect(result.plans).toEqual([
+      { id: 9, name: 'Prueba', tokens: 100, priceUsd: 0, costUsd: 0, isActive: true, sortOrder: 0 },
+      { id: 1, name: 'Inicial', tokens: 500, priceUsd: 25, costUsd: 25, isActive: true, sortOrder: 1 },
+      { id: 2, name: 'Profesional', tokens: 1000, priceUsd: 50, costUsd: 50, isActive: true, sortOrder: 2 },
+    ])
   })
 })
 

@@ -3,6 +3,7 @@ import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../common/scope/scope.service'
 import { BilledPlan, CatalogPlan, currentPeriod, UsageService } from '../usage/usage.service'
+import { legacyTrialTokens, legacyUnitPriceUsd, withLegacyPlan } from '../usage/legacy-token-fields'
 import { CreateMessagePlanDto, UpdateMessagePlanDto } from './dto/message-plan.dto'
 
 const PLAN_SELECT = {
@@ -152,6 +153,7 @@ export class BillingService {
       this.usage.catalog(),
     ])
     const starts = await this.usage.serviceStarts(numbers.map(n => n.id))
+    const { blockMessages } = this.usage.commercialPricing
 
     const rows = numbers.map(n => {
       const usage = n.usageMonthly[0]
@@ -168,7 +170,7 @@ export class BillingService {
         isActive: n.isActive,
         responsibleCode: n.responsibleProducerCode,
         assignedPlan: bill.assignedPlan,
-        plan: bill.plan,
+        plan: withLegacyPlan(bill.plan, blockMessages),
         // Past its plan this month, or already moved up to the plan that covers it.
         upgraded: bill.upgraded || movedUpIn(n.planUpgradedAt, period),
         movedUpAt: movedUpIn(n.planUpgradedAt, period) ? n.planUpgradedAt!.toISOString() : null,
@@ -176,19 +178,48 @@ export class BillingService {
         includedMessages: included,
         remainingMessages: Math.max(0, included - bill.messages),
         percentUsed: included > 0 ? Math.round((bill.messages / included) * 1000) / 10 : 0,
-        nextPlan: this.nextPlan(bill.plan, catalog),
+        nextPlan: this.withLegacyNext(this.nextPlan(bill.plan, catalog)),
         billedUsd: bill.billedUsd,
         prorated: bill.prorated,
         updatedAt: usage?.updatedAt?.toISOString() ?? null,
+        // front_John's panel (legacy-token-fields.ts).
+        tokensUsed: bill.messages,
+        includedTokens: included,
+        remainingTokens: Math.max(0, included - bill.messages),
+        trialTokens: bill.plan.trial ? included : 0,
       }
     })
 
     return {
       period,
-      blockMessages: this.usage.commercialPricing.blockMessages,
-      plans: catalog.filter(p => p.isActive).map(p => this.toOffer(p)),
+      blockMessages,
+      plans: catalog.filter(p => p.isActive).map(p => ({ ...this.toOffer(p), tokens: p.messages })),
       numbers: rows,
       ...(manager ? { totalBilledUsd: round2(rows.reduce((sum, r) => sum + r.billedUsd, 0)) } : {}),
+      // front_John's panel (legacy-token-fields.ts).
+      unitPriceUsd: legacyUnitPriceUsd(catalog),
+      blockTokens: blockMessages,
+      trialTokens: legacyTrialTokens(catalog),
+    }
+  }
+
+  /**
+   * front_John's panel (legacy-token-fields.ts): the active catalog, read-only, under its old route and names. The
+   * catalog is the owner's now, so that panel can no longer change it.
+   */
+  async legacyCatalog() {
+    const catalog = (await this.usage.catalog()).filter(p => p.isActive)
+    return {
+      unitPriceUsd: legacyUnitPriceUsd(catalog),
+      plans: catalog.map((p, i) => ({
+        id: p.id,
+        name: p.name,
+        tokens: p.messages,
+        priceUsd: p.priceUsd,
+        costUsd: p.priceUsd,
+        isActive: p.isActive,
+        sortOrder: i,
+      })),
     }
   }
 
@@ -335,6 +366,10 @@ export class BillingService {
   }
 
   // ─── Helpers ───────────────────────────────────────────
+
+  private withLegacyNext(next: ReturnType<BillingService['nextPlan']>) {
+    return next ? { ...next, tokens: next.messages } : null
+  }
 
   /** The plan after `current`: the next active paid plan, or the next block past the largest. */
   private nextPlan(current: BilledPlan, catalog: CatalogPlan[]) {

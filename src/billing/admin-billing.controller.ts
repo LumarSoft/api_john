@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Query, Request, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Param,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common'
 import { Role } from 'generated/prisma/client'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { RolesGuard } from '../auth/roles.guard'
@@ -19,9 +32,37 @@ export class AdminBillingController {
     return this.billing.overview(req.user, period || undefined)
   }
 
+  // ─── front_John's panel (legacy-token-fields.ts), until it redirects to Polisend ───
+
+  /** Its Planes tab: the owner's catalog, read-only, under the old names. */
+  @Get('plans')
+  legacyPlans() {
+    return this.billing.legacyCatalog()
+  }
+
+  @Post('plans')
+  legacyCreatePlan(): never {
+    return refuseLegacyCatalogChange()
+  }
+
+  @Patch('plans/:id')
+  legacyUpdatePlan(): never {
+    return refuseLegacyCatalogChange()
+  }
+
+  @Delete('plans/:id')
+  legacyRemovePlan(): never {
+    return refuseLegacyCatalogChange()
+  }
+
   @Patch('numbers/:id/plan')
   @Roles(Role.SUPERADMIN)
   assignPlan(@Param('id', ParseIntPipe) id: number, @Body() dto: AssignPlanDto, @Request() req: AuthenticatedRequest) {
     return this.billing.assignPlan(req.user, id, dto.planId)
   }
+}
+
+/** The catalog is the owner's now: the old panel's SuperAdmin plan editor can no longer change it. */
+function refuseLegacyCatalogChange(): never {
+  throw new ForbiddenException('Los planes ahora los define Lumarsoft para todas las organizaciones.')
 }

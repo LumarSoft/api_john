@@ -56,7 +56,7 @@ describe('monthly phone number report', () => {
     return { prisma, service: new PhoneNumbersService(prisma as any, usage as any, noCoverages, noAlerts) }
   }
 
-  const ownerOnly = ['totalCostUsd', 'marginUsd', 'metaBillableMessages', 'openaiCostUsd', 'metaCostUsd']
+  const ownerOnly = ['totalCostUsd', 'marginUsd', 'metaBillableMessages', 'openaiCostUsd', 'metaCostUsd', 'pricing']
 
   it('shows an admin the messages of the month and its plan, never our cost', async () => {
     const { service, prisma } = setup()
@@ -78,7 +78,9 @@ describe('monthly phone number report', () => {
       period: '2026-09',
       messages: 1200,
       assignedPlan: { id: 1, name: 'Inicial', includedMessages: 500, priceUsd: 25, trial: false, extraBlocks: 0 },
-      plan: beyond,
+      // The old "tokens" names repeat the same values for front_John's panel (legacy-token-fields.ts).
+      plan: { ...beyond, includedTokens: 2000, blocks: 2 },
+      tokens: 1200,
       upgraded: true,
       prorated: false,
       billedUsd: 100,

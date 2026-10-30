@@ -8,6 +8,7 @@ import { UpdateProducerCodeDto } from './dto/update-producer-code.dto'
 import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
 import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
 import { UsageService, currentPeriod } from '../usage/usage.service'
+import { legacyPricing, withLegacyPlan } from '../usage/legacy-token-fields'
 
 const round2 = <T extends Record<string, number>>(o: T): T =>
   Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 100) / 100])) as T
@@ -138,6 +139,8 @@ export class OwnerService {
       { metaCostUsd: 0, openaiCostUsd: 0, billedUsd: 0, marginUsd: 0 },
     )
 
+    const { blockMessages } = this.usage.commercialPricing
+    const rounded = round2(billing)
     return {
       ...org,
       codes: codesWithMetrics,
@@ -145,9 +148,12 @@ export class OwnerService {
       numbers,
       billing: {
         period: currentPeriod(),
-        blockMessages: this.usage.commercialPricing.blockMessages,
+        blockMessages,
         activeNumbers: numbers.filter(n => n.isActive).length,
-        ...round2(billing),
+        ...rounded,
+        // front_John's panel (legacy-token-fields.ts): what Meta and OpenAI cost, and the old pricing summary.
+        costUsd: Math.round((rounded.metaCostUsd + rounded.openaiCostUsd) * 100) / 100,
+        pricing: legacyPricing(await this.usage.catalog(), blockMessages),
       },
     }
   }
@@ -225,7 +231,9 @@ export class OwnerService {
           totalCostUsd: cost,
           messages: bill.messages,
           assignedPlan: bill.assignedPlan,
-          plan: bill.plan,
+          plan: withLegacyPlan(bill.plan, this.usage.commercialPricing.blockMessages),
+          // front_John's panel (legacy-token-fields.ts).
+          tokens: bill.messages,
           upgraded: bill.upgraded,
           prorated: bill.prorated,
           // What the platform invoices the organization, and what is left after Meta (OpenAI is prepaid).

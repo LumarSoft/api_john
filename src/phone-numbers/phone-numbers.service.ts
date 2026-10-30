@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UsageService, currentPeriod } from '../usage/usage.service'
+import { legacyPricing, withLegacyPlan } from '../usage/legacy-token-fields'
 import { parseSchedule, validateSchedule } from '../business-hours/schedule'
 import { mergeBotProfile, parseBotProfile } from '../common/bot-profile'
 import { normalizeCoverageOverrides, parseCoverageOverrides } from '../common/coverage-overrides'
@@ -115,6 +116,7 @@ export class PhoneNumbersService {
       this.usage.serviceStarts(numbers.map(n => n.id)),
       this.usage.catalog(),
     ])
+    const { blockMessages } = this.usage.commercialPricing
     return numbers.map(n => {
       const usage = n.usageMonthly[0]
       const cost = Number(usage?.totalCostUsd ?? 0)
@@ -152,10 +154,12 @@ export class PhoneNumbersService {
           // What the organization pays for: the messages sent, on the plan that covers the month.
           messages: bill.messages,
           assignedPlan: bill.assignedPlan,
-          plan: bill.plan,
+          plan: withLegacyPlan(bill.plan, blockMessages),
           upgraded: bill.upgraded,
           prorated: bill.prorated,
           billedUsd: bill.billedUsd,
+          // front_John's panel (legacy-token-fields.ts).
+          tokens: bill.messages,
           ...(seesActivity
             ? {
                 metaMessages: usage?.metaMessages ?? 0,
@@ -173,6 +177,7 @@ export class PhoneNumbersService {
                 metaCostUsd: metaCost,
                 totalCostUsd: cost,
                 marginUsd: Math.round((bill.billedUsd - metaCost) * 100) / 100,
+                pricing: legacyPricing(catalog, blockMessages),
               }
             : {}),
         },

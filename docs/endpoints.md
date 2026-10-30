@@ -1522,6 +1522,51 @@ The active plans of the catalog, for the landing. Cached 5 minutes.
 
 ---
 
+### Campos y rutas viejos del panel de front_John (temporales)
+
+Mientras el panel de `front_John` y el de Polisend conviven (`PLAN-SAAS.md`, semana de prueba), la API repite los
+valores nuevos con los nombres del modelo de tokens del 29/10, en `src/usage/legacy-token-fields.ts`. Nada nuevo los
+lee: se borran cuando `front_John` redirija `/admin` a Polisend.
+
+- `GET /admin/billing`: `unitPriceUsd`, `blockTokens`, `trialTokens`; en cada plan `tokens`; en cada número
+  `tokensUsed`, `includedTokens`, `remainingTokens`, `trialTokens`, `plan.includedTokens`, `plan.blocks` y
+  `nextPlan.tokens`.
+- `GET /admin/phone-numbers`: `usage.tokens`, `usage.plan.includedTokens`, `usage.plan.blocks` y, solo para el Owner,
+  `usage.pricing`.
+- `GET /owner/organizations/:id`: `billing.costUsd` (Meta + OpenAI), `billing.pricing` y, en cada número,
+  `usage.tokens`.
+
+### GET /admin/billing/plans
+
+El catálogo activo con los nombres viejos, para la pestaña Planes del panel de `front_John`. Solo lectura.
+
+**Auth required:** Yes (SuperAdmin o Admin)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "unitPriceUsd": 0.05,
+  "plans": [{ "id": 2, "name": "Inicial", "tokens": 500, "priceUsd": 25, "costUsd": 25, "isActive": true, "sortOrder": 1 }]
+}
+```
+
+### POST /admin/billing/plans · PATCH /admin/billing/plans/:id · DELETE /admin/billing/plans/:id
+
+Ya no cambian nada: el catálogo es del Owner (`/owner/plans`).
+
+**Auth required:** Yes (SuperAdmin o Admin)
+
+**Responses**
+
+`403 Forbidden`
+```json
+{ "statusCode": 403, "message": "Los planes ahora los define Lumarsoft para todas las organizaciones." }
+```
+
+---
+
 ## Admin — Siniestros
 
 Triunfo's API has no claims endpoint, so claims filed through the bot or the client portal are stored locally with `status: "pending"`. The admin reviews them here, files them manually in Triunfo's web, and records the official claim number via `PATCH`.
