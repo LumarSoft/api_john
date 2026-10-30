@@ -42,6 +42,10 @@ model Producer {
   // pay cash), edited from "Configuración". Flat JSON, see
   // src/common/bot-profile.ts. Null → the bot's own defaults.
   botProfile    Json?
+  // The organization's logo, served from /uploads/logos (a square WebP). The
+  // panel shows it after login and on the printable policy card; null = its
+  // initials.
+  logoUrl       String?   @db.VarChar(255)
   systemPrompt  String    @db.Text
   isActive      Boolean   @default(true)
   createdAt     DateTime  @default(now())
