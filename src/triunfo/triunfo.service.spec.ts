@@ -126,6 +126,20 @@ describe('TriunfoService.downloadDocumento', () => {
     )
   })
 
+  it('says on every hop that it comes from TriunfoNet, or the link answers 403', async () => {
+    const get = jest
+      .fn()
+      .mockReturnValueOnce(
+        of({ status: 302, headers: { location: '/gauswebtriunfo/servlet/opol5001?x' }, data: new ArrayBuffer(0) }),
+      )
+      .mockReturnValueOnce(of({ status: 200, headers: {}, data: pdf }))
+
+    await createService({ get }).downloadDocumento(LINK)
+    for (const call of get.mock.calls) {
+      expect(call[1].headers).toMatchObject({ Referer: 'https://www.triunfonet.com.ar/' })
+    }
+  })
+
   it('fails when Triunfo answers something that is not a PDF', async () => {
     const get = jest.fn().mockReturnValue(of({ status: 403, headers: {}, data: Buffer.from('<html>') }))
     await expect(createService({ get }).downloadDocumento(LINK)).rejects.toMatchObject({ status: 502 })

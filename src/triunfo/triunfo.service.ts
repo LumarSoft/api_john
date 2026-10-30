@@ -164,6 +164,9 @@ export class TriunfoService {
   // A document link redirects once to the PDF; more hops than this is not Triunfo.
   private static readonly DOCUMENTO_MAX_REDIRECTS = 5
   private static readonly DOCUMENTO_TIMEOUT_MS = 30_000
+  // Since 2026-10-29 TriunfoNet answers 403 (a page that redirects to its home) to a document link opened without
+  // coming from its own site: every hop carries this Referer, as a click inside TriunfoNet would.
+  private static readonly TRIUNFO_REFERER = 'https://www.triunfonet.com.ar/'
   // Cloudflare in front of TriunfoNet answers 403 to some non-browser clients.
   private static readonly BROWSER_USER_AGENT =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36'
@@ -530,7 +533,9 @@ export class TriunfoService {
    * Downloads the PDF behind a RESTDocumentosV2 link. The link answers 302 to
    * the real file and opens the session with cookies in that same response;
    * following the redirect without them gets a 403, so the hops are followed
-   * by hand carrying the cookies.
+   * by hand carrying the cookies. Every hop also says it comes from TriunfoNet
+   * (Referer): without it the link itself answers 403. The panel, the client
+   * portal and the bot all download through here.
    */
   async downloadDocumento(url: string): Promise<Buffer> {
     if (!this.isTriunfoUrl(url)) throw new BadGatewayException('Triunfo returned a document link outside triunfonet')
@@ -547,6 +552,7 @@ export class TriunfoService {
           headers: {
             'User-Agent': TriunfoService.BROWSER_USER_AGENT,
             Accept: 'application/pdf,*/*',
+            Referer: TriunfoService.TRIUNFO_REFERER,
             ...(cookies.size > 0 ? { Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; ') } : {}),
           },
         }),
