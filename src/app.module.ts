@@ -33,6 +33,7 @@ import { TasksModule } from './tasks/tasks.module'
 import { RejectionsModule } from './rejections/rejections.module'
 import { ExpiredPoliciesModule } from './expired-policies/expired-policies.module'
 import { BillingModule } from './billing/billing.module'
+import { OrganizationLogoModule } from './organization-logo/organization-logo.module'
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { BillingModule } from './billing/billing.module'
     RejectionsModule,
     ExpiredPoliciesModule,
     BillingModule,
+    OrganizationLogoModule,
   ],
   controllers: [AppController],
   providers: [AppService],
