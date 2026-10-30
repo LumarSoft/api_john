@@ -19,6 +19,9 @@ function setup(phoneOverrides: Record<string, unknown> = {}) {
     monthlyBudgetUsd: 200,
     budgetExceededAt: null,
     planId: null,
+    planPausedAt: null,
+    extraBlocks: 0,
+    extraBlocksPeriod: null,
     ...phoneOverrides,
   }
   const events = new Set<string>()
@@ -90,14 +93,26 @@ describe('message plans', () => {
     })
   })
 
-  it('moves a busier month to the plan that covers it, and past the largest by blocks at its price per message', () => {
+  it('keeps a busier month on its plan, at its limit, and past the largest only on the blocks accepted', () => {
     const { service } = setup()
     expect(service.billFor({ ...live, planId: 1 }, { metaMessages: 600 }, catalog, '2026-10')).toMatchObject({
       assignedPlan: { name: 'Inicial' },
-      plan: { id: 2, name: 'Profesional' },
-      upgraded: true,
-      billedUsd: 50,
+      plan: { id: 1, name: 'Inicial' },
+      upgraded: false,
+      limitReached: true,
+      billedUsd: 25,
+      fullPriceUsd: 25,
     })
+    expect(service.billFor({ ...live, planId: 1 }, { metaMessages: 499 }, catalog, '2026-10').limitReached).toBe(false)
+    expect(
+      service.billFor({ ...live, planId: 2, extraBlocks: 1 }, { metaMessages: 1430 }, catalog, '2026-10'),
+    ).toMatchObject({
+      plan: { id: null, name: 'Profesional + 1.000', includedMessages: 2000, priceUsd: 100, extraBlocks: 1 },
+      upgraded: true,
+      limitReached: false,
+      billedUsd: 100,
+    })
+    // planFor still prices the plan that would cover a month: the step past a plan.
     expect(service.planFor(1430, null, catalog)).toEqual({
       id: null,
       name: 'Profesional + 1.000',
@@ -111,6 +126,25 @@ describe('message plans', () => {
     expect(service.planFor(50, null, catalog)).toMatchObject({ name: 'Inicial' })
   })
 
+  it('offers the next plan at the limit, or one more block past the largest', () => {
+    const { service } = setup()
+    const inicial = { id: 1, name: 'Inicial', includedMessages: 500, priceUsd: 25, trial: false, extraBlocks: 0 }
+    const profesional = {
+      id: 2,
+      name: 'Profesional',
+      includedMessages: 1000,
+      priceUsd: 50,
+      trial: false,
+      extraBlocks: 0,
+    }
+    expect(service.nextPlanAfter(inicial, catalog)).toEqual({ name: 'Profesional', messages: 1000, priceUsd: 50 })
+    expect(service.nextPlanAfter(profesional, catalog)).toEqual({
+      name: 'Profesional + 1.000',
+      messages: 2000,
+      priceUsd: 100,
+    })
+  })
+
   it('counts the messages sent and ignores LLM tokens', () => {
     const { service } = setup()
     expect(
@@ -118,19 +152,20 @@ describe('message plans', () => {
     ).toMatchObject({ messages: 430, plan: { name: 'Inicial' }, billedUsd: 25 })
   })
 
-  it('keeps the trial free in the first month only, and moves a busy trial to a paid plan', () => {
+  it('keeps the trial free in the first month only, and stops a busy trial at its limit', () => {
     const { service } = setup()
     const trial = { isActive: true, serviceStartedAt: new Date('2026-11-03T15:00:00Z'), planId: 9 }
     expect(service.billFor(trial, { metaMessages: 80 }, catalog, '2026-11')).toMatchObject({
       plan: { name: 'Prueba', includedMessages: 100, priceUsd: 0, trial: true },
       billedUsd: 0,
       prorated: false,
+      limitReached: false,
     })
-    expect(service.billFor(trial, { metaMessages: 350 }, catalog, '2026-11')).toMatchObject({
-      plan: { name: 'Inicial' },
-      upgraded: true,
-      billedUsd: 25,
-      prorated: false,
+    expect(service.billFor(trial, { metaMessages: 100 }, catalog, '2026-11')).toMatchObject({
+      plan: { name: 'Prueba' },
+      upgraded: false,
+      limitReached: true,
+      billedUsd: 0,
     })
     expect(service.billFor(trial, { metaMessages: 50 }, catalog, '2026-12')).toMatchObject({
       assignedPlan: { name: 'Inicial' },
@@ -145,26 +180,32 @@ describe('message plans', () => {
 
   it('does not bill a number before it goes live, nor a switched-off number that sent nothing', () => {
     const { service } = setup()
-    expect(service.billFor({ ...live, serviceStartedAt: null }, undefined, catalog, '2026-10').billedUsd).toBe(0)
+    expect(service.billFor({ ...live, serviceStartedAt: null }, undefined, catalog, '2026-10')).toMatchObject({
+      billedUsd: 0,
+      fullPriceUsd: 0,
+    })
     expect(service.billFor(live, undefined, catalog, '2026-07').billedUsd).toBe(0)
     expect(service.billFor({ ...live, isActive: false }, undefined, catalog, '2026-10').billedUsd).toBe(0)
-    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 600 }, catalog, '2026-10').billedUsd).toBe(50)
+    // Switched off after sending: its plan, whole.
+    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 600 }, catalog, '2026-10')).toMatchObject({
+      billedUsd: 25,
+      fullPriceUsd: 25,
+    })
   })
 
-  it("prorates the number's own paid plan in its first month, from the day it went live", () => {
+  it('prorates the first month for the owner only; the organization pays the whole plan', () => {
     const { service } = setup()
     const startedOct21 = { isActive: true, serviceStartedAt: new Date('2026-10-21T13:00:00Z'), planId: null }
-    // 11 of 31 days of Inicial (USD 25).
+    // 11 of 31 days of Inicial (USD 25) for the owner; the organization pays USD 25.
     expect(service.billFor(startedOct21, { metaMessages: 100 }, catalog, '2026-10')).toMatchObject({
       billedUsd: 8.87,
       prorated: true,
+      fullPriceUsd: 25,
     })
-    // Past its plan the covering plan is charged whole.
-    expect(service.billFor(startedOct21, { metaMessages: 1500 }, catalog, '2026-10')).toMatchObject({
-      plan: { name: 'Profesional + 1.000' },
-      billedUsd: 100,
-      prorated: false,
-    })
+    // Blocks accepted past the largest plan are charged whole.
+    expect(
+      service.billFor({ ...startedOct21, planId: 2, extraBlocks: 1 }, { metaMessages: 1500 }, catalog, '2026-10'),
+    ).toMatchObject({ plan: { name: 'Profesional + 1.000' }, billedUsd: 100, prorated: false, fullPriceUsd: 100 })
     expect(service.billFor(startedOct21, { metaMessages: 100 }, catalog, '2026-11').billedUsd).toBe(25)
   })
 
@@ -255,46 +296,54 @@ describe('monthly usage recording', () => {
     expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 25 } })
   })
 
-  it('moves a number past its plan to the one that covers it, once, and tells the office', async () => {
+  it("pauses the number's assistant at its plan's limit, once, and tells its SuperAdmins and admins", async () => {
     const { service, prisma, mail } = setup({ planId: 1 })
-    prisma.usageMonthly.upsert.mockResolvedValue({ id: 9, openaiCostUsd: 0, metaMessages: 501 })
-    await service.recordMeta(delivered('m-501'))
-    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 50 } })
+    prisma.usageMonthly.upsert.mockResolvedValue({ id: 9, openaiCostUsd: 0, metaMessages: 500 })
+    await service.recordMeta(delivered('m-500'))
+    // Still billed on its plan: nothing moves it up on its own.
+    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 25 } })
     expect(prisma.phoneNumber.updateMany).toHaveBeenCalledWith({
-      where: { id: 4, planId: 1 },
-      data: { planId: 2, planUpgradedAt: expect.any(Date) },
+      where: { id: 4, OR: [{ planPausedAt: null }, { planPausedAt: { lt: expect.any(Date) } }] },
+      data: { planPausedAt: expect.any(Date), planPauseConfirmedAt: null },
     })
-    expect(prisma.notification.create.mock.calls[0][0].data).toMatchObject({
+    const notice = prisma.notification.create.mock.calls[0][0].data
+    expect(notice).toMatchObject({
       producerId: 2,
       producerCodeId: 8,
       phoneNumberId: 'PN',
       type: 'plan',
       refId: 4,
-      title: 'El +54 9 341 600-0000 pasó al plan Profesional',
+      title: 'El asistente del +54 9 341 600-0000 está en pausa',
+    })
+    expect(notice.body).toContain('pasar a Profesional (1.000 mensajes, USD 50 por mes)')
+    expect(prisma.user.findMany.mock.calls[0][0].where).toMatchObject({
+      producerId: 2,
+      OR: [{ role: 'SUPERADMIN' }, { role: 'ADMIN', producerCodes: { some: { producerCodeId: 8 } } }],
     })
     expect(mail.sendAlert).toHaveBeenCalledWith(
-      expect.objectContaining({ to: ['super@org.com'], subject: 'El +54 9 341 600-0000 pasó al plan Profesional' }),
+      expect.objectContaining({ to: ['super@org.com'], subject: 'El asistente del +54 9 341 600-0000 está en pausa' }),
     )
 
-    // A message delivered at the same time finds the plan already moved: no second notice.
+    // A message delivered at the same time finds it already paused: no second notice.
     prisma.phoneNumber.updateMany.mockResolvedValue({ count: 0 })
-    prisma.usageMonthly.upsert.mockResolvedValue({ id: 9, openaiCostUsd: 0, metaMessages: 502 })
-    await service.recordMeta(delivered('m-502'))
+    prisma.usageMonthly.upsert.mockResolvedValue({ id: 9, openaiCostUsd: 0, metaMessages: 501 })
+    await service.recordMeta(delivered('m-501'))
     expect(prisma.notification.create).toHaveBeenCalledTimes(1)
+    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 25 } })
   })
 
-  it('tells the office once when a number passes the largest plan', async () => {
-    const { service, prisma } = setup({ planId: 2 })
+  it('leaves a number already paused this month alone, and pauses again a month later', async () => {
+    const { service, prisma } = setup({ planId: 2, planPausedAt: new Date() })
     prisma.usageMonthly.upsert.mockResolvedValue({ id: 9, openaiCostUsd: 0, metaMessages: 1001 })
     await service.recordMeta(delivered('m-1001'))
-    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 100 } })
+    expect(prisma.usageMonthly.update).toHaveBeenLastCalledWith({ where: { id: 9 }, data: { billedUsd: 50 } })
     expect(prisma.phoneNumber.updateMany).not.toHaveBeenCalled()
-    expect(prisma.notification.create.mock.calls[0][0].data.title).toBe(
-      'El +54 9 341 600-0000 superó el plan Profesional',
-    )
-    prisma.usageMonthly.upsert.mockResolvedValue({ id: 9, openaiCostUsd: 0, metaMessages: 1002 })
-    await service.recordMeta(delivered('m-1002'))
-    expect(prisma.notification.create).toHaveBeenCalledTimes(1)
+    expect(prisma.notification.create).not.toHaveBeenCalled()
+
+    const lastMonth = setup({ planId: 2, planPausedAt: new Date(Date.now() - 40 * 24 * 3600 * 1000) })
+    lastMonth.prisma.usageMonthly.upsert.mockResolvedValue({ id: 9, openaiCostUsd: 0, metaMessages: 1000 })
+    await lastMonth.service.recordMeta(delivered('m-1000'))
+    expect(lastMonth.prisma.notification.create).toHaveBeenCalledTimes(1)
   })
 
   it('gives way to the smallest paid plan, silently, once the trial month is over', async () => {
@@ -390,7 +439,7 @@ describe('monthly usage recording', () => {
         metaCostUsd: 8,
         billedUsd: 50,
         metaMessages: 1430,
-        phoneNumber: { id: 4, isActive: true, planId: null },
+        phoneNumber: { id: 4, isActive: true, planId: 2, extraBlocks: 1, extraBlocksPeriod: '2026-10' },
       },
     ])
     const report = await service.getSummary(2, [8], '2026-10')

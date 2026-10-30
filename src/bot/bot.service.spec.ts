@@ -249,6 +249,19 @@ describe('BotService', () => {
       await expect(service.getContext('P2')).resolves.toEqual(expect.objectContaining({ botEnabled: false }))
     })
 
+    it('stops the bot for the rest of the month when the number reaches its plan, and starts it again the next', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: true, planPausedAt: new Date() })
+      await expect(service.getContext('P2')).resolves.toEqual(
+        expect.objectContaining({ botEnabled: false, pausedForPlan: true }),
+      )
+
+      const lastMonth = new Date(Date.now() - 40 * 24 * 3600 * 1000)
+      prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: true, planPausedAt: lastMonth })
+      await expect(service.getContext('P2')).resolves.toEqual(
+        expect.objectContaining({ botEnabled: true, pausedForPlan: false }),
+      )
+    })
+
     it("gives the bot the organization's own name and data", async () => {
       prisma.phoneNumber.findFirst.mockResolvedValue(
         producer({

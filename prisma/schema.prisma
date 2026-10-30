@@ -374,14 +374,23 @@ model PhoneNumber {
   // another branch. National holidays are loaded into each number.
   businessClosures BusinessClosure[]
   // The plan the SuperAdmin assigned (null = the smallest paid plan of the
-  // catalog). When the number sends more messages than its plan includes, it
-  // moves up to the plan that covers them and stays there. A new account's
-  // number starts on the trial plan, valid only in its first month of service.
+  // catalog). A number never moves up on its own: when its messages reach the
+  // plan, its assistant pauses until someone picks the next plan or the month
+  // ends. A new account's number starts on the trial plan, valid only in its
+  // first month of service.
   planId           Int?
   plan             MessagePlan?      @relation(fields: [planId], references: [id], onDelete: SetNull)
-  // When the number last moved up a plan on its own (null once the SuperAdmin
-  // picks a plan): Facturación shows "subió de plan este mes" from it.
+  // When the number last moved up a plan (someone chose to continue at the
+  // limit): Facturación shows "subió de plan este mes" from it.
   planUpgradedAt   DateTime?
+  // When the month's messages reached the plan and the assistant paused. Only
+  // the month it falls in counts: the next month the assistant answers again.
+  planPausedAt     DateTime?
+  // When someone chose to keep it paused until next month (hides the prompt).
+  planPauseConfirmedAt DateTime?
+  // Blocks of 1,000 messages past the largest plan accepted for `extraBlocksPeriod`.
+  extraBlocks       Int               @default(0)
+  extraBlocksPeriod String?           @db.VarChar(7)
   // Legacy (billing before 2026-10-30, free first-month tokens). Unused; kept
   // so an older API can still run against this database. Drop later.
   trialTokens      Int               @default(0)

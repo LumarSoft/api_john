@@ -54,6 +54,8 @@ export interface BillablePhone {
   serviceStartedAt: Date | null
   /** The plan the SuperAdmin assigned (null = the smallest paid plan). */
   planId: number | null
+  /** Blocks past the largest plan accepted for the month being billed (acceptedBlocks). */
+  extraBlocks?: number
 }
 
 /** The plan a month is billed on: a catalog plan, or the largest plus blocks past the catalog. */
@@ -76,12 +78,16 @@ export interface MonthlyBill {
   assignedPlan: BilledPlan | null
   /** The plan the month is billed on. */
   plan: BilledPlan
-  /** True when the month's messages took the number past its assigned plan. */
+  /** True when the month is on blocks accepted past the assigned (largest) plan. */
   upgraded: boolean
-  /** What the organization pays the platform for the number this month. */
+  /** The month's messages reached what the plan includes: the assistant pauses until someone chooses. */
+  limitReached: boolean
+  /** The owner's figure: the plan, prorated in the first month of service. */
   billedUsd: number
-  /** True when the plan was prorated for the first month of service. */
+  /** True when billedUsd was prorated for the first month of service. */
   prorated: boolean
+  /** What the organization is charged: the whole plan, whatever it used (0 when the number is not billed). */
+  fullPriceUsd: number
 }
 
 /** The number fields usage recording reads (resolvePhone). */
@@ -93,6 +99,9 @@ interface PhoneForBilling {
   responsibleProducerCodeId: number | null
   isActive: boolean
   planId: number | null
+  planPausedAt: Date | null
+  extraBlocks: number
+  extraBlocksPeriod: string | null
 }
 
 const ARGENTINA_TZ = 'America/Argentina/Cordoba'
@@ -111,8 +120,24 @@ export function currentPeriod(date = new Date()): string {
 }
 
 /** First instant of a period in Argentina (UTC-3 all year). */
-function periodStart(period: string): Date {
+export function periodStart(period: string): Date {
   return new Date(`${period}-01T00:00:00-03:00`)
+}
+
+/** The month after `period` ("2026-10" → "2026-11"). */
+export function nextPeriod(period: string): string {
+  const [year, month] = period.split('-').map(Number)
+  return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, '0')}`
+}
+
+/** Whether a number's assistant is paused for its plan in `period`: it reached the limit that month. */
+export function pausedIn(planPausedAt: Date | null | undefined, period: string): boolean {
+  return planPausedAt != null && currentPeriod(planPausedAt) === period
+}
+
+/** The blocks past the largest plan a number accepted for `period` (they last that month only). */
+export function acceptedBlocks(phone: { extraBlocks: number; extraBlocksPeriod: string | null }, period: string) {
+  return phone.extraBlocksPeriod === period ? phone.extraBlocks : 0
 }
 
 /**
@@ -263,6 +288,35 @@ export class UsageService {
     }
   }
 
+  /** A plan plus `blocks` blocks of `blockMessages`, at the plan's price per message. */
+  withBlocks(plan: BilledPlan, blocks: number): BilledPlan {
+    if (blocks <= 0 || plan.includedMessages <= 0) return plan
+    const { blockMessages } = this.commercialPricing
+    const includedMessages = plan.includedMessages + blocks * blockMessages
+    return {
+      id: null,
+      name: `${plan.name} + ${int(blocks * blockMessages)}`,
+      includedMessages,
+      priceUsd: round2((includedMessages * plan.priceUsd) / plan.includedMessages),
+      trial: false,
+      extraBlocks: plan.extraBlocks + blocks,
+    }
+  }
+
+  /** Where a number goes past `current`: the next active paid plan, or one more block past the largest. */
+  nextPlanAfter(
+    current: BilledPlan,
+    catalog: CatalogPlan[],
+  ): { name: string; messages: number; priceUsd: number } | null {
+    const paid = this.paidPlans(catalog.filter(p => p.isActive))
+    const next = paid.find(p => p.messages > current.includedMessages)
+    if (next) return { name: next.name, messages: next.messages, priceUsd: next.priceUsd }
+    const largest = paid.at(-1)
+    if (!largest) return null
+    const plan = this.planFor(current.includedMessages + 1, null, catalog)
+    return { name: plan.name, messages: plan.includedMessages, priceUsd: plan.priceUsd }
+  }
+
   /**
    * What the organization is invoiced for a number in a month (billed in arrears).
    *
@@ -283,10 +337,14 @@ export class UsageService {
     const startPeriod = phone.serviceStartedAt ? currentPeriod(phone.serviceStartedAt) : null
     const firstMonth = startPeriod === null || startPeriod === period
     const assignedPlan = this.assignedPlanFor(phone.planId, catalog, firstMonth)
-    const plan = this.planFor(messages, assignedPlan, catalog)
+    // Never past what the number has: its plan, plus the blocks it accepted. Reaching it pauses the assistant.
+    const plan = assignedPlan
+      ? this.withBlocks(assignedPlan, phone.extraBlocks ?? 0)
+      : this.planFor(messages, null, catalog)
     const upgraded = assignedPlan !== null && plan.includedMessages > assignedPlan.includedMessages
+    const limitReached = plan.includedMessages > 0 && messages >= plan.includedMessages
     if (!startPeriod || startPeriod > period || (!phone.isActive && messages === 0)) {
-      return { messages, assignedPlan, plan, upgraded, billedUsd: 0, prorated: false }
+      return { messages, assignedPlan, plan, upgraded, limitReached, billedUsd: 0, prorated: false, fullPriceUsd: 0 }
     }
     const share = firstMonth && !upgraded && !plan.trial ? serviceShareOfMonth(period, phone.serviceStartedAt!) : 1
     return {
@@ -294,8 +352,10 @@ export class UsageService {
       assignedPlan,
       plan,
       upgraded,
+      limitReached,
       billedUsd: round2(plan.priceUsd * share),
       prorated: share < 1,
+      fullPriceUsd: plan.priceUsd,
     }
   }
 
@@ -340,6 +400,9 @@ export class UsageService {
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
         planId: true,
+        planPausedAt: true,
+        extraBlocks: true,
+        extraBlocksPeriod: true,
       },
     })
   }
@@ -501,7 +564,7 @@ export class UsageService {
       throw error
     }
     const bill = await this.refreshBilled(phone, row.id, row, period)
-    if (bill && period === currentPeriod()) await this.followPlan(phone, bill, row.metaMessages ?? 0)
+    if (bill && period === currentPeriod()) await this.followLimit(phone, bill)
     return period === currentPeriod() ? this.applyBudget(phone, Number(row.openaiCostUsd)) : { overBudget: false }
   }
 
@@ -512,52 +575,51 @@ export class UsageService {
    * largest plan it hears once, on the first message over. A trial that ended
    * with the month gives way to the smallest paid plan, silently.
    */
-  private async followPlan(phone: PhoneForBilling, bill: MonthlyBill, messages: number): Promise<void> {
+  /**
+   * At the plan's limit the number's assistant pauses (the bot context reads it) and the office is told: the
+   * SuperAdmins and the admins of the number's code, in Asuntos pendientes and by mail. Nothing moves it to a bigger
+   * plan but someone choosing to (BillingService.resolveLimit); otherwise it answers again next month.
+   */
+  private async followLimit(phone: PhoneForBilling, bill: MonthlyBill): Promise<void> {
     try {
       // The stored plan no longer holds (a trial past its month, a retired plan): back to the default.
-      const storedHolds = phone.planId != null && bill.assignedPlan?.id === phone.planId
-      if (phone.planId != null && !storedHolds) {
+      if (phone.planId != null && bill.assignedPlan?.id !== phone.planId && bill.assignedPlan?.id != null) {
         await this.prisma.phoneNumber.updateMany({
           where: { id: phone.id, planId: phone.planId },
           data: { planId: null },
         })
       }
-      if (!bill.upgraded || !bill.assignedPlan) return
-      if (bill.plan.id != null) {
-        // Only the first message over the plan moves it: a concurrent one finds the plan already changed.
-        const moved = await this.prisma.phoneNumber.updateMany({
-          where: { id: phone.id, planId: storedHolds ? phone.planId : null },
-          data: { planId: bill.plan.id, planUpgradedAt: new Date() },
-        })
-        if (moved.count === 0) return
-        await this.announcePlanChange(
-          phone,
-          `El ${phone.number} pasó al plan ${bill.plan.name}`,
-          `Este mes envió más de ${int(bill.assignedPlan.includedMessages)} mensajes, los que incluye el plan ` +
-            `${bill.assignedPlan.name}. Pasó al plan ${bill.plan.name} (${int(bill.plan.includedMessages)} mensajes, ` +
-            `USD ${bill.plan.priceUsd.toLocaleString('es-AR')} por mes) y queda en ese plan. Podés cambiarlo en Facturación.`,
-        )
-        return
-      }
-      // Past the largest plan: one notice, on the month's first message over it.
-      if (messages === bill.assignedPlan.includedMessages + 1) {
-        const { blockMessages } = this.commercialPricing
-        const blockPrice = round2((blockMessages * bill.assignedPlan.priceUsd) / bill.assignedPlan.includedMessages)
-        await this.announcePlanChange(
-          phone,
-          `El ${phone.number} superó el plan ${bill.assignedPlan.name}`,
-          `Este mes ya envió más de ${int(bill.assignedPlan.includedMessages)} mensajes, el plan más grande. ` +
-            `Cada ${int(blockMessages)} mensajes más suman USD ${blockPrice.toLocaleString('es-AR')} al mes.`,
-        )
-      }
+      const period = currentPeriod()
+      if (!bill.limitReached || pausedIn(phone.planPausedAt, period)) return
+      // Only the first message at the limit pauses it: a concurrent one finds it already paused this month.
+      const paused = await this.prisma.phoneNumber.updateMany({
+        where: { id: phone.id, OR: [{ planPausedAt: null }, { planPausedAt: { lt: periodStart(period) } }] },
+        data: { planPausedAt: new Date(), planPauseConfirmedAt: null },
+      })
+      if (paused.count === 0) return
+      await this.announceLimit(phone, bill, period)
     } catch (err) {
       // Billing must never break usage tracking.
-      this.logger.warn(`followPlan failed for phone ${phone.id}: ${err instanceof Error ? err.message : err}`)
+      this.logger.warn(`followLimit failed for phone ${phone.id}: ${err instanceof Error ? err.message : err}`)
     }
   }
 
-  /** A notice in "Asuntos pendientes" (it opens Facturación) and a mail to the organization's SuperAdmins. */
-  private async announcePlanChange(phone: PhoneForBilling, title: string, body: string): Promise<void> {
+  private async announceLimit(phone: PhoneForBilling, bill: MonthlyBill, period: string): Promise<void> {
+    const next = this.nextPlanAfter(bill.plan, await this.catalog())
+    const resumes = periodStart(nextPeriod(period)).toLocaleDateString('es-AR', {
+      day: 'numeric',
+      month: 'long',
+      timeZone: ARGENTINA_TZ,
+    })
+    const title = `El asistente del ${phone.number} está en pausa`
+    const body =
+      `Este mes llegó a los ${int(bill.plan.includedMessages)} mensajes de su plan ${bill.plan.name}, así que el ` +
+      `asistente dejó de responder. Los mensajes se siguen guardando y la oficina puede contestar desde el panel. ` +
+      (next
+        ? `Para que vuelva a responder, elegí en Inicio o en Facturación pasar a ${next.name} ` +
+          `(${int(next.messages)} mensajes, USD ${next.priceUsd.toLocaleString('es-AR')} por mes). `
+        : '') +
+      `Si no, vuelve a responder solo el ${resumes}.`
     await this.prisma.notification.create({
       data: {
         producerId: phone.producerId,
@@ -570,14 +632,22 @@ export class UsageService {
         body,
       },
     })
-    const superAdmins = await this.prisma.user.findMany({
-      where: { producerId: phone.producerId, role: 'SUPERADMIN', deletedAt: null },
+    const recipients = await this.prisma.user.findMany({
+      where: {
+        producerId: phone.producerId,
+        deletedAt: null,
+        OR: [
+          { role: 'SUPERADMIN' },
+          ...(phone.responsibleProducerCodeId != null
+            ? [{ role: 'ADMIN' as const, producerCodes: { some: { producerCodeId: phone.responsibleProducerCodeId } } }]
+            : []),
+        ],
+      },
       select: { email: true },
     })
-    await this.mail.sendAlert({ to: superAdmins.map(u => u.email), subject: title, text: body })
+    await this.mail.sendAlert({ to: recipients.map(u => u.email), subject: title, text: body })
   }
 
-  /** Recomputes the invoiced amount for a period row after its activity changed; returns the month's bill. */
   private async refreshBilled(
     phone: PhoneForBilling,
     rowId: number,
@@ -587,7 +657,12 @@ export class UsageService {
     try {
       const [starts, catalog] = await Promise.all([this.serviceStarts([phone.id]), this.catalog()])
       const bill = this.billFor(
-        { isActive: phone.isActive, serviceStartedAt: starts.get(phone.id) ?? null, planId: phone.planId },
+        {
+          isActive: phone.isActive,
+          serviceStartedAt: starts.get(phone.id) ?? null,
+          planId: phone.planId,
+          extraBlocks: acceptedBlocks(phone, period),
+        },
         usage,
         catalog,
         period,
@@ -662,6 +737,8 @@ export class UsageService {
             monthlyBudgetUsd: true,
             budgetExceededAt: true,
             planId: true,
+            extraBlocks: true,
+            extraBlocksPeriod: true,
           },
         },
         producerCode: { select: { id: true, code: true, holderName: true } },
@@ -677,6 +754,7 @@ export class UsageService {
           isActive: r.phoneNumber.isActive,
           serviceStartedAt: starts.get(r.phoneNumber.id) ?? null,
           planId: r.phoneNumber.planId,
+          extraBlocks: acceptedBlocks(r.phoneNumber, period),
         },
         r,
         catalog,

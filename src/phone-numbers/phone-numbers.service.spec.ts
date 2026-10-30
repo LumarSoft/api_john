@@ -22,7 +22,11 @@ describe('monthly phone number report', () => {
             number: '+5493416000000',
             phoneNumberId: 'PN',
             isActive: true,
-            planId: null,
+            // On Profesional with a block accepted past it this month.
+            planId: 2,
+            planPausedAt: null,
+            extraBlocks: 1,
+            extraBlocksPeriod: '2026-09',
             servedCodes: [],
             responsibleProducerCode: null,
             usageMonthly: [
@@ -77,13 +81,14 @@ describe('monthly phone number report', () => {
     expect(row.usage).toEqual({
       period: '2026-09',
       messages: 1200,
-      assignedPlan: { id: 1, name: 'Inicial', includedMessages: 500, priceUsd: 25, trial: false, extraBlocks: 0 },
+      assignedPlan: { id: 2, name: 'Profesional', includedMessages: 1000, priceUsd: 50, trial: false, extraBlocks: 0 },
       // The old "tokens" names repeat the same values for front_John's panel (legacy-token-fields.ts).
       plan: { ...beyond, includedTokens: 2000, blocks: 2 },
       tokens: 1200,
       upgraded: true,
       prorated: false,
       billedUsd: 100,
+      planPaused: false,
     })
     for (const field of ownerOnly) expect(row.usage).not.toHaveProperty(field)
     expect(row).not.toHaveProperty('monthlyBudgetUsd')

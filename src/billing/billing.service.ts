@@ -2,7 +2,15 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../common/scope/scope.service'
-import { BilledPlan, CatalogPlan, currentPeriod, UsageService } from '../usage/usage.service'
+import {
+  acceptedBlocks,
+  BilledPlan,
+  CatalogPlan,
+  currentPeriod,
+  nextPeriod,
+  pausedIn,
+  UsageService,
+} from '../usage/usage.service'
 import { legacyTrialTokens, legacyUnitPriceUsd, withLegacyPlan } from '../usage/legacy-token-fields'
 import { CreateMessagePlanDto, UpdateMessagePlanDto } from './dto/message-plan.dto'
 
@@ -38,10 +46,11 @@ const movedUpIn = (at: Date | null | undefined, period: string): boolean => at !
  *
  * The OWNER (Lumar) is the only one who edits the catalog, the same for every
  * organization: a plan is a number of messages a month for a price (0 for the
- * trial). The SuperAdmin assigns a plan to each number of the organization;
- * when a number sends more than its plan includes, it moves up to the plan that
- * covers it (UsageService.followPlan). Admins see their numbers' plan and
- * consumption. Only the OWNER sees what Meta and OpenAI really cost.
+ * trial). The SuperAdmin assigns a plan to each number of the organization. A
+ * number never moves up on its own: at its plan's limit its assistant pauses
+ * (UsageService.followLimit) until the office chooses the next plan or the month
+ * ends (resolveLimit). The organization pays the whole plan; only the OWNER sees
+ * the first month prorated, and what Meta and OpenAI really cost.
  */
 @Injectable()
 export class BillingService {
@@ -146,6 +155,10 @@ export class BillingService {
           isActive: true,
           planId: true,
           planUpgradedAt: true,
+          planPausedAt: true,
+          planPauseConfirmedAt: true,
+          extraBlocks: true,
+          extraBlocksPeriod: true,
           responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
           usageMonthly: { where: { period }, select: { metaMessages: true, updatedAt: true } },
         },
@@ -154,16 +167,25 @@ export class BillingService {
     ])
     const starts = await this.usage.serviceStarts(numbers.map(n => n.id))
     const { blockMessages } = this.usage.commercialPricing
+    // The organization pays the whole plan; only the owner sees the first month prorated.
+    const ownerView = user.role === Role.OWNER
+    const running = period === currentPeriod()
 
     const rows = numbers.map(n => {
       const usage = n.usageMonthly[0]
       const bill = this.usage.billFor(
-        { isActive: n.isActive, serviceStartedAt: starts.get(n.id) ?? null, planId: n.planId },
+        {
+          isActive: n.isActive,
+          serviceStartedAt: starts.get(n.id) ?? null,
+          planId: n.planId,
+          extraBlocks: acceptedBlocks(n, period),
+        },
         usage,
         catalog,
         period,
       )
       const included = bill.plan.includedMessages
+      const paused = running && pausedIn(n.planPausedAt, period)
       return {
         id: n.id,
         number: n.number,
@@ -179,8 +201,16 @@ export class BillingService {
         remainingMessages: Math.max(0, included - bill.messages),
         percentUsed: included > 0 ? Math.round((bill.messages / included) * 1000) / 10 : 0,
         nextPlan: this.withLegacyNext(this.nextPlan(bill.plan, catalog)),
-        billedUsd: bill.billedUsd,
-        prorated: bill.prorated,
+        billedUsd: ownerView ? bill.billedUsd : bill.fullPriceUsd,
+        prorated: ownerView && bill.prorated,
+        // At the plan's limit the assistant pauses until someone continues on nextPlan or the month ends.
+        limit: {
+          reached: bill.limitReached,
+          paused,
+          confirmed: paused && n.planPauseConfirmedAt != null,
+          pausedAt: paused ? n.planPausedAt!.toISOString() : null,
+          resumesOn: paused ? `${nextPeriod(period)}-01` : null,
+        },
         updatedAt: usage?.updatedAt?.toISOString() ?? null,
         // front_John's panel (legacy-token-fields.ts).
         tokensUsed: bill.messages,
@@ -223,23 +253,88 @@ export class BillingService {
     }
   }
 
-  /** The SuperAdmin puts a number of the organization on a paid plan of the catalog. */
+  /**
+   * The SuperAdmin puts a number of the organization on a paid plan of the catalog. A plan bigger than the month's
+   * messages also ends a pause for the limit.
+   */
   async assignPlan(user: ScopeUser, numberId: number, planId: number) {
+    const period = currentPeriod()
     const number = await this.prisma.phoneNumber.findFirst({
       where: { id: numberId, producerId: user.producerId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, usageMonthly: { where: { period }, select: { metaMessages: true } } },
     })
     if (!number) throw new NotFoundException(`Phone number ${numberId} not found`)
     const plan = await this.prisma.messagePlan.findFirst({
       where: { id: planId, producerId: null, deletedAt: null, isActive: true },
-      select: { id: true, isTrial: true },
+      select: { id: true, isTrial: true, messages: true },
     })
     if (!plan) throw new NotFoundException(`Plan ${planId} not found`)
     if (plan.isTrial)
       throw new BadRequestException('El plan de prueba lo recibe solo un número nuevo de una cuenta nueva.')
-    // The SuperAdmin's choice: the number no longer counts as moved up on its own.
-    await this.prisma.phoneNumber.update({ where: { id: numberId }, data: { planId, planUpgradedAt: null } })
+    const covers = plan.messages > (number.usageMonthly[0]?.metaMessages ?? 0)
+    // The SuperAdmin's choice replaces any block accepted past the largest plan this month.
+    await this.prisma.phoneNumber.update({
+      where: { id: numberId },
+      data: {
+        planId,
+        planUpgradedAt: null,
+        extraBlocks: 0,
+        extraBlocksPeriod: null,
+        ...(covers ? { planPausedAt: null, planPauseConfirmedAt: null } : {}),
+      },
+    })
+    if (covers) await this.resolveLimitNotices(user.producerId, numberId)
     return { ok: true }
+  }
+
+  /**
+   * The office's answer when a number reaches its plan and its assistant pauses: "continue" moves it to the smallest
+   * plan with more messages than it sent (or one more block past the largest) and the assistant answers again;
+   * "pause" keeps it paused until next month. An admin answers only for the numbers billed to their codes.
+   */
+  async resolveLimit(user: ScopeUser, numberId: number, choice: 'continue' | 'pause') {
+    const period = currentPeriod()
+    const number = await this.prisma.phoneNumber.findFirst({
+      where: { id: numberId, producerId: user.producerId, deletedAt: null, ...(await this.numberScope(user)) },
+      select: { id: true, planPausedAt: true, usageMonthly: { where: { period }, select: { metaMessages: true } } },
+    })
+    if (!number) throw new NotFoundException(`Phone number ${numberId} not found`)
+    if (!pausedIn(number.planPausedAt, period)) throw new ConflictException('El número no está en pausa por su plan.')
+
+    if (choice === 'pause') {
+      await this.prisma.phoneNumber.update({ where: { id: numberId }, data: { planPauseConfirmedAt: new Date() } })
+      await this.resolveLimitNotices(user.producerId, numberId)
+      return { ok: true, paused: true }
+    }
+
+    const messages = number.usageMonthly[0]?.metaMessages ?? 0
+    const paid = (await this.usage.catalog()).filter(p => p.isActive && !p.isTrial)
+    const covering = paid.find(p => p.messages > messages)
+    const largest = paid.at(-1)
+    if (!covering && !largest) throw new BadRequestException('No hay planes pagos activos.')
+    const { blockMessages } = this.usage.commercialPricing
+    const data = covering
+      ? { planId: covering.id, extraBlocks: 0, extraBlocksPeriod: null }
+      : {
+          planId: largest!.id,
+          // Enough blocks for the month's messages and one more: it pauses again at the new limit.
+          extraBlocks: Math.floor((messages - largest!.messages) / blockMessages) + 1,
+          extraBlocksPeriod: period,
+        }
+    await this.prisma.phoneNumber.update({
+      where: { id: numberId },
+      data: { ...data, planUpgradedAt: new Date(), planPausedAt: null, planPauseConfirmedAt: null },
+    })
+    await this.resolveLimitNotices(user.producerId, numberId)
+    return { ok: true, paused: false }
+  }
+
+  /** The number's "assistant paused" notices leave Asuntos pendientes once the office answers. */
+  private async resolveLimitNotices(producerId: number, numberId: number) {
+    await this.prisma.notification.updateMany({
+      where: { producerId, type: 'plan', refId: numberId, status: { not: 'resolved' }, deletedAt: null },
+      data: { status: 'resolved', resolvedAt: new Date() },
+    })
   }
 
   // ─── Owner dashboard ───────────────────────────────────
@@ -268,6 +363,9 @@ export class BillingService {
               isActive: true,
               planId: true,
               planUpgradedAt: true,
+              planPausedAt: true,
+              extraBlocks: true,
+              extraBlocksPeriod: true,
               responsibleProducerCode: { select: { code: true, holderName: true } },
               usageMonthly: {
                 where: { period },
@@ -287,14 +385,19 @@ export class BillingService {
     const starts = await this.usage.serviceStarts(organizations.flatMap(o => o.phoneNumbers.map(n => n.id)))
 
     const zero = () => ({ messages: 0, metaBillableMessages: 0, billedUsd: 0, metaCostUsd: 0, openaiCostUsd: 0 })
-    const totals = { ...zero(), profitUsd: 0, activeNumbers: 0, upgradedNumbers: 0 }
+    const totals = { ...zero(), profitUsd: 0, activeNumbers: 0, upgradedNumbers: 0, pausedNumbers: 0 }
 
     const rows = organizations.map(org => {
       const sum = { ...zero(), profitUsd: 0 }
       const numbers = org.phoneNumbers.map(n => {
         const usage = n.usageMonthly[0]
         const bill = this.usage.billFor(
-          { isActive: n.isActive, serviceStartedAt: starts.get(n.id) ?? null, planId: n.planId },
+          {
+            isActive: n.isActive,
+            serviceStartedAt: starts.get(n.id) ?? null,
+            planId: n.planId,
+            extraBlocks: acceptedBlocks(n, period),
+          },
           usage,
           catalog,
           period,
@@ -310,6 +413,7 @@ export class BillingService {
           assignedPlan: bill.assignedPlan,
           upgraded: bill.upgraded || movedUpIn(n.planUpgradedAt, period),
           prorated: bill.prorated,
+          paused: period === currentPeriod() && pausedIn(n.planPausedAt, period),
           messages: bill.messages,
           metaBillableMessages: usage?.metaBillableMessages ?? 0,
           billedUsd: bill.billedUsd,
@@ -324,6 +428,7 @@ export class BillingService {
         sum.openaiCostUsd += openaiCostUsd
         if (n.isActive) totals.activeNumbers++
         if (row.upgraded) totals.upgradedNumbers++
+        if (row.paused) totals.pausedNumbers++
         return row
       })
       sum.profitUsd = sum.billedUsd - sum.metaCostUsd
@@ -355,6 +460,7 @@ export class BillingService {
         organizations: rows.length,
         activeNumbers: totals.activeNumbers,
         upgradedNumbers: totals.upgradedNumbers,
+        pausedNumbers: totals.pausedNumbers,
         messages: totals.messages,
         metaBillableMessages: totals.metaBillableMessages,
         billedUsd: round2(totals.billedUsd),
@@ -373,13 +479,7 @@ export class BillingService {
 
   /** The plan after `current`: the next active paid plan, or the next block past the largest. */
   private nextPlan(current: BilledPlan, catalog: CatalogPlan[]) {
-    const paid = catalog.filter(p => p.isActive && !p.isTrial)
-    const next = paid.find(p => p.messages > current.includedMessages)
-    if (next) return { name: next.name, messages: next.messages, priceUsd: next.priceUsd }
-    const largest = paid.at(-1)
-    if (!largest) return null
-    const plan = this.usage.planFor(current.includedMessages + 1, null, catalog)
-    return { name: plan.name, messages: plan.includedMessages, priceUsd: plan.priceUsd }
+    return this.usage.nextPlanAfter(current, catalog)
   }
 
   private assertPeriod(period: string) {

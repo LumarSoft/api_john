@@ -29,6 +29,7 @@ function setup(numbers: unknown[] = []) {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     producer: { findMany: jest.fn().mockResolvedValue([]) },
+    notification: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     usageMonthly: { groupBy: jest.fn().mockResolvedValue([{ phoneNumberId: 8, _min: { period: '2026-09' } }]) },
     usageEvent: { groupBy: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn().mockResolvedValue([]),
@@ -45,6 +46,7 @@ function setup(numbers: unknown[] = []) {
 
 const superadmin = { id: 1, producerId: 1, role: Role.SUPERADMIN }
 const admin = { id: 2, producerId: 1, role: Role.ADMIN }
+const owner = { id: 3, producerId: 1, role: Role.OWNER }
 
 describe("the owner's catalog", () => {
   it('lists only the platform plans, the ones switched off included', async () => {
@@ -117,14 +119,31 @@ describe("the owner's catalog", () => {
 })
 
 describe("the SuperAdmin's plan for each number", () => {
-  it('puts a number of the organization on a paid plan', async () => {
+  it('puts a number of the organization on a paid plan, and a plan that covers the month ends a pause', async () => {
     const { service, prisma } = setup()
-    prisma.messagePlan.findFirst.mockResolvedValue({ id: 2, isTrial: false })
+    prisma.phoneNumber.findFirst.mockResolvedValue({ id: 8, usageMonthly: [{ metaMessages: 500 }] })
+    prisma.messagePlan.findFirst.mockResolvedValue({ id: 2, isTrial: false, messages: 1000 })
     await service.assignPlan(superadmin, 8, 2)
     expect(prisma.phoneNumber.findFirst.mock.calls[0][0].where).toMatchObject({ id: 8, producerId: 1 })
     expect(prisma.phoneNumber.update).toHaveBeenCalledWith({
       where: { id: 8 },
-      data: { planId: 2, planUpgradedAt: null },
+      data: {
+        planId: 2,
+        planUpgradedAt: null,
+        extraBlocks: 0,
+        extraBlocksPeriod: null,
+        planPausedAt: null,
+        planPauseConfirmedAt: null,
+      },
+    })
+    expect(prisma.notification.updateMany).toHaveBeenCalled()
+
+    // A plan the month already fills keeps the pause.
+    prisma.messagePlan.findFirst.mockResolvedValue({ id: 1, isTrial: false, messages: 500 })
+    await service.assignPlan(superadmin, 8, 1)
+    expect(prisma.phoneNumber.update).toHaveBeenLastCalledWith({
+      where: { id: 8 },
+      data: { planId: 1, planUpgradedAt: null, extraBlocks: 0, extraBlocksPeriod: null },
     })
   })
 
@@ -185,22 +204,51 @@ describe('the month of each number', () => {
     })
   })
 
-  it('shows a busier number on the plan that covers it, and past the largest by blocks', async () => {
+  it('keeps a busy number on its plan at the limit, and past the largest only on the blocks accepted', async () => {
     const { service, prisma } = setup([
       number({ usageMonthly: [{ metaMessages: 900, updatedAt: null }] }),
-      number({ id: 9, planId: 2, usageMonthly: [{ metaMessages: 1200, updatedAt: null }] }),
+      number({
+        id: 9,
+        planId: 2,
+        extraBlocks: 1,
+        extraBlocksPeriod: '2026-10',
+        usageMonthly: [{ metaMessages: 1200, updatedAt: null }],
+      }),
     ])
     prisma.usageMonthly.groupBy.mockResolvedValue([
       { phoneNumberId: 8, _min: { period: '2026-09' } },
       { phoneNumberId: 9, _min: { period: '2026-09' } },
     ])
-    const [moved, beyond] = (await service.overview(superadmin, '2026-10')).numbers
-    expect(moved).toMatchObject({ plan: { name: 'Profesional' }, upgraded: true, percentUsed: 90 })
+    const [atLimit, beyond] = (await service.overview(superadmin, '2026-10')).numbers
+    expect(atLimit).toMatchObject({
+      plan: { name: 'Inicial' },
+      upgraded: false,
+      percentUsed: 180,
+      billedUsd: 25,
+      limit: { reached: true },
+      nextPlan: { name: 'Profesional', messages: 1000, priceUsd: 50 },
+    })
     expect(beyond).toMatchObject({
       plan: { name: 'Profesional + 1.000', includedMessages: 2000 },
       billedUsd: 100,
+      limit: { reached: false },
       nextPlan: { name: 'Profesional + 2.000', messages: 3000, priceUsd: 150 },
     })
+  })
+
+  it('shows the organization the whole plan and only the owner the first month prorated', async () => {
+    const { service, prisma } = setup([number({ usageMonthly: [{ metaMessages: 100, updatedAt: null }] })])
+    // In service since 21 October: 11 of 31 days.
+    prisma.usageMonthly.groupBy.mockResolvedValue([{ phoneNumberId: 8, _min: { period: '2026-10' } }])
+    prisma.usageEvent.groupBy.mockResolvedValue([
+      { phoneNumberId: 8, _min: { deliveredAt: new Date('2026-10-21T13:00:00Z') } },
+    ])
+    const forSuperadmin = await service.overview(superadmin, '2026-10')
+    expect(forSuperadmin.numbers[0]).toMatchObject({ billedUsd: 25, prorated: false })
+    expect(forSuperadmin.totalBilledUsd).toBe(25)
+    expect((await service.overview(admin, '2026-10')).numbers[0]).toMatchObject({ billedUsd: 25, prorated: false })
+    const forOwner = await service.overview(owner, '2026-10')
+    expect(forOwner.numbers[0]).toMatchObject({ billedUsd: 8.87, prorated: true })
   })
 
   it('still shows a number that moved up on its own this month as moved up', async () => {
@@ -231,6 +279,70 @@ describe('the month of each number', () => {
     const { service } = setup()
     await expect(service.overview(superadmin, '2026-13')).rejects.toThrow(BadRequestException)
     await expect(service.overview(superadmin, '2999-01')).rejects.toThrow(BadRequestException)
+  })
+})
+
+describe('the choice at the limit', () => {
+  const paused = (overrides: Record<string, unknown> = {}) => ({
+    id: 8,
+    planPausedAt: new Date(),
+    usageMonthly: [{ metaMessages: 500 }],
+    ...overrides,
+  })
+
+  it('moves a paused number to the plan with more messages than it sent, and its assistant answers again', async () => {
+    const { service, prisma } = setup()
+    prisma.phoneNumber.findFirst.mockResolvedValue(paused())
+    await expect(service.resolveLimit(superadmin, 8, 'continue')).resolves.toEqual({ ok: true, paused: false })
+    expect(prisma.phoneNumber.update).toHaveBeenCalledWith({
+      where: { id: 8 },
+      data: {
+        planId: 2,
+        extraBlocks: 0,
+        extraBlocksPeriod: null,
+        planUpgradedAt: expect.any(Date),
+        planPausedAt: null,
+        planPauseConfirmedAt: null,
+      },
+    })
+    expect(prisma.notification.updateMany.mock.calls[0][0].where).toMatchObject({ type: 'plan', refId: 8 })
+  })
+
+  it('adds blocks past the largest plan, enough for the month and one more', async () => {
+    const { service, prisma } = setup()
+    prisma.phoneNumber.findFirst.mockResolvedValue(paused({ usageMonthly: [{ metaMessages: 2000 }] }))
+    await service.resolveLimit(superadmin, 8, 'continue')
+    expect(prisma.phoneNumber.update.mock.calls[0][0].data).toMatchObject({
+      planId: 2,
+      extraBlocks: 2,
+      extraBlocksPeriod: expect.stringMatching(/^\d{4}-\d{2}$/),
+      planPausedAt: null,
+    })
+  })
+
+  it('keeps it paused until next month when asked, and refuses a number that is not paused', async () => {
+    const { service, prisma } = setup()
+    prisma.phoneNumber.findFirst.mockResolvedValue(paused())
+    await expect(service.resolveLimit(superadmin, 8, 'pause')).resolves.toEqual({ ok: true, paused: true })
+    expect(prisma.phoneNumber.update).toHaveBeenCalledWith({
+      where: { id: 8 },
+      data: { planPauseConfirmedAt: expect.any(Date) },
+    })
+    prisma.phoneNumber.findFirst.mockResolvedValue(paused({ planPausedAt: new Date('2026-01-10T12:00:00Z') }))
+    await expect(service.resolveLimit(superadmin, 8, 'continue')).rejects.toThrow(ConflictException)
+    prisma.phoneNumber.findFirst.mockResolvedValue(null)
+    await expect(service.resolveLimit(superadmin, 404, 'continue')).rejects.toThrow(NotFoundException)
+  })
+
+  it('lets an admin answer only for the numbers billed to their codes', async () => {
+    const { service, prisma } = setup()
+    prisma.phoneNumber.findFirst.mockResolvedValue(paused())
+    await service.resolveLimit(admin, 8, 'pause')
+    expect(prisma.phoneNumber.findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 8,
+      producerId: 1,
+      responsibleProducerCodeId: { in: [7] },
+    })
   })
 })
 
@@ -269,9 +381,11 @@ describe("the owner's dashboard", () => {
             id: 9,
             number: '+54 9 341 000-0000',
             isActive: true,
-            planId: 1,
+            planId: 2,
+            extraBlocks: 1,
+            extraBlocksPeriod: '2026-10',
             responsibleProducerCode: null,
-            // 1,350 messages: billed as Profesional + 1.000, Meta charges the 350 past the free ones.
+            // 1,350 messages on Profesional + 1.000 (a block accepted); Meta charges the 350 past the free ones.
             usageMonthly: [{ metaMessages: 1350, metaBillableMessages: 350, metaCostUsd: 9.1, openaiCostUsd: 2 }],
           },
         ],
@@ -294,6 +408,7 @@ describe("the owner's dashboard", () => {
       organizations: 1,
       activeNumbers: 2,
       upgradedNumbers: 1,
+      pausedNumbers: 0,
       messages: 1770,
       billedUsd: 125,
       metaCostUsd: 9.1,

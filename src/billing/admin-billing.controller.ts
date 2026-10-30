@@ -19,6 +19,7 @@ import { Roles } from '../auth/roles.decorator'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
 import { BillingService } from './billing.service'
 import { AssignPlanDto } from './dto/assign-plan.dto'
+import { ResolveLimitDto } from './dto/resolve-limit.dto'
 
 /** "Facturación" in the panel: each number's plan and month, and the SuperAdmin's plan assignment. */
 @UseGuards(UserAuthGuard, RolesGuard)
@@ -30,6 +31,16 @@ export class AdminBillingController {
   @Get()
   overview(@Query('period') period: string | undefined, @Request() req: AuthenticatedRequest) {
     return this.billing.overview(req.user, period || undefined)
+  }
+
+  /** At the plan's limit: continue on the next plan (the assistant answers again) or stay paused this month. */
+  @Post('numbers/:id/limit')
+  resolveLimit(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ResolveLimitDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.billing.resolveLimit(req.user, id, dto.choice)
   }
 
   // ─── front_John's panel (legacy-token-fields.ts), until it redirects to Polisend ───

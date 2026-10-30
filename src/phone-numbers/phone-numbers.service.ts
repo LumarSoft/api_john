@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { UsageService, currentPeriod } from '../usage/usage.service'
+import { UsageService, acceptedBlocks, currentPeriod, pausedIn } from '../usage/usage.service'
 import { legacyPricing, withLegacyPlan } from '../usage/legacy-token-fields'
 import { parseSchedule, validateSchedule } from '../business-hours/schedule'
 import { mergeBotProfile, parseBotProfile } from '../common/bot-profile'
@@ -90,6 +90,9 @@ export class PhoneNumbersService {
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
         planId: true,
+        planPausedAt: true,
+        extraBlocks: true,
+        extraBlocksPeriod: true,
         wabaAccount: { select: { disconnectedAt: true, disconnectReason: true } },
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true, holderName: true } } } },
@@ -122,7 +125,12 @@ export class PhoneNumbersService {
       const cost = Number(usage?.totalCostUsd ?? 0)
       const metaCost = Number(usage?.metaCostUsd ?? 0)
       const bill = this.usage.billFor(
-        { isActive: n.isActive, serviceStartedAt: starts.get(n.id) ?? null, planId: n.planId },
+        {
+          isActive: n.isActive,
+          serviceStartedAt: starts.get(n.id) ?? null,
+          planId: n.planId,
+          extraBlocks: acceptedBlocks(n, period),
+        },
         usage,
         catalog,
         period,
@@ -156,8 +164,11 @@ export class PhoneNumbersService {
           assignedPlan: bill.assignedPlan,
           plan: withLegacyPlan(bill.plan, blockMessages),
           upgraded: bill.upgraded,
-          prorated: bill.prorated,
-          billedUsd: bill.billedUsd,
+          // The organization pays the whole plan; only the owner sees the first month prorated.
+          prorated: isOwner && bill.prorated,
+          billedUsd: isOwner ? bill.billedUsd : bill.fullPriceUsd,
+          // Its assistant is paused this month for reaching the plan.
+          planPaused: period === currentPeriod() && pausedIn(n.planPausedAt, period),
           // front_John's panel (legacy-token-fields.ts).
           tokens: bill.messages,
           ...(seesActivity

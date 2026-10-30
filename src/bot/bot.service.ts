@@ -11,7 +11,7 @@ import { DocumentosService } from '../documentos/documentos.service'
 import { placeOf, productOf, riesgosOf } from '../common/poliza-detail'
 import { MailService } from '../mail/mail.service'
 import { NovedadesService } from '../novedades/novedades.service'
-import { UsageService } from '../usage/usage.service'
+import { UsageService, currentPeriod, pausedIn, periodStart } from '../usage/usage.service'
 import { SaveMessageDto } from './dto/save-message.dto'
 import { IdentifyClientDto } from './dto/identify-client.dto'
 import { AgentEchoDto } from './dto/agent-echo.dto'
@@ -169,6 +169,7 @@ export class BotService {
         businessHours: true,
         botProfile: true,
         botEnabled: true,
+        planPausedAt: true,
         producer: {
           select: {
             id: true,
@@ -204,8 +205,10 @@ export class BotService {
       producerName: name,
       producerSlug: slug,
       botName,
-      // The bot is switched on and off per number.
-      botEnabled: phoneNumber.botEnabled !== false,
+      // The bot is switched on and off per number, and pauses for the rest of the month when the number reaches
+      // its plan (until someone moves it to the next one).
+      botEnabled: phoneNumber.botEnabled !== false && !pausedIn(phoneNumber.planPausedAt, currentPeriod()),
+      pausedForPlan: pausedIn(phoneNumber.planPausedAt, currentPeriod()),
       // Office people customers write to by name: the bot alerts them and keeps attending.
       staffNames: parseStaffNames(staffNames),
       attentionHours,
@@ -540,7 +543,10 @@ export class BotService {
     // Numbers whose own switch is off get no goodbye either: the office is
     // attending those chats itself.
     const offNumbers = await this.prisma.phoneNumber.findMany({
-      where: { botEnabled: false, deletedAt: null },
+      where: {
+        deletedAt: null,
+        OR: [{ botEnabled: false }, { planPausedAt: { gte: periodStart(currentPeriod()) } }],
+      },
       select: { phoneNumberId: true },
     })
     const claimed = await this.prisma.conversation.findMany({

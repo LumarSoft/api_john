@@ -7,7 +7,7 @@ import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 import { UpdateProducerCodeDto } from './dto/update-producer-code.dto'
 import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
 import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
-import { UsageService, currentPeriod } from '../usage/usage.service'
+import { UsageService, acceptedBlocks, currentPeriod, pausedIn } from '../usage/usage.service'
 import { legacyPricing, withLegacyPlan } from '../usage/legacy-token-fields'
 
 const round2 = <T extends Record<string, number>>(o: T): T =>
@@ -176,6 +176,9 @@ export class OwnerService {
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
         planId: true,
+        planPausedAt: true,
+        extraBlocks: true,
+        extraBlocksPeriod: true,
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true } } } },
         usageMonthly: {
@@ -201,7 +204,12 @@ export class OwnerService {
       const cost = Number(u?.totalCostUsd ?? 0)
       const metaCost = Number(u?.metaCostUsd ?? 0)
       const bill = this.usage.billFor(
-        { isActive: p.isActive, serviceStartedAt: starts.get(p.id) ?? null, planId: p.planId },
+        {
+          isActive: p.isActive,
+          serviceStartedAt: starts.get(p.id) ?? null,
+          planId: p.planId,
+          extraBlocks: acceptedBlocks(p, period),
+        },
         u,
         catalog,
         period,
@@ -236,6 +244,7 @@ export class OwnerService {
           tokens: bill.messages,
           upgraded: bill.upgraded,
           prorated: bill.prorated,
+          planPaused: pausedIn(p.planPausedAt, period),
           // What the platform invoices the organization, and what is left after Meta (OpenAI is prepaid).
           billedUsd: bill.billedUsd,
           marginUsd: Math.round((bill.billedUsd - metaCost) * 100) / 100,

@@ -13,12 +13,17 @@ Reemplaza los planes por tokens del 29 de octubre (`token-plans-october-2026.md`
   catálogo ni precios. El precio puede ser 0.
 - **El SuperAdmin asigna el plan de cada número** (`PATCH /admin/billing/numbers/:id/plan`). Un número sin plan
   asignado está en el plan pago más chico.
-- **Subida automática.** Cuando un número envía más mensajes de los que incluye su plan, pasa al plan activo más
-  chico que los cubre y **queda en ese plan** (el SuperAdmin lo puede volver a bajar). Se avisa con una novedad en
-  Asuntos pendientes (tipo `plan`, abre Facturación) y un mail a los SuperAdmins de la organización.
+- **Pausa al llegar al límite (desde el 30/10 por la tarde, reemplaza la subida automática).** Un número nunca sube de
+  plan solo. Cuando sus mensajes del mes llegan a los que incluye su plan, su asistente se pausa: los mensajes se
+  siguen guardando y la oficina puede contestar desde el panel. Se avisa con una novedad en Asuntos pendientes (tipo
+  `plan`) y un mail a los SuperAdmins y a los Admins del código del número. En Inicio y en Facturación el SuperAdmin o
+  el Admin elige (`POST /admin/billing/numbers/:id/limit`): **continuar**, que lo pasa al plan siguiente (o le suma
+  un bloque de 1.000 si ya está en el más grande) y el asistente vuelve a responder, o **dejarlo en pausa** hasta el
+  1 del mes siguiente, cuando vuelve a responder solo. Los mensajes que la oficina mande a mano durante la pausa no
+  cambian el plan.
 - **Prueba = un plan más**, de precio 0 y marcado como prueba (`isTrial`). Un número nuevo de una organización creada
-  desde `COMMERCIAL_TRIAL_FROM` arranca en ese plan; vale solo en su primer mes de servicio. Si lo supera, sube al
-  plan pago que corresponda. Desde el segundo mes queda en el plan pago más chico. Hay un solo plan de prueba activo
+  desde `COMMERCIAL_TRIAL_FROM` arranca en ese plan; vale solo en su primer mes de servicio. Al llegar a su límite se
+  pausa como cualquier plan y se le ofrece el plan pago siguiente. Desde el segundo mes queda en el plan pago más chico. Hay un solo plan de prueba activo
   y su precio tiene que ser 0.
 - **Meta lo paga siempre Lumar.** El costo real de Meta se registra por mensaje con el `billable` y la categoría del
   webhook de estados (los 1.000 mensajes de servicio gratis de cada número quedan en costo 0; las plantillas se
@@ -28,13 +33,13 @@ Reemplaza los planes por tokens del 29 de octubre (`token-plans-october-2026.md`
 
 ## Reglas de facturación
 
-- Un número activo paga al menos su plan, aunque no envíe mensajes.
-- Mientras sus mensajes del mes entran en su plan, el mes se cobra a ese plan.
-- Si los supera, el mes se cobra al plan activo más chico que los cubre (y el número queda en ese plan).
-- Pasado el plan más grande, el mes se cobra a ese plan más bloques de `COMMERCIAL_TOKEN_BLOCK_SIZE` (1.000)
-  mensajes al precio por mensaje del plan más grande. Se avisa una vez, con el primer mensaje que lo supera.
-- En su primer mes de servicio, en su propio plan pago y sin superarlo, el plan se prorratea desde el día en que salió
-  el primer mensaje (el día de inicio cuenta). Si ese mes sube de plan, se cobra completo.
+- Un número activo paga su plan completo, aunque no envíe mensajes. El SuperAdmin y el Admin ven siempre ese precio
+  completo.
+- El mes se cobra al plan del número, nunca a uno más grande que nadie eligió.
+- Pasado el plan más grande, solo con los bloques aceptados ese mes: ese plan más bloques de
+  `COMMERCIAL_BLOCK_MESSAGES` (1.000) mensajes al precio por mensaje del plan más grande.
+- Solo el Owner ve el primer mes prorrateado desde el día en que salió el primer mensaje (el día de inicio cuenta):
+  `billedUsd` del tablero del Owner. El resto de los roles recibe el precio completo.
 - No se factura un número que todavía no envió nada, ni uno inactivo sin mensajes en el mes.
 - Un plan apagado conserva sus números, pero ningún número sube a él. Un plan retirado manda sus números al plan
   pago más chico. Siempre tiene que quedar al menos un plan pago activo.

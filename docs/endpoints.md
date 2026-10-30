@@ -1354,6 +1354,41 @@ The month of every number in scope: its assigned plan, the plan the month is bil
 
 ---
 
+### POST /admin/billing/numbers/:id/limit
+
+La respuesta de la oficina cuando un número llegó al límite de su plan y su asistente está en pausa. Un Admin solo
+puede responder por los números de sus códigos.
+
+**Auth required:** Yes (SuperAdmin o Admin)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| choice | string | Yes | `continue` (pasa al plan con más mensajes que los enviados, o suma bloques pasado el más grande, y el asistente vuelve a responder) o `pause` (queda en pausa hasta el 1 del mes siguiente) |
+
+```json
+{ "choice": "continue" }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{ "ok": true, "paused": false }
+```
+
+`404 Not Found` — el número no existe o no es de los códigos del Admin.
+
+`409 Conflict`
+```json
+{ "statusCode": 409, "message": "El número no está en pausa por su plan." }
+```
+
+En `GET /admin/billing` cada número trae `limit`: `reached` (sus mensajes llegaron al plan), `paused` (su asistente
+está en pausa este mes), `confirmed` (alguien eligió dejarlo en pausa), `pausedAt` y `resumesOn` (`YYYY-MM-01`).
+`nextPlan` es lo que da "continuar". `billedUsd` es el plan completo; solo el Owner lo ve prorrateado (`prorated`).
+
 ### PATCH /admin/billing/numbers/:id/plan
 
 Puts a number of the organization on a paid plan of the catalog. Clears the number's automatic upgrade mark.
