@@ -7,6 +7,7 @@ import type { NovedadesService } from '../novedades/novedades.service'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { TriunfoService } from '../triunfo/triunfo.service'
+import type { TriunfoErrorsService } from '../triunfo/triunfo-errors.service'
 import type { InfoAutoService } from '../infoauto/infoauto.service'
 import type { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 
@@ -21,6 +22,7 @@ describe('CotizadorService motorcycle availability', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
 
     await expect(
@@ -47,6 +49,7 @@ describe('CotizadorService vehicle code validation', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
     return { service, triunfo }
   }
@@ -89,6 +92,7 @@ describe('CotizadorService vehicle code validation', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
 
     await expect(
@@ -115,6 +119,7 @@ describe('CotizadorService model year guard', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
     await expect(
       service.quoteVehicle(
@@ -166,6 +171,7 @@ describe('CotizadorService motorcycle offers', () => {
       settings as unknown as CoverageSettingsService,
       { getOrThrow: () => 'https://triunfo.test' } as unknown as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
     const result = await service.quoteVehicle(
       VehicleType.MOTO,
@@ -202,6 +208,7 @@ describe('CotizadorService Triunfo timeout', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
   }
   const dto = { brand: '12', model: '120236', manufactureYear: 2009, postalCode: 2000 }
@@ -273,6 +280,7 @@ describe('CotizadorService vehicle Triunfo could not value', () => {
       } as unknown as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
     const dto =
       vehicleType === VehicleType.AUTO
@@ -349,6 +357,7 @@ describe('CotizadorService 0 km and GNC', () => {
       } as unknown as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
     return { service, post, validateVehicleYear }
   }
@@ -419,6 +428,7 @@ describe('CotizadorService bot quotes per organization', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn() } as unknown as TriunfoErrorsService,
     )
     return { service, prisma, triunfo }
   }

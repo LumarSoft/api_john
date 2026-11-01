@@ -3,6 +3,7 @@ import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import type { TriunfoService } from './triunfo.service'
+import type { TriunfoErrorsService } from './triunfo-errors.service'
 import { TriunfoCredentialsService } from './triunfo-credentials.service'
 
 const KEY_HEX = 'b'.repeat(64)
@@ -29,13 +30,18 @@ function setup(stored: Record<string, unknown> | null = null, slug = 'otra-org')
     forgetCredentials: jest.fn(),
     hasEnvCredentialsFor: jest.fn((s: string) => s === 'john'),
   }
+  const errors = {
+    authState: jest.fn().mockResolvedValue({ failingSince: null, failureMessage: null }),
+    credentialsAccepted: jest.fn().mockResolvedValue(undefined),
+  }
   const config = { get: () => KEY_HEX } as unknown as ConfigService
   const service = new TriunfoCredentialsService(
     prisma as unknown as PrismaService,
     triunfo as unknown as TriunfoService,
     config,
+    errors as unknown as TriunfoErrorsService,
   )
-  return { service, prisma, triunfo }
+  return { service, prisma, triunfo, errors }
 }
 
 describe('TriunfoCredentialsService', () => {
@@ -56,6 +62,30 @@ describe('TriunfoCredentialsService', () => {
     expect(triunfo.forgetCredentials).toHaveBeenCalledWith(2)
     expect(status).toMatchObject({ configured: true, productor: '20001', username: 'OTRAORG' })
     expect(status).not.toHaveProperty('password')
+  })
+
+  it('ends the outage of the old credentials once the new ones are saved', async () => {
+    const { service, errors } = setup()
+    await service.save(2, DTO)
+    expect(errors.credentialsAccepted).toHaveBeenCalledWith(2)
+  })
+
+  it('does not end the outage when Triunfo refuses the new ones too', async () => {
+    const { service, triunfo, errors } = setup()
+    triunfo.verifyCredentials.mockRejectedValue(new UnauthorizedException('No se pudo obtener token de Triunfo'))
+    await expect(service.save(2, DTO)).rejects.toBeInstanceOf(BadRequestException)
+    expect(errors.credentialsAccepted).not.toHaveBeenCalled()
+  })
+
+  it('says since when Triunfo refuses the credentials in use', async () => {
+    const { service, errors } = setup(null, 'john')
+    const since = new Date('2026-10-30T23:19:30Z')
+    errors.authState.mockResolvedValue({ failingSince: since, failureMessage: 'Error Generando Token' })
+    await expect(service.status(1)).resolves.toMatchObject({
+      usesDefaultSettings: true,
+      failingSince: since,
+      failureMessage: 'Error Generando Token',
+    })
   })
 
   it('saves nothing when Triunfo refuses the credentials', async () => {
@@ -81,6 +111,8 @@ describe('TriunfoCredentialsService', () => {
       username: null,
       verifiedAt: null,
       usesDefaultSettings: true,
+      failingSince: null,
+      failureMessage: null,
     })
     await expect(setup(null).service.status(2)).resolves.toMatchObject({ usesDefaultSettings: false })
   })

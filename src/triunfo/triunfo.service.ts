@@ -8,8 +8,10 @@ import {
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { firstValueFrom } from 'rxjs'
+import { TriunfoErrorKind } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
+import { bodySample, TriunfoErrorsService } from './triunfo-errors.service'
 
 // ─── Triunfo response types ──────────────────────────────
 
@@ -112,11 +114,23 @@ export interface TriunfoPolicyRef {
   certificado: string
 }
 
+// What RESTNovedadesCartera answers (SDTWSNovedadesCarteraOut).
+interface TriunfoNovedadesOut {
+  Resultado?: { Estado?: string; Mensajes?: Array<{ Description?: string; Id?: string; Type?: number }> }
+  Novedades?: TriunfoNovedad | TriunfoNovedad[]
+}
+
 // Document link returned by RESTDocumentosV2 for a policy.
 export interface TriunfoDocumento {
   Codigo: string
   Nombre: string
   URL: string
+}
+
+// What RESTDocumentosV2 answers (SDTWSDocumentosOut).
+interface TriunfoDocumentosOut {
+  Resultado?: { Estado?: string; Mensajes?: Array<{ Description?: string; Id?: string }> }
+  Links?: TriunfoDocumento | TriunfoDocumento[]
 }
 
 // One organization's access to Triunfo's web services.
@@ -149,6 +163,12 @@ export class TriunfoService {
   // token that dies mid-flight.
   private static readonly TOKEN_MARGIN_MS = 5 * 60 * 1000
   private static readonly TOKEN_TIMEOUT_MS = 30_000
+  // Credential sets (tokenKey) Triunfo just refused, with what it said. Until the
+  // pause ends nothing asks again with them: each quote or document of a client
+  // used to retry getTokenRest with the wrong password, and Triunfo warned that
+  // hammering it can get our IP (or the account) blocked.
+  private readonly refused = new Map<string, { until: number; message: string }>()
+  private static readonly REFUSED_PAUSE_MS = 15 * 60 * 1000
   // NovedadesCartera is heavy (≈680 KB / 15 s for one week of the master code),
   // so it gets a much longer ceiling than the other calls — but never infinite:
   // without a timeout a hung call blocks the whole sequential sync forever.
@@ -182,6 +202,7 @@ export class TriunfoService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly errors: TriunfoErrorsService,
   ) {
     this.baseUrlAuth = this.configService.getOrThrow<string>('TRIUNFO_BASE_URL_AUTH')
     this.baseUrlSip = this.configService.getOrThrow<string>('TRIUNFO_BASE_URL_SIP')
@@ -255,7 +276,8 @@ export class TriunfoService {
    * check never costs an extra getTokenRest later.
    */
   async verifyCredentials(credentials: TriunfoCredentials): Promise<void> {
-    await this.renewToken(credentials)
+    // Not recorded: a wrong password typed in the panel is the form's error, not an outage.
+    await this.renewToken(credentials, null, false)
   }
 
   /**
@@ -270,8 +292,11 @@ export class TriunfoService {
    *                             instance, so a redeploy no longer asks for a new one
    *   3. in-flight promise    — concurrent callers on a cold cache share ONE
    *                             request instead of firing N in parallel
+   *
+   * `producerId` is the organization the credentials belong to (null = the
+   * default one): a refusal is recorded against it.
    */
-  async getToken(credentials: TriunfoCredentials): Promise<string> {
+  async getToken(credentials: TriunfoCredentials, producerId: number | null): Promise<string> {
     const key = tokenKey(credentials)
     const live = this.tokens.get(key)
     if (live && Date.now() < live.expiresAt) return live.token
@@ -280,14 +305,24 @@ export class TriunfoService {
     const inFlight = this.tokensInFlight.get(key)
     if (inFlight) return inFlight
 
-    const request = this.loadOrRenewToken(credentials).finally(() => {
+    const request = this.loadOrRenewToken(credentials, producerId).finally(() => {
       this.tokensInFlight.delete(key)
     })
     this.tokensInFlight.set(key, request)
     return request
   }
 
-  private async loadOrRenewToken(credentials: TriunfoCredentials): Promise<string> {
+  /** Fails right away while Triunfo's last answer to these credentials was a refusal. */
+  private assertNotRefused(credentials: TriunfoCredentials): void {
+    const refused = this.refused.get(tokenKey(credentials))
+    if (refused && Date.now() < refused.until) throw new UnauthorizedException(refused.message)
+  }
+
+  private refuse(credentials: TriunfoCredentials, message: string): void {
+    this.refused.set(tokenKey(credentials), { until: Date.now() + TriunfoService.REFUSED_PAUSE_MS, message })
+  }
+
+  private async loadOrRenewToken(credentials: TriunfoCredentials, producerId: number | null): Promise<string> {
     const key = tokenKey(credentials)
     // ── 1. Try the persisted token first (survives restarts and instances) ──
     try {
@@ -305,36 +340,64 @@ export class TriunfoService {
       this.logger.warn(`No se pudo leer el token persistido: ${err instanceof Error ? err.message : err}`)
     }
 
-    // ── 2. No usable token — ask Triunfo ────────────────────────────────────
-    return this.renewToken(credentials)
+    // ── 2. No usable token — ask Triunfo, unless it just refused these ──────
+    this.assertNotRefused(credentials)
+    return this.renewToken(credentials, producerId)
   }
 
-  /** getTokenRest with these credentials; keeps the token in memory and in the DB. */
-  private async renewToken(credentials: TriunfoCredentials): Promise<string> {
+  /**
+   * getTokenRest with these credentials; keeps the token in memory and in the DB.
+   * With `record`, a failure is recorded against `producerId` and a refusal
+   * pauses these credentials; a success ends the organization's outage.
+   */
+  private async renewToken(credentials: TriunfoCredentials, producerId: number | null, record = true): Promise<string> {
     const key = tokenKey(credentials)
     this.logger.log(`Renovando token de Triunfo (productor ${credentials.productor})...`)
 
-    const response = await firstValueFrom(
-      this.httpService.post(
-        `${this.baseUrlAuth}/getTokenRest`,
-        {
-          SDTProductor: {
-            Codigo: credentials.productor,
-            Usuario: credentials.usuario,
-            Password: credentials.password,
+    let response: { data?: { Token?: string; SDTResultado?: { Mensajes?: Array<{ Description?: string }> } } }
+    try {
+      response = await firstValueFrom(
+        this.httpService.post(
+          `${this.baseUrlAuth}/getTokenRest`,
+          {
+            SDTProductor: {
+              Codigo: credentials.productor,
+              Usuario: credentials.usuario,
+              Password: credentials.password,
+            },
           },
-        },
-        { timeout: TriunfoService.TOKEN_TIMEOUT_MS },
-      ),
-    )
+          { timeout: TriunfoService.TOKEN_TIMEOUT_MS },
+        ),
+      )
+    } catch (err) {
+      if (record) void this.errors.recordException('getTokenRest', producerId, err)
+      throw err
+    }
 
-    const token: string = response.data?.Token
+    const token = response.data?.Token
 
     if (!token) {
       const resultado = response.data?.SDTResultado
-      const detalle = (resultado?.Mensajes ?? []).map((m: { Description?: string }) => m.Description).join('; ')
-      throw new UnauthorizedException(`No se pudo obtener token de Triunfo${detalle ? ` — ${detalle}` : ''}`)
+      const detalle = (resultado?.Mensajes ?? []).map(m => m.Description).join('; ')
+      const message = `No se pudo obtener token de Triunfo${detalle ? ` — ${detalle}` : ''}`
+      this.logger.warn(
+        `Triunfo rechazó las credenciales del productor ${credentials.productor}: ${detalle || '(sin detalle)'}`,
+      )
+      if (record) {
+        this.refuse(credentials, message)
+        void this.errors.record({
+          operation: 'getTokenRest',
+          producerId,
+          kind: TriunfoErrorKind.CREDENTIALS_REJECTED,
+          message: detalle || 'getTokenRest no devolvió token',
+          sample: bodySample(response.data),
+        })
+      }
+      throw new UnauthorizedException(message)
     }
+
+    this.refused.delete(key)
+    if (record) void this.errors.credentialsAccepted(producerId)
 
     const expiresAt = this.readExpiry(token)
 
@@ -376,7 +439,7 @@ export class TriunfoService {
     const credentials = await this.credentialsFor(producerId)
     return {
       Productor: credentials.productor,
-      JWT: await this.getToken(credentials),
+      JWT: await this.getToken(credentials, producerId),
     }
   }
 
@@ -387,7 +450,8 @@ export class TriunfoService {
   // org-level credential. Defaults to the credential's own code.
   /**
    * Pulls the cartera for a date range, splitting it into windows of at most
-   * NOVEDADES_CHUNK_DAYS days.
+   * NOVEDADES_CHUNK_DAYS days. `producerId` is the organization the
+   * credentials belong to, for the error record.
    *
    * Measured in production for the master code: one week ≈ 225 novedades /
    * 680 KB / 15 s, while a 30-day request never completed. Long ranges (the
@@ -398,24 +462,27 @@ export class TriunfoService {
     fechaDesde: string,
     fechaHasta: string,
     credentials: TriunfoCredentials,
+    producerId: number | null,
     codigo: string = credentials.productor,
   ): Promise<TriunfoNovedad[]> {
+    // The same user and password getTokenRest just refused: not asked again until the pause ends.
+    this.assertNotRefused(credentials)
     const ventanas = splitDateRange(fechaDesde, fechaHasta, TriunfoService.NOVEDADES_CHUNK_DAYS)
 
-    if (ventanas.length === 1) {
-      return this.fetchNovedadesWindow(ventanas[0][0], ventanas[0][1], codigo, credentials)
+    if (ventanas.length > 1) {
+      this.logger.log(
+        `NovedadesCartera código=${codigo} ${fechaDesde} → ${fechaHasta}: ${ventanas.length} ventanas de ${TriunfoService.NOVEDADES_CHUNK_DAYS} días`,
+      )
     }
-
-    this.logger.log(
-      `NovedadesCartera código=${codigo} ${fechaDesde} → ${fechaHasta}: ${ventanas.length} ventanas de ${TriunfoService.NOVEDADES_CHUNK_DAYS} días`,
-    )
 
     const todas: TriunfoNovedad[] = []
     for (const [desde, hasta] of ventanas) {
       // Sequential on purpose: Triunfo asked us not to hammer their services,
       // and these responses are heavy enough to matter.
-      todas.push(...(await this.fetchNovedadesWindow(desde, hasta, codigo, credentials)))
+      todas.push(...(await this.fetchNovedadesWindow(desde, hasta, codigo, credentials, producerId)))
     }
+    // The master code's cartera is asked with the user and password themselves: they work.
+    if (codigo === credentials.productor) void this.errors.credentialsAccepted(producerId)
     return todas
   }
 
@@ -425,42 +492,68 @@ export class TriunfoService {
     fechaHasta: string,
     codigo: string,
     credentials: TriunfoCredentials,
+    producerId: number | null,
   ): Promise<TriunfoNovedad[]> {
     this.logger.log(`Consultando NovedadesCartera código=${codigo} ${fechaDesde} → ${fechaHasta}`)
 
-    const response = await firstValueFrom(
-      this.httpService.post(
-        `${this.baseUrlSip}/RESTNovedadesCartera`,
-        {
-          SDTWSNovedadesIn: {
-            Articulo: '0',
-            Certificado: '0',
-            FechaDesde: fechaDesde,
-            FechaHasta: fechaHasta,
-            Productor: {
-              Codigo: codigo,
-              Password: credentials.password,
-              Usuario: credentials.usuario,
+    let response: { data?: { SDTWSNovedadesCarteraOut?: TriunfoNovedadesOut } }
+    try {
+      response = await firstValueFrom(
+        this.httpService.post(
+          `${this.baseUrlSip}/RESTNovedadesCartera`,
+          {
+            SDTWSNovedadesIn: {
+              Articulo: '0',
+              Certificado: '0',
+              FechaDesde: fechaDesde,
+              FechaHasta: fechaHasta,
+              Productor: {
+                Codigo: codigo,
+                Password: credentials.password,
+                Usuario: credentials.usuario,
+              },
             },
           },
-        },
-        { timeout: TriunfoService.NOVEDADES_TIMEOUT_MS },
-      ),
-    )
+          { timeout: TriunfoService.NOVEDADES_TIMEOUT_MS },
+        ),
+      )
+    } catch (err) {
+      void this.errors.recordException('RESTNovedadesCartera', producerId, err)
+      throw err
+    }
 
     const out = response.data?.SDTWSNovedadesCarteraOut
 
     if (!out) {
+      void this.errors.record({
+        operation: 'RESTNovedadesCartera',
+        producerId,
+        kind: TriunfoErrorKind.UNEXPECTED_RESPONSE,
+        message: 'La respuesta no trae SDTWSNovedadesCarteraOut',
+        sample: bodySample(response.data),
+      })
       throw new Error(`Triunfo NovedadesCartera: respuesta inesperada — ${JSON.stringify(response.data)}`)
     }
 
     const resultado = out.Resultado
-    const mensajes: Array<{ Description?: string; Id?: string; Type?: number }> = resultado?.Mensajes ?? []
+    const mensajes = resultado?.Mensajes ?? []
 
     // Only throw on explicit error messages (Type=1) or Estado='N'
     const errorMsgs = mensajes.filter(m => m.Type === 1 || resultado?.Estado === 'N')
     if (errorMsgs.length > 0) {
       const msg = errorMsgs.map(m => m.Description ?? m.Id ?? '?').join('; ')
+      // For the master code this answer means the user and password themselves
+      // stopped working (30/10/2026). Dependent codes can get it on their own
+      // (11425 and 14652 always do), so for them it is just the code's error.
+      const refused = codigo === credentials.productor && /productor no v[aá]lid/i.test(msg)
+      if (refused) this.refuse(credentials, `Triunfo NovedadesCartera: ${msg}`)
+      void this.errors.record({
+        operation: 'RESTNovedadesCartera',
+        producerId,
+        kind: refused ? TriunfoErrorKind.CREDENTIALS_REJECTED : TriunfoErrorKind.REJECTED,
+        message: msg,
+        sample: `Código ${codigo}, ${fechaDesde} → ${fechaHasta}`,
+      })
       throw new Error(`Triunfo NovedadesCartera: ${msg}`)
     }
 
@@ -487,35 +580,55 @@ export class TriunfoService {
 
     this.logger.log(`Consultando documentos de la póliza ${ref.articulo}-${ref.certificado} (productor ${productor})`)
 
-    const JWT = await this.getToken(credentials)
-    const response = await firstValueFrom(
-      this.httpService.post(
-        `${this.baseUrlSip}/RESTDocumentosV2`,
-        {
-          SDTWSDocumentosIn: {
-            Autenticacion: { JWT, Productor: productor },
-            Empresa: ref.empresa,
-            Sucursal: ref.sucursal,
-            Articulo: ref.articulo,
-            Certificado: ref.certificado,
+    const JWT = await this.getToken(credentials, ref.producerId)
+    let response: { data?: { SDTWSDocumentosOut?: TriunfoDocumentosOut } }
+    try {
+      response = await firstValueFrom(
+        this.httpService.post(
+          `${this.baseUrlSip}/RESTDocumentosV2`,
+          {
+            SDTWSDocumentosIn: {
+              Autenticacion: { JWT, Productor: productor },
+              Empresa: ref.empresa,
+              Sucursal: ref.sucursal,
+              Articulo: ref.articulo,
+              Certificado: ref.certificado,
+            },
           },
-        },
-        { timeout: TriunfoService.DOCUMENTOS_TIMEOUT_MS },
-      ),
-    )
+          { timeout: TriunfoService.DOCUMENTOS_TIMEOUT_MS },
+        ),
+      )
+    } catch (err) {
+      void this.errors.recordException('RESTDocumentosV2', ref.producerId, err)
+      throw err
+    }
 
     const out = response.data?.SDTWSDocumentosOut
     if (!out) {
+      void this.errors.record({
+        operation: 'RESTDocumentosV2',
+        producerId: ref.producerId,
+        kind: TriunfoErrorKind.UNEXPECTED_RESPONSE,
+        message: 'La respuesta no trae SDTWSDocumentosOut',
+        sample: bodySample(response.data),
+      })
       throw new BadGatewayException('Triunfo RESTDocumentosV2 returned an unexpected response')
     }
 
     // Estado 'N' (e.g. "Operación inexistente o no asociada al productor") is an
     // empty result for the caller, not a failure: the office still has the portal.
+    // It is still recorded: a JWT Triunfo stops accepting would answer the same way.
     if (out.Resultado?.Estado !== 'S') {
-      const mensajes: Array<{ Description?: string; Id?: string }> = out.Resultado?.Mensajes ?? []
-      this.logger.warn(
-        `RESTDocumentosV2 ${ref.articulo}-${ref.certificado}: sin documentos — ${mensajes.map(m => m.Description ?? m.Id).join('; ') || out.Resultado?.Estado}`,
-      )
+      const mensajes = out.Resultado?.Mensajes ?? []
+      const detalle = mensajes.map(m => m.Description ?? m.Id).join('; ') || `Estado ${out.Resultado?.Estado ?? '?'}`
+      this.logger.warn(`RESTDocumentosV2 ${ref.articulo}-${ref.certificado}: sin documentos — ${detalle}`)
+      void this.errors.record({
+        operation: 'RESTDocumentosV2',
+        producerId: ref.producerId,
+        kind: TriunfoErrorKind.REJECTED,
+        message: detalle,
+        sample: `Póliza ${ref.articulo}-${ref.certificado} (productor ${productor})`,
+      })
       this.documentosCache.set(key, { data: [], expiresAt: Date.now() + TriunfoService.DOCUMENTOS_TTL_MS })
       return []
     }
@@ -535,28 +648,42 @@ export class TriunfoService {
    * following the redirect without them gets a 403, so the hops are followed
    * by hand carrying the cookies. Every hop also says it comes from TriunfoNet
    * (Referer): without it the link itself answers 403. The panel, the client
-   * portal and the bot all download through here.
+   * portal and the bot all download through here. `producerId` is the
+   * organization the policy belongs to, for the error record.
    */
-  async downloadDocumento(url: string): Promise<Buffer> {
-    if (!this.isTriunfoUrl(url)) throw new BadGatewayException('Triunfo returned a document link outside triunfonet')
+  async downloadDocumento(url: string, producerId: number): Promise<Buffer> {
+    const fail = (kind: TriunfoErrorKind, message: string, httpStatus?: number, sample?: string | null) => {
+      void this.errors.record({ operation: 'documentDownload', producerId, kind, message, httpStatus, sample })
+      return new BadGatewayException(`Triunfo document download failed: ${message}`)
+    }
+    if (!this.isTriunfoUrl(url))
+      throw fail(TriunfoErrorKind.UNEXPECTED_RESPONSE, 'El link no es de triunfonet', undefined, url)
 
     const cookies = new Map<string, string>()
     let next = url
     for (let hop = 0; hop <= TriunfoService.DOCUMENTO_MAX_REDIRECTS; hop++) {
-      const response = await firstValueFrom(
-        this.httpService.get<ArrayBuffer>(next, {
-          responseType: 'arraybuffer',
-          maxRedirects: 0,
-          validateStatus: () => true,
-          timeout: TriunfoService.DOCUMENTO_TIMEOUT_MS,
-          headers: {
-            'User-Agent': TriunfoService.BROWSER_USER_AGENT,
-            Accept: 'application/pdf,*/*',
-            Referer: TriunfoService.TRIUNFO_REFERER,
-            ...(cookies.size > 0 ? { Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; ') } : {}),
-          },
-        }),
-      )
+      let response: { status: number; headers: Record<string, unknown>; data: ArrayBuffer }
+      try {
+        response = await firstValueFrom(
+          this.httpService.get<ArrayBuffer>(next, {
+            responseType: 'arraybuffer',
+            maxRedirects: 0,
+            validateStatus: () => true,
+            timeout: TriunfoService.DOCUMENTO_TIMEOUT_MS,
+            headers: {
+              'User-Agent': TriunfoService.BROWSER_USER_AGENT,
+              Accept: 'application/pdf,*/*',
+              Referer: TriunfoService.TRIUNFO_REFERER,
+              ...(cookies.size > 0
+                ? { Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join('; ') }
+                : {}),
+            },
+          }),
+        )
+      } catch (err) {
+        void this.errors.recordException('documentDownload', producerId, err)
+        throw err
+      }
 
       const setCookie = response.headers['set-cookie'] as string[] | undefined
       for (const header of setCookie ?? []) {
@@ -568,17 +695,22 @@ export class TriunfoService {
       const location = response.headers.location as string | undefined
       if (response.status >= 300 && response.status < 400 && location) {
         next = new URL(location, next).toString()
-        if (!this.isTriunfoUrl(next)) throw new BadGatewayException('Triunfo redirected a document outside triunfonet')
+        if (!this.isTriunfoUrl(next)) {
+          throw fail(TriunfoErrorKind.UNEXPECTED_RESPONSE, 'Redirigió fuera de triunfonet', response.status, next)
+        }
         continue
       }
 
       const body = Buffer.from(response.data)
-      if (response.status !== 200 || body.subarray(0, 5).toString('latin1') !== '%PDF-') {
-        throw new BadGatewayException(`Triunfo document download failed (HTTP ${response.status})`)
+      if (response.status !== 200) {
+        throw fail(TriunfoErrorKind.HTTP_ERROR, `HTTP ${response.status}`, response.status, bodySample(body))
+      }
+      if (body.subarray(0, 5).toString('latin1') !== '%PDF-') {
+        throw fail(TriunfoErrorKind.UNEXPECTED_RESPONSE, 'La respuesta no es un PDF', response.status, bodySample(body))
       }
       return body
     }
-    throw new BadGatewayException('Triunfo document download redirected too many times')
+    throw fail(TriunfoErrorKind.UNEXPECTED_RESPONSE, 'Demasiadas redirecciones')
   }
 
   // Document links are only ever followed on Triunfo's own site.

@@ -9,6 +9,8 @@ export enum NovedadType {
   SOLICITUD = 'solicitud',
   /** A number moved up a plan, or passed the largest one (refId = PhoneNumber.id). */
   PLAN = 'plan',
+  /** Triunfo refuses the organization's credentials (refId = TriunfoAuthStatus.id); resolved when they work again. */
+  TRIUNFO = 'triunfo',
 }
 
 export enum MatterCategory {

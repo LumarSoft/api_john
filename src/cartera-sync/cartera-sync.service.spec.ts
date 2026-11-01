@@ -80,9 +80,9 @@ describe('CarteraSyncService per organization', () => {
 
     const result = await service.syncCartera()
 
-    expect(triunfo.getNovedadesCartera.mock.calls.map(call => [call[2], call[3]])).toEqual([
-      [jpmg, '11425'],
-      [norte, '20001'],
+    expect(triunfo.getNovedadesCartera.mock.calls.map(call => [call[2], call[3], call[4]])).toEqual([
+      [jpmg, 1, '11425'],
+      [norte, 2, '20001'],
     ])
     expect(prisma.producerCode.update).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 30 } }))
     expect(result.codesProcessed).toBe(2)

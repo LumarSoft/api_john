@@ -76,6 +76,8 @@ model Producer {
   paymentRejections       PaymentRejection[]
   policyExpiryNotices     PolicyExpiryNotice[]
   triunfoCredential       TriunfoCredential?
+  triunfoAuthStatus       TriunfoAuthStatus?
+  triunfoErrors           TriunfoError[]
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
@@ -1073,6 +1075,68 @@ model TriunfoCredential {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
+}
+
+// Whether Triunfo is accepting an organization's credentials. On 30/10/2026 the
+// password changed in TriunfoNet and for a day the bot could not send a policy or
+// quote, and nobody knew: failingSince marks the outage so it is announced once,
+// reminded daily and announced again when it ends.
+model TriunfoAuthStatus {
+  id             Int       @id @default(autoincrement())
+  producerId     Int       @unique
+  producer       Producer  @relation(fields: [producerId], references: [id])
+  // Null while Triunfo accepts them.
+  failingSince   DateTime?
+  // What Triunfo answered, e.g. "Error Generando Token - Revisar los datos ingresados".
+  failureMessage String?   @db.VarChar(500)
+  // Last mail about this outage, so the reminder goes out once a day.
+  lastAlertAt    DateTime?
+  // The Asuntos pendientes notice of this outage, resolved when it ends.
+  notificationId Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+}
+
+// How a call to Triunfo failed.
+enum TriunfoErrorKind {
+  // getTokenRest gave no token, or the cartera refused the master code's user and password.
+  CREDENTIALS_REJECTED
+  // Triunfo answered, with an error of its own (Estado "N", a Type 1 message).
+  REJECTED
+  // Triunfo answered something we cannot read: a missing SDT...Out, a document that is not a PDF.
+  UNEXPECTED_RESPONSE
+  // A non-2xx status (a Cloudflare 403, a moved endpoint, a 500).
+  HTTP_ERROR
+  TIMEOUT
+  // No answer at all: DNS, refused or reset connection.
+  NETWORK
+}
+
+// Every failed call to Triunfo, one row per distinct failure (fingerprint:
+// organization + operation + kind + status + message with its numbers blanked).
+// A change on their side — a header they start requiring, a field they rename —
+// shows up as a new row and a mail instead of only in the logs.
+model TriunfoError {
+  id          Int              @id @default(autoincrement())
+  producerId  Int
+  producer    Producer         @relation(fields: [producerId], references: [id])
+  // "getTokenRest" | "RESTNovedadesCartera" | "RESTDocumentosV2" | "documentDownload" | "RESTCotizadorAutV2"
+  operation   String           @db.VarChar(40)
+  kind        TriunfoErrorKind
+  httpStatus  Int?
+  message     String           @db.VarChar(500)
+  // The latest answer behind it, cut short (an HTML page, an unexpected JSON). Never a request: those carry the password.
+  sample      String?          @db.Text
+  fingerprint String           @unique @db.Char(64)
+  occurrences Int              @default(1)
+  firstSeenAt DateTime         @default(now())
+  lastSeenAt  DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+
+  @@index([producerId, lastSeenAt])
 }
 
 model IntegrationToken {

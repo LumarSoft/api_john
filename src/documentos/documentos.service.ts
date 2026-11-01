@@ -73,9 +73,9 @@ export class DocumentosService {
     const { ref, reference } = await this.resolvePolicy(where)
     // A fresh list: the link is about to be followed and its lifetime is unknown.
     const documento = ref ? (await this.triunfo.getDocumentos(ref, { fresh: true })).find(d => d.Codigo === code) : null
-    if (!documento) throw new NotFoundException(`Document ${code} is not available for this policy`)
+    if (!ref || !documento) throw new NotFoundException(`Document ${code} is not available for this policy`)
 
-    const buffer = await this.triunfo.downloadDocumento(documento.URL)
+    const buffer = await this.triunfo.downloadDocumento(documento.URL, ref.producerId)
     return { filename: documentFilename(documentName(code, documento.Nombre), reference), buffer }
   }
 

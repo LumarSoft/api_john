@@ -3880,13 +3880,15 @@ Borra (soft delete) la carga y sus filas. Los avisos ya enviados siguen en los c
 
 Each organization quotes, syncs its cartera and downloads documents with its own Triunfo web-service user. The password is stored encrypted with `WABA_TOKEN_ENCRYPTION_KEY` and never returned. The default organization (`DEFAULT_PRODUCER_SLUG`) keeps working on `TRIUNFO_PRODUCTOR` / `TRIUNFO_USUARIO` / `TRIUNFO_PASSWORD` while it has none of its own; any other organization without credentials gets `503` on quotes and documents, and is skipped by the cartera sync.
 
+Every failed call to Triunfo (getTokenRest, RESTNovedadesCartera, RESTDocumentosV2, the PDF download and RESTCotizadorAutV2) is recorded, one row per distinct failure. A new one, or one back after a week, mails every OWNER user and `TRIUNFO_ALERT_EMAIL`. When Triunfo refuses the credentials in use, the organization gets a notice in Asuntos pendientes (type `triunfo`), its SuperAdmins and Lumarsoft get a mail (again once a day while it lasts and when it ends), and nothing asks Triunfo again with them for 15 minutes. Saving credentials Triunfo accepts ends the outage.
+
 ### GET /owner/organizations/:id/triunfo
 
 **Auth required:** Yes (OWNER)
 
 **Responses**
 
-`200 OK`
+`200 OK` — `failingSince` is null while Triunfo accepts the credentials in use (the organization's own or the `TRIUNFO_*` settings)
 
 ```json
 {
@@ -3894,7 +3896,9 @@ Each organization quotes, syncs its cartera and downloads documents with its own
   "productor": "20001",
   "username": "NORTE",
   "verifiedAt": "2026-10-27T13:00:00.000Z",
-  "usesDefaultSettings": false
+  "usesDefaultSettings": false,
+  "failingSince": "2026-10-30T23:19:30.000Z",
+  "failureMessage": "Error Generando Token - Revisar los datos ingresados"
 }
 ```
 
@@ -3955,3 +3959,48 @@ Removes the organization's own credentials (soft delete).
 **Responses**
 
 `200 OK` — as `GET /owner/organizations/:id/triunfo`, with `configured: false`
+
+### GET /owner/organizations/:id/triunfo/errors
+
+The organization's failed calls to Triunfo, one row per distinct failure (same operation, kind, status and message with its numbers blanked), the latest 50 by when they last happened. `kind` is one of `CREDENTIALS_REJECTED`, `REJECTED` (Triunfo answered with an error of its own), `UNEXPECTED_RESPONSE`, `HTTP_ERROR`, `TIMEOUT`, `NETWORK`. `sample` is the latest answer behind it, cut to 2000 characters.
+
+**Auth required:** Yes (OWNER)
+
+**Responses**
+
+`200 OK`
+
+```json
+[
+  {
+    "id": 12,
+    "operation": "documentDownload",
+    "kind": "HTTP_ERROR",
+    "httpStatus": 403,
+    "message": "HTTP 403",
+    "sample": "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0;url=/\">",
+    "occurrences": 37,
+    "firstSeenAt": "2026-10-29T12:04:11.000Z",
+    "lastSeenAt": "2026-10-30T14:10:52.000Z"
+  }
+]
+```
+
+## Admin — Triunfo
+
+### GET /admin/triunfo/status
+
+Whether Triunfo is accepting the credentials of the user's organization, for the panel's warning banner.
+
+**Auth required:** Yes (any panel user)
+
+**Responses**
+
+`200 OK` — `failingSince` and `failureMessage` are null while Triunfo accepts them
+
+```json
+{
+  "failingSince": "2026-10-30T23:19:30.000Z",
+  "failureMessage": "Error Generando Token - Revisar los datos ingresados"
+}
+```

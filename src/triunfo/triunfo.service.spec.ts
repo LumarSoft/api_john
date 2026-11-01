@@ -1,9 +1,10 @@
-import { of } from 'rxjs'
+import { of, throwError } from 'rxjs'
 import { TriunfoNotConfiguredException, TriunfoService, type TriunfoPolicyRef } from './triunfo.service'
 import type { HttpService } from '@nestjs/axios'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import { encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
+import type { TriunfoErrorsService } from './triunfo-errors.service'
 
 const ENV: Record<string, string> = {
   TRIUNFO_BASE_URL_AUTH: 'https://auth.test',
@@ -23,9 +24,22 @@ const REF: TriunfoPolicyRef = {
 }
 const LINK = 'https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?abc'
 
-function createService(http: Partial<Record<'post' | 'get', jest.Mock>>) {
+function fakeErrors() {
+  return {
+    record: jest.fn().mockResolvedValue(undefined),
+    recordException: jest.fn().mockResolvedValue(undefined),
+    credentialsAccepted: jest.fn().mockResolvedValue(undefined),
+  }
+}
+
+function createService(http: Partial<Record<'post' | 'get', jest.Mock>>, errors = fakeErrors()) {
   const config = { getOrThrow: (key: string) => ENV[key], get: (key: string) => ENV[key] } as unknown as ConfigService
-  const service = new TriunfoService(http as unknown as HttpService, config, {} as PrismaService)
+  const service = new TriunfoService(
+    http as unknown as HttpService,
+    config,
+    {} as PrismaService,
+    errors as unknown as TriunfoErrorsService,
+  )
   jest.spyOn(service, 'credentialsFor').mockResolvedValue({ productor: '10484', usuario: 'USUARIO', password: 'md5' })
   jest.spyOn(service, 'getToken').mockResolvedValue('jwt')
   return service
@@ -115,7 +129,7 @@ describe('TriunfoService.downloadDocumento', () => {
       )
       .mockReturnValueOnce(of({ status: 200, headers: {}, data: pdf }))
 
-    expect(await createService({ get }).downloadDocumento(LINK)).toEqual(pdf)
+    expect(await createService({ get }).downloadDocumento(LINK, 1)).toEqual(pdf)
     expect(get).toHaveBeenNthCalledWith(
       2,
       'https://www.triunfonet.com.ar/gauswebtriunfo/servlet/otarjetaverde_sp?def',
@@ -134,7 +148,7 @@ describe('TriunfoService.downloadDocumento', () => {
       )
       .mockReturnValueOnce(of({ status: 200, headers: {}, data: pdf }))
 
-    await createService({ get }).downloadDocumento(LINK)
+    await createService({ get }).downloadDocumento(LINK, 1)
     for (const call of get.mock.calls) {
       expect(call[1].headers).toMatchObject({ Referer: 'https://www.triunfonet.com.ar/' })
     }
@@ -142,15 +156,73 @@ describe('TriunfoService.downloadDocumento', () => {
 
   it('fails when Triunfo answers something that is not a PDF', async () => {
     const get = jest.fn().mockReturnValue(of({ status: 403, headers: {}, data: Buffer.from('<html>') }))
-    await expect(createService({ get }).downloadDocumento(LINK)).rejects.toMatchObject({ status: 502 })
+    await expect(createService({ get }).downloadDocumento(LINK, 1)).rejects.toMatchObject({ status: 502 })
+  })
+
+  it('records the status and the page Triunfo answered instead of the PDF', async () => {
+    const errors = fakeErrors()
+    const get = jest.fn().mockReturnValue(of({ status: 403, headers: {}, data: Buffer.from('<html>Cloudflare') }))
+    await expect(createService({ get }, errors).downloadDocumento(LINK, 7)).rejects.toMatchObject({ status: 502 })
+    expect(errors.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'documentDownload',
+        producerId: 7,
+        kind: 'HTTP_ERROR',
+        httpStatus: 403,
+        sample: '<html>Cloudflare',
+      }),
+    )
   })
 
   it('never follows a link outside triunfonet', async () => {
     const get = jest.fn()
-    await expect(createService({ get }).downloadDocumento('https://evil.test/x.pdf')).rejects.toMatchObject({
+    await expect(createService({ get }).downloadDocumento('https://evil.test/x.pdf', 1)).rejects.toMatchObject({
       status: 502,
     })
     expect(get).not.toHaveBeenCalled()
+  })
+})
+
+describe('TriunfoService error records', () => {
+  it('records an HTTP error of RESTDocumentosV2 against the organization of the policy', async () => {
+    const errors = fakeErrors()
+    const failure = Object.assign(new Error('Request failed with status code 404'), { isAxiosError: true })
+    const post = jest.fn().mockReturnValue(throwError(() => failure))
+
+    await expect(createService({ post }, errors).getDocumentos(REF)).rejects.toBe(failure)
+    expect(errors.recordException).toHaveBeenCalledWith('RESTDocumentosV2', 1, failure)
+  })
+
+  it('records the reason Triunfo gives for having no documents, and still answers an empty list', async () => {
+    const errors = fakeErrors()
+    const post = jest.fn().mockReturnValue(
+      of({
+        data: {
+          SDTWSDocumentosOut: {
+            Resultado: { Estado: 'N', Mensajes: [{ Description: 'Operación inexistente o no asociada al productor' }] },
+          },
+        },
+      }),
+    )
+
+    expect(await createService({ post }, errors).getDocumentos(REF)).toEqual([])
+    expect(errors.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'RESTDocumentosV2',
+        kind: 'REJECTED',
+        message: 'Operación inexistente o no asociada al productor',
+      }),
+    )
+  })
+
+  it('records an answer without SDTWSDocumentosOut as unexpected', async () => {
+    const errors = fakeErrors()
+    const post = jest.fn().mockReturnValue(of({ data: { Error: 'campo nuevo requerido' } }))
+
+    await expect(createService({ post }, errors).getDocumentos(REF)).rejects.toMatchObject({ status: 502 })
+    expect(errors.record).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'UNEXPECTED_RESPONSE', sample: '{"Error":"campo nuevo requerido"}' }),
+    )
   })
 })
 
@@ -185,8 +257,14 @@ describe('TriunfoService per-organization credentials', () => {
       get: (key: string, fallback?: string) => (key === 'WABA_TOKEN_ENCRYPTION_KEY' ? KEY_HEX : (env[key] ?? fallback)),
     } as unknown as ConfigService
     const post = jest.fn().mockImplementation(() => of({ data: { Token: TOKEN(Date.now() / 1000 + 86_400) } }))
-    const service = new TriunfoService({ post } as unknown as HttpService, config, prisma as unknown as PrismaService)
-    return { service, post, prisma }
+    const errors = fakeErrors()
+    const service = new TriunfoService(
+      { post } as unknown as HttpService,
+      config,
+      prisma as unknown as PrismaService,
+      errors as unknown as TriunfoErrorsService,
+    )
+    return { service, post, prisma, errors }
   }
 
   it('gives an organization its own credentials, decrypted', async () => {
@@ -252,7 +330,7 @@ describe('TriunfoService per-organization credentials', () => {
     const { service, post } = setup()
     post.mockReturnValue(of({ data: { SDTWSNovedadesCarteraOut: { Resultado: { Estado: 'S' }, Novedades: [] } } }))
 
-    await service.getNovedadesCartera('2026-10-01', '2026-10-05', await service.credentialsFor(2), '20002')
+    await service.getNovedadesCartera('2026-10-01', '2026-10-05', await service.credentialsFor(2), 2, '20002')
 
     expect(post).toHaveBeenCalledWith(
       'https://sip.test/RESTNovedadesCartera',
@@ -283,5 +361,112 @@ describe('TriunfoService per-organization credentials', () => {
     await expect(
       service.verifyCredentials({ productor: '20001', usuario: 'OTRAORG', password: 'mala' }),
     ).rejects.toThrow('Usuario o contraseña incorrectos')
+  })
+
+  describe('when Triunfo refuses the credentials', () => {
+    const REFUSAL = {
+      data: { SDTResultado: { Mensajes: [{ Description: 'Error Generando Token - Revisar los datos ingresados' }] } },
+    }
+    const CARTERA_REFUSAL = {
+      data: {
+        SDTWSNovedadesCarteraOut: {
+          Resultado: { Estado: 'N', Mensajes: [{ Type: 1, Description: 'Datos de productor no válidos' }] },
+        },
+      },
+    }
+
+    it('records the refusal against the organization', async () => {
+      const { service, post, errors } = setup()
+      post.mockReturnValue(of(REFUSAL))
+
+      await expect(service.getAuth(2)).rejects.toThrow('Error Generando Token - Revisar los datos ingresados')
+      expect(errors.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'getTokenRest',
+          producerId: 2,
+          kind: 'CREDENTIALS_REJECTED',
+          message: 'Error Generando Token - Revisar los datos ingresados',
+        }),
+      )
+    })
+
+    it('does not ask Triunfo again with the same credentials for a while', async () => {
+      const { service, post } = setup()
+      post.mockReturnValue(of(REFUSAL))
+
+      await expect(service.getAuth(2)).rejects.toThrow('Error Generando Token')
+      await expect(service.getAuth(2)).rejects.toThrow('Error Generando Token')
+      await expect(
+        service.getNovedadesCartera('2026-10-01', '2026-10-05', await service.credentialsFor(2), 2),
+      ).rejects.toThrow('Error Generando Token')
+      expect(post).toHaveBeenCalledTimes(1)
+      // Another organization's credentials are not paused.
+      post.mockImplementation(() => of({ data: { Token: TOKEN(Date.now() / 1000 + 86_400) } }))
+      await expect(service.getAuth(1)).resolves.toMatchObject({ Productor: '10484' })
+    })
+
+    it('lets new credentials that Triunfo accepts through right away', async () => {
+      const { service, post } = setup()
+      post.mockReturnValueOnce(of(REFUSAL))
+      await expect(service.getAuth(2)).rejects.toThrow('Error Generando Token')
+
+      await service.verifyCredentials({ productor: '20001', usuario: 'OTRAORG', password: 'nueva' })
+      service.forgetCredentials(2)
+      await expect(service.getAuth(2)).resolves.toMatchObject({ Productor: '20001' })
+    })
+
+    it('neither records nor pauses a wrong password typed in the panel', async () => {
+      const { service, post, errors } = setup()
+      post.mockReturnValueOnce(of(REFUSAL))
+
+      await expect(
+        service.verifyCredentials({ productor: '20001', usuario: 'OTRAORG', password: 'mala' }),
+      ).rejects.toThrow('Error Generando Token')
+      await expect(service.getAuth(2)).resolves.toMatchObject({ Productor: '20001' })
+      expect(errors.record).not.toHaveBeenCalled()
+    })
+
+    it('ends the outage when a token comes back', async () => {
+      const { service, errors } = setup()
+      await service.getAuth(2)
+      expect(errors.credentialsAccepted).toHaveBeenCalledWith(2)
+    })
+
+    it('takes the cartera refusing the master code as the credentials failing, and pauses them', async () => {
+      const { service, post, errors } = setup()
+      post.mockReturnValue(of(CARTERA_REFUSAL))
+      const credentials = await service.credentialsFor(2)
+
+      await expect(service.getNovedadesCartera('2026-10-01', '2026-10-05', credentials, 2)).rejects.toThrow(
+        'Datos de productor no válidos',
+      )
+      expect(errors.record).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: 'RESTNovedadesCartera', kind: 'CREDENTIALS_REJECTED', producerId: 2 }),
+      )
+      await expect(service.getNovedadesCartera('2026-10-01', '2026-10-05', credentials, 2, '20002')).rejects.toThrow()
+      expect(post).toHaveBeenCalledTimes(1)
+    })
+
+    it('takes the same answer for a dependent code as that code failing, not the credentials', async () => {
+      const { service, post, errors } = setup()
+      post.mockReturnValue(of(CARTERA_REFUSAL))
+      const credentials = await service.credentialsFor(2)
+
+      await expect(service.getNovedadesCartera('2026-10-01', '2026-10-05', credentials, 2, '11425')).rejects.toThrow()
+      await expect(service.getNovedadesCartera('2026-10-01', '2026-10-05', credentials, 2, '14652')).rejects.toThrow()
+      expect(post).toHaveBeenCalledTimes(2)
+      expect(errors.record).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'REJECTED', sample: 'Código 11425, 2026-10-01 → 2026-10-05' }),
+      )
+      expect(errors.credentialsAccepted).not.toHaveBeenCalled()
+    })
+
+    it("ends the outage when the master code's cartera answers", async () => {
+      const { service, post, errors } = setup()
+      post.mockReturnValue(of({ data: { SDTWSNovedadesCarteraOut: { Resultado: { Estado: 'S' }, Novedades: [] } } }))
+
+      await service.getNovedadesCartera('2026-10-01', '2026-10-05', await service.credentialsFor(2), 2)
+      expect(errors.credentialsAccepted).toHaveBeenCalledWith(2)
+    })
   })
 })

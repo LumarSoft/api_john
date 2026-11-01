@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '../prisma/prisma.service'
 import { encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { TriunfoService } from './triunfo.service'
+import { TriunfoErrorsService } from './triunfo-errors.service'
 import { SaveTriunfoCredentialDto } from './dto/save-triunfo-credential.dto'
 
 /** What the owner sees of an organization's Triunfo access — never the password. */
@@ -19,6 +20,10 @@ export interface TriunfoCredentialStatus {
   verifiedAt: Date | null
   /** No credentials of its own, but the default organization runs on the TRIUNFO_* settings. */
   usesDefaultSettings: boolean
+  /** Since when Triunfo refuses the credentials in use (own or TRIUNFO_*); null while it accepts them. */
+  failingSince: Date | null
+  /** What Triunfo answered when it refused them. */
+  failureMessage: string | null
 }
 
 /**
@@ -32,6 +37,7 @@ export class TriunfoCredentialsService {
     private readonly prisma: PrismaService,
     private readonly triunfo: TriunfoService,
     private readonly config: ConfigService,
+    private readonly errors: TriunfoErrorsService,
   ) {}
 
   async status(producerId: number): Promise<TriunfoCredentialStatus> {
@@ -45,12 +51,15 @@ export class TriunfoCredentialsService {
     if (!producer) throw new NotFoundException(`Organization ${producerId} not found`)
 
     const own = producer.triunfoCredential?.deletedAt === null ? producer.triunfoCredential : null
+    const health = await this.errors.authState(producerId)
     return {
       configured: own !== null,
       productor: own?.productor ?? null,
       username: own?.username ?? null,
       verifiedAt: own?.verifiedAt ?? null,
       usesDefaultSettings: own === null && this.triunfo.hasEnvCredentialsFor(producer.slug),
+      failingSince: health.failingSince,
+      failureMessage: health.failureMessage,
     }
   }
 
@@ -79,6 +88,8 @@ export class TriunfoCredentialsService {
       update: data,
     })
     this.triunfo.forgetCredentials(producerId)
+    // Triunfo just accepted them: an outage of the old ones is over.
+    await this.errors.credentialsAccepted(producerId)
     return this.status(producerId)
   }
 

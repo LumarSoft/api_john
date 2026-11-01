@@ -305,7 +305,13 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         let novedades: TriunfoNovedad[] = []
         try {
           // code undefined → TriunfoService uses the credential's own code.
-          novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, credentials, target.code)
+          novedades = await this.triunfo.getNovedadesCartera(
+            fechaDesde,
+            fechaHasta,
+            credentials,
+            producer.id,
+            target.code,
+          )
           this.logger.log(
             `Code ${label}: ${novedades.length} novedades (${months}m: ${fechaDesde} → ${fechaHasta}${target.lastSyncAt ? '' : ', backfill inicial'})`,
           )

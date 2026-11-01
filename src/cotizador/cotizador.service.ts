@@ -13,11 +13,12 @@ import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { isAxiosError } from 'axios'
 import { firstValueFrom } from 'rxjs'
-import { Prisma } from 'generated/prisma/client'
+import { Prisma, TriunfoErrorKind } from 'generated/prisma/client'
 import { NovedadesService } from '../novedades/novedades.service'
 import { NovedadType } from '../novedades/dto/list-novedades.dto'
 import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
+import { bodySample, TriunfoErrorsService } from '../triunfo/triunfo-errors.service'
 import { InfoAutoService } from '../infoauto/infoauto.service'
 import { VehicleType } from '../infoauto/infoauto.types'
 import { QuoteVehicleDto } from './dto/quote-vehicle.dto'
@@ -98,6 +99,7 @@ export class CotizadorService {
     private readonly coverageSettings: CoverageSettingsService,
     private readonly configService: ConfigService,
     private readonly novedades: NovedadesService,
+    private readonly triunfoErrors: TriunfoErrorsService,
   ) {}
 
   async quoteVehicle(
@@ -178,6 +180,7 @@ export class CotizadorService {
       result = response.data
     } catch (error) {
       this.logger.error(`Triunfo RESTCotizadorAutV2 request failed: ${(error as Error).message}`)
+      void this.triunfoErrors.recordException('RESTCotizadorAutV2', producerId, error)
       if (isAxiosError(error) && error.code === 'ECONNABORTED') {
         throw new GatewayTimeoutException('El cotizador de Triunfo no respondió a tiempo')
       }
@@ -187,6 +190,13 @@ export class CotizadorService {
     const out = result?.SDTSrvCotizacionOut
     if (!out) {
       this.logger.error(`Triunfo RESTCotizadorAutV2 unexpected response: ${JSON.stringify(result)}`)
+      void this.triunfoErrors.record({
+        operation: 'RESTCotizadorAutV2',
+        producerId,
+        kind: TriunfoErrorKind.UNEXPECTED_RESPONSE,
+        message: 'La respuesta no trae SDTSrvCotizacionOut',
+        sample: bodySample(result),
+      })
       throw new BadGatewayException('Triunfo cotizador error')
     }
 
@@ -215,6 +225,16 @@ export class CotizadorService {
     }
 
     const quote = this.normalizeResult(result)
+    // No price at all and Triunfo saying why ("Código de modelo no válido", or a field it starts requiring).
+    if (quote.coverages.length === 0 && quote.messages.length > 0) {
+      void this.triunfoErrors.record({
+        operation: 'RESTCotizadorAutV2',
+        producerId,
+        kind: TriunfoErrorKind.REJECTED,
+        message: quote.messages.join('; '),
+        sample: `${vehicleType} marca ${dto.brand} modelo ${triunfoModel} ${dto.manufactureYear} CP ${dto.postalCode}`,
+      })
+    }
 
     // Register any coverage code we had not seen before, so the admin screen
     // lists real Triunfo codes. Never blocks or breaks a quote.
