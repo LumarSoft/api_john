@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { InboxService } from '../inbox/inbox.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { CreateBotLeadDto } from './dto/create-bot-lead.dto'
+import { UpdateBotLeadCoverageDto } from './dto/update-bot-lead-coverage.dto'
 import { signAdjuntoList } from '../siniestros/adjunto-url'
 import { LEADS_PUBLIC_PREFIX, toStoredAdjuntos } from '../siniestros/siniestro-upload.config'
 import { ListSolicitudesDto } from './dto/list-solicitudes.dto'
@@ -147,6 +148,39 @@ export class SolicitudesService {
       data: { payload: { ...payload, adjuntos } as Prisma.InputJsonValue },
     })
     return { leadId: lead.id, attachmentCount: adjuntos.length, attached: true, attachments: stored }
+  }
+
+  /**
+   * Moves a bot quote lead to another coverage: the customer picked one, got the
+   * documents request and changed their mind ("mejor una responsabilidad
+   * civil"). The previous choice stays in `payload.coberturaAnterior` so the
+   * office sees the change; the documents already attached are kept.
+   */
+  async updateBotLeadCoverage(
+    conversationId: number,
+    leadId: number,
+    dto: UpdateBotLeadCoverageDto,
+  ): Promise<{ leadId: number; cobertura: string; coberturaAnterior: string | null }> {
+    const lead = await this.prisma.contactLead.findFirst({
+      where: { id: leadId, conversationId, deletedAt: null },
+      select: { id: true, payload: true },
+    })
+    if (!lead) throw new NotFoundException(`Lead ${leadId} not found for conversation ${conversationId}`)
+
+    const { precio: _previousPrice, ...payload } = (lead.payload ?? {}) as Record<string, unknown>
+    const previous = typeof payload.cobertura === 'string' && payload.cobertura ? payload.cobertura : null
+    const changed = previous !== null && previous !== dto.cobertura
+    const next: Record<string, unknown> = {
+      ...payload,
+      cobertura: dto.cobertura,
+      ...(dto.precio ? { precio: dto.precio } : {}),
+      ...(changed ? { coberturaAnterior: previous } : {}),
+    }
+    await this.prisma.contactLead.update({
+      where: { id: lead.id },
+      data: { payload: next as Prisma.InputJsonValue },
+    })
+    return { leadId: lead.id, cobertura: dto.cobertura, coberturaAnterior: changed ? previous : null }
   }
 
   private async createLead(dto: CreateLeadDto | CreateBotLeadDto, ctx: CreateLeadContext): Promise<{ id: number }> {

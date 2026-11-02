@@ -2946,6 +2946,37 @@ hace en el chat después de una cotización online (cobertura elegida en `payloa
 `201 Created` → `{ "id": 12 }`
 `404 Not Found` — Conversation no encontrada
 
+### PATCH /bot/conversation/:conversationId/leads/:leadId/cobertura
+
+El cliente eligió una cobertura, el bot le pidió las fotos y cambió de idea
+("mejor una responsabilidad civil"): el bot pasa el mismo lead a la cobertura
+nueva en vez de abrir otro. Reemplaza `payload.cobertura` y `payload.precio`
+(se borra si no viene), guarda la anterior en `payload.coberturaAnterior` cuando
+cambia y conserva `payload.adjuntos`.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field     | Type   | Required | Constraints |
+| --------- | ------ | -------- | ----------- |
+| cobertura | string | Yes      | ≤160 chars  |
+| precio    | string | No       | ≤80 chars   |
+
+```json
+{ "cobertura": "A — Responsabilidad Civil", "precio": "$ 67.825 por mes" }
+```
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "leadId": 15, "cobertura": "A — Responsabilidad Civil", "coberturaAnterior": "D3 — Todo Riesgo con Franquicia del 10%" }
+```
+
+`404 Not Found` — Lead no encontrado en esa conversación
+
 ### POST /bot/conversation/:conversationId/leads/:leadId/adjuntos
 
 Adjunta las fotos que el cliente manda por WhatsApp para contratar una cotización

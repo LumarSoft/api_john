@@ -102,6 +102,96 @@ describe('SolicitudesService — bot take-out documents', () => {
   })
 })
 
+describe('SolicitudesService — changing the coverage of a bot lead', () => {
+  beforeAll(() => {
+    process.env.JWT_SECRET = 'test-secret'
+  })
+
+  function setup(lead: { id: number; payload: unknown } | null) {
+    const prisma = {
+      contactLead: {
+        findFirst: jest.fn().mockResolvedValue(lead),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    }
+    const service = new SolicitudesService(
+      prisma as unknown as PrismaService,
+      {} as ConfigService,
+      {} as NovedadesService,
+      {} as InboxService,
+    )
+    return { service, prisma }
+  }
+
+  it('moves the request to the new coverage and keeps the previous one and the photos', async () => {
+    const { service, prisma } = setup({
+      id: 15,
+      payload: {
+        cobertura: 'D3 — Todo Riesgo con Franquicia del 10%',
+        precio: '$ 223.091 por mes',
+        vehiculo: 'BYD SONG PRO DM-I GS',
+        adjuntos: [{ filename: 'dni.webp' }],
+      },
+    })
+
+    const res = await service.updateBotLeadCoverage(322, 15, {
+      cobertura: 'A — Responsabilidad Civil',
+      precio: '$ 67.825 por mes',
+    })
+
+    expect(prisma.contactLead.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 15, conversationId: 322, deletedAt: null } }),
+    )
+    expect(prisma.contactLead.update).toHaveBeenCalledWith({
+      where: { id: 15 },
+      data: {
+        payload: {
+          cobertura: 'A — Responsabilidad Civil',
+          precio: '$ 67.825 por mes',
+          coberturaAnterior: 'D3 — Todo Riesgo con Franquicia del 10%',
+          vehiculo: 'BYD SONG PRO DM-I GS',
+          adjuntos: [{ filename: 'dni.webp' }],
+        },
+      },
+    })
+    expect(res).toEqual({
+      leadId: 15,
+      cobertura: 'A — Responsabilidad Civil',
+      coberturaAnterior: 'D3 — Todo Riesgo con Franquicia del 10%',
+    })
+  })
+
+  it('drops the old price when the new coverage comes without one', async () => {
+    const { service, prisma } = setup({
+      id: 15,
+      payload: { cobertura: 'D3 — Todo Riesgo', precio: '$ 223.091 por mes' },
+    })
+
+    await service.updateBotLeadCoverage(322, 15, { cobertura: 'A — Responsabilidad Civil' })
+
+    const payload = prisma.contactLead.update.mock.calls[0][0].data.payload as Record<string, unknown>
+    expect(payload.precio).toBeUndefined()
+    expect(payload.coberturaAnterior).toBe('D3 — Todo Riesgo')
+  })
+
+  it('does not record a previous coverage when it is the same one', async () => {
+    const { service, prisma } = setup({ id: 15, payload: { cobertura: 'A — Responsabilidad Civil' } })
+
+    const res = await service.updateBotLeadCoverage(322, 15, { cobertura: 'A — Responsabilidad Civil' })
+
+    const payload = prisma.contactLead.update.mock.calls[0][0].data.payload as Record<string, unknown>
+    expect(payload.coberturaAnterior).toBeUndefined()
+    expect(res.coberturaAnterior).toBeNull()
+  })
+
+  it('refuses a lead of another conversation', async () => {
+    const { service, prisma } = setup(null)
+
+    await expect(service.updateBotLeadCoverage(1, 15, { cobertura: 'A' })).rejects.toThrow('not found')
+    expect(prisma.contactLead.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('SolicitudesService — the chat behind a solicitud', () => {
   function setup(lead: { conversationId: number | null } | null, conversation: Record<string, unknown> | null) {
     const prisma = {

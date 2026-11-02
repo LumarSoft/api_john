@@ -3,6 +3,7 @@ import {
   Controller,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   UploadedFiles,
@@ -14,6 +15,7 @@ import { BotAuthGuard } from '../bot/bot-auth.guard'
 import { MAX_FILES, leadMulterOptions } from '../siniestros/siniestro-upload.config'
 import { SolicitudesService } from './solicitudes.service'
 import { CreateBotLeadDto } from './dto/create-bot-lead.dto'
+import { UpdateBotLeadCoverageDto } from './dto/update-bot-lead-coverage.dto'
 
 // Bot lead creation. Scoped to the conversation's producer (multi-tenant) and
 // guarded by the shared bot secret, mirroring the other /bot/conversation routes.
@@ -25,6 +27,16 @@ export class BotSolicitudesController {
   @Post('conversation/:conversationId/leads')
   create(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: CreateBotLeadDto) {
     return this.solicitudesService.createBotLead(conversationId, dto)
+  }
+
+  // The customer changed the coverage they want while sending the documents.
+  @Patch('conversation/:conversationId/leads/:leadId/cobertura')
+  updateCoverage(
+    @Param('conversationId', ParseIntPipe) conversationId: number,
+    @Param('leadId', ParseIntPipe) leadId: number,
+    @Body() dto: UpdateBotLeadCoverageDto,
+  ) {
+    return this.solicitudesService.updateBotLeadCoverage(conversationId, leadId, dto)
   }
 
   // Photos the customer sends to take out a quoted policy (DNI, tarjeta azul).
