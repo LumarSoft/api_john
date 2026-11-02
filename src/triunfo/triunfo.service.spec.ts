@@ -461,6 +461,30 @@ describe('TriunfoService per-organization credentials', () => {
       expect(errors.credentialsAccepted).not.toHaveBeenCalled()
     })
 
+    it('takes a window without movements as empty, not as the code failing', async () => {
+      const { service, post, errors } = setup()
+      post.mockReturnValue(
+        of({
+          data: {
+            SDTWSNovedadesCarteraOut: {
+              Resultado: {
+                Estado: 'N',
+                Mensajes: [{ Type: 1, Description: 'No hay operaciones para el período seleccionado.' }],
+              },
+            },
+          },
+        }),
+      )
+      const credentials = await service.credentialsFor(2)
+
+      await expect(service.getNovedadesCartera('2026-08-01', '2026-08-14', credentials, 2, '13909')).resolves.toEqual(
+        [],
+      )
+      // Both 7-day windows were asked: an empty one does not stop the rest.
+      expect(post).toHaveBeenCalledTimes(2)
+      expect(errors.record).not.toHaveBeenCalled()
+    })
+
     it("ends the outage when the master code's cartera answers", async () => {
       const { service, post, errors } = setup()
       post.mockReturnValue(of({ data: { SDTWSNovedadesCarteraOut: { Resultado: { Estado: 'S' }, Novedades: [] } } }))

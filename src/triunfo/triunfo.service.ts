@@ -169,6 +169,8 @@ export class TriunfoService {
   // hammering it can get our IP (or the account) blocked.
   private readonly refused = new Map<string, { until: number; message: string }>()
   private static readonly REFUSED_PAUSE_MS = 15 * 60 * 1000
+  // Triunfo's answer for a date window without movements for the code.
+  private static readonly NO_OPERATIONS_RE = /no hay operaciones/i
   // NovedadesCartera is heavy (≈680 KB / 15 s for one week of the master code),
   // so it gets a much longer ceiling than the other calls — but never infinite:
   // without a timeout a hung call blocks the whole sequential sync forever.
@@ -542,6 +544,14 @@ export class TriunfoService {
     const errorMsgs = mensajes.filter(m => m.Type === 1 || resultado?.Estado === 'N')
     if (errorMsgs.length > 0) {
       const msg = errorMsgs.map(m => m.Description ?? m.Id ?? '?').join('; ')
+      // A window with no movements is answered as an error ("No hay operaciones
+      // para el período seleccionado."). It is an empty window, not a failure:
+      // taking it as one used to drop every later window of the code and keep
+      // it on the 3-month backfill run after run (14 codes on 1/11/2026).
+      if (TriunfoService.NO_OPERATIONS_RE.test(msg)) {
+        this.logger.log(`NovedadesCartera código=${codigo} ${fechaDesde} → ${fechaHasta}: sin operaciones`)
+        return []
+      }
       // For the master code this answer means the user and password themselves
       // stopped working (30/10/2026). Dependent codes can get it on their own
       // (11425 and 14652 always do), so for them it is just the code's error.
