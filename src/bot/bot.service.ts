@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere } from '../common/poliza-vigencia'
-import { isSamePhone, phoneSuffix } from '../common/phone-match'
+import { canonicalWaId, isSamePhone, phoneSuffix } from '../common/phone-match'
 import { estimateNextDueDate } from '../common/next-installment'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import { VehicleType } from '../infoauto/infoauto.types'
@@ -200,11 +200,16 @@ export class BotService {
     // When the number is over its monthly budget, the bot disables the paid LLM
     // (deterministic flows keep working at zero token cost).
     const llmEnabled = await this.usage.isLlmEnabled(phoneNumberId)
+    const internalWaIds = (await this.internalWaIdsByProducer([id])).get(id) ?? []
     return {
       producerId: id,
       producerName: name,
       producerSlug: slug,
       botName,
+      // The organization's other WhatsApp lines (a branch writing to the office):
+      // a message from one of them is kept for the inbox, never answered by the
+      // bot. Two numbers of John's answered each other for a minute on 2/11.
+      internalWaIds: [...internalWaIds],
       // The bot is switched on and off per number, and pauses for the rest of the month when the number reaches
       // its plan (until someone moves it to the next one).
       botEnabled: phoneNumber.botEnabled !== false && !pausedIn(phoneNumber.planPausedAt, currentPeriod()),
@@ -592,6 +597,9 @@ export class BotService {
     // tu pedido" is waiting for the office, and "damos por finalizada esta
     // conversación" there read as if the request had been dropped.
     const waiting = await this.waitingForOffice(claimed)
+    // Nor to another number of the same organization: that goodbye started a
+    // loop between two of its bots.
+    const internal = await this.internalWaIdsByProducer(claimed.map(c => c.producer.id))
     const candidates = claimed.filter(
       c =>
         !c.botPaused &&
@@ -599,7 +607,8 @@ export class BotService {
         c.lastMessageAt >= windowStart &&
         c.messages[0]?.role === 'assistant' &&
         c.messages[0]?.source === 'live' &&
-        !waiting.has(c.id),
+        !waiting.has(c.id) &&
+        !internal.get(c.producer.id)?.has(canonicalWaId(c.waId)),
     )
     if (candidates.length === 0) return []
 
@@ -1222,6 +1231,30 @@ export class BotService {
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
     return conversation
+  }
+
+  /**
+   * The WhatsApp lines of each organization (its active numbers, as
+   * `canonicalWaId` spells them), by producer id. Legacy rows that keep the
+   * Meta id as the number are left out.
+   */
+  private async internalWaIdsByProducer(producerIds: number[]): Promise<Map<number, Set<string>>> {
+    const out = new Map<number, Set<string>>()
+    const ids = [...new Set(producerIds)]
+    if (ids.length === 0) return out
+    const numbers = await this.prisma.phoneNumber.findMany({
+      where: { producerId: { in: ids }, isActive: true, deletedAt: null },
+      select: { producerId: true, number: true, phoneNumberId: true },
+    })
+    for (const n of numbers) {
+      if (n.number === n.phoneNumberId) continue
+      const waId = canonicalWaId(n.number)
+      if (waId.length < 10) continue
+      const set = out.get(n.producerId) ?? new Set<string>()
+      set.add(waId)
+      out.set(n.producerId, set)
+    }
+    return out
   }
 
   /** Weekly hours of the numbers that have their own, by Meta phone number ID. */

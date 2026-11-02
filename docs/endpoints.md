@@ -2130,6 +2130,7 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
   "attentionHours": "Lunes a viernes de 8 a 16 hs",
   "systemPrompt": "Sos el asistente virtual de...",
   "llmEnabled": true,
+  "internalWaIds": ["543412757294", "543417028217"],
   "profile": {
     "orgName": "John Pellegrini Management Group",
     "orgShortName": "JPMG",
@@ -2149,6 +2150,8 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
 ```
 
 `profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU, `quoteClosingNote` is the line the bot appends to every quote (`null` = none). It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
+
+`internalWaIds` are the organization's active WhatsApp lines (this number included) as digits, `54` + area + number without WhatsApp's mobile `9`. A message from one of them (a branch writing to the office from its bot number) is kept for the inbox and never answered by the bot, and the inactivity goodbye is not sent to it either.
 
 `404 Not Found` — Phone number not registered or producer inactive
 

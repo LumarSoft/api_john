@@ -262,6 +262,24 @@ describe('BotService', () => {
       )
     })
 
+    it("lists the organization's other lines so the bot never answers them (2/11 loop)", async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: true })
+      prisma.phoneNumber.findMany.mockResolvedValueOnce([
+        { producerId: 2, number: '+54 9 341 275-7294', phoneNumberId: 'P1' },
+        { producerId: 2, number: '+54 9 341 702-8217', phoneNumberId: 'P2' },
+        { producerId: 2, number: '1264573413408363', phoneNumberId: '1264573413408363' },
+      ])
+
+      await expect(service.getContext('P2')).resolves.toEqual(
+        expect.objectContaining({ internalWaIds: ['543412757294', '543417028217'] }),
+      )
+      expect(prisma.phoneNumber.findMany.mock.calls[0][0].where).toMatchObject({
+        producerId: { in: [2] },
+        isActive: true,
+        deletedAt: null,
+      })
+    })
+
     it("gives the bot the organization's own name and data", async () => {
       prisma.phoneNumber.findFirst.mockResolvedValue(
         producer({
@@ -899,6 +917,18 @@ describe('BotService', () => {
       expect(result[0]).toEqual(
         expect.objectContaining({ conversationId: 7, waId: 'wa1', phoneNumberId: 'P1', isOpenNow: true }),
       )
+    })
+
+    it("finalizes silently a chat with another of the organization's own lines (2/11 loop)", async () => {
+      prisma.conversation.findMany.mockResolvedValue([candidateWith(alwaysOpen, { waId: '5493417028217' })])
+      prisma.phoneNumber.findMany
+        .mockResolvedValueOnce([]) // numbers whose switch is off
+        .mockResolvedValueOnce([{ producerId: 1, number: '+54 9 341 702-8217', phoneNumberId: 'P2' }])
+
+      const result = await service.claimPendingWarnings()
+
+      expect(prisma.conversation.updateMany).toHaveBeenCalled()
+      expect(result).toHaveLength(0)
     })
 
     it('still sends the goodbye outside office hours, flagged as closed', async () => {
