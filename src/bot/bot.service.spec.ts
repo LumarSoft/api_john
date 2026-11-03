@@ -854,6 +854,29 @@ describe('BotService', () => {
       expect(result).toEqual({ conversationId: 9, botPaused: true, created: true })
     })
 
+    it('runs the transaction again when MySQL rolled it back as a deadlock (2/11, three files in one second)', async () => {
+      const tx = {
+        message: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        conversation: { update: jest.fn().mockResolvedValue({}) },
+      }
+      prisma.$transaction
+        .mockRejectedValueOnce(
+          Object.assign(new Error('Transaction failed due to a write conflict'), { code: 'P2034' }),
+        )
+        .mockImplementationOnce(async (cb: any) => cb(tx))
+
+      const result = await service.recordAgentEcho({
+        phoneNumberId: 'P1',
+        waId: 'wa1',
+        content: '[documento cupon.pdf]',
+        waMessageId: 'wamid.3',
+      })
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+      expect(tx.message.createMany).toHaveBeenCalledTimes(1)
+      expect(result.created).toBe(true)
+    })
+
     it('turns a retried wamid into a no-op', async () => {
       const tx = {
         message: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },

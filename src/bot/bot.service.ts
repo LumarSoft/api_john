@@ -1,9 +1,10 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere } from '../common/poliza-vigencia'
 import { canonicalWaId, isSamePhone, phoneSuffix } from '../common/phone-match'
+import { retryOnWriteConflict } from '../common/prisma-retry'
 import { estimateNextDueDate } from '../common/next-installment'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import { VehicleType } from '../infoauto/infoauto.types'
@@ -138,6 +139,7 @@ type RawPolicy = Record<string, unknown> | null
 
 @Injectable()
 export class BotService {
+  private readonly logger = new Logger(BotService.name)
   private readonly sessionTimeoutMs: number
   private readonly wabaTokenEncryptionKey: string | undefined
   // Organization that keeps the bot's built-in values while it has no saved profile.
@@ -277,39 +279,49 @@ export class BotService {
         select: { id: true, botPaused: true },
       }))
 
-    const created = await this.prisma.$transaction(async tx => {
-      const inserted = await tx.message.createMany({
-        data: [
-          {
-            conversationId: conversation.id,
-            role: 'assistant',
-            content: dto.content,
-            waMessageId: dto.waMessageId ?? null,
-            source: 'app_echo',
-          },
-        ],
-        skipDuplicates: true,
-      })
+    // Several files sent from the app in one second arrive as echoes at the
+    // same time and race on this conversation row; MySQL rolls one back as a
+    // deadlock, so the loser runs again (the insert is idempotent by wamid).
+    const created = await retryOnWriteConflict(
+      () =>
+        this.prisma.$transaction(async tx => {
+          const inserted = await tx.message.createMany({
+            data: [
+              {
+                conversationId: conversation.id,
+                role: 'assistant',
+                content: dto.content,
+                waMessageId: dto.waMessageId ?? null,
+                source: 'app_echo',
+              },
+            ],
+            skipDuplicates: true,
+          })
 
-      // Meta retries webhooks. The unique wamid turns a retry into a no-op
-      // instead of a second transcript bubble and a second handover event.
-      if (inserted.count === 0) return false
+          // Meta retries webhooks. The unique wamid turns a retry into a no-op
+          // instead of a second transcript bubble and a second handover event.
+          if (inserted.count === 0) return false
 
-      await tx.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          lastMessageAt: new Date(),
-          warnedAt: null,
-          botPaused: true,
-          status: 'open',
-          // Only stamp the first handover of this stretch so the inbox can show
-          // "since when" a human has been on it.
-          ...(conversation.botPaused ? {} : { handedOverAt: new Date() }),
-        },
-      })
+          await tx.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              lastMessageAt: new Date(),
+              warnedAt: null,
+              botPaused: true,
+              status: 'open',
+              // Only stamp the first handover of this stretch so the inbox can show
+              // "since when" a human has been on it.
+              ...(conversation.botPaused ? {} : { handedOverAt: new Date() }),
+            },
+          })
 
-      return true
-    })
+          return true
+        }),
+      {
+        onRetry: attempt =>
+          this.logger.warn(`Agent echo for conversation ${conversation.id} hit a deadlock, retrying (${attempt})`),
+      },
+    )
 
     // The employee answered from the app: her pending matters are in progress.
     if (created) await this.novedades.markConversationAnswered(conversation.id)
