@@ -4002,9 +4002,9 @@ Whether Triunfo is accepting the credentials of the user's organization, for the
 
 How the external services the platform depends on are answering, for the panel's Status section: each Triunfo web service and InfoAuto catalog (platform-wide), the organization's Triunfo user and its WhatsApp numbers. Every real call reports its outcome; a failure opens an incident and the next call that works ends it. A request refused on its merits (a policy or model that does not exist, "productor no válido" for one code) counts as the service answering.
 
-Each incident is handed once to the AI model (OpenAI, `OPENAI_API_KEY` and `OPENAI_MODEL`, the bot's account), and again only if it starts failing with another kind or status. It says in plain words what is failing and whose fault it is: `explanation.blame` is `PROVIDER` (Triunfo's or InfoAuto's side), `PLATFORM` (the platform's user or subscription) or `UNKNOWN`. `explanation` is null until the model answers, without a key, or when the explanation is of an earlier failure; the section asks again within minutes.
+Each incident is handed once to the AI model (OpenAI, `OPENAI_API_KEY` and `OPENAI_MODEL`, the bot's account), and again only if it starts failing with another kind or status. It says in plain words what is failing and whose fault it is: `explanation.blame` is `PROVIDER` (Triunfo's or InfoAuto's side), `PLATFORM` (the platform's user or subscription) or `UNKNOWN`. `explanation` is null until the model answers, without a key, or when the explanation is of an earlier failure; the section asks again within minutes. Once explained, an incident still open is mailed to `INTEGRATION_ALERT_EMAIL` (comma-separated; at most every 6 hours for the same service failing the same way).
 
-**Auth required:** Yes — SuperAdmin or OWNER. The SuperAdmin sees the organization's numbers; the OWNER sees every organization's numbers, the organizations whose Triunfo credentials are refused (`triunfoAccess`) and the raw `sample` of each incident.
+**Auth required:** Yes (any panel user). An admin sees only their own numbers and the SuperAdmin the organization's; the OWNER sees every organization's numbers, the organizations whose Triunfo credentials are refused (`triunfoAccess`) and the raw `sample` of each incident.
 
 **Responses**
 
@@ -4090,8 +4090,8 @@ Each incident is handed once to the AI model (OpenAI, `OPENAI_API_KEY` and `OPEN
 { "statusCode": 401, "message": "Unauthorized" }
 ```
 
-`403 Forbidden` — a client (portal) token, or an admin who is not SuperAdmin
+`403 Forbidden` — a client (portal) token
 
 ```json
-{ "statusCode": 403, "message": "Insufficient role", "error": "Forbidden" }
+{ "statusCode": 403, "message": "User access required", "error": "Forbidden" }
 ```

@@ -1,5 +1,7 @@
 import { BadGatewayException } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
+import type { ScopeService } from '../common/scope/scope.service'
+import type { MailService } from '../mail/mail.service'
 import type { PrismaService } from '../prisma/prisma.service'
 import { parseExplanation, type IncidentExplainerService } from './incident-explainer.service'
 import { IntegrationStatusService, pageText, type IntegrationFailure } from './integration-status.service'
@@ -57,7 +59,7 @@ async function settle() {
 }
 
 /** An in-memory stand-in for the tables the service touches. */
-function setup() {
+function setup(env: Record<string, string> = {}) {
   const components = new Map<string, ComponentRow>()
   const incidents = new Map<number, IncidentRow>()
   let nextId = 1
@@ -134,16 +136,20 @@ function setup() {
       update: jest.fn(({ where, data }: { where: { id: number }; data: Record<string, unknown> }) =>
         Promise.resolve(applyIncident(incidents.get(where.id)!, data)),
       ),
-      findFirst: jest.fn(({ where }: { where: { id?: number; componentId?: number; endedAt?: { gte: Date } } }) => {
-        if (where.id !== undefined) {
-          const row = incidents.get(where.id)
-          return Promise.resolve(row ? withComponent(row) : null)
-        }
-        const match = [...incidents.values()]
-          .filter(i => i.componentId === where.componentId && i.endedAt && i.endedAt >= where.endedAt!.gte)
-          .sort((a, b) => b.endedAt!.getTime() - a.endedAt!.getTime())[0]
-        return Promise.resolve(match ? { id: match.id } : null)
-      }),
+      findFirst: jest.fn(
+        ({ where }: { where: { id?: number; componentId?: number; endedAt?: { gte: Date } | null } }) => {
+          if (where.id !== undefined) {
+            const row = incidents.get(where.id)
+            // The alert asks only for an incident still open.
+            if (row && 'endedAt' in where && where.endedAt === null && row.endedAt) return Promise.resolve(null)
+            return Promise.resolve(row ? withComponent(row) : null)
+          }
+          const match = [...incidents.values()]
+            .filter(i => i.componentId === where.componentId && i.endedAt && i.endedAt >= where.endedAt!.gte!)
+            .sort((a, b) => b.endedAt!.getTime() - a.endedAt!.getTime())[0]
+          return Promise.resolve(match ? { id: match.id } : null)
+        },
+      ),
       findMany: jest.fn(({ where }: { where: { id?: { in: number[] } } }) => {
         const rows = [...incidents.values()].filter(i => !where.id || where.id.in.includes(i.id))
         return Promise.resolve(rows.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime()).map(withComponent))
@@ -162,14 +168,18 @@ function setup() {
     phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
   }
   const explainer = { enabled: true, explain: jest.fn().mockResolvedValue(EXPLANATION) }
-  const config = { get: () => undefined } as unknown as ConfigService
+  const scope = { ownMetaPhoneNumberIds: jest.fn().mockResolvedValue(null) }
+  const mail = { sendAlert: jest.fn().mockResolvedValue(undefined) }
+  const config = { get: (key: string) => env[key] } as unknown as ConfigService
   const service = new IntegrationStatusService(
     prisma as unknown as PrismaService,
     explainer as unknown as IncidentExplainerService,
+    scope as unknown as ScopeService,
+    mail as unknown as MailService,
     config,
   )
   const component = (key: string) => components.get(key)!
-  return { service, prisma, explainer, components, incidents, component }
+  return { service, prisma, explainer, scope, mail, components, incidents, component }
 }
 
 describe('IntegrationStatusService — reports', () => {
@@ -288,6 +298,17 @@ describe('IntegrationStatusService — overview', () => {
 
     expect(superAdmin.incidents[0]).not.toHaveProperty('sample')
     expect(owner.incidents[0].sample).toBe(TRIUNFO_404)
+  })
+
+  it('gives an admin only their own numbers, like the rest of the panel', async () => {
+    const { service, prisma, scope } = setup()
+    scope.ownMetaPhoneNumberIds.mockResolvedValue(['meta-1'])
+
+    await service.overview({ id: 4, producerId: 1, role: 'ADMIN' })
+
+    expect(prisma.phoneNumber.findMany.mock.calls[0][0]).toMatchObject({
+      where: { producerId: 1, phoneNumberId: { in: ['meta-1'] } },
+    })
   })
 
   it("gives the SuperAdmin their organization's Triunfo user and numbers, and the OWNER every number", async () => {
@@ -414,5 +435,64 @@ describe('parseExplanation', () => {
   it('refuses an answer without an explanation or with an unknown blame', () => {
     expect(() => parseExplanation(JSON.stringify({ ...EXPLANATION, blame: 'LUMARSOFT' }))).toThrow(BadGatewayException)
     expect(() => parseExplanation(JSON.stringify({ ...EXPLANATION, explanation: ' ' }))).toThrow(BadGatewayException)
+  })
+})
+
+describe('IntegrationStatusService — mail to the sales advisor', () => {
+  const ADVISOR = { INTEGRATION_ALERT_EMAIL: 'asesor@example.com, ventas@example.com' }
+
+  it('mails the explanation once the model answers', async () => {
+    const { service, mail } = setup(ADVISOR)
+    await service.failed('triunfo.documentDownload', NOT_FOUND)
+    await settle()
+
+    expect(mail.sendAlert).toHaveBeenCalledTimes(1)
+    const alert = mail.sendAlert.mock.calls[0][0] as { to: string[]; subject: string; text: string }
+    expect(alert.to).toEqual(['asesor@example.com', 'ventas@example.com'])
+    expect(alert.subject).toBe(
+      '⚠️ Falla en Triunfo Seguros: la descarga de PDFs de TriunfoNet — responsable: Triunfo Seguros',
+    )
+    expect(alert.text).toContain(EXPLANATION.explanation)
+    expect(alert.text).toContain(`Responsable: ${EXPLANATION.blameReason}`)
+    expect(alert.text).toContain(
+      '«ERROR 404 PÁGINA NO ENCONTRADA La página que intenta visitar no existe o ha sido movida.»',
+    )
+  })
+
+  it('mails nothing without recipients, nor for a blip that ended while the model answered', async () => {
+    const quiet = setup()
+    await quiet.service.failed('triunfo.documentDownload', NOT_FOUND)
+    await settle()
+    expect(quiet.mail.sendAlert).not.toHaveBeenCalled()
+
+    const blip = setup(ADVISOR)
+    let answer: (value: typeof EXPLANATION) => void = () => undefined
+    blip.explainer.explain.mockReturnValue(new Promise(resolve => (answer = resolve)))
+    await blip.service.failed('triunfo.RESTCotizadorAutV2', { kind: 'TIMEOUT', message: 'timeout of 15000ms exceeded' })
+    await blip.service.succeeded('triunfo.RESTCotizadorAutV2')
+    answer(EXPLANATION)
+    await settle()
+    expect(blip.mail.sendAlert).not.toHaveBeenCalled()
+  })
+
+  it('mails the same service failing the same way at most every 6 hours', async () => {
+    jest.useFakeTimers({ now: new Date('2026-11-03T12:00:00Z') })
+    const { service, mail } = setup(ADVISOR)
+    await service.failed('triunfo.documentDownload', NOT_FOUND)
+    await settle()
+    jest.setSystemTime(new Date('2026-11-03T12:30:00Z'))
+    await service.succeeded('triunfo.documentDownload')
+    jest.setSystemTime(new Date('2026-11-03T13:00:00Z'))
+    await service.failed('triunfo.documentDownload', NOT_FOUND)
+    await settle()
+    expect(mail.sendAlert).toHaveBeenCalledTimes(1)
+
+    jest.setSystemTime(new Date('2026-11-03T19:00:00Z'))
+    await service.succeeded('triunfo.documentDownload')
+    jest.setSystemTime(new Date('2026-11-03T19:30:00Z'))
+    await service.failed('triunfo.documentDownload', NOT_FOUND)
+    await settle()
+    expect(mail.sendAlert).toHaveBeenCalledTimes(2)
+    jest.useRealTimers()
   })
 })

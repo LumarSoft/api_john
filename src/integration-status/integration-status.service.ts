@@ -2,8 +2,10 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { isAxiosError } from 'axios'
 import { IntegrationBlame, IntegrationFailureKind, Role } from 'generated/prisma/client'
-import type { ScopeUser } from '../common/scope/scope.service'
+import { ScopeService, type ScopeUser } from '../common/scope/scope.service'
+import { MailService } from '../mail/mail.service'
 import { PrismaService } from '../prisma/prisma.service'
+import { incidentExplainedCopy } from './integration-alerts'
 import { COMPONENT_CONTEXT, INTEGRATION_COMPONENTS, type IntegrationComponentKey } from './integration-components'
 import { IncidentExplainerService, type IncidentContext } from './incident-explainer.service'
 
@@ -119,7 +121,9 @@ const incidentSelect = {
  *
  * Each incident is handed to the AI model once (and again only if it starts
  * failing differently), to say in plain words what is failing and whose fault
- * it is; the panel shows that to the SuperAdmin.
+ * it is; the panel shows that to everyone in the office, and the explanation
+ * is mailed to INTEGRATION_ALERT_EMAIL (the sales advisor the clients complain
+ * to) so they hear about it before the clients do.
  *
  * The API runs as a single process, so what each component looks like is kept
  * in memory and calls to one component are serialized. Nothing here ever
@@ -135,18 +139,29 @@ export class IntegrationStatusService {
   private static readonly REOPEN_WITHIN_MS = 15 * 60 * 1000
   // A failed explanation is asked again after this long.
   private static readonly EXPLAIN_RETRY_MS = 10 * 60 * 1000
+  // The same service failing the same way is mailed at most this often: a flaky one is not a mail an hour.
+  private static readonly ALERT_AGAIN_AFTER_MS = 6 * 60 * 60 * 1000
   private readonly known = new Map<IntegrationComponentKey, KnownComponent>()
   private readonly queues = new Map<IntegrationComponentKey, Promise<void>>()
   // "incidentId|signature" → when it was last handed to the model.
   private readonly explainTriedAt = new Map<string, number>()
+  // "key|signature" → when it was last mailed.
+  private readonly alertedAt = new Map<string, number>()
+  private readonly alertRecipients: string[]
   private readonly defaultProducerSlug: string
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly explainer: IncidentExplainerService,
+    private readonly scope: ScopeService,
+    private readonly mail: MailService,
     config: ConfigService,
   ) {
     this.defaultProducerSlug = config.get<string>('DEFAULT_PRODUCER_SLUG') ?? 'john'
+    this.alertRecipients = (config.get<string>('INTEGRATION_ALERT_EMAIL') ?? '')
+      .split(',')
+      .map(e => e.trim())
+      .filter(Boolean)
   }
 
   /** The service answered: ends its open incident. */
@@ -326,10 +341,20 @@ export class IntegrationStatusService {
     ]
   }
 
-  /** The organization's numbers (every organization's, for the OWNER) and whether Meta still delivers on each one. */
+  /**
+   * The numbers the user sees and whether Meta still delivers on each one: an
+   * admin's own numbers, the organization's for the SuperAdmin, every
+   * organization's for the OWNER.
+   */
   private async whatsappNumbers(user: ScopeUser, isOwner: boolean): Promise<WhatsappNumberView[]> {
+    const own = isOwner ? null : await this.scope.ownMetaPhoneNumberIds(user)
     const numbers = await this.prisma.phoneNumber.findMany({
-      where: { deletedAt: null, isActive: true, ...(isOwner ? {} : { producerId: user.producerId }) },
+      where: {
+        deletedAt: null,
+        isActive: true,
+        ...(isOwner ? {} : { producerId: user.producerId }),
+        ...(own ? { phoneNumberId: { in: own } } : {}),
+      },
       orderBy: [{ producerId: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
@@ -372,7 +397,8 @@ export class IntegrationStatusService {
       })
       if (!incident || incident.aiExplainedFor === signature) return
       const key = incident.component.key as IntegrationComponentKey
-      const explanation = await this.explainer.explain(await this.incidentContext(key, incident))
+      const context = await this.incidentContext(key, incident)
+      const explanation = await this.explainer.explain(context)
       await this.prisma.integrationIncident.update({
         where: { id: incidentId },
         data: {
@@ -383,11 +409,46 @@ export class IntegrationStatusService {
           aiExplainedFor: signature,
         },
       })
+      await this.alert(incidentId, `${key}|${signature}`, () =>
+        incidentExplainedCopy({
+          provider: context.provider,
+          service: context.service,
+          explanation,
+          kind: incident.kind,
+          httpStatus: incident.httpStatus,
+          message: incident.message,
+          answer: pageText(incident.sample),
+          startedAt: incident.startedAt,
+          failures: incident.failures,
+        }),
+      )
     } catch (err) {
       this.logger.warn(
         `No se pudo explicar el incidente ${incidentId}: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
+  }
+
+  /**
+   * Mails the explained incident, unless it already ended (a blip that fixed
+   * itself while the model answered) or this same failure was mailed lately.
+   */
+  private async alert(
+    incidentId: number,
+    dedupKey: string,
+    copy: () => ReturnType<typeof incidentExplainedCopy>,
+  ): Promise<void> {
+    if (this.alertRecipients.length === 0) return
+    const last = this.alertedAt.get(dedupKey)
+    if (last !== undefined && Date.now() - last < IntegrationStatusService.ALERT_AGAIN_AFTER_MS) return
+    const open = await this.prisma.integrationIncident.findFirst({
+      where: { id: incidentId, endedAt: null, deletedAt: null },
+      select: { id: true },
+    })
+    if (!open) return
+    this.alertedAt.set(dedupKey, Date.now())
+    const { subject, text } = copy()
+    await this.mail.sendAlert({ to: this.alertRecipients, subject, text })
   }
 
   /** The failure, plus how the provider's other services are doing: whether its server is up at all. */
