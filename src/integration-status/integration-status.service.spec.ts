@@ -1,6 +1,7 @@
+import { BadGatewayException } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
-import type { ScopeService } from '../common/scope/scope.service'
 import type { PrismaService } from '../prisma/prisma.service'
+import { parseExplanation, type IncidentExplainerService } from './incident-explainer.service'
 import { IntegrationStatusService, pageText, type IntegrationFailure } from './integration-status.service'
 
 interface ComponentRow {
@@ -22,6 +23,11 @@ interface IncidentRow {
   startedAt: Date
   lastFailureAt: Date
   endedAt: Date | null
+  aiExplanation: string | null
+  aiBlame: string | null
+  aiBlameReason: string | null
+  aiExplainedAt: Date | null
+  aiExplainedFor: string | null
   deletedAt: null
 }
 
@@ -36,6 +42,18 @@ const NOT_FOUND: IntegrationFailure = {
   httpStatus: 404,
   message: 'HTTP 404 Not Found',
   sample: TRIUNFO_404,
+}
+
+const EXPLANATION = {
+  explanation:
+    'Triunfo dio de baja o movió el servicio de documentación: el bot no puede mandar pólizas ni tarjetas. El resto de Triunfo funciona.',
+  blame: 'PROVIDER' as const,
+  blameReason: 'Triunfo: dio de baja o movió esta dirección sin avisar',
+}
+
+/** Lets the explanation, which nobody awaits, run to the end. */
+async function settle() {
+  for (let i = 0; i < 30; i++) await Promise.resolve()
 }
 
 /** An in-memory stand-in for the tables the service touches. */
@@ -54,9 +72,10 @@ function setup() {
     }
     return { ...row }
   }
+  const componentOf = (row: IncidentRow) => [...components.values()].find(c => c.id === row.componentId)
   const withComponent = (row: IncidentRow) => ({
     ...row,
-    component: { key: [...components.values()].find(c => c.id === row.componentId)?.key ?? '' },
+    component: { key: componentOf(row)?.key ?? '', lastSuccessAt: componentOf(row)?.lastSuccessAt ?? null },
   })
 
   const prisma = {
@@ -82,16 +101,31 @@ function setup() {
         Object.assign(row, data)
         return Promise.resolve({ ...row })
       }),
-      findMany: jest.fn(() => Promise.resolve([...components.values()].map(c => ({ ...c })))),
+      findMany: jest.fn(({ where }: { where: { key?: { startsWith: string; not: string } } }) =>
+        Promise.resolve(
+          [...components.values()]
+            .filter(c => !where.key || (c.key.startsWith(where.key.startsWith) && c.key !== where.key.not))
+            .map(c => ({ ...c })),
+        ),
+      ),
     },
     integrationIncident: {
-      create: jest.fn(({ data }: { data: Omit<IncidentRow, 'id' | 'failures' | 'endedAt' | 'deletedAt'> }) => {
+      create: jest.fn(({ data }: { data: Partial<IncidentRow> & Pick<IncidentRow, 'componentId' | 'kind'> }) => {
         const row: IncidentRow = {
+          httpStatus: null,
+          message: '',
           sample: null,
+          startedAt: new Date(),
+          lastFailureAt: new Date(),
           ...data,
           id: nextId++,
           failures: 1,
           endedAt: null,
+          aiExplanation: null,
+          aiBlame: null,
+          aiBlameReason: null,
+          aiExplainedAt: null,
+          aiExplainedFor: null,
           deletedAt: null,
         }
         incidents.set(row.id, row)
@@ -100,9 +134,13 @@ function setup() {
       update: jest.fn(({ where, data }: { where: { id: number }; data: Record<string, unknown> }) =>
         Promise.resolve(applyIncident(incidents.get(where.id)!, data)),
       ),
-      findFirst: jest.fn(({ where }: { where: { componentId: number; endedAt: { gte: Date } } }) => {
+      findFirst: jest.fn(({ where }: { where: { id?: number; componentId?: number; endedAt?: { gte: Date } } }) => {
+        if (where.id !== undefined) {
+          const row = incidents.get(where.id)
+          return Promise.resolve(row ? withComponent(row) : null)
+        }
         const match = [...incidents.values()]
-          .filter(i => i.componentId === where.componentId && i.endedAt && i.endedAt >= where.endedAt.gte)
+          .filter(i => i.componentId === where.componentId && i.endedAt && i.endedAt >= where.endedAt!.gte)
           .sort((a, b) => b.endedAt!.getTime() - a.endedAt!.getTime())[0]
         return Promise.resolve(match ? { id: match.id } : null)
       }),
@@ -123,15 +161,15 @@ function setup() {
     },
     phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
   }
-  const scope = { ownMetaPhoneNumberIds: jest.fn().mockResolvedValue(null) }
+  const explainer = { enabled: true, explain: jest.fn().mockResolvedValue(EXPLANATION) }
   const config = { get: () => undefined } as unknown as ConfigService
   const service = new IntegrationStatusService(
     prisma as unknown as PrismaService,
-    scope as unknown as ScopeService,
+    explainer as unknown as IncidentExplainerService,
     config,
   )
   const component = (key: string) => components.get(key)!
-  return { service, prisma, scope, components, incidents, component }
+  return { service, prisma, explainer, components, incidents, component }
 }
 
 describe('IntegrationStatusService — reports', () => {
@@ -224,7 +262,7 @@ describe('IntegrationStatusService — overview', () => {
     await service.failed('triunfo.RESTDocumentosV2', NOT_FOUND)
     await service.succeeded('triunfo.RESTCotizadorAutV2')
 
-    const overview = await service.overview({ id: 5, producerId: 1, role: 'ADMIN' })
+    const overview = await service.overview({ id: 5, producerId: 1, role: 'SUPERADMIN' })
     const byKey = new Map(overview.components.map(c => [c.key, c]))
 
     expect(overview.components).toHaveLength(7)
@@ -245,30 +283,29 @@ describe('IntegrationStatusService — overview', () => {
     const { service } = setup()
     await service.failed('triunfo.RESTDocumentosV2', NOT_FOUND)
 
-    const admin = await service.overview({ id: 5, producerId: 1, role: 'ADMIN' })
+    const superAdmin = await service.overview({ id: 5, producerId: 1, role: 'SUPERADMIN' })
     const owner = await service.overview({ id: 1, producerId: 9, role: 'OWNER' })
 
-    expect(admin.incidents[0]).not.toHaveProperty('sample')
+    expect(superAdmin.incidents[0]).not.toHaveProperty('sample')
     expect(owner.incidents[0].sample).toBe(TRIUNFO_404)
   })
 
-  it("gives an admin their organization's Triunfo user and only their own numbers", async () => {
-    const { service, prisma, scope } = setup()
-    scope.ownMetaPhoneNumberIds.mockResolvedValue(['meta-1'])
+  it("gives the SuperAdmin their organization's Triunfo user and numbers, and the OWNER every number", async () => {
+    const { service, prisma } = setup()
     prisma.phoneNumber.findMany.mockResolvedValue([
       {
         id: 3,
-        number: '+54 341 275-7294',
+        number: '+54 341 000-0000',
         producer: { name: 'JPMG' },
         wabaAccount: { disconnectedAt: null, disconnectReason: null, tokenExpiresAt: new Date('2020-01-01') },
       },
     ])
 
-    const overview = await service.overview({ id: 5, producerId: 1, role: 'ADMIN' })
+    const overview = await service.overview({ id: 5, producerId: 1, role: 'SUPERADMIN' })
+    await service.overview({ id: 1, producerId: 9, role: 'OWNER' })
 
-    expect(prisma.phoneNumber.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ producerId: 1, phoneNumberId: { in: ['meta-1'] } }) }),
-    )
+    expect(prisma.phoneNumber.findMany.mock.calls[0][0]).toMatchObject({ where: { producerId: 1 } })
+    expect(prisma.phoneNumber.findMany.mock.calls[1][0].where).not.toHaveProperty('producerId')
     // Meta's permission expired: the number no longer sends.
     expect(overview.whatsapp[0].status).toBe('failing')
     expect(overview.triunfoAccess).toEqual([
@@ -289,5 +326,93 @@ describe('pageText', () => {
     expect(pageText('{"SDTWSDocumentosOut":null}')).toBeNull()
     expect(pageText('%PDF-1.4')).toBeNull()
     expect(pageText(null)).toBeNull()
+  })
+})
+
+describe('IntegrationStatusService — AI explanation', () => {
+  it('hands a new incident to the model once, with how the provider’s other services are doing', async () => {
+    const { service, explainer, incidents } = setup()
+    await service.succeeded('triunfo.RESTCotizadorAutV2')
+    await service.failed('triunfo.RESTDocumentosV2', NOT_FOUND)
+    await settle()
+    await service.failed('triunfo.RESTDocumentosV2', NOT_FOUND)
+    await settle()
+
+    expect(explainer.explain).toHaveBeenCalledTimes(1)
+    const context = explainer.explain.mock.calls[0][0]
+    expect(context).toMatchObject({
+      provider: 'Triunfo Seguros',
+      failure: {
+        kind: 'HTTP_ERROR',
+        httpStatus: 404,
+        answer: 'ERROR 404 PÁGINA NO ENCONTRADA La página que intenta visitar no existe o ha sido movida.',
+      },
+      otherServices: [{ service: 'RESTCotizadorAutV2, el cotizador de autos y motos', state: 'funciona' }],
+    })
+    expect([...incidents.values()][0]).toMatchObject({
+      aiBlame: 'PROVIDER',
+      aiExplanation: EXPLANATION.explanation,
+      aiExplainedFor: 'HTTP_ERROR:404',
+    })
+  })
+
+  it('shows the explanation, and hides it once the service fails some other way until that is explained', async () => {
+    const { service, explainer } = setup()
+    await service.failed('triunfo.RESTDocumentosV2', NOT_FOUND)
+    await settle()
+
+    const explained = await service.overview({ id: 5, producerId: 1, role: 'SUPERADMIN' })
+    expect(explained.components.find(c => c.key === 'triunfo.RESTDocumentosV2')?.incident?.explanation).toMatchObject({
+      text: EXPLANATION.explanation,
+      blame: 'PROVIDER',
+      blameReason: EXPLANATION.blameReason,
+    })
+
+    explainer.explain.mockReturnValue(new Promise(() => undefined))
+    await service.failed('triunfo.RESTDocumentosV2', { kind: 'TIMEOUT', message: 'timeout of 15000ms exceeded' })
+    await settle()
+    const changed = await service.overview({ id: 5, producerId: 1, role: 'SUPERADMIN' })
+
+    expect(explainer.explain).toHaveBeenCalledTimes(2)
+    expect(changed.components.find(c => c.key === 'triunfo.RESTDocumentosV2')?.incident?.explanation).toBeNull()
+  })
+
+  it('never throws when the model fails, and asks again later from the section', async () => {
+    jest.useFakeTimers({ now: new Date('2026-11-03T12:00:00Z') })
+    const { service, explainer } = setup()
+    explainer.explain.mockRejectedValueOnce(new BadGatewayException('timeout'))
+
+    await expect(service.failed('triunfo.RESTDocumentosV2', NOT_FOUND)).resolves.toBeUndefined()
+    await settle()
+    await service.overview({ id: 5, producerId: 1, role: 'SUPERADMIN' })
+    expect(explainer.explain).toHaveBeenCalledTimes(1)
+
+    jest.setSystemTime(new Date('2026-11-03T12:11:00Z'))
+    await service.overview({ id: 5, producerId: 1, role: 'SUPERADMIN' })
+    await settle()
+    expect(explainer.explain).toHaveBeenCalledTimes(2)
+    jest.useRealTimers()
+  })
+
+  it('asks nothing without an OpenAI key', async () => {
+    const { service, explainer } = setup()
+    explainer.enabled = false
+    await service.failed('triunfo.RESTDocumentosV2', NOT_FOUND)
+    await settle()
+    expect(explainer.explain).not.toHaveBeenCalled()
+  })
+})
+
+describe('parseExplanation', () => {
+  it('reads what the model answered, cut to the columns', () => {
+    expect(parseExplanation(JSON.stringify({ ...EXPLANATION, explanation: 'x'.repeat(700) }))).toMatchObject({
+      blame: 'PROVIDER',
+      explanation: 'x'.repeat(600),
+    })
+  })
+
+  it('refuses an answer without an explanation or with an unknown blame', () => {
+    expect(() => parseExplanation(JSON.stringify({ ...EXPLANATION, blame: 'LUMARSOFT' }))).toThrow(BadGatewayException)
+    expect(() => parseExplanation(JSON.stringify({ ...EXPLANATION, explanation: ' ' }))).toThrow(BadGatewayException)
   })
 })

@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { isAxiosError } from 'axios'
-import { IntegrationFailureKind, Role } from 'generated/prisma/client'
-import { ScopeService, type ScopeUser } from '../common/scope/scope.service'
+import { IntegrationBlame, IntegrationFailureKind, Role } from 'generated/prisma/client'
+import type { ScopeUser } from '../common/scope/scope.service'
 import { PrismaService } from '../prisma/prisma.service'
-import { INTEGRATION_COMPONENTS, type IntegrationComponentKey } from './integration-components'
+import { COMPONENT_CONTEXT, INTEGRATION_COMPONENTS, type IntegrationComponentKey } from './integration-components'
+import { IncidentExplainerService, type IncidentContext } from './incident-explainer.service'
 
 export interface IntegrationFailure {
   kind: IntegrationFailureKind
@@ -30,6 +31,8 @@ export interface IncidentView {
   startedAt: Date
   lastFailureAt: Date
   endedAt: Date | null
+  /** What the AI model says is failing and whose fault it is; null until it answers. */
+  explanation: { text: string; blame: IntegrationBlame; blameReason: string; at: Date } | null
 }
 
 export interface ComponentView {
@@ -79,6 +82,7 @@ interface KnownComponent {
 const MESSAGE_MAX = 500
 const SAMPLE_MAX = 2000
 const ANSWER_MAX = 240
+const EXCERPT_MAX = 600
 const DAY_MS = 24 * 60 * 60 * 1000
 const HISTORY_DAYS = 30
 const HISTORY_LIMIT = 20
@@ -93,6 +97,11 @@ const incidentSelect = {
   startedAt: true,
   lastFailureAt: true,
   endedAt: true,
+  aiExplanation: true,
+  aiBlame: true,
+  aiBlameReason: true,
+  aiExplainedAt: true,
+  aiExplainedFor: true,
   component: { select: { key: true } },
 } as const
 
@@ -108,6 +117,10 @@ const incidentSelect = {
  * on its merits (a policy not found, a model that does not exist) is an
  * answer, so it counts as a success.
  *
+ * Each incident is handed to the AI model once (and again only if it starts
+ * failing differently), to say in plain words what is failing and whose fault
+ * it is; the panel shows that to the SuperAdmin.
+ *
  * The API runs as a single process, so what each component looks like is kept
  * in memory and calls to one component are serialized. Nothing here ever
  * throws: reporting a call must not change what the caller sees.
@@ -120,13 +133,17 @@ export class IntegrationStatusService {
   // A failure this soon after an incident ended reopens it: an intermittent
   // service is one incident, not dozens.
   private static readonly REOPEN_WITHIN_MS = 15 * 60 * 1000
+  // A failed explanation is asked again after this long.
+  private static readonly EXPLAIN_RETRY_MS = 10 * 60 * 1000
   private readonly known = new Map<IntegrationComponentKey, KnownComponent>()
   private readonly queues = new Map<IntegrationComponentKey, Promise<void>>()
+  // "incidentId|signature" → when it was last handed to the model.
+  private readonly explainTriedAt = new Map<string, number>()
   private readonly defaultProducerSlug: string
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly scope: ScopeService,
+    private readonly explainer: IncidentExplainerService,
     config: ConfigService,
   ) {
     this.defaultProducerSlug = config.get<string>('DEFAULT_PRODUCER_SLUG') ?? 'john'
@@ -182,6 +199,7 @@ export class IntegrationStatusService {
           }),
           this.prisma.integrationComponent.update({ where: { id: component.id }, data: { lastFailureAt: at } }),
         ])
+        this.requestExplanation(component.openIncidentId, signatureOf(failure))
         return
       }
 
@@ -214,6 +232,7 @@ export class IntegrationStatusService {
       })
       component.openIncidentId = incidentId
       if (!recent) this.logger.warn(`${key} empezó a fallar: ${failure.message}`)
+      this.requestExplanation(incidentId, signatureOf(failure))
     })
   }
 
@@ -239,6 +258,11 @@ export class IntegrationStatusService {
       this.triunfoAccess(user, isOwner),
       this.whatsappNumbers(user, isOwner),
     ])
+
+    // An incident the model has not explained yet (it failed, or it was busy) is asked again.
+    for (const incident of open) {
+      if (incident.aiExplainedFor !== signatureOf(incident)) this.requestExplanation(incident.id, signatureOf(incident))
+    }
 
     const byKey = new Map(rows.map(r => [r.key, r]))
     const openById = new Map(open.map(i => [i.id, i]))
@@ -302,16 +326,10 @@ export class IntegrationStatusService {
     ]
   }
 
-  /** The numbers the user sees, and whether Meta still delivers on each one. */
+  /** The organization's numbers (every organization's, for the OWNER) and whether Meta still delivers on each one. */
   private async whatsappNumbers(user: ScopeUser, isOwner: boolean): Promise<WhatsappNumberView[]> {
-    const own = isOwner ? null : await this.scope.ownMetaPhoneNumberIds(user)
     const numbers = await this.prisma.phoneNumber.findMany({
-      where: {
-        deletedAt: null,
-        isActive: true,
-        ...(isOwner ? {} : { producerId: user.producerId }),
-        ...(own ? { phoneNumberId: { in: own } } : {}),
-      },
+      where: { deletedAt: null, isActive: true, ...(isOwner ? {} : { producerId: user.producerId }) },
       orderBy: [{ producerId: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
@@ -334,6 +352,92 @@ export class IntegrationStatusService {
         tokenExpiresAt: waba?.tokenExpiresAt ?? null,
       }
     })
+  }
+
+  /** Hands the incident to the AI model, unless this same failure was just tried. Never awaited. */
+  private requestExplanation(incidentId: number, signature: string): void {
+    if (!this.explainer.enabled) return
+    const attempt = `${incidentId}|${signature}`
+    const triedAt = this.explainTriedAt.get(attempt)
+    if (triedAt !== undefined && Date.now() - triedAt < IntegrationStatusService.EXPLAIN_RETRY_MS) return
+    this.explainTriedAt.set(attempt, Date.now())
+    void this.explainIncident(incidentId, signature)
+  }
+
+  private async explainIncident(incidentId: number, signature: string): Promise<void> {
+    try {
+      const incident = await this.prisma.integrationIncident.findFirst({
+        where: { id: incidentId, deletedAt: null },
+        select: { ...incidentSelect, component: { select: { key: true, lastSuccessAt: true } } },
+      })
+      if (!incident || incident.aiExplainedFor === signature) return
+      const key = incident.component.key as IntegrationComponentKey
+      const explanation = await this.explainer.explain(await this.incidentContext(key, incident))
+      await this.prisma.integrationIncident.update({
+        where: { id: incidentId },
+        data: {
+          aiExplanation: explanation.explanation,
+          aiBlame: explanation.blame,
+          aiBlameReason: explanation.blameReason,
+          aiExplainedAt: new Date(),
+          aiExplainedFor: signature,
+        },
+      })
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo explicar el incidente ${incidentId}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+
+  /** The failure, plus how the provider's other services are doing: whether its server is up at all. */
+  private async incidentContext(
+    key: IntegrationComponentKey,
+    incident: {
+      kind: IntegrationFailureKind
+      httpStatus: number | null
+      message: string
+      sample: string | null
+      failures: number
+      startedAt: Date
+      component: { lastSuccessAt: Date | null }
+    },
+  ): Promise<IncidentContext> {
+    const prefix = `${key.split('.')[0]}.`
+    const siblings = await this.prisma.integrationComponent.findMany({
+      where: { deletedAt: null, key: { startsWith: prefix, not: key } },
+      select: { key: true, lastSuccessAt: true, openIncidentId: true },
+    })
+    const openIds = siblings.map(s => s.openIncidentId).filter((id): id is number => id !== null)
+    const open = await this.prisma.integrationIncident.findMany({
+      where: { id: { in: openIds } },
+      select: { id: true, kind: true, httpStatus: true },
+    })
+    const openById = new Map(open.map(i => [i.id, i]))
+    const context = COMPONENT_CONTEXT[key]
+    return {
+      ...context,
+      failure: {
+        kind: incident.kind,
+        httpStatus: incident.httpStatus,
+        message: incident.message,
+        answer: pageText(incident.sample) ?? maskedExcerpt(incident.sample),
+        startedAt: incident.startedAt,
+        failures: incident.failures,
+        lastSuccessAt: incident.component.lastSuccessAt,
+      },
+      otherServices: siblings
+        .filter((s): s is typeof s & { key: IntegrationComponentKey } => s.key in COMPONENT_CONTEXT)
+        .map(s => {
+          const failing = s.openIncidentId !== null ? openById.get(s.openIncidentId) : undefined
+          return {
+            service: COMPONENT_CONTEXT[s.key].service,
+            state: failing ? 'falla' : s.lastSuccessAt ? 'funciona' : 'sin datos',
+            lastSuccessAt: s.lastSuccessAt,
+            failure: failing ? { kind: failing.kind, httpStatus: failing.httpStatus } : null,
+          }
+        }),
+    }
   }
 
   /** The component's row, created the first time and then kept in memory. */
@@ -381,6 +485,17 @@ export function describeFailure(err: unknown): IntegrationFailure {
     return { kind: IntegrationFailureKind.NETWORK, message: err.code ? `${err.code}: ${err.message}` : err.message }
   }
   return { kind: IntegrationFailureKind.UNEXPECTED_RESPONSE, message: err instanceof Error ? err.message : String(err) }
+}
+
+/** Which failure an explanation is about: the same kind and status is the same failure. */
+export function signatureOf(failure: { kind: IntegrationFailureKind; httpStatus?: number | null }): string {
+  return `${failure.kind}:${failure.httpStatus ?? ''}`
+}
+
+/** The start of an answer that is not a page, with long numbers (policies, documents) blanked. */
+function maskedExcerpt(sample: string | null): string | null {
+  if (!sample) return null
+  return sample.slice(0, EXCERPT_MAX).replace(/\d{4,}/g, '#')
 }
 
 /**
@@ -445,10 +560,21 @@ function presentIncident(
     startedAt: Date
     lastFailureAt: Date
     endedAt: Date | null
+    aiExplanation: string | null
+    aiBlame: IntegrationBlame | null
+    aiBlameReason: string | null
+    aiExplainedAt: Date | null
+    aiExplainedFor: string | null
     component: { key: string }
   },
   isOwner: boolean,
 ): IncidentView {
+  // An explanation of a different failure (it started failing otherwise since) is not shown.
+  const explained =
+    incident.aiExplanation &&
+    incident.aiBlame &&
+    incident.aiExplainedAt &&
+    incident.aiExplainedFor === signatureOf(incident)
   return {
     id: incident.id,
     key: incident.component.key,
@@ -461,5 +587,13 @@ function presentIncident(
     startedAt: incident.startedAt,
     lastFailureAt: incident.lastFailureAt,
     endedAt: incident.endedAt,
+    explanation: explained
+      ? {
+          text: incident.aiExplanation as string,
+          blame: incident.aiBlame as IntegrationBlame,
+          blameReason: incident.aiBlameReason ?? '',
+          at: incident.aiExplainedAt as Date,
+        }
+      : null,
   }
 }

@@ -1152,6 +1152,15 @@ enum IntegrationFailureKind {
   NETWORK
 }
 
+// Whose fault an incident is, as the AI model reads it.
+enum IntegrationBlame {
+  // The service's side: its server down, an address it moved, a format it changed.
+  PROVIDER
+  // The platform's side: its user or subscription refused, a request it builds wrong.
+  PLATFORM
+  UNKNOWN
+}
+
 // One external service the platform depends on, e.g. "triunfo.RESTDocumentosV2"
 // or "infoauto.cars", and how its latest calls went. It is platform-wide: every
 // organization calls the same Triunfo and InfoAuto services. The panel's Status
@@ -1173,21 +1182,28 @@ model IntegrationComponent {
 // call and ends on the next one that works. Kind, status and message are the
 // latest failure's.
 model IntegrationIncident {
-  id            Int                    @id @default(autoincrement())
-  componentId   Int
-  component     IntegrationComponent   @relation(fields: [componentId], references: [id])
-  kind          IntegrationFailureKind
-  httpStatus    Int?
-  message       String                 @db.VarChar(500)
+  id             Int                    @id @default(autoincrement())
+  componentId    Int
+  component      IntegrationComponent   @relation(fields: [componentId], references: [id])
+  kind           IntegrationFailureKind
+  httpStatus     Int?
+  message        String                 @db.VarChar(500)
   // The latest answer behind it, cut short (Triunfo's 404 page). Never a request: those carry passwords.
-  sample        String?                @db.Text
-  failures      Int                    @default(1)
-  startedAt     DateTime
-  lastFailureAt DateTime
-  endedAt       DateTime?
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
-  deletedAt     DateTime?
+  sample         String?                @db.Text
+  failures       Int                    @default(1)
+  startedAt      DateTime
+  lastFailureAt  DateTime
+  endedAt        DateTime?
+  // What the AI model says is failing and whose fault it is, for the Status section.
+  aiExplanation  String?                @db.VarChar(600)
+  aiBlame        IntegrationBlame?
+  aiBlameReason  String?                @db.VarChar(300)
+  aiExplainedAt  DateTime?
+  // The failure it was explained for ("HTTP_ERROR:404"): a different one is explained again.
+  aiExplainedFor String?                @db.VarChar(40)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  deletedAt      DateTime?
 
   @@index([componentId, endedAt])
   @@index([startedAt])

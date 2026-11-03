@@ -4002,7 +4002,9 @@ Whether Triunfo is accepting the credentials of the user's organization, for the
 
 How the external services the platform depends on are answering, for the panel's Status section: each Triunfo web service and InfoAuto catalog (platform-wide), the organization's Triunfo user and its WhatsApp numbers. Every real call reports its outcome; a failure opens an incident and the next call that works ends it. A request refused on its merits (a policy or model that does not exist, "productor no válido" for one code) counts as the service answering.
 
-**Auth required:** Yes (any panel user). An admin sees only their own numbers; the OWNER sees every organization's numbers, the organizations whose Triunfo credentials are refused (`triunfoAccess`) and the raw `sample` of each incident.
+Each incident is handed once to the AI model (OpenAI, `OPENAI_API_KEY` and `OPENAI_MODEL`, the bot's account), and again only if it starts failing with another kind or status. It says in plain words what is failing and whose fault it is: `explanation.blame` is `PROVIDER` (Triunfo's or InfoAuto's side), `PLATFORM` (the platform's user or subscription) or `UNKNOWN`. `explanation` is null until the model answers, without a key, or when the explanation is of an earlier failure; the section asks again within minutes.
+
+**Auth required:** Yes — SuperAdmin or OWNER. The SuperAdmin sees the organization's numbers; the OWNER sees every organization's numbers, the organizations whose Triunfo credentials are refused (`triunfoAccess`) and the raw `sample` of each incident.
 
 **Responses**
 
@@ -4027,7 +4029,13 @@ How the external services the platform depends on are answering, for the panel's
         "failures": 16,
         "startedAt": "2026-11-03T03:32:28.000Z",
         "lastFailureAt": "2026-11-03T16:25:56.000Z",
-        "endedAt": null
+        "endedAt": null,
+        "explanation": {
+          "text": "Triunfo dio de baja o movió el servicio que entrega la documentación de las pólizas: el bot no puede mandarla. El resto de Triunfo funciona.",
+          "blame": "PROVIDER",
+          "blameReason": "Triunfo: dio de baja o movió esta dirección sin avisar",
+          "at": "2026-11-03T03:32:31.000Z"
+        }
       }
     },
     {
@@ -4069,7 +4077,8 @@ How the external services the platform depends on are answering, for the panel's
       "failures": 16,
       "startedAt": "2026-11-03T03:32:28.000Z",
       "lastFailureAt": "2026-11-03T16:25:56.000Z",
-      "endedAt": null
+      "endedAt": null,
+      "explanation": null
     }
   ]
 }
@@ -4081,8 +4090,8 @@ How the external services the platform depends on are answering, for the panel's
 { "statusCode": 401, "message": "Unauthorized" }
 ```
 
-`403 Forbidden` — a client (portal) token
+`403 Forbidden` — a client (portal) token, or an admin who is not SuperAdmin
 
 ```json
-{ "statusCode": 403, "message": "User access required", "error": "Forbidden" }
+{ "statusCode": 403, "message": "Insufficient role", "error": "Forbidden" }
 ```
