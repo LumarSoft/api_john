@@ -146,3 +146,29 @@ describe('ClientsService.findCobranzasForAdmin', () => {
     expect(findMany.mock.calls[0][0].select.policies.where).not.toHaveProperty('paymentMethod')
   })
 })
+
+describe('ClientsService.findOneForAdmin', () => {
+  const code = (id: number, holderName: string) => ({ id, code: String(8000 + id), holderName })
+
+  it('names the producer code of the client and of each of its policies', async () => {
+    const findFirst = jest.fn().mockResolvedValue({
+      id: 1,
+      firstName: 'Ana',
+      lastName: 'Pérez',
+      producerCode: code(7, 'GOMEZ LAURA'),
+      policies: [
+        { id: 10, riskType: 'auto', lastMovement: 'REFACTURACION', rawData: {}, producerCode: code(7, 'GOMEZ LAURA') },
+        { id: 11, riskType: 'moto', lastMovement: 'REFACTURACION', rawData: {}, producerCode: code(9, 'DIAZ PABLO') },
+      ],
+    })
+    const service = new ClientsService({ client: { findFirst } } as unknown as PrismaService)
+
+    const client = await service.findOneForAdmin(1, 1, [7, 9])
+
+    const select = findFirst.mock.calls[0][0].select
+    expect(select.producerCode).toEqual({ select: { id: true, code: true, holderName: true } })
+    expect(select.policies.select.producerCode).toEqual(select.producerCode)
+    expect(client.producerCode).toEqual(code(7, 'GOMEZ LAURA'))
+    expect(client.policies.map(p => p.producerCode)).toEqual([code(7, 'GOMEZ LAURA'), code(9, 'DIAZ PABLO')])
+  })
+})

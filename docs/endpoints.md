@@ -922,6 +922,8 @@ Returns aggregate portfolio metrics for the dashboard/stat bar.
 
 Returns the full detail of a single insured client, including every policy with its vehicle and instalments (`installments`).
 
+The client and each policy carry their Triunfo producer code as `producerCode: { id, code, holderName }` (or `null`): the client keeps the code it first came in under, while each policy follows the code Triunfo lists it under, so one client's policies can belong to several producers.
+
 **Auth required:** Yes
 
 **Responses**

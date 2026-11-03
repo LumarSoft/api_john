@@ -110,8 +110,14 @@ const ADMIN_CLIENT_SELECT = {
   },
 } as const
 
+// The Triunfo code (código de productor) a client or a policy belongs to. The
+// client keeps the code it first came in under; each policy follows the code
+// Triunfo lists it under now, so one client's policies can span several codes.
+const PRODUCER_CODE_SELECT = { select: { id: true, code: true, holderName: true } } as const
+
 const ADMIN_CLIENT_DETAIL_SELECT = {
   ...ADMIN_CLIENT_SELECT,
+  producerCode: PRODUCER_CODE_SELECT,
   policies: {
     where: { deletedAt: null },
     select: {
@@ -125,6 +131,7 @@ const ADMIN_CLIENT_DETAIL_SELECT = {
       validTo: true,
       premium: true,
       paymentMethod: true,
+      producerCode: PRODUCER_CODE_SELECT,
       // Only to name the policy; dropped from the response.
       rawData: true,
       vehicle: {
