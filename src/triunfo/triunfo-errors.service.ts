@@ -394,10 +394,18 @@ export function bodySample(data: unknown): string | null {
   if (data == null) return null
   let text: string
   if (typeof data === 'string') text = data
-  else if (Buffer.isBuffer(data)) text = data.toString('latin1')
-  else if (data instanceof ArrayBuffer) text = Buffer.from(data).toString('latin1')
+  else if (Buffer.isBuffer(data)) text = bufferText(data)
+  else if (data instanceof ArrayBuffer) text = bufferText(Buffer.from(data))
   else text = JSON.stringify(data)
   return text.slice(0, SAMPLE_MAX)
+}
+
+/**
+ * An HTML or XML page is UTF-8 text (Triunfo's 404 page says «PÁGINA NO
+ * ENCONTRADA»); anything else, like the start of a PDF, is read byte by byte.
+ */
+function bufferText(buffer: Buffer): string {
+  return /^\s*</.test(buffer.subarray(0, 64).toString('latin1')) ? buffer.toString('utf8') : buffer.toString('latin1')
 }
 
 /**

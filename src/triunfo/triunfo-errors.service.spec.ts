@@ -3,7 +3,13 @@ import type { ConfigService } from '@nestjs/config'
 import type { IntegrationStatusService } from '../integration-status/integration-status.service'
 import type { MailService } from '../mail/mail.service'
 import type { PrismaService } from '../prisma/prisma.service'
-import { describeException, fingerprintOf, TriunfoErrorsService, type TriunfoFailure } from './triunfo-errors.service'
+import {
+  bodySample,
+  describeException,
+  fingerprintOf,
+  TriunfoErrorsService,
+  type TriunfoFailure,
+} from './triunfo-errors.service'
 
 interface ErrorRow {
   fingerprint: string
@@ -339,5 +345,14 @@ describe('describeException', () => {
       kind: 'UNEXPECTED_RESPONSE',
       message: 'Unexpected token <',
     })
+  })
+})
+
+describe('bodySample', () => {
+  it('reads a downloaded page as UTF-8 and the start of anything else byte by byte', () => {
+    expect(bodySample(Buffer.from('<!DOCTYPE html><h1>PÁGINA NO ENCONTRADA</h1>', 'utf8'))).toBe(
+      '<!DOCTYPE html><h1>PÁGINA NO ENCONTRADA</h1>',
+    )
+    expect(bodySample(Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0xe2, 0xe3]))).toBe('%PDF-âã')
   })
 })
