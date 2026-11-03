@@ -7,9 +7,10 @@ import { TriunfoErrorsService } from './triunfo-errors.service'
 import { OwnerTriunfoController } from './owner-triunfo.controller'
 import { AdminTriunfoController } from './admin-triunfo.controller'
 import { PrismaModule } from '../prisma/prisma.module'
+import { IntegrationStatusModule } from '../integration-status/integration-status.module'
 
 @Module({
-  imports: [HttpModule, ConfigModule, PrismaModule],
+  imports: [HttpModule, ConfigModule, PrismaModule, IntegrationStatusModule],
   controllers: [OwnerTriunfoController, AdminTriunfoController],
   providers: [TriunfoService, TriunfoCredentialsService, TriunfoErrorsService],
   exports: [TriunfoService, TriunfoErrorsService],

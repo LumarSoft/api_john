@@ -1139,6 +1139,60 @@ model TriunfoError {
   @@index([producerId, lastSeenAt])
 }
 
+// Why a call to an external service did not get a usable answer.
+enum IntegrationFailureKind {
+  // The platform's own user or subscription was refused (an InfoAuto login answering 401).
+  CREDENTIALS_REJECTED
+  // It answered something we cannot read: a missing SDT...Out, a document that is not a PDF.
+  UNEXPECTED_RESPONSE
+  // A non-2xx status: a 404 for a service that was moved, a Cloudflare 403, a 502.
+  HTTP_ERROR
+  TIMEOUT
+  // No answer at all: DNS, refused or reset connection.
+  NETWORK
+}
+
+// One external service the platform depends on, e.g. "triunfo.RESTDocumentosV2"
+// or "infoauto.cars", and how its latest calls went. It is platform-wide: every
+// organization calls the same Triunfo and InfoAuto services. The panel's Status
+// section reads it.
+model IntegrationComponent {
+  id             Int                   @id @default(autoincrement())
+  key            String                @unique @db.VarChar(60)
+  lastSuccessAt  DateTime?
+  lastFailureAt  DateTime?
+  // The incident still open, null while the latest call worked.
+  openIncidentId Int?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  deletedAt      DateTime?
+  incidents      IntegrationIncident[]
+}
+
+// A stretch of time during which a service failed: it opens on the first failed
+// call and ends on the next one that works. Kind, status and message are the
+// latest failure's.
+model IntegrationIncident {
+  id            Int                    @id @default(autoincrement())
+  componentId   Int
+  component     IntegrationComponent   @relation(fields: [componentId], references: [id])
+  kind          IntegrationFailureKind
+  httpStatus    Int?
+  message       String                 @db.VarChar(500)
+  // The latest answer behind it, cut short (Triunfo's 404 page). Never a request: those carry passwords.
+  sample        String?                @db.Text
+  failures      Int                    @default(1)
+  startedAt     DateTime
+  lastFailureAt DateTime
+  endedAt       DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  deletedAt     DateTime?
+
+  @@index([componentId, endedAt])
+  @@index([startedAt])
+}
+
 model IntegrationToken {
   id        Int      @id @default(autoincrement())
   key       String   @unique @db.VarChar(191)

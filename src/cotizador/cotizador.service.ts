@@ -199,6 +199,7 @@ export class CotizadorService {
       })
       throw new BadGatewayException('Triunfo cotizador error')
     }
+    this.triunfoErrors.answered('RESTCotizadorAutV2')
 
     const quoteNumber = Number.parseInt(out.Presupuesto?.Numero ?? '', 10)
     const resolvedProducerId = await this.resolveProducerId(producerId)

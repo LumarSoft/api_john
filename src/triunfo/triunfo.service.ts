@@ -399,6 +399,7 @@ export class TriunfoService {
     }
 
     this.refused.delete(key)
+    this.errors.answered('getTokenRest')
     if (record) void this.errors.credentialsAccepted(producerId)
 
     const expiresAt = this.readExpiry(token)
@@ -550,6 +551,7 @@ export class TriunfoService {
       // it on the 3-month backfill run after run (14 codes on 1/11/2026).
       if (TriunfoService.NO_OPERATIONS_RE.test(msg)) {
         this.logger.log(`NovedadesCartera código=${codigo} ${fechaDesde} → ${fechaHasta}: sin operaciones`)
+        this.errors.answered('RESTNovedadesCartera')
         return []
       }
       // For the master code this answer means the user and password themselves
@@ -567,6 +569,7 @@ export class TriunfoService {
       throw new Error(`Triunfo NovedadesCartera: ${msg}`)
     }
 
+    this.errors.answered('RESTNovedadesCartera')
     // Triunfo returns a single object instead of array when there is only one result
     const raw = out.Novedades ?? []
     return Array.isArray(raw) ? raw : [raw]
@@ -643,6 +646,7 @@ export class TriunfoService {
       return []
     }
 
+    this.errors.answered('RESTDocumentosV2')
     // Triunfo returns a single object instead of an array when there is one link,
     // and some links come broken (the Solicitud one starts with "nullcom.sip…").
     const links = ([] as TriunfoDocumento[]).concat((out.Links ?? []) as TriunfoDocumento | TriunfoDocumento[])
@@ -718,6 +722,7 @@ export class TriunfoService {
       if (body.subarray(0, 5).toString('latin1') !== '%PDF-') {
         throw fail(TriunfoErrorKind.UNEXPECTED_RESPONSE, 'La respuesta no es un PDF', response.status, bodySample(body))
       }
+      this.errors.answered('documentDownload')
       return body
     }
     throw fail(TriunfoErrorKind.UNEXPECTED_RESPONSE, 'Demasiadas redirecciones')

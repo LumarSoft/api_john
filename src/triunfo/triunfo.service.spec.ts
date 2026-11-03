@@ -29,6 +29,7 @@ function fakeErrors() {
     record: jest.fn().mockResolvedValue(undefined),
     recordException: jest.fn().mockResolvedValue(undefined),
     credentialsAccepted: jest.fn().mockResolvedValue(undefined),
+    answered: jest.fn(),
   }
 }
 

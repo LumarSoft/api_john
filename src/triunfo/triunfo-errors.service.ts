@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { isAxiosError } from 'axios'
 import { TriunfoErrorKind } from 'generated/prisma/client'
+import { IntegrationStatusService } from '../integration-status/integration-status.service'
 import { MailService } from '../mail/mail.service'
 import { MatterCategory, MatterStatus, NovedadType } from '../novedades/dto/list-novedades.dto'
 import { PrismaService } from '../prisma/prisma.service'
@@ -64,8 +65,9 @@ const SAMPLE_MAX = 2000
  *     Lumarsoft, a reminder each day, and a mail when it ends.
  *
  * Recipients: the SuperAdmins (outages only), every OWNER user and
- * TRIUNFO_ALERT_EMAIL (comma-separated). Nothing here ever throws: recording a
- * failure must not change what the caller sees.
+ * TRIUNFO_ALERT_EMAIL (comma-separated). Every call's outcome also reaches the
+ * panel's Status section (IntegrationStatusService). Nothing here ever throws:
+ * recording a failure must not change what the caller sees.
  */
 @Injectable()
 export class TriunfoErrorsService {
@@ -81,6 +83,7 @@ export class TriunfoErrorsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
+    private readonly status: IntegrationStatusService,
     config: ConfigService,
   ) {
     this.extraRecipients = (config.get<string>('TRIUNFO_ALERT_EMAIL') ?? '')
@@ -90,8 +93,14 @@ export class TriunfoErrorsService {
     this.defaultProducerSlug = config.get<string>('DEFAULT_PRODUCER_SLUG') ?? 'john'
   }
 
+  /** Triunfo answered the operation as expected, for the Status section. */
+  answered(operation: TriunfoOperation): void {
+    void this.status.succeeded(`triunfo.${operation}`)
+  }
+
   /** Records a failed call to Triunfo. */
   async record(failure: TriunfoFailure): Promise<void> {
+    this.reportStatus(failure)
     try {
       const producerId = await this.resolveProducerId(failure.producerId)
       if (producerId === null) return
@@ -172,6 +181,23 @@ export class TriunfoErrorsService {
         firstSeenAt: true,
         lastSeenAt: true,
       },
+    })
+  }
+
+  /**
+   * A refusal is Triunfo answering, about that request or those credentials:
+   * the service works. The rest is the service failing, for every organization.
+   */
+  private reportStatus(failure: TriunfoFailure): void {
+    if (failure.kind === TriunfoErrorKind.REJECTED || failure.kind === TriunfoErrorKind.CREDENTIALS_REJECTED) {
+      this.answered(failure.operation)
+      return
+    }
+    void this.status.failed(`triunfo.${failure.operation}`, {
+      kind: failure.kind,
+      httpStatus: failure.httpStatus,
+      message: failure.message,
+      sample: failure.sample,
     })
   }
 

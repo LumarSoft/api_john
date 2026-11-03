@@ -1,5 +1,6 @@
 import { AxiosError, AxiosHeaders } from 'axios'
 import type { ConfigService } from '@nestjs/config'
+import type { IntegrationStatusService } from '../integration-status/integration-status.service'
 import type { MailService } from '../mail/mail.service'
 import type { PrismaService } from '../prisma/prisma.service'
 import { describeException, fingerprintOf, TriunfoErrorsService, type TriunfoFailure } from './triunfo-errors.service'
@@ -131,8 +132,17 @@ function setup(env: Record<string, string> = { TRIUNFO_ALERT_EMAIL: 'alertas@lum
   }
   const mail = { sendAlert: jest.fn().mockResolvedValue(undefined) }
   const config = { get: (key: string) => env[key] } as unknown as ConfigService
-  const service = new TriunfoErrorsService(prisma as unknown as PrismaService, mail as unknown as MailService, config)
-  return { service, prisma, mail, errors, statuses, notifications }
+  const status = {
+    succeeded: jest.fn().mockResolvedValue(undefined),
+    failed: jest.fn().mockResolvedValue(undefined),
+  }
+  const service = new TriunfoErrorsService(
+    prisma as unknown as PrismaService,
+    mail as unknown as MailService,
+    status as unknown as IntegrationStatusService,
+    config,
+  )
+  return { service, prisma, mail, status, errors, statuses, notifications }
 }
 
 describe('TriunfoErrorsService — failures', () => {
@@ -180,6 +190,35 @@ describe('TriunfoErrorsService — failures', () => {
     const { service, prisma } = setup()
     prisma.triunfoError.findUnique.mockRejectedValue(new Error('db down'))
     await expect(service.record(NEW_HEADER)).resolves.toBeUndefined()
+  })
+})
+
+describe('TriunfoErrorsService — Status section', () => {
+  it('reports a failure of the service itself, with what it answered', async () => {
+    const { service, status } = setup()
+    await service.record({ ...NEW_HEADER, operation: 'RESTDocumentosV2', httpStatus: 404, sample: '<html>404</html>' })
+
+    expect(status.failed).toHaveBeenCalledWith('triunfo.RESTDocumentosV2', {
+      kind: 'HTTP_ERROR',
+      httpStatus: 404,
+      message: 'HTTP 403',
+      sample: '<html>404</html>',
+    })
+    expect(status.succeeded).not.toHaveBeenCalled()
+  })
+
+  it('takes a refusal as Triunfo answering: about the request or the credentials, not the service', async () => {
+    const { service, status } = setup()
+    await service.record({
+      operation: 'RESTDocumentosV2',
+      producerId: 1,
+      kind: 'REJECTED',
+      message: 'Operación inexistente o no asociada al productor',
+    })
+    await service.record(REFUSAL)
+
+    expect(status.succeeded.mock.calls).toEqual([['triunfo.RESTDocumentosV2'], ['triunfo.getTokenRest']])
+    expect(status.failed).not.toHaveBeenCalled()
   })
 })
 

@@ -3995,3 +3995,94 @@ Whether Triunfo is accepting the credentials of the user's organization, for the
   "failureMessage": "Error Generando Token - Revisar los datos ingresados"
 }
 ```
+
+## Admin — Status
+
+### GET /admin/status
+
+How the external services the platform depends on are answering, for the panel's Status section: each Triunfo web service and InfoAuto catalog (platform-wide), the organization's Triunfo user and its WhatsApp numbers. Every real call reports its outcome; a failure opens an incident and the next call that works ends it. A request refused on its merits (a policy or model that does not exist, "productor no válido" for one code) counts as the service answering.
+
+**Auth required:** Yes (any panel user). An admin sees only their own numbers; the OWNER sees every organization's numbers, the organizations whose Triunfo credentials are refused (`triunfoAccess`) and the raw `sample` of each incident.
+
+**Responses**
+
+`200 OK` — `components` always lists the 7 services in this order: `triunfo.getTokenRest`, `triunfo.RESTCotizadorAutV2`, `triunfo.RESTDocumentosV2`, `triunfo.documentDownload`, `triunfo.RESTNovedadesCartera`, `infoauto.cars`, `infoauto.motorcycles`. `status` is `operational` (the latest call worked), `failing` (an incident is open) or `unknown` (never called since this was installed). `kind` is one of `CREDENTIALS_REJECTED`, `UNEXPECTED_RESPONSE`, `HTTP_ERROR`, `TIMEOUT`, `NETWORK`; `answer` is the visible text of the error page the service answered, or null. `incidents` holds the latest 20 of the last 30 days, open ones included.
+
+```json
+{
+  "checkedAt": "2026-11-03T16:30:00.000Z",
+  "components": [
+    {
+      "key": "triunfo.RESTDocumentosV2",
+      "status": "failing",
+      "lastSuccessAt": "2026-11-02T22:10:41.000Z",
+      "lastFailureAt": "2026-11-03T16:25:56.000Z",
+      "incident": {
+        "id": 1,
+        "key": "triunfo.RESTDocumentosV2",
+        "kind": "HTTP_ERROR",
+        "httpStatus": 404,
+        "message": "HTTP 404 Not Found",
+        "answer": "ERROR 404 PÁGINA NO ENCONTRADA La página que intenta visitar no existe o ha sido movida.",
+        "failures": 16,
+        "startedAt": "2026-11-03T03:32:28.000Z",
+        "lastFailureAt": "2026-11-03T16:25:56.000Z",
+        "endedAt": null
+      }
+    },
+    {
+      "key": "triunfo.RESTCotizadorAutV2",
+      "status": "operational",
+      "lastSuccessAt": "2026-11-03T16:39:12.000Z",
+      "lastFailureAt": null,
+      "incident": null
+    }
+  ],
+  "triunfoAccess": [
+    {
+      "producerId": 1,
+      "producerName": "JOHN PELLEGRINI MANAGEMENT GROUP",
+      "configured": true,
+      "failingSince": null,
+      "failureMessage": null
+    }
+  ],
+  "whatsapp": [
+    {
+      "id": 8,
+      "number": "+54 341 275-7294",
+      "producerName": "JOHN PELLEGRINI MANAGEMENT GROUP",
+      "status": "operational",
+      "disconnectedAt": null,
+      "disconnectReason": null,
+      "tokenExpiresAt": null
+    }
+  ],
+  "incidents": [
+    {
+      "id": 1,
+      "key": "triunfo.RESTDocumentosV2",
+      "kind": "HTTP_ERROR",
+      "httpStatus": 404,
+      "message": "HTTP 404 Not Found",
+      "answer": "ERROR 404 PÁGINA NO ENCONTRADA La página que intenta visitar no existe o ha sido movida.",
+      "failures": 16,
+      "startedAt": "2026-11-03T03:32:28.000Z",
+      "lastFailureAt": "2026-11-03T16:25:56.000Z",
+      "endedAt": null
+    }
+  ]
+}
+```
+
+`401 Unauthorized` — no or expired token
+
+```json
+{ "statusCode": 401, "message": "Unauthorized" }
+```
+
+`403 Forbidden` — a client (portal) token
+
+```json
+{ "statusCode": 403, "message": "User access required", "error": "Forbidden" }
+```
