@@ -8,7 +8,6 @@ import { UpdateProducerCodeDto } from './dto/update-producer-code.dto'
 import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
 import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
 import { UsageService, acceptedBlocks, currentPeriod, pausedIn } from '../usage/usage.service'
-import { legacyPricing, withLegacyPlan } from '../usage/legacy-token-fields'
 import { metaPortfolio } from '../whatsapp-onboarding/meta-portfolio'
 
 const round2 = <T extends Record<string, number>>(o: T): T =>
@@ -140,8 +139,6 @@ export class OwnerService {
       { metaCostUsd: 0, openaiCostUsd: 0, billedUsd: 0, marginUsd: 0 },
     )
 
-    const { blockMessages } = this.usage.commercialPricing
-    const rounded = round2(billing)
     return {
       ...org,
       codes: codesWithMetrics,
@@ -149,12 +146,9 @@ export class OwnerService {
       numbers,
       billing: {
         period: currentPeriod(),
-        blockMessages,
+        blockMessages: this.usage.commercialPricing.blockMessages,
         activeNumbers: numbers.filter(n => n.isActive).length,
-        ...rounded,
-        // front_John's panel (legacy-token-fields.ts): what Meta and OpenAI cost, and the old pricing summary.
-        costUsd: Math.round((rounded.metaCostUsd + rounded.openaiCostUsd) * 100) / 100,
-        pricing: legacyPricing(await this.usage.catalog(), blockMessages),
+        ...round2(billing),
       },
     }
   }
@@ -251,9 +245,7 @@ export class OwnerService {
           totalCostUsd: cost,
           messages: bill.messages,
           assignedPlan: bill.assignedPlan,
-          plan: withLegacyPlan(bill.plan, this.usage.commercialPricing.blockMessages),
-          // front_John's panel (legacy-token-fields.ts).
-          tokens: bill.messages,
+          plan: bill.plan,
           upgraded: bill.upgraded,
           prorated: bill.prorated,
           planPaused: pausedIn(p.planPausedAt, period),

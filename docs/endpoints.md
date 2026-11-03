@@ -1557,51 +1557,6 @@ The active plans of the catalog, for the landing. Cached 5 minutes.
 
 ---
 
-### Campos y rutas viejos del panel de front_John (temporales)
-
-Mientras el panel de `front_John` y el de Polisend conviven (`PLAN-SAAS.md`, semana de prueba), la API repite los
-valores nuevos con los nombres del modelo de tokens del 29/10, en `src/usage/legacy-token-fields.ts`. Nada nuevo los
-lee: se borran cuando `front_John` redirija `/admin` a Polisend.
-
-- `GET /admin/billing`: `unitPriceUsd`, `blockTokens`, `trialTokens`; en cada plan `tokens`; en cada número
-  `tokensUsed`, `includedTokens`, `remainingTokens`, `trialTokens`, `plan.includedTokens`, `plan.blocks` y
-  `nextPlan.tokens`.
-- `GET /admin/phone-numbers`: `usage.tokens`, `usage.plan.includedTokens`, `usage.plan.blocks` y, solo para el Owner,
-  `usage.pricing`.
-- `GET /owner/organizations/:id`: `billing.costUsd` (Meta + OpenAI), `billing.pricing` y, en cada número,
-  `usage.tokens`.
-
-### GET /admin/billing/plans
-
-El catálogo activo con los nombres viejos, para la pestaña Planes del panel de `front_John`. Solo lectura.
-
-**Auth required:** Yes (SuperAdmin o Admin)
-
-**Responses**
-
-`200 OK`
-```json
-{
-  "unitPriceUsd": 0.05,
-  "plans": [{ "id": 2, "name": "Inicial", "tokens": 500, "priceUsd": 25, "costUsd": 25, "isActive": true, "sortOrder": 1 }]
-}
-```
-
-### POST /admin/billing/plans · PATCH /admin/billing/plans/:id · DELETE /admin/billing/plans/:id
-
-Ya no cambian nada: el catálogo es del Owner (`/owner/plans`).
-
-**Auth required:** Yes (SuperAdmin o Admin)
-
-**Responses**
-
-`403 Forbidden`
-```json
-{ "statusCode": 403, "message": "Los planes ahora los define Lumarsoft para todas las organizaciones." }
-```
-
----
-
 ## Admin — Siniestros
 
 Triunfo's API has no claims endpoint, so claims filed through the bot or the client portal are stored locally with `status: "pending"`. The admin reviews them here, files them manually in Triunfo's web, and records the official claim number via `PATCH`.
@@ -2690,13 +2645,13 @@ for accounts never read. `null` until Meta was read.
 
 ### What each role gets from `GET /admin/phone-numbers`
 
-Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role, and no tenant role receives an amount in USD:
+Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role; every role sees the plan's price, only the OWNER sees what Meta and OpenAI cost:
 
 | Role       | `usage` fields                                                                                                                       | Number fields                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| ADMIN      | `period`, `tokens` (one per message sent), `trialTokens`, `plan` (the plan the month's tokens placed the number on, see Facturación; its price, never its cost), `prorated`, `billedUsd` (the price)                                                                                            | no budget fields                                 |
-| SUPERADMIN | plus `costUsd` (what the organization pays the platform), `plan.costUsd`, `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens`                                               | `budgetExceededAt` (the AI paused for the month) |
-| OWNER      | plus `pricing` (`unitPriceUsd`, `blockTokens`, `blockPriceUsd`, `trialTokens`), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` | `monthlyBudgetUsd`, `budgetExceededAt`           |
+| ADMIN      | `period`, `messages` (sent this month), `assignedPlan`, `plan` (the plan the month is billed on; its price, never its cost), `upgraded`, `prorated` (always `false`), `billedUsd` (the plan's full price), `planPaused` | no budget fields |
+| SUPERADMIN | plus `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
+| OWNER      | plus `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta); `prorated` and `billedUsd` are the first month's prorated amount | `monthlyBudgetUsd`, `budgetExceededAt` |
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 

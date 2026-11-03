@@ -82,9 +82,7 @@ describe('monthly phone number report', () => {
       period: '2026-09',
       messages: 1200,
       assignedPlan: { id: 2, name: 'Profesional', includedMessages: 1000, priceUsd: 50, trial: false, extraBlocks: 0 },
-      // The old "tokens" names repeat the same values for front_John's panel (legacy-token-fields.ts).
-      plan: { ...beyond, includedTokens: 2000, blocks: 2 },
-      tokens: 1200,
+      plan: beyond,
       upgraded: true,
       prorated: false,
       billedUsd: 100,
