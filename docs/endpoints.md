@@ -1305,7 +1305,7 @@ The office told these clients by other means (a call, in person): a `MARKED` not
 
 ## Facturación (planes de mensajes)
 
-Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends, template notices). The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). When a number sends more messages than its plan includes it **moves up** to the smallest active plan that covers them and stays there; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and the SuperAdmins an e-mail. Past the largest plan the month adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message, with one notice on the first message over. An active number pays at least its plan; in its first month of service, on its own paid plan, the plan is prorated from the day it went live. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost; the profit is billed − Meta (OpenAI is prepaid). Rules and examples: `docs/message-plans-october-2026.md`.
+Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends); a **template** (a message Meta prices as utility, marketing or authentication: rejection and expiry notices, campaigns) delivered from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on (default 2026-12-01) consumes **2**. Every figure the organization sees (`messages`, `messagesUsed`, the bar, the limit) is that consumed count; the weight, the raw counts and the categories are the OWNER's only. The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). A number never moves up on its own: when its consumed messages reach its plan, its assistant **pauses**; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and an e-mail, and chooses to continue on the next plan (`POST /admin/billing/numbers/:id/limit`) or to wait for next month. Past the largest plan, continuing adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message. An active number pays at least its plan; in its first month of service, on its own paid plan, the plan is prorated from the day it went live. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost; the profit is billed − Meta (OpenAI is prepaid). Rules and examples: `docs/message-plans-october-2026.md`.
 
 ### GET /admin/billing
 
@@ -1468,7 +1468,7 @@ Puts a number of the organization on a paid plan of the catalog. Clears the numb
 
 ### GET /owner/billing
 
-The platform's month: what each organization and number is billed, what Meta really charged, OpenAI apart, and the profit (billed − Meta).
+The platform's month: what each organization and number is billed, what Meta really charged, OpenAI apart, and the profit (billed − Meta). A **closed** month (see `POST /owner/billing/close`) is read as it was frozen: plan, messages, billed and costs of that day, never recomputed with today's plans; `assignedPlan` is `null` and `paused` `false` there. Only a month not closed yet (the running one, or a past one before its close) is computed with each number's current plan. `messages` is the plan messages consumed (a template counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on); `sentMessages` counts each message once and `templateMessages` the templates among them.
 
 **Auth required:** Yes (OWNER)
 
@@ -1478,6 +1478,9 @@ The platform's month: what each organization and number is billed, what Meta rea
 ```json
 {
   "period": "2026-10",
+  "closed": true,
+  "closedAt": "2026-11-01T03:00:00.000Z",
+  "backfilled": false,
   "organizations": [
     {
       "id": 1,
@@ -1493,7 +1496,10 @@ The platform's month: what each organization and number is billed, what Meta rea
           "assignedPlan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
           "upgraded": true,
           "prorated": false,
+          "paused": false,
           "messages": 502,
+          "sentMessages": 502,
+          "templateMessages": 2,
           "metaBillableMessages": 2,
           "billedUsd": 50,
           "metaCostUsd": 0.05,
@@ -1501,14 +1507,17 @@ The platform's month: what each organization and number is billed, what Meta rea
           "profitUsd": 49.95
         }
       ],
-      "totals": { "messages": 502, "metaBillableMessages": 2, "billedUsd": 50, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
+      "totals": { "messages": 502, "sentMessages": 502, "templateMessages": 2, "metaBillableMessages": 2, "billedUsd": 50, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
     }
   ],
   "totals": {
     "organizations": 1,
     "activeNumbers": 1,
     "upgradedNumbers": 1,
+    "pausedNumbers": 0,
     "messages": 502,
+    "sentMessages": 502,
+    "templateMessages": 2,
     "metaBillableMessages": 2,
     "billedUsd": 50,
     "metaCostUsd": 0.05,
@@ -1519,6 +1528,38 @@ The platform's month: what each organization and number is billed, what Meta rea
 ```
 
 `400 Bad Request` — Invalid month. `403 Forbidden` — not the OWNER.
+
+---
+
+### POST /owner/billing/close
+
+Freezes a month that already ended, number by number (`MonthlyClose`): the plan it was billed on, its messages (sent, templates, consumed), what it was billed (the Tablero's figure), what Meta and OpenAI cost, Lumarsoft's per-message cost and the partner settlement, with that day's rates (`PARTNER_COST_PER_MESSAGE_USD`, `PARTNER_PROFIT_SHARE`; while they are not configured the month still closes, with the settlement columns `null`). Every number in service that month, or that sent or cost something, gets a row; all in one transaction.
+
+The API closes the previous month by itself on the 1st at 00:00 (Argentina), and on boot if it is still open (`MONTHLY_CLOSE_ENABLED`, on by default). This endpoint backfills the months before the close existed and redoes one with `force`. A close made after the 1st of the next month uses the plans of that day and is marked `backfilled`. A closed month is never written again without `force`.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field  | Type    | Required | Constraints                                                     |
+|--------|---------|----------|-----------------------------------------------------------------|
+| period | string  | Yes      | `YYYY-MM`, a month that already ended                           |
+| force  | boolean | No       | recompute a month already closed, with today's plans (default false) |
+
+```json
+{ "period": "2026-10" }
+```
+
+**Responses**
+
+`200 OK`
+```json
+{ "period": "2026-10", "alreadyClosed": false, "closedNumbers": 3, "backfilled": true, "closedAt": "2026-11-05T15:00:00.000Z" }
+```
+
+`400 Bad Request` — the running month, a future one or a malformed one ("Solo se cierra un mes que ya terminó.").
+`409 Conflict` — already closed without `force` ("Ese mes ya está cerrado. Para recalcularlo con los planes de hoy, usá force."), or another close running ("Ya hay un cierre de mes en curso.").
+`403 Forbidden` — not the OWNER.
 
 ---
 
@@ -1597,6 +1638,124 @@ Retires a plan (soft delete); its numbers go back to the smallest paid plan. The
 ```json
 { "ok": true }
 ```
+
+---
+
+## Owner — Liquidación (socio comercial)
+
+How each month's billing splits between Lumarsoft and its commercial partner. Per number: Lumarsoft's service cost = consumed messages × `PARTNER_COST_PER_MESSAGE_USD` (a template that counts twice costs twice); remainder = billed − that cost; the partner gets `PARTNER_PROFIT_SHARE` (0–1) of the remainder and Lumarsoft the rest. A trial bills 0, so its cost makes the remainder negative and comes out of the split. `billedUsd` is the Tablero's "Facturado" (prorated in the first month of service). **What Meta and OpenAI cost is never part of it nor returned here.** A closed month is read as frozen, with the rates of its close (`terms`); the running month (or one not closed yet, or closed before the rates were set) is computed now with today's rates.
+
+The two rates have **no default** and live only in the server's `.env` (the repository is public). While either is missing, both endpoints answer `503 Service Unavailable` and the monthly close still freezes everything else, with the settlement columns `null`. The examples below use illustrative rates (0.03 per message, 0.4 to the partner), not the real ones.
+
+### GET /owner/settlement
+
+One month: totals, per organization (only those with numbers in the settlement) and per number. A number counts when it was in service that month, consumed messages or billed something.
+
+**Auth required:** Yes (OWNER)
+
+**Query parameters**: `period` (`YYYY-MM`, default current).
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "period": "2026-10",
+  "live": false,
+  "closed": true,
+  "closedAt": "2026-11-01T03:00:00.000Z",
+  "backfilled": false,
+  "terms": { "costPerMessageUsd": 0.03, "partnerShare": 0.4 },
+  "totals": {
+    "organizations": 1,
+    "numbers": 2,
+    "trialNumbers": 1,
+    "consumedMessages": 380,
+    "billedUsd": 25,
+    "serviceCostUsd": 11.4,
+    "remainderUsd": 13.6,
+    "partnerShareUsd": 5.44,
+    "ownerShareUsd": 8.16,
+    "ownerTotalUsd": 19.56
+  },
+  "organizations": [
+    {
+      "id": 1,
+      "name": "Organización",
+      "isActive": true,
+      "totals": { "consumedMessages": 380, "billedUsd": 25, "serviceCostUsd": 11.4, "remainderUsd": 13.6, "partnerShareUsd": 5.44, "ownerShareUsd": 8.16, "ownerTotalUsd": 19.56 },
+      "numbers": [
+        {
+          "id": 8,
+          "number": "+54 9 341 000-0000",
+          "isActive": true,
+          "responsibleCode": { "code": "11425", "holderName": null },
+          "plan": { "name": "Inicial", "includedMessages": 500, "priceUsd": 25 },
+          "trial": false,
+          "prorated": false,
+          "firstMonth": false,
+          "sentMessages": 250,
+          "templateMessages": 50,
+          "consumedMessages": 300,
+          "billedUsd": 25,
+          "serviceCostUsd": 9,
+          "remainderUsd": 16,
+          "partnerShareUsd": 6.4,
+          "ownerShareUsd": 9.6,
+          "ownerTotalUsd": 18.6
+        }
+      ]
+    }
+  ]
+}
+```
+
+`400 Bad Request` — invalid or future month. `403 Forbidden` — not the OWNER.
+
+`503 Service Unavailable` — the settlement rates are not configured on the server.
+```json
+{ "statusCode": 503, "message": "La liquidación no está configurada en el servidor.", "error": "Service Unavailable" }
+```
+
+---
+
+### GET /owner/settlement/series
+
+The months ending at `to`: the money of each, active numbers (in service that month), new numbers (their first month of service) and numbers that stopped (in service the month before, not this one). `terms` are today's rates; each closed month was settled with its own.
+
+**Auth required:** Yes (OWNER)
+
+**Query parameters**: `to` (`YYYY-MM`, default current), `months` (1–24, default 12).
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "to": "2026-11",
+  "terms": { "costPerMessageUsd": 0.03, "partnerShare": 0.4 },
+  "months": [
+    {
+      "period": "2026-10",
+      "live": false,
+      "closed": true,
+      "backfilled": true,
+      "consumedMessages": 1730,
+      "billedUsd": 125,
+      "serviceCostUsd": 51.9,
+      "remainderUsd": 73.1,
+      "partnerShareUsd": 29.24,
+      "ownerShareUsd": 43.86,
+      "ownerTotalUsd": 95.76,
+      "activeNumbers": 2,
+      "newNumbers": 0,
+      "stoppedNumbers": 0
+    }
+  ]
+}
+```
+
+`400 Bad Request` — invalid or future `to`, or `months` out of range. `403 Forbidden` — not the OWNER. `503 Service Unavailable` — the settlement rates are not configured on the server (same body as `GET /owner/settlement`).
 
 ---
 
@@ -2939,9 +3098,9 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 | Role       | `usage` fields                                                                                                                       | Number fields                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| ADMIN      | `period`, `messages` (sent this month), `assignedPlan`, `plan` (the plan the month is billed on; its price, never its cost), `upgraded`, `prorated` (always `false`), `billedUsd` (the plan's full price), `planPaused` | no budget fields |
-| SUPERADMIN | plus `metaMessages`, `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
-| OWNER      | plus `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta); `prorated` and `billedUsd` are the first month's prorated amount | `monthlyBudgetUsd`, `budgetExceededAt` |
+| ADMIN      | `period`, `messages` (plan messages consumed this month: a template counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on), `assignedPlan`, `plan` (the plan the month is billed on; its price, never its cost), `upgraded`, `prorated` (always `false`), `billedUsd` (the plan's full price), `planPaused` | no budget fields |
+| SUPERADMIN | plus `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
+| OWNER      | plus `metaMessages` (sent, one each) and `metaTemplateMessages` (of those, templates), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta); `prorated` and `billedUsd` are the first month's prorated amount | `monthlyBudgetUsd`, `budgetExceededAt` |
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 

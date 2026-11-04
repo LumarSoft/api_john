@@ -4,6 +4,7 @@ import { Role } from 'generated/prisma/client'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { ScopeService } from '../common/scope/scope.service'
 import { UsageService } from '../usage/usage.service'
+import { MonthlyCloseService } from '../monthly-close/monthly-close.service'
 import { BillingService } from './billing.service'
 
 const plans = [
@@ -32,15 +33,19 @@ function setup(numbers: unknown[] = []) {
     notification: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     usageMonthly: { groupBy: jest.fn().mockResolvedValue([{ phoneNumberId: 8, _min: { period: '2026-09' } }]) },
     usageEvent: { groupBy: jest.fn().mockResolvedValue([]) },
+    monthlyClose: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn().mockResolvedValue([]),
   }
-  const usage = new UsageService(
-    prisma as unknown as PrismaService,
-    { get: () => undefined } as unknown as ConfigService,
-    { sendAlert: jest.fn() } as never,
-  )
+  const config = { get: () => undefined } as unknown as ConfigService
+  const usage = new UsageService(prisma as unknown as PrismaService, config, { sendAlert: jest.fn() } as never)
   const scope = { resolveAccessibleProducerCodeIds: jest.fn().mockResolvedValue([7]) }
-  const service = new BillingService(prisma as unknown as PrismaService, usage, scope as unknown as ScopeService)
+  const closes = new MonthlyCloseService(prisma as unknown as PrismaService, usage, config)
+  const service = new BillingService(
+    prisma as unknown as PrismaService,
+    usage,
+    scope as unknown as ScopeService,
+    closes,
+  )
   return { service, prisma, scope }
 }
 
@@ -368,6 +373,7 @@ describe("the owner's dashboard", () => {
       { phoneNumberId: 9, _min: { period: '2026-09' } },
     ])
     const result = await service.ownerDashboard('2026-10')
+    expect(result).toMatchObject({ closed: false, closedAt: null, backfilled: false })
     expect(result.organizations[0].numbers[0]).toMatchObject({ billedUsd: 25, metaCostUsd: 0, profitUsd: 25 })
     expect(result.organizations[0].numbers[1]).toMatchObject({
       plan: { name: 'Profesional + 1.000' },
@@ -387,5 +393,61 @@ describe("the owner's dashboard", () => {
       openaiCostUsd: 3.2,
       profitUsd: 115.9,
     })
+  })
+
+  it('reads a closed month as it was frozen, not with the plans of today', async () => {
+    const { service, prisma } = setup()
+    prisma.monthlyClose.findMany.mockResolvedValue([
+      {
+        period: '2026-09',
+        phoneNumberId: 8,
+        producerId: 1,
+        producerCodeId: 7,
+        number: '+54 9 341 275-7294',
+        isActive: true,
+        inService: true,
+        firstMonth: false,
+        planId: 1,
+        planName: 'Inicial',
+        planMessages: 500,
+        planPriceUsd: 25,
+        planExtraBlocks: 0,
+        trial: false,
+        upgraded: false,
+        prorated: false,
+        messages: 300,
+        templateMessages: 20,
+        consumedMessages: 320,
+        metaBillableMessages: 20,
+        metaCostUsd: 1.24,
+        openaiCostUsd: 0.75,
+        billedUsd: 25,
+        // Illustrative settlement rates (the Tablero does not read them).
+        costPerMessageUsd: 0.03,
+        serviceCostUsd: 9.6,
+        remainderUsd: 15.4,
+        partnerShare: 0.4,
+        partnerShareUsd: 6.16,
+        ownerShareUsd: 9.24,
+        backfilled: true,
+        closedAt: new Date('2026-11-05T12:00:00Z'),
+        producerCode: { code: '11425', holderName: null },
+      },
+    ])
+    prisma.producer.findMany.mockResolvedValue([{ id: 1, name: 'JPMG', isActive: true, deletedAt: null }])
+    const result = await service.ownerDashboard('2026-09')
+    expect(result).toMatchObject({ closed: true, backfilled: true, closedAt: '2026-11-05T12:00:00.000Z' })
+    expect(result.organizations[0].numbers[0]).toMatchObject({
+      plan: { id: 1, name: 'Inicial', includedMessages: 500, priceUsd: 25 },
+      messages: 320,
+      sentMessages: 300,
+      templateMessages: 20,
+      billedUsd: 25,
+      profitUsd: 23.76,
+      paused: false,
+    })
+    // Nothing was recomputed: the numbers of today are not read.
+    expect(prisma.phoneNumber.findMany).not.toHaveBeenCalled()
+    expect(prisma.messagePlan.findMany).not.toHaveBeenCalled()
   })
 })

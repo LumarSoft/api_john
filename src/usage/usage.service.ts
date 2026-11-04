@@ -1,7 +1,12 @@
 import { metaMessageRate } from './meta-rates'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { CommercialPricing, readCommercialPricing } from './commercial-pricing'
+import {
+  CommercialPricing,
+  isTemplateCategory,
+  readCommercialPricing,
+  templateExtraMessages,
+} from './commercial-pricing'
 import { initialPlanId } from './initial-plan'
 import { PrismaService } from '../prisma/prisma.service'
 import { MailService } from '../mail/mail.service'
@@ -32,8 +37,20 @@ export interface MonthlyBillableUsage {
   openaiInputTokens?: number
   openaiOutputTokens?: number
   openaiCalls?: number
-  /** Messages the platform sent this month: the unit every plan counts. */
+  /** Messages the platform sent this month, one each. */
   metaMessages?: number
+  /** Of those, the ones Meta priced as a template (raw count). */
+  metaTemplateMessages?: number
+  /** What templates add to the plan on top of their own message (see consumedMessages). */
+  templateExtraMessages?: number
+}
+
+/**
+ * The plan messages a month consumed: every message sent counts 1, and a template delivered from
+ * COMMERCIAL_TEMPLATE_WEIGHT_FROM on counts TEMPLATE_WEIGHT. The unit every plan, limit and bar counts.
+ */
+export function consumedMessages(usage: MonthlyBillableUsage | undefined | null): number {
+  return (usage?.metaMessages ?? 0) + (usage?.templateExtraMessages ?? 0)
 }
 
 /** A plan of the platform's catalog (MessagePlan row), as billing reads it. */
@@ -72,7 +89,7 @@ export interface BilledPlan {
 }
 
 export interface MonthlyBill {
-  /** Messages the platform sent in the month. */
+  /** Plan messages the month consumed (consumedMessages: templates weigh more from their start date). */
   messages: number
   /** The plan the number is on before this month's messages (the trial counts only in its first month). */
   assignedPlan: BilledPlan | null
@@ -168,7 +185,9 @@ const CATALOG_SELECT = {
  * budget cap on the OpenAI spend. When a number crosses its cap we stamp
  * PhoneNumber.budgetExceededAt; the bot then disables the paid LLM (deterministic
  * flows keep working at zero token cost) until the next month resets the total.
- * Messages are never capped: a busy month moves the number to a bigger plan.
+ * A number never moves up a plan on its own: when the month's consumed messages
+ * reach its plan, its assistant pauses (followLimit) until someone chooses the
+ * next plan (BillingService.resolveLimit) or the month ends.
  */
 @Injectable()
 export class UsageService {
@@ -320,9 +339,10 @@ export class UsageService {
   /**
    * What the organization is invoiced for a number in a month (billed in arrears).
    *
-   * One message, one unit. The month is billed on the number's assigned plan
-   * while its messages fit, and on the plan that covers them when they do not
-   * (planFor). An active number pays at least its plan; in its first month of
+   * One message, one unit; a template, two from its start date (consumedMessages).
+   * The month is billed on the number's assigned plan plus the blocks it accepted
+   * past the largest one: never on a bigger plan nobody chose (reaching it only
+   * flags limitReached). An active number pays at least its plan; in its first month of
    * service, on its own paid plan, that plan is prorated from the day it went
    * live. The trial plan is free and holds only in the first month. A number
    * that never went live, or that was switched off and sent nothing, is not billed.
@@ -333,7 +353,7 @@ export class UsageService {
     catalog: CatalogPlan[],
     period = currentPeriod(),
   ): MonthlyBill {
-    const messages = usage?.metaMessages ?? 0
+    const messages = consumedMessages(usage)
     const startPeriod = phone.serviceStartedAt ? currentPeriod(phone.serviceStartedAt) : null
     const firstMonth = startPeriod === null || startPeriod === period
     const assignedPlan = this.assignedPlanFor(phone.planId, catalog, firstMonth)
@@ -484,6 +504,7 @@ export class UsageService {
             openaiOutputTokens: true,
             openaiCalls: true,
             metaMessages: true,
+            templateExtraMessages: true,
           },
         })
       })
@@ -515,7 +536,10 @@ export class UsageService {
       }
     }
     // Meta's billable flag accounts for the 1,000 free service messages and
-    // free entry-point windows for provider cost only. Commercial pricing counts all messages.
+    // free entry-point windows for provider cost only. Commercial pricing counts all
+    // messages, and a template twice from its start date (templateExtraMessages).
+    const template = isTemplateCategory(input.category) ? 1 : 0
+    const extra = templateExtraMessages(this.commercialPricing, input.category, deliveredAt)
     let row: MonthlyBillableUsage & { id: number; openaiCostUsd: unknown }
     try {
       row = await this.prisma.$transaction(async tx => {
@@ -540,12 +564,16 @@ export class UsageService {
             producerCodeId: phone.responsibleProducerCodeId,
             metaMessages: 1,
             metaBillableMessages: input.billable ? 1 : 0,
+            metaTemplateMessages: template,
+            templateExtraMessages: extra,
             metaCostUsd: cost,
             totalCostUsd: cost,
           },
           update: {
             metaMessages: { increment: 1 },
             metaBillableMessages: { increment: input.billable ? 1 : 0 },
+            metaTemplateMessages: { increment: template },
+            templateExtraMessages: { increment: extra },
             metaCostUsd: { increment: cost },
             totalCostUsd: { increment: cost },
           },
@@ -556,6 +584,7 @@ export class UsageService {
             openaiOutputTokens: true,
             openaiCalls: true,
             metaMessages: true,
+            templateExtraMessages: true,
           },
         })
       })
@@ -569,13 +598,7 @@ export class UsageService {
   }
 
   /**
-   * Keeps the number's plan in step with the running month. When the messages
-   * pass its plan it moves to the plan that covers them and stays there (the
-   * SuperAdmin can lower it again), and the office hears about it; past the
-   * largest plan it hears once, on the first message over. A trial that ended
-   * with the month gives way to the smallest paid plan, silently.
-   */
-  /**
+   * A trial that ended with its month (or a retired plan) gives way to the smallest paid plan, silently.
    * At the plan's limit the number's assistant pauses (the bot context reads it) and the office is told: the
    * SuperAdmins and the admins of the number's code, in Asuntos pendientes and by mail. Nothing moves it to a bigger
    * plan but someone choosing to (BillingService.resolveLimit); otherwise it answers again next month.
@@ -720,6 +743,8 @@ export class UsageService {
         openaiCalls: true,
         metaMessages: true,
         metaBillableMessages: true,
+        metaTemplateMessages: true,
+        templateExtraMessages: true,
         openaiCachedInputTokens: true,
         openaiInputTokens: true,
         openaiOutputTokens: true,

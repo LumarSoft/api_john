@@ -46,6 +46,46 @@ Reemplaza los planes por tokens del 29 de octubre (`token-plans-october-2026.md`
 - El presupuesto de IA por número (`monthlyBudgetUsd`, solo lo fija el Owner) limita solo el gasto de OpenAI y no
   tiene relación con el plan.
 
+## Plantillas cuentan doble (desde el 1 de diciembre)
+
+Un mensaje que Meta cobra como plantilla (categoría `utility`, `marketing` o `authentication`: avisos de rechazos y de
+pólizas vencidas, seguimiento de cotizaciones, campañas) consume **2 mensajes del plan**; una respuesta dentro de la
+conversación (del bot o de la oficina, categoría `service`) consume 1. Rige para lo entregado desde
+`COMMERCIAL_TEMPLATE_WEIGHT_FROM` (por defecto `2026-12-01`, medianoche de Argentina); antes, todo cuenta 1.
+
+- `UsageMonthly.metaMessages` sigue contando cada mensaje una vez; `metaTemplateMessages` cuenta las plantillas
+  (siempre, sea cual sea la fecha) y `templateExtraMessages` lo que suman de más (1 por plantilla desde la fecha).
+  Los mensajes consumidos del plan son `metaMessages + templateExtraMessages`.
+- Ese número consumido es el que usa todo: el límite y la pausa, la barra de consumo, la elección del plan siguiente y
+  los bloques pasado el plan más grande.
+- Las organizaciones ven lo mismo de siempre (plan, precio, barra), con la barra en mensajes consumidos. No ven el
+  peso, los conteos crudos, las categorías ni ningún costo: `metaMessages` en `GET /admin/phone-numbers` pasó a ser
+  solo del Owner.
+- Migración `20261104180000_template_message_weight`, aditiva: las dos columnas, y `metaTemplateMessages` de los
+  meses ya registrados calculado desde `UsageEvent`.
+
+## Cierre mensual (desde el 4 de noviembre)
+
+El 1 de cada mes a las 00:00 (Argentina) la API congela el mes anterior de cada número en `MonthlyClose`
+(`MonthlyCloseService`): plan con el que se facturó (nombre, mensajes, precio, bloques, si era Prueba), mensajes
+enviados, plantillas y consumidos, lo facturado (la misma cifra «Facturado» del Tablero, con el prorrateo del primer
+mes), lo que costaron Meta y OpenAI, el costo de servicio por mensaje y la liquidación con el socio, con los valores de
+ese día. Si la API arranca y el mes anterior sigue abierto, lo cierra en ese momento. `MONTHLY_CLOSE_ENABLED=false`
+lo apaga.
+
+- Las pantallas del Owner (Tablero y Liquidación) leen un mes cerrado de esas filas; solo el mes en curso (o uno
+  pasado que todavía no se cerró) se calcula con el plan actual de cada número. Antes, los meses pasados se
+  recalculaban con el plan y el estado de hoy.
+- Un mes cerrado no se vuelve a escribir. El Owner puede cerrar a mano cualquier mes terminado
+  (`POST /owner/billing/close`), que es como se cargan octubre de 2026 y los anteriores, y rehacer uno con `force`.
+- Un cierre hecho después del día 1 del mes siguiente usa los planes de ese día y queda marcado `backfilled`
+  («recalculado»): es la mejor aproximación disponible, no lo que se veía a fin de mes.
+- Liquidación con el socio: costo de servicio por mensaje consumido (`PARTNER_COST_PER_MESSAGE_USD`) y parte del socio
+  en lo que queda (`PARTNER_PROFIT_SHARE`). No tienen valor por defecto y se cargan solo en el `.env` del servidor (el
+  repo es público). Sin ellas la liquidación no está configurada: sus endpoints responden 503 y el cierre guarda todo
+  lo demás con la liquidación vacía; un mes cerrado así se liquida con los valores del día en que se consulta.
+- Migración `20261104181000_monthly_close`, aditiva (tabla nueva).
+
 ## Funciones por plan (desde el 3 de noviembre)
 
 Además de los mensajes, cada plan dice qué funciones del panel incluye. El Owner las prende y apaga por plan en

@@ -60,7 +60,17 @@ describe('monthly phone number report', () => {
     return { prisma, service: new PhoneNumbersService(prisma as any, usage as any, noCoverages, noAlerts) }
   }
 
-  const ownerOnly = ['totalCostUsd', 'marginUsd', 'metaBillableMessages', 'openaiCostUsd', 'metaCostUsd', 'pricing']
+  const ownerOnly = [
+    'totalCostUsd',
+    'marginUsd',
+    'metaBillableMessages',
+    'openaiCostUsd',
+    'metaCostUsd',
+    'pricing',
+    // Raw counts: templates weigh more on the plan, so the organization sees only `messages`.
+    'metaMessages',
+    'metaTemplateMessages',
+  ]
 
   it('shows an admin the messages of the month and its plan, never our cost', async () => {
     const { service, prisma } = setup()
@@ -98,7 +108,6 @@ describe('monthly phone number report', () => {
     const [row] = await service.list(2, Role.SUPERADMIN, '2026-09')
     expect(row.usage).toMatchObject({
       messages: 1200,
-      metaMessages: 1200,
       openaiCalls: 80,
       inputTokens: 10000,
       outputTokens: 1000,
@@ -121,6 +130,7 @@ describe('monthly phone number report', () => {
       totalCostUsd: 5.21,
       marginUsd: 94.8,
       metaBillableMessages: 200,
+      metaMessages: 1200,
     })
     expect(row).toHaveProperty('monthlyBudgetUsd')
   })
