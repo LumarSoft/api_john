@@ -31,6 +31,7 @@ import { OwnerModule } from './owner/owner.module'
 import { WhatsappOnboardingModule } from './whatsapp-onboarding/whatsapp-onboarding.module'
 import { ImprovementsModule } from './improvements/improvements.module'
 import { TasksModule } from './tasks/tasks.module'
+import { InternalChatModule } from './internal-chat/internal-chat.module'
 import { RejectionsModule } from './rejections/rejections.module'
 import { ExpiredPoliciesModule } from './expired-policies/expired-policies.module'
 import { BillingModule } from './billing/billing.module'
@@ -69,6 +70,7 @@ import { OrganizationLogoModule } from './organization-logo/organization-logo.mo
     WhatsappOnboardingModule,
     ImprovementsModule,
     TasksModule,
+    InternalChatModule,
     RejectionsModule,
     ExpiredPoliciesModule,
     BillingModule,

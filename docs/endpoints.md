@@ -2091,6 +2091,270 @@ Soft-deletes the task. Only its creator or a SuperAdmin.
 
 `403 Forbidden` — The task does not involve the user · `404 Not Found` — No such task
 
+## Admin — Chat interno
+
+The office's own chat in the panel ("Chat interno"), between the users of one organization and apart from the WhatsApp chats with clients: nothing goes through Meta. Each organization has one team chat (`TEAM`, everyone in the office) and one direct chat (`DIRECT`) per pair of people. A direct chat is visible only to its two people (a SuperAdmin does not see other people's direct chats); someone else's chat answers `404`. The platform OWNER is not part of any office's chat: every endpoint answers `403` to an OWNER token. The chat is the plan function `internal_chat`: when the plans of the organization's numbers leave it out (see `GET /admin/billing/features`), every endpoint answers `403` with the message below. All endpoints require a user JWT. There are no websockets: the panel polls `GET /admin/internal-chat/unread`, the chat list and the open chat.
+
+A person's read mark is the last message they read in each chat; their own messages count as read. The first time the panel asks for someone's chats they join the team chat, with what was written before their user existed already read.
+
+A message in every response:
+
+```json
+{
+  "id": 30,
+  "chatId": 5,
+  "body": "¿Alguien puede llamar a Pérez? Pregunta por la renovación.",
+  "createdAt": "2026-11-03T15:00:00.000Z",
+  "sender": { "id": 1, "name": "John", "email": "john@example.com" }
+}
+```
+
+### GET /admin/internal-chat/chats
+
+The person's chats: the team chat first (created the first time anyone of the organization opens the chat), then their direct chats with the latest activity first.
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK`
+
+```json
+[
+  {
+    "id": 5,
+    "kind": "TEAM",
+    "person": null,
+    "lastMessage": {
+      "id": 30,
+      "chatId": 5,
+      "body": "¿Alguien puede llamar a Pérez?",
+      "createdAt": "2026-11-03T15:00:00.000Z",
+      "sender": { "id": 1, "name": "John", "email": "john@example.com" }
+    },
+    "lastMessageAt": "2026-11-03T15:00:00.000Z",
+    "unread": 1
+  },
+  {
+    "id": 8,
+    "kind": "DIRECT",
+    "person": { "id": 3, "name": "Demis", "email": "demis@example.com" },
+    "lastMessage": null,
+    "lastMessageAt": null,
+    "unread": 0
+  }
+]
+```
+
+`person` is the other person of a direct chat (null for the team chat). `unread` counts the messages others wrote after the person's read mark.
+
+`403 Forbidden` — OWNER token, or the organization's plans leave the chat out
+
+```json
+{ "statusCode": 403, "message": "The internal chat is for the office", "error": "Forbidden" }
+```
+
+```json
+{
+  "statusCode": 403,
+  "message": "El plan de tus números no incluye el chat interno. Se puede cambiar en Facturación.",
+  "error": "Forbidden"
+}
+```
+
+### GET /admin/internal-chat/unread
+
+Unread messages across all the person's chats, for the menu badge, and the newest of them for the "new message" notice.
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK`
+
+```json
+{
+  "total": 2,
+  "latest": {
+    "id": 31,
+    "chatId": 8,
+    "body": "Ya le mandé la póliza",
+    "createdAt": "2026-11-03T15:10:00.000Z",
+    "sender": { "id": 3, "name": "Demis", "email": "demis@example.com" }
+  }
+}
+```
+
+`latest` is null when there is nothing unread. `403 Forbidden` — OWNER token, or a plan without the chat
+
+### GET /admin/internal-chat/people
+
+The coworkers the person can write to: the organization's users, the person themselves and the OWNER excluded.
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK`
+
+```json
+[
+  { "id": 3, "name": "Demis", "email": "demis@example.com" },
+  { "id": 1, "name": "John", "email": "john@example.com" }
+]
+```
+
+`403 Forbidden` — OWNER token
+
+### POST /admin/internal-chat/direct
+
+The direct chat with a coworker, created the first time either of the two opens it (opening it again returns the same chat).
+
+**Auth required:** Yes (user JWT)
+
+**Request body**
+
+| Field  | Type   | Required | Constraints                                                               |
+| ------ | ------ | -------- | ------------------------------------------------------------------------- |
+| userId | number | Yes      | A user of the same organization: not the person themselves, not the OWNER |
+
+```json
+{ "userId": 3 }
+```
+
+**Responses**
+
+`201 Created` — The chat, as in `GET /admin/internal-chat/chats`.
+
+```json
+{
+  "id": 8,
+  "kind": "DIRECT",
+  "person": { "id": 3, "name": "Demis", "email": "demis@example.com" },
+  "lastMessage": null,
+  "lastMessageAt": null,
+  "unread": 0
+}
+```
+
+`400 Bad Request` — Validation error, the person themselves, or someone outside the organization
+
+```json
+{ "statusCode": 400, "message": "That person is not part of this office", "error": "Bad Request" }
+```
+
+`403 Forbidden` — OWNER token
+
+### GET /admin/internal-chat/chats/:id/messages
+
+A page of the chat, oldest first, and how far each person in it has read (for the "Visto" marks).
+
+**Auth required:** Yes (user JWT)
+
+| Query    | Type   | Default | Meaning                                                         |
+| -------- | ------ | ------- | --------------------------------------------------------------- |
+| beforeId | number | —       | Older page: the messages before this id. Without it, the latest |
+| limit    | number | 50      | 1–200                                                           |
+
+**Responses**
+
+`200 OK`
+
+```json
+{
+  "messages": [
+    {
+      "id": 30,
+      "chatId": 5,
+      "body": "¿Alguien puede llamar a Pérez?",
+      "createdAt": "2026-11-03T15:00:00.000Z",
+      "sender": { "id": 1, "name": "John", "email": "john@example.com" }
+    }
+  ],
+  "hasMore": false,
+  "members": [
+    { "user": { "id": 1, "name": "John", "email": "john@example.com" }, "lastReadMessageId": 30 },
+    { "user": { "id": 2, "name": "Mili", "email": "mili@example.com" }, "lastReadMessageId": 28 }
+  ]
+}
+```
+
+`hasMore` says there are older messages before the first one. Deleted messages are left out.
+
+`404 Not Found` — No such chat in the organization, or a direct chat of two other people
+
+```json
+{ "statusCode": 404, "message": "Chat 8 not found", "error": "Not Found" }
+```
+
+### POST /admin/internal-chat/chats/:id/messages
+
+Sends a message. The chat moves up the list and the sender's read mark moves to their message.
+
+**Auth required:** Yes (user JWT)
+
+**Request body**
+
+| Field | Type   | Required | Constraints                                           |
+| ----- | ------ | -------- | ----------------------------------------------------- |
+| body  | string | Yes      | 1–4000 characters after trimming the spaces around it |
+
+```json
+{ "body": "¿Alguien puede llamar a Pérez? Pregunta por la renovación." }
+```
+
+**Responses**
+
+`201 Created` — The message.
+
+`400 Bad Request` — Empty or too long · `404 Not Found` — Not a chat of the person
+
+### POST /admin/internal-chat/chats/:id/read
+
+Moves the person's read mark up to a message of the chat (it never goes back: an older id leaves it where it was).
+
+**Auth required:** Yes (user JWT)
+
+**Request body**
+
+| Field     | Type   | Required | Constraints            |
+| --------- | ------ | -------- | ---------------------- |
+| messageId | number | Yes      | A message of this chat |
+
+```json
+{ "messageId": 31 }
+```
+
+**Responses**
+
+`201 Created` — The read mark after the call.
+
+```json
+{ "lastReadMessageId": 31 }
+```
+
+`400 Bad Request` — The message is not part of the chat · `404 Not Found` — Not a chat of the person
+
+### DELETE /admin/internal-chat/messages/:id
+
+Soft-deletes one of the person's own messages: it stops showing in the chat for everyone.
+
+**Auth required:** Yes (user JWT)
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "ok": true }
+```
+
+`404 Not Found` — No such message, or it was written by someone else
+
+```json
+{ "statusCode": 404, "message": "Message 31 not found", "error": "Not Found" }
+```
+
 ## Bot (WhatsApp)
 
 All `/bot/*` endpoints require the header `x-bot-secret` matching the `BOT_SECRET` env variable. They are consumed exclusively by `whatsapp-bot-seguros` — the bot never accesses the database directly.
