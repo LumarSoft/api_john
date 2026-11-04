@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config'
-import { CatalogPlan, UsageService, currentPeriod } from './usage.service'
+import { CatalogPlan, UsageService, consumedMessages, currentPeriod } from './usage.service'
+import { isTemplateCategory, readCommercialPricing, templateExtraMessages } from './commercial-pricing'
 
 const catalogRows = [
   { id: 9, name: 'Prueba', messages: 100, priceUsd: 0, isTrial: true, isActive: true },
@@ -8,7 +9,7 @@ const catalogRows = [
 ]
 const catalog: CatalogPlan[] = catalogRows
 
-function setup(phoneOverrides: Record<string, unknown> = {}) {
+function setup(phoneOverrides: Record<string, unknown> = {}, settings: Record<string, string> = {}) {
   const phone = {
     id: 4,
     number: '+54 9 341 600-0000',
@@ -63,7 +64,8 @@ function setup(phoneOverrides: Record<string, unknown> = {}) {
   }
   prisma.$transaction.mockImplementation(fn => fn(prisma))
   const mail = { sendAlert: jest.fn().mockResolvedValue(undefined) }
-  const service = new UsageService(prisma as any, { get: () => undefined } as unknown as ConfigService, mail as any)
+  const config = { get: (key: string) => settings[key] } as unknown as ConfigService
+  const service = new UsageService(prisma as any, config, mail as any)
   return { service, prisma, mail }
 }
 
@@ -450,6 +452,86 @@ describe('monthly usage recording', () => {
       marginUsd: 92,
     })
     expect(report.totals).toMatchObject({ billedUsd: 100, metaCostUsd: 8, openaiCostUsd: 2, marginUsd: 92 })
+  })
+})
+
+describe('templates on the plan', () => {
+  const config = (values: Record<string, string>) => ({ get: (key: string) => values[key] }) as unknown as ConfigService
+  const at = (iso: string) => Date.parse(iso) / 1000
+  const message = (messageId: string, category: string, iso: string) => ({
+    metaPhoneNumberId: 'PN',
+    messageId,
+    category,
+    billable: category !== 'service',
+    recipient: '5493416000000',
+    timestamp: at(iso),
+  })
+
+  it('tells a template from an in-conversation reply by its Meta category', () => {
+    for (const reply of ['service', 'referral_conversion', 'SERVICE']) expect(isTemplateCategory(reply)).toBe(false)
+    for (const template of ['utility', 'marketing', 'marketing_lite', 'authentication'])
+      expect(isTemplateCategory(template)).toBe(true)
+  })
+
+  it('counts a template twice only from COMMERCIAL_TEMPLATE_WEIGHT_FROM, midnight in Argentina by default', () => {
+    const pricing = readCommercialPricing(config({}))
+    expect(pricing.templateWeightFrom.toISOString()).toBe('2026-12-01T03:00:00.000Z')
+    expect(templateExtraMessages(pricing, 'utility', new Date('2026-12-01T02:59:59Z'))).toBe(0)
+    expect(templateExtraMessages(pricing, 'utility', new Date('2026-12-01T03:00:00Z'))).toBe(1)
+    expect(templateExtraMessages(pricing, 'service', new Date('2026-12-15T12:00:00Z'))).toBe(0)
+    const earlier = readCommercialPricing(config({ COMMERCIAL_TEMPLATE_WEIGHT_FROM: '2026-11-15' }))
+    expect(templateExtraMessages(earlier, 'marketing', new Date('2026-11-20T12:00:00Z'))).toBe(1)
+    expect(() => readCommercialPricing(config({ COMMERCIAL_TEMPLATE_WEIGHT_FROM: 'someday' }))).toThrow()
+  })
+
+  it('records the raw template count always and the extra plan message from the start date on', async () => {
+    const { service, prisma } = setup()
+    await service.recordMeta(message('before', 'utility', '2026-11-20T12:00:00Z'))
+    await service.recordMeta(message('after', 'marketing', '2026-12-02T12:00:00Z'))
+    await service.recordMeta(message('reply', 'service', '2026-12-02T12:05:00Z'))
+    const [before, after, reply] = prisma.usageMonthly.upsert.mock.calls.map(([args]) => args)
+    expect(before.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 1, templateExtraMessages: 0 })
+    expect(before.update).toMatchObject({
+      metaTemplateMessages: { increment: 1 },
+      templateExtraMessages: { increment: 0 },
+    })
+    expect(after.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 1, templateExtraMessages: 1 })
+    expect(reply.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 0, templateExtraMessages: 0 })
+  })
+
+  it('bills, fills the bar and reaches the limit on the consumed messages', () => {
+    const { service } = setup()
+    // 380 replies + 60 templates after the start date = 440 sent, 500 consumed.
+    const usage = { metaMessages: 440, metaTemplateMessages: 60, templateExtraMessages: 60 }
+    expect(consumedMessages(usage)).toBe(500)
+    expect(service.billFor({ ...live, planId: 1 }, usage, catalog, '2026-12')).toMatchObject({
+      messages: 500,
+      plan: { name: 'Inicial', includedMessages: 500 },
+      limitReached: true,
+      billedUsd: 25,
+    })
+    // The same month before the start date: every message counts once.
+    expect(
+      service.billFor({ ...live, planId: 1 }, { metaMessages: 440, metaTemplateMessages: 60 }, catalog, '2026-11'),
+    ).toMatchObject({ messages: 440, limitReached: false })
+  })
+
+  it('pauses the assistant when a template takes the month to the plan', async () => {
+    const { service, prisma } = setup({ planId: 1 }, { COMMERCIAL_TEMPLATE_WEIGHT_FROM: '2026-01-01' })
+    // 499 sent, one of them a template counting twice: 500 of Inicial's 500.
+    prisma.usageMonthly.upsert.mockResolvedValue({
+      id: 9,
+      openaiCostUsd: 0,
+      metaMessages: 499,
+      templateExtraMessages: 1,
+    })
+    await service.recordMeta({ ...message('t-499', 'utility', '2026-01-01T12:00:00Z'), timestamp: Date.now() / 1000 })
+    expect(prisma.usageMonthly.upsert.mock.calls[0][0].create).toMatchObject({ templateExtraMessages: 1 })
+    expect(prisma.phoneNumber.updateMany).toHaveBeenCalledWith({
+      where: { id: 4, OR: [{ planPausedAt: null }, { planPausedAt: { lt: expect.any(Date) } }] },
+      data: { planPausedAt: expect.any(Date), planPauseConfirmedAt: null },
+    })
+    expect(prisma.notification.create.mock.calls[0][0].data.body).toContain('500 mensajes de su plan Inicial')
   })
 })
 

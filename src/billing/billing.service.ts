@@ -7,6 +7,7 @@ import {
   acceptedBlocks,
   BilledPlan,
   CatalogPlan,
+  consumedMessages,
   currentPeriod,
   nextPeriod,
   pausedIn,
@@ -168,7 +169,10 @@ export class BillingService {
           extraBlocks: true,
           extraBlocksPeriod: true,
           responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
-          usageMonthly: { where: { period }, select: { metaMessages: true, updatedAt: true } },
+          usageMonthly: {
+            where: { period },
+            select: { metaMessages: true, templateExtraMessages: true, updatedAt: true },
+          },
         },
       }),
       this.usage.catalog(),
@@ -240,7 +244,10 @@ export class BillingService {
     const period = currentPeriod()
     const number = await this.prisma.phoneNumber.findFirst({
       where: { id: numberId, producerId: user.producerId, deletedAt: null },
-      select: { id: true, usageMonthly: { where: { period }, select: { metaMessages: true } } },
+      select: {
+        id: true,
+        usageMonthly: { where: { period }, select: { metaMessages: true, templateExtraMessages: true } },
+      },
     })
     if (!number) throw new NotFoundException(`Phone number ${numberId} not found`)
     const plan = await this.prisma.messagePlan.findFirst({
@@ -250,7 +257,7 @@ export class BillingService {
     if (!plan) throw new NotFoundException(`Plan ${planId} not found`)
     if (plan.isTrial)
       throw new BadRequestException('El plan de prueba lo recibe solo un número nuevo de una cuenta nueva.')
-    const covers = plan.messages > (number.usageMonthly[0]?.metaMessages ?? 0)
+    const covers = plan.messages > consumedMessages(number.usageMonthly[0])
     // The SuperAdmin's choice replaces any block accepted past the largest plan this month.
     await this.prisma.phoneNumber.update({
       where: { id: numberId },
@@ -275,7 +282,11 @@ export class BillingService {
     const period = currentPeriod()
     const number = await this.prisma.phoneNumber.findFirst({
       where: { id: numberId, producerId: user.producerId, deletedAt: null, ...(await this.numberScope(user)) },
-      select: { id: true, planPausedAt: true, usageMonthly: { where: { period }, select: { metaMessages: true } } },
+      select: {
+        id: true,
+        planPausedAt: true,
+        usageMonthly: { where: { period }, select: { metaMessages: true, templateExtraMessages: true } },
+      },
     })
     if (!number) throw new NotFoundException(`Phone number ${numberId} not found`)
     if (!pausedIn(number.planPausedAt, period)) throw new ConflictException('El número no está en pausa por su plan.')
@@ -286,7 +297,7 @@ export class BillingService {
       return { ok: true, paused: true }
     }
 
-    const messages = number.usageMonthly[0]?.metaMessages ?? 0
+    const messages = consumedMessages(number.usageMonthly[0])
     const paid = (await this.usage.catalog()).filter(p => p.isActive && !p.isTrial)
     const covering = paid.find(p => p.messages > messages)
     const largest = paid.at(-1)

@@ -46,6 +46,24 @@ Reemplaza los planes por tokens del 29 de octubre (`token-plans-october-2026.md`
 - El presupuesto de IA por número (`monthlyBudgetUsd`, solo lo fija el Owner) limita solo el gasto de OpenAI y no
   tiene relación con el plan.
 
+## Plantillas cuentan doble (desde el 1 de diciembre)
+
+Un mensaje que Meta cobra como plantilla (categoría `utility`, `marketing` o `authentication`: avisos de rechazos y de
+pólizas vencidas, seguimiento de cotizaciones, campañas) consume **2 mensajes del plan**; una respuesta dentro de la
+conversación (del bot o de la oficina, categoría `service`) consume 1. Rige para lo entregado desde
+`COMMERCIAL_TEMPLATE_WEIGHT_FROM` (por defecto `2026-12-01`, medianoche de Argentina); antes, todo cuenta 1.
+
+- `UsageMonthly.metaMessages` sigue contando cada mensaje una vez; `metaTemplateMessages` cuenta las plantillas
+  (siempre, sea cual sea la fecha) y `templateExtraMessages` lo que suman de más (1 por plantilla desde la fecha).
+  Los mensajes consumidos del plan son `metaMessages + templateExtraMessages`.
+- Ese número consumido es el que usa todo: el límite y la pausa, la barra de consumo, la elección del plan siguiente y
+  los bloques pasado el plan más grande.
+- Las organizaciones ven lo mismo de siempre (plan, precio, barra), con la barra en mensajes consumidos. No ven el
+  peso, los conteos crudos, las categorías ni ningún costo: `metaMessages` en `GET /admin/phone-numbers` pasó a ser
+  solo del Owner.
+- Migración `20261104180000_template_message_weight`, aditiva: las dos columnas, y `metaTemplateMessages` de los
+  meses ya registrados calculado desde `UsageEvent`.
+
 ## Funciones por plan (desde el 3 de noviembre)
 
 Además de los mensajes, cada plan dice qué funciones del panel incluye. El Owner las prende y apaga por plan en

@@ -66,10 +66,11 @@ export class PhoneNumbersService {
    * Numbers of an organization with the running month's figures.
    *
    * What the caller sees depends on the role:
-   *   - ADMIN: the messages of the month, the number's plan and what the month
-   *     adds up to at the catalog's prices
+   *   - ADMIN: the plan messages the month consumed, the number's plan and what
+   *     the month adds up to at the catalog's prices
    *   - SUPERADMIN: also the OpenAI calls and tokens
-   *   - OWNER (Lumar): also what Meta and OpenAI cost and the profit (billed − Meta)
+   *   - OWNER (Lumar): also the raw message and template counts, what Meta and
+   *     OpenAI cost and the profit (billed − Meta)
    */
   async list(producerId: number, role?: Role, period = currentPeriod(), userId?: number) {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || period > currentPeriod())
@@ -112,6 +113,8 @@ export class PhoneNumbersService {
             openaiCalls: true,
             metaMessages: true,
             metaBillableMessages: true,
+            metaTemplateMessages: true,
+            templateExtraMessages: true,
             openaiCachedInputTokens: true,
             openaiCostUsd: true,
             metaCostUsd: true,
@@ -182,7 +185,6 @@ export class PhoneNumbersService {
           planPaused: period === currentPeriod() && pausedIn(n.planPausedAt, period),
           ...(seesActivity
             ? {
-                metaMessages: usage?.metaMessages ?? 0,
                 metaConversations: usage?.metaConversations ?? 0,
                 openaiCalls: usage?.openaiCalls ?? 0,
                 inputTokens: usage?.openaiInputTokens ?? 0,
@@ -190,8 +192,11 @@ export class PhoneNumbersService {
               }
             : {}),
           // Our cost and profit: owner only. OpenAI is prepaid, so the profit is billed minus Meta.
+          // The raw count (templates weigh more on the plan) is the owner's: the organization sees `messages`.
           ...(isOwner
             ? {
+                metaMessages: usage?.metaMessages ?? 0,
+                metaTemplateMessages: usage?.metaTemplateMessages ?? 0,
                 metaBillableMessages: usage?.metaBillableMessages ?? 0,
                 openaiCostUsd: Number(usage?.openaiCostUsd ?? 0),
                 metaCostUsd: metaCost,
