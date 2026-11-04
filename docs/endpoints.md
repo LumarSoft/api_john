@@ -1640,6 +1640,117 @@ Retires a plan (soft delete); its numbers go back to the smallest paid plan. The
 
 ---
 
+## Owner — Liquidación (socio comercial)
+
+How each month's billing splits between Lumarsoft and its commercial partner. Per number: Lumarsoft's service cost = consumed messages × `PARTNER_COST_PER_MESSAGE_USD` (default 0.04; a template that counts twice costs twice); remainder = billed − that cost; the partner gets `PARTNER_PROFIT_SHARE` (default 0.5) of the remainder and Lumarsoft the rest. A trial bills 0, so its cost makes the remainder negative and comes out of the split. `billedUsd` is the Tablero's "Facturado" (prorated in the first month of service). **What Meta and OpenAI cost is never part of it nor returned here.** A closed month is read as frozen, with the rates of its close (`terms`); the running month (or one not closed yet) is computed now with today's rates.
+
+### GET /owner/settlement
+
+One month: totals, per organization (only those with numbers in the settlement) and per number. A number counts when it was in service that month, consumed messages or billed something.
+
+**Auth required:** Yes (OWNER)
+
+**Query parameters**: `period` (`YYYY-MM`, default current).
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "period": "2026-10",
+  "live": false,
+  "closed": true,
+  "closedAt": "2026-11-01T03:00:00.000Z",
+  "backfilled": false,
+  "terms": { "costPerMessageUsd": 0.04, "partnerShare": 0.5 },
+  "totals": {
+    "organizations": 1,
+    "numbers": 2,
+    "trialNumbers": 1,
+    "consumedMessages": 380,
+    "billedUsd": 25,
+    "serviceCostUsd": 15.2,
+    "remainderUsd": 9.8,
+    "partnerShareUsd": 4.9,
+    "ownerShareUsd": 4.9,
+    "ownerTotalUsd": 20.1
+  },
+  "organizations": [
+    {
+      "id": 1,
+      "name": "Organización",
+      "isActive": true,
+      "totals": { "consumedMessages": 380, "billedUsd": 25, "serviceCostUsd": 15.2, "remainderUsd": 9.8, "partnerShareUsd": 4.9, "ownerShareUsd": 4.9, "ownerTotalUsd": 20.1 },
+      "numbers": [
+        {
+          "id": 8,
+          "number": "+54 9 341 000-0000",
+          "isActive": true,
+          "responsibleCode": { "code": "11425", "holderName": null },
+          "plan": { "name": "Inicial", "includedMessages": 500, "priceUsd": 25 },
+          "trial": false,
+          "prorated": false,
+          "firstMonth": false,
+          "sentMessages": 250,
+          "templateMessages": 50,
+          "consumedMessages": 300,
+          "billedUsd": 25,
+          "serviceCostUsd": 12,
+          "remainderUsd": 13,
+          "partnerShareUsd": 6.5,
+          "ownerShareUsd": 6.5,
+          "ownerTotalUsd": 18.5
+        }
+      ]
+    }
+  ]
+}
+```
+
+`400 Bad Request` — invalid or future month. `403 Forbidden` — not the OWNER.
+
+---
+
+### GET /owner/settlement/series
+
+The months ending at `to`: the money of each, active numbers (in service that month), new numbers (their first month of service) and numbers that stopped (in service the month before, not this one). `terms` are today's rates; each closed month was settled with its own.
+
+**Auth required:** Yes (OWNER)
+
+**Query parameters**: `to` (`YYYY-MM`, default current), `months` (1–24, default 12).
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "to": "2026-11",
+  "terms": { "costPerMessageUsd": 0.04, "partnerShare": 0.5 },
+  "months": [
+    {
+      "period": "2026-10",
+      "live": false,
+      "closed": true,
+      "backfilled": true,
+      "consumedMessages": 1730,
+      "billedUsd": 125,
+      "serviceCostUsd": 69.2,
+      "remainderUsd": 55.8,
+      "partnerShareUsd": 27.9,
+      "ownerShareUsd": 27.9,
+      "ownerTotalUsd": 97.1,
+      "activeNumbers": 2,
+      "newNumbers": 0,
+      "stoppedNumbers": 0
+    }
+  ]
+}
+```
+
+`400 Bad Request` — invalid or future `to`, or `months` out of range. `403 Forbidden` — not the OWNER.
+
+---
+
 ### GET /public/plans
 
 The active plans of the catalog, for the landing. Cached 5 minutes.
