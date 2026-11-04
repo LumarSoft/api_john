@@ -1055,6 +1055,50 @@ Every record is credited to one of the organization's codes: its own code; else 
 
 \* Month-end state: only a balance taken within 3 days of the close reads it. A rebuilt month (`backfilled: true`) has it as `null`, shown as "sin dato" — never 0. Months before the organization existed have no balance.
 
+### GET /admin/balance
+
+The last closed months, oldest first, each metric with its change against the month before.
+
+**Auth required:** Yes (user JWT)
+
+**Query params**
+
+| Param          | Type   | Required | Constraints                                                    |
+| -------------- | ------ | -------- | -------------------------------------------------------------- |
+| months         | number | No       | 1–24, default 12. The last one is the month before the current |
+| producerCodeId | number | No       | One of the user's codes; another returns no data               |
+| phoneNumberId  | number | No       | A PhoneNumber id: the codes that number serves                 |
+
+**Responses**
+
+`200 OK` — `recorded: false` = no balance that month (every value `null`). `value: null` = not recorded. `changePct` is `null` without a previous value or when it was 0. Amounts are pesos with 2 decimals.
+
+```json
+{
+  "months": [
+    {
+      "period": "2026-10",
+      "recorded": true,
+      "backfilled": false,
+      "snapshotAt": "2026-11-01T03:30:00.000Z",
+      "metrics": {
+        "policiesInForce": { "value": 2140, "previous": 2101, "change": 39, "changePct": 1.9 },
+        "debtAmount": { "value": 1823400.5, "previous": null, "change": null, "changePct": null },
+        "claimsBlocked": { "value": 6, "previous": 4, "change": 2, "changePct": 50 }
+      }
+    }
+  ]
+}
+```
+
+(Every metric of the table above comes in `metrics`; three are shown.)
+
+`400 Bad Request` — `months` out of range or a non-numeric filter
+
+`401 Unauthorized` — Missing or invalid JWT
+
+`403 Forbidden` — Token is not an employee/admin token
+
 ### POST /owner/balance/snapshots
 
 Closes a month's balance by hand: every active organization, or one. A month that already has a balance is left as it is unless `force` is true. Run within 3 days of the close it reads the month-end state; later it is rebuilt (`backfilled`).
