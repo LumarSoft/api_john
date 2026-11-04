@@ -1335,6 +1335,7 @@ The month of every number in scope: its assigned plan, the plan the month is bil
     {
       "id": 1,
       "number": "+54 9 11 0000-0000",
+      "branchName": "Centro",
       "isActive": true,
       "responsibleCode": { "id": 1, "code": "11425", "holderName": "JOHN PELLEGRINI MANAGEMENT GROUP SRL" },
       "assignedPlan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
@@ -3066,6 +3067,12 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 
 Running Embedded Signup again for a number that Meta dropped reuses its `PhoneNumber` row, so the month's usage, the budget and the producer codes stay with it: the row with the same Meta id is revived (even if it is still listed, instead of answering `409`); on Coexistence, if Meta hands out a new `phone_number_id`, the latest deleted or disconnected row of the same WABA (or with the same display number) is re-pointed and its chats move with it. The response adds `"reconnected": true`. `409 Conflict` is only returned when the number is live in another organization. `GET /admin/phone-numbers` now includes `disconnectedAt`, `disconnectReason` and `disconnectReasonLabel` for each number.
 
+**Branch name.** `branchName` (string, optional, ≤ 60 chars, trimmed; empty = none) is what the office calls the number's branch (`"Pueblo Esther"`). The panel always asks for it before opening Embedded Signup and sends it with the `code`. A new number is created with it; a reconnect without it keeps the name the number already had.
+
+```json
+{ "code": "AQB…", "wabaId": "1018755496", "isCoexistence": true, "branchName": "Pueblo Esther" }
+```
+
 ### Meta portfolio of each number
 
 `GET /admin/phone-numbers` (every role that sees the number) and `GET /owner/organizations/:id` include `portfolio` for
@@ -3097,7 +3104,7 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 
-Every number also carries `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization), `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own) and `botEnabled` (the number's own bot switch, see `PATCH /admin/phone-numbers/:id/bot-status`).
+Every number also carries `branchName` (the branch it belongs to, as the office calls it: `"27 de Febrero"`, or `null`; set when the number is connected, `branchName` in `POST /admin/whatsapp/onboard`, or registered by hand, `branchName` in `POST /admin/phone-numbers` (≤ 60 chars, trimmed); changed with `PATCH /admin/phone-numbers/:id` or `PATCH /admin/phone-numbers/:id/assistant`, where an empty string clears it; the panel shows it next to the number), `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization), `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own) and `botEnabled` (the number's own bot switch, see `PATCH /admin/phone-numbers/:id/bot-status`).
 
 ### GET /admin/phone-numbers/:id/assistant
 
@@ -3113,6 +3120,7 @@ A number's own assistant next to its organization's. Whatever the number leaves 
 {
   "id": 8,
   "number": "+54 9 341 000-0000",
+  "branchName": "Centro",
   "canEdit": true,
   "own": {
     "botName": "Sofi",
@@ -3160,7 +3168,9 @@ A number's own assistant next to its organization's. Whatever the number leaves 
 }
 ```
 
-`canEdit` is `true`: whoever sees a number may configure it.
+`canEdit` is `true`: whoever sees a number may configure it. `branchName` is the number's branch (`null` = none): it is the number's alone, never the organization's.
+
+The same `branchName` comes with each number of `GET /admin/billing`, `GET /admin/status` (`whatsapp` rows) and the owner's organization detail.
 
 `own.coverageSettings` is how this number offers the organization's coverages, keyed by Triunfo code and holding only the fields it changes (`isActive`: whether it offers it, `highlighted`: whether it recommends it, `sortOrder`: its place in the list); each `null` field is the organization's. `organization.coverages` are the coverages as the organization offers them (`GET /admin/coberturas` reduced), which the number's own settings start from. The wording, the year windows and the "nothing says what it includes" rule stay the organization's; moto quotes keep Triunfo's fixed catalog. `own.botEnabled` and `lastBotStatusChange` are the number's own bot switch and who last flipped it.
 
@@ -3176,6 +3186,7 @@ Changes a number's own assistant. Only the fields sent change; clearing one give
 
 | Field            | Type           | Required | Constraints                                                                                                                                                                                                                                                   |
 | ---------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| branchName       | string         | No       | max 60; the branch the number belongs to ("27 de Febrero"); empty = none                                                                                                                                                                                      |
 | botName          | string         | No       | max 60; empty = the organization's                                                                                                                                                                                                                            |
 | staffNames       | string[]       | No       | up to 10 names of max 30; empty and repeated dropped; empty list = the organization's                                                                                                                                                                         |
 | businessHours    | object \| null | No       | same shape and rules as `PATCH /admin/business-hours/schedule`; `null` = the organization's                                                                                                                                                                   |
@@ -3184,6 +3195,7 @@ Changes a number's own assistant. Only the fields sent change; clearing one give
 
 ```json
 {
+  "branchName": "Centro",
   "botName": "Sofi",
   "staffNames": ["Caro"],
   "businessHours": null,
@@ -4503,6 +4515,7 @@ Each incident is handed once to the AI model (OpenAI, `OPENAI_API_KEY` and `OPEN
     {
       "id": 8,
       "number": "+54 341 275-7294",
+      "branchName": "27 de Febrero",
       "producerName": "JOHN PELLEGRINI MANAGEMENT GROUP",
       "status": "operational",
       "disconnectedAt": null,

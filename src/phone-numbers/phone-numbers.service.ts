@@ -8,6 +8,7 @@ import { normalizeCoverageOverrides, parseCoverageOverrides } from '../common/co
 import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import { BotStatusAlertService } from '../users/bot-status-alert.service'
+import { toBranchName } from './branch-name'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
@@ -85,6 +86,7 @@ export class PhoneNumbersService {
         id: true,
         phoneNumberId: true,
         number: true,
+        branchName: true,
         isActive: true,
         botEnabled: true,
         ...ASSISTANT_SELECT,
@@ -152,6 +154,7 @@ export class PhoneNumbersService {
         id: n.id,
         phoneNumberId: n.phoneNumberId,
         number: n.number,
+        branchName: n.branchName,
         isActive: n.isActive,
         // The number's own bot switch (the organization's is in GET /admin/config).
         botEnabled: n.botEnabled,
@@ -232,6 +235,7 @@ export class PhoneNumbersService {
       data: {
         phoneNumberId: dto.phoneNumberId,
         number: dto.number,
+        branchName: dto.branchName !== undefined ? toBranchName(dto.branchName) : null,
         producerId,
         responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
         monthlyBudgetUsd: this.budgetFrom(dto, role) ?? null,
@@ -257,6 +261,7 @@ export class PhoneNumbersService {
       where: { id },
       data: {
         ...(dto.number !== undefined ? { number: dto.number } : {}),
+        ...(dto.branchName !== undefined ? { branchName: toBranchName(dto.branchName) } : {}),
         ...(dto.responsibleProducerCodeId !== undefined
           ? { responsibleProducerCodeId: dto.responsibleProducerCodeId }
           : {}),
@@ -290,6 +295,7 @@ export class PhoneNumbersService {
       select: {
         id: true,
         number: true,
+        branchName: true,
         responsibleProducerCodeId: true,
         botEnabled: true,
         coverageSettings: true,
@@ -310,6 +316,8 @@ export class PhoneNumbersService {
     return {
       id: phone.id,
       number: phone.number,
+      // The branch it belongs to, as the office calls it (null = none set).
+      branchName: phone.branchName,
       // Whoever sees a number may configure it.
       canEdit: true,
       own: {
@@ -425,6 +433,7 @@ export class PhoneNumbersService {
     }
 
     const data: Prisma.PhoneNumberUpdateInput = {}
+    if (dto.branchName !== undefined) data.branchName = toBranchName(dto.branchName)
     if (dto.botName !== undefined) data.botName = dto.botName.trim() || null
     if (dto.staffNames !== undefined) data.staffNames = serializeStaffNames(dto.staffNames)
     if (dto.businessHours !== undefined) {

@@ -8,6 +8,12 @@ import { UpdateBotProfileDto } from '../../users/dto/update-bot-profile.dto'
  * organization's value again.
  */
 export class UpdateNumberAssistantDto {
+  /** The branch the number belongs to ("27 de Febrero"); empty = none. Not inherited from the organization. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  branchName?: string
+
   @IsOptional()
   @IsString()
   @MaxLength(60)

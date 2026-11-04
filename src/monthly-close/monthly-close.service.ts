@@ -40,6 +40,8 @@ export interface MonthNumber {
   producerId: number
   producerCodeId: number | null
   number: string
+  /** Its branch ("Sucursal Centro"), as it is named today. */
+  branchName: string | null
   isActive: boolean
   responsibleCode: { code: string; holderName: string | null } | null
   /** The plan the month is billed on. */
@@ -121,6 +123,7 @@ const CLOSE_SELECT = {
   backfilled: true,
   closedAt: true,
   producerCode: { select: { code: true, holderName: true } },
+  phoneNumber: { select: { branchName: true } },
 } as const
 
 /**
@@ -277,6 +280,7 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
             select: {
               id: true,
               number: true,
+              branchName: true,
               isActive: true,
               planId: true,
               planUpgradedAt: true,
@@ -322,6 +326,7 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
           producerId: org.id,
           producerCodeId: n.responsibleProducerCodeId,
           number: n.number,
+          branchName: n.branchName,
           isActive: n.isActive,
           responsibleCode: n.responsibleProducerCode,
           plan: bill.plan,
@@ -401,6 +406,7 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
       producerId: row.producerId,
       producerCodeId: row.producerCodeId,
       number: row.number,
+      branchName: row.phoneNumber?.branchName ?? null,
       isActive: row.isActive,
       responsibleCode: row.producerCode,
       plan: {
@@ -470,4 +476,5 @@ interface CloseRow {
   partnerShareUsd: unknown
   ownerShareUsd: unknown
   producerCode: { code: string; holderName: string | null } | null
+  phoneNumber: { branchName: string | null } | null
 }

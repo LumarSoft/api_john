@@ -91,7 +91,11 @@ export class CampaignTemplatesService {
         wabaId: true,
         wabaName: true,
         accessToken: true,
-        phoneNumbers: { where: { deletedAt: null, isActive: true }, select: { number: true }, orderBy: { id: 'asc' } },
+        phoneNumbers: {
+          where: { deletedAt: null, isActive: true },
+          select: { number: true, branchName: true },
+          orderBy: { id: 'asc' },
+        },
       },
     })
     return rows.map(r => ({
@@ -99,7 +103,8 @@ export class CampaignTemplatesService {
       wabaId: r.wabaId,
       wabaName: r.wabaName,
       accessToken: r.accessToken,
-      numbers: r.phoneNumbers.map(p => p.number),
+      // As the panel shows them: with the branch when it has one ("+54 9 341 275-7294 · 27 de Febrero").
+      numbers: r.phoneNumbers.map(p => (p.branchName ? `${p.number} · ${p.branchName}` : p.number)),
     }))
   }
 

@@ -15,6 +15,7 @@ function number(id: number, producerId: number, values: Partial<MonthNumber> = {
     producerId,
     producerCodeId: null,
     number: `+54 9 341 000-00${id}`,
+    branchName: null,
     isActive: true,
     responsibleCode: null,
     plan: { id: 1, name: 'Inicial', includedMessages: 500, priceUsd: 25, trial: false, extraBlocks: 0 },

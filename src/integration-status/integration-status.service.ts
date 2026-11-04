@@ -359,6 +359,7 @@ export class IntegrationStatusService {
       select: {
         id: true,
         number: true,
+        branchName: true,
         producer: { select: { name: true } },
         wabaAccount: { select: { disconnectedAt: true, disconnectReason: true, tokenExpiresAt: true } },
       },
@@ -370,6 +371,7 @@ export class IntegrationStatusService {
       return {
         id: n.id,
         number: n.number,
+        branchName: n.branchName,
         producerName: n.producer.name,
         status: waba?.disconnectedAt || expired ? 'failing' : 'operational',
         disconnectedAt: waba?.disconnectedAt ?? null,

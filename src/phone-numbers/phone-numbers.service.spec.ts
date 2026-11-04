@@ -325,6 +325,20 @@ describe("a number's own assistant", () => {
     })
   })
 
+  it('names the branch of the number, and clears it with an empty name', async () => {
+    const { service, prisma } = setup({ branchName: 'Centro' })
+
+    await expect(service.getAssistant(8, superAdmin)).resolves.toMatchObject({ branchName: 'Centro' })
+
+    await service.updateAssistant(8, superAdmin, { branchName: ' Pueblo Esther ' })
+    await service.updateAssistant(8, superAdmin, { branchName: ' ' })
+
+    expect(prisma.phoneNumber.update.mock.calls.map(([call]) => call.data)).toEqual([
+      { branchName: 'Pueblo Esther' },
+      { branchName: null },
+    ])
+  })
+
   it('clears every setting back to the organization', async () => {
     const { service, prisma } = setup({ botName: 'Sofi', businessHours: { mon: [] }, botProfile: { orgName: 'X' } })
 
@@ -531,5 +545,45 @@ describe("a number's own coverages", () => {
     await service.updateAssistant(8, superAdmin, { coverageSettings: null })
 
     expect(prisma.phoneNumber.update.mock.calls[0][0].data).toEqual({ coverageSettings: Prisma.DbNull })
+  })
+})
+
+describe('registering a number by hand', () => {
+  function setup() {
+    const prisma = {
+      phoneNumber: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findFirst: jest.fn().mockResolvedValue({ id: 8 }),
+        create: jest.fn().mockResolvedValue({ id: 8 }),
+        update: jest.fn().mockResolvedValue({ id: 8 }),
+      },
+      producerCode: { count: jest.fn() },
+      phoneNumberProducerCode: { deleteMany: jest.fn(), createMany: jest.fn() },
+      $transaction: jest.fn().mockResolvedValue([]),
+    }
+    const usage = { initialPlanIdFor: jest.fn().mockResolvedValue(1) }
+    const service = new PhoneNumbersService(
+      prisma as unknown as PrismaService,
+      usage as unknown as UsageService,
+      noCoverages,
+      noAlerts,
+    )
+    return { prisma, service }
+  }
+
+  it('saves the branch name with the number, and renames or clears it later', async () => {
+    const { service, prisma } = setup()
+
+    await service.create(1, { phoneNumberId: 'META-1', number: '+54 9 341 000-0000', branchName: ' Funes ' })
+    expect(prisma.phoneNumber.create.mock.calls[0][0].data).toMatchObject({ branchName: 'Funes' })
+
+    await service.update(8, 1, { branchName: 'Roldán' })
+    await service.update(8, 1, { branchName: '' })
+    await service.update(8, 1, { number: '+54 9 341 000-0001' })
+    expect(prisma.phoneNumber.update.mock.calls.map(([call]) => call.data)).toEqual([
+      { branchName: 'Roldán' },
+      { branchName: null },
+      { number: '+54 9 341 000-0001' },
+    ])
   })
 })
