@@ -395,6 +395,88 @@ describe('NovedadesService', () => {
       expect(prisma.notification.create).not.toHaveBeenCalled()
     })
 
+    it('marks a claim the bot refused to file and files it under siniestros', async () => {
+      await service.recordHandoff(5, {
+        conversationId: 1,
+        clientId: 3,
+        clienteNombre: 'Ana',
+        reason: 'Denuncia de siniestro no registrada: la póliza 123 figura con saldo vencido impago.',
+        blockedClaimReason: 'REJECTED_PAYMENT',
+      })
+      // The explicit field wins over the words of the reason.
+      expect(prisma.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ category: 'siniestro', blockedClaimReason: 'REJECTED_PAYMENT' }),
+      })
+    })
+
+    it('reads the stopped claim from the reason when an older bot sends no field', async () => {
+      await service.recordHandoff(5, {
+        conversationId: 1,
+        clientId: 3,
+        clienteNombre: 'Ana',
+        reason: 'Denuncia de siniestro no registrada: el cliente no tiene pólizas vigentes.',
+      })
+      expect(prisma.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ category: 'siniestro', blockedClaimReason: 'NO_POLICY' }),
+      })
+    })
+
+    it('leaves an ordinary request unmarked', async () => {
+      await service.recordHandoff(5, { conversationId: 1, clientId: null, clienteNombre: 'Ana', reason: 'ya pagué' })
+      expect(prisma.notification.create.mock.calls[0][0].data).not.toHaveProperty('blockedClaimReason')
+    })
+
+    it('carries the mark over to the open request it joins', async () => {
+      prisma.notification.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        id: 8,
+        body: 'Pidió hablar con un asesor. Todavía no contó el motivo.',
+        category: 'other',
+      })
+      await service.recordHandoff(5, {
+        conversationId: 1,
+        clientId: 3,
+        clienteNombre: 'Ana',
+        reason: 'Denuncia de siniestro no registrada: la póliza 123 figura con un cobro rechazado.',
+        blockedClaimReason: 'REJECTED_PAYMENT',
+      })
+      expect(prisma.notification.create).not.toHaveBeenCalled()
+      expect(prisma.notification.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 8 },
+          data: expect.objectContaining({ category: 'siniestro', blockedClaimReason: 'REJECTED_PAYMENT' }),
+        }),
+      )
+    })
+
+    it('lists the open stopped claims of the given chats, newest first', async () => {
+      prisma.notification.findMany.mockResolvedValue([
+        { refId: 7, blockedClaimReason: 'OVERDUE_INSTALLMENTS' },
+        { refId: 7, blockedClaimReason: 'NO_POLICY' },
+        { refId: 9, blockedClaimReason: 'NO_POLICY' },
+      ])
+      const result = await service.blockedClaimsByConversation(5, [7, 8, 9])
+      expect(result).toEqual(
+        new Map([
+          [7, 'OVERDUE_INSTALLMENTS'],
+          [9, 'NO_POLICY'],
+        ]),
+      )
+      expect(prisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            producerId: 5,
+            type: 'handoff',
+            refId: { in: [7, 8, 9] },
+            blockedClaimReason: { not: null },
+            status: { not: 'resolved' },
+            deletedAt: null,
+          }),
+        }),
+      )
+      await expect(service.blockedClaimsByConversation(5, [])).resolves.toEqual(new Map())
+      expect(prisma.notification.findMany).toHaveBeenCalledTimes(1)
+    })
+
     it('refreshes a resubmitted quote instead of duplicating its matter', async () => {
       prisma.notification.findFirst.mockResolvedValue({ id: 8 })
       await service.recordQuote(5, { type: NovedadType.SOLICITUD, refId: 21, name: 'Ana', summary: 'Eligió B1' })

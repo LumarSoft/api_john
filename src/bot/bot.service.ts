@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { Prisma } from 'generated/prisma/client'
+import { type BlockedClaimReason, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere } from '../common/poliza-vigencia'
 import { canonicalWaId, isSamePhone, phoneSuffix } from '../common/phone-match'
@@ -1132,7 +1132,7 @@ export class BotService {
   }
 
   /** Marks the conversation as pending human attention (called by the bot when the user requests an advisor). */
-  async requestHandoff(conversationId: number, reason?: string) {
+  async requestHandoff(conversationId: number, reason?: string, blockedClaimReason?: BlockedClaimReason) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
       select: {
@@ -1166,6 +1166,7 @@ export class BotService {
     await this.novedades.recordHandoff(conversation.producerId, {
       conversationId,
       reason,
+      blockedClaimReason,
       clientId: client ? conversation.clientId : null,
       clienteNombre,
       producerCodeId: conversation.producerCodeId,

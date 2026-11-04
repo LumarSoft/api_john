@@ -169,10 +169,12 @@ export class InboxService {
       select: CONVERSATION_LIST_SELECT,
     })
 
-    const [agenda, lastInbound, offNumbers] = await Promise.all([
+    const ids = conversations.map(c => c.id)
+    const [agenda, lastInbound, offNumbers, blockedClaims] = await Promise.all([
       this.agendaNames(producerId, conversations),
-      this.lastInboundByConversation(conversations.map(c => c.id)),
+      this.lastInboundByConversation(ids),
       this.numbersWithBotOff(producerId),
+      this.novedades.blockedClaimsByConversation(producerId, ids),
     ])
 
     return conversations.map(({ messages, _count, ...conversation }) => ({
@@ -184,6 +186,8 @@ export class InboxService {
       // timestamp lets the web panel notify only when the customer wrote.
       lastInboundMessageAt: lastInbound.get(conversation.id) ?? null,
       lastMessage: lastMessagePreview(messages[0]),
+      // The bot refused to file a claim here and the request is still open ("denuncia frenada").
+      blockedClaim: blockedClaims.get(conversation.id) ?? null,
     }))
   }
 

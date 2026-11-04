@@ -183,6 +183,6 @@ export class BotController {
 
   @Post('conversation/:conversationId/request-handoff')
   requestHandoff(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: HandoffReasonDto) {
-    return this.botService.requestHandoff(conversationId, dto?.reason)
+    return this.botService.requestHandoff(conversationId, dto?.reason, dto?.blockedClaimReason)
   }
 }

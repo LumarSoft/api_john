@@ -1758,7 +1758,7 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 
 **Responses**
 
-`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat. `globalBotDisabled` is the organization's bot switch and `numberBotDisabled` the switch of the number the chat came through (`PATCH /admin/phone-numbers/:id/bot-status`): with either on, the office answers the chat without taking it over.
+`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat. `globalBotDisabled` is the organization's bot switch and `numberBotDisabled` the switch of the number the chat came through (`PATCH /admin/phone-numbers/:id/bot-status`): with either on, the office answers the chat without taking it over. `blockedClaim` is set while the chat's open advisor request is a claim the bot refused to file ("denuncia frenada"): `NO_POLICY` (no policy in force), `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS`; `null` otherwise.
 
 ```json
 [
@@ -1783,7 +1783,8 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
       "content": "Hola Evelyn, ¿en qué te puedo ayudar?",
       "mediaType": null,
       "createdAt": "2026-06-22T19:39:00.000Z"
-    }
+    },
+    "blockedClaim": null
   }
 ]
 ```
@@ -1916,7 +1917,7 @@ Paginated list of novedades, unread first then newest.
 
 **Responses**
 
-`200 OK` — `client` is the linked insured (null for an unidentified handoff).
+`200 OK` — `client` is the linked insured (null for an unidentified handoff). `blockedClaimReason` marks a handoff that is a claim the bot refused to file ("denuncia frenada"): `NO_POLICY`, `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS`; `null` for any other matter.
 
 ```json
 {
@@ -1936,9 +1937,10 @@ Paginated list of novedades, unread first then newest.
       "type": "handoff",
       "refId": 1,
       "title": "Pedido de asesor · Ana Gómez",
-      "body": null,
+      "body": "Denuncia de siniestro no registrada: la póliza 9001 figura con un cobro rechazado.",
       "readAt": "2026-06-22T18:10:00.000Z",
       "createdAt": "2026-06-22T18:02:00.000Z",
+      "blockedClaimReason": "REJECTED_PAYMENT",
       "client": { "id": 5, "firstName": "Ana", "lastName": "Gómez", "dni": "27888999" }
     }
   ],
@@ -2632,6 +2634,38 @@ Leaves a `baja_poliza` notification for the office with the policy, the client's
 `400 Bad Request` — The conversation has no identified client
 
 `404 Not Found` — The policy is not the identified client's
+
+### POST /bot/conversation/:conversationId/request-handoff
+
+The customer needs a person: the conversation goes to `pending` and the office gets a `handoff` matter in Asuntos pendientes (an exact repeat, or a follow-up of an open request of the same kind within 24 h, joins the open one). When the bot refused to file a claim it sends `blockedClaimReason`; the matter is marked "denuncia frenada", filed under siniestros and counted in the monthly balance. No claim is created. A bot that only sends `reason` still gets the mark when the reason starts with "Denuncia de siniestro no registrada:".
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field              | Type   | Required | Constraints                                               |
+| ------------------ | ------ | -------- | --------------------------------------------------------- |
+| reason             | string | No       | ≤ 2000 chars, shown to the office                         |
+| blockedClaimReason | string | No       | `NO_POLICY`, `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS` |
+
+```json
+{
+  "reason": "Denuncia de siniestro no registrada: la póliza 9001 figura con un cobro rechazado.",
+  "blockedClaimReason": "REJECTED_PAYMENT"
+}
+```
+
+**Responses**
+
+`201 Created`
+
+```json
+{ "ok": true }
+```
+
+`400 Bad Request` — `blockedClaimReason` is not one of the values above
+
+`404 Not Found` — Unknown conversation
 
 ### POST /bot/conversation/:conversationId/identify-by-phone
 

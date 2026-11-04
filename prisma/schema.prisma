@@ -708,6 +708,15 @@ model Claim {
   @@index([producerCodeId])
 }
 
+// Why the bot refused to file a claim and handed the chat to the office
+// ("denuncia frenada"): no policy in force, a rejected payment or overdue
+// installments on the policy. No Claim row is created for these.
+enum BlockedClaimReason {
+  NO_POLICY
+  REJECTED_PAYMENT
+  OVERDUE_INSTALLMENTS
+}
+
 // ─── NOVEDADES (centro de notificaciones del admin) ──────
 // Generic notification feed for the admin panel. Each row is one actionable
 // event the broker should see: a new claim (type "siniestro") or a customer
@@ -733,19 +742,23 @@ model Notification {
   createdAt  DateTime           @default(now())
   deletedAt  DateTime?
 
-  producerId     Int
-  producer       Producer      @relation(fields: [producerId], references: [id])
+  producerId         Int
+  producer           Producer            @relation(fields: [producerId], references: [id])
   // Triunfo agent code this novedad belongs to, so an admin only sees novedades
   // of the codes it can access. Nullable for handoffs not yet attributed to a code.
-  producerCodeId Int?
-  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
+  producerCodeId     Int?
+  producerCode       ProducerCode?       @relation(fields: [producerCodeId], references: [id])
   // Denormalized so the admin can filter/search novedades by client (DNI/name).
   // Nullable: a handoff from an unidentified WhatsApp number has no client yet.
   // Meta id of the WhatsApp number this came through (as Conversation.phoneNumberId):
   // the panel shows each branch only what came through its own number. Null = not
   // from a chat (web, panel) or older than this column; it counts as the
   // organization's default number's.
-  phoneNumberId  String?
+  phoneNumberId      String?
+  // A claim the bot refused to file on its own (handoff only): why it stopped
+  // it. Sent by the bot with the handoff; older rows were filled from the
+  // reason text ("Denuncia de siniestro no registrada: …"). Null = any other matter.
+  blockedClaimReason BlockedClaimReason?
 
   clientId Int?
   client   Client? @relation(fields: [clientId], references: [id])
