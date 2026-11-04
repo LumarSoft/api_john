@@ -2,10 +2,10 @@ import { metaMessageRate } from './meta-rates'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
+  campaignExtraMessages,
   CommercialPricing,
   isTemplateCategory,
   readCommercialPricing,
-  templateExtraMessages,
 } from './commercial-pricing'
 import { initialPlanId } from './initial-plan'
 import { PrismaService } from '../prisma/prisma.service'
@@ -41,13 +41,13 @@ export interface MonthlyBillableUsage {
   metaMessages?: number
   /** Of those, the ones Meta priced as a template (raw count). */
   metaTemplateMessages?: number
-  /** What templates add to the plan on top of their own message (see consumedMessages). */
+  /** What campaign (marketing) messages add to the plan on top of their own message (see consumedMessages). */
   templateExtraMessages?: number
 }
 
 /**
- * The plan messages a month consumed: every message sent counts 1, and a template delivered from
- * COMMERCIAL_TEMPLATE_WEIGHT_FROM on counts TEMPLATE_WEIGHT. The unit every plan, limit and bar counts.
+ * The plan messages a month consumed: every message sent counts 1, and a campaign (marketing) message delivered from
+ * COMMERCIAL_TEMPLATE_WEIGHT_FROM on counts CAMPAIGN_WEIGHT. The unit every plan, limit and bar counts.
  */
 export function consumedMessages(usage: MonthlyBillableUsage | undefined | null): number {
   return (usage?.metaMessages ?? 0) + (usage?.templateExtraMessages ?? 0)
@@ -89,7 +89,7 @@ export interface BilledPlan {
 }
 
 export interface MonthlyBill {
-  /** Plan messages the month consumed (consumedMessages: templates weigh more from their start date). */
+  /** Plan messages the month consumed (consumedMessages: campaign messages count twice from their start date). */
   messages: number
   /** The plan the number is on before this month's messages (the trial counts only in its first month). */
   assignedPlan: BilledPlan | null
@@ -510,9 +510,10 @@ export class UsageService {
     }
     // Meta's billable flag accounts for the 1,000 free service messages and
     // free entry-point windows for provider cost only. Commercial pricing counts all
-    // messages, and a template twice from its start date (templateExtraMessages).
+    // messages, and a campaign (marketing) message twice from its start date (templateExtraMessages, a column
+    // named before only campaigns counted twice). metaTemplateMessages stays the raw count of every template.
     const template = isTemplateCategory(input.category) ? 1 : 0
-    const extra = templateExtraMessages(this.commercialPricing, input.category, deliveredAt)
+    const extra = campaignExtraMessages(this.commercialPricing, input.category, deliveredAt)
     let row: MonthlyBillableUsage & { id: number; openaiCostUsd: unknown }
     try {
       row = await this.prisma.$transaction(async tx => {

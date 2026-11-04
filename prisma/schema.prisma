@@ -429,8 +429,9 @@ model UsageMonthly {
   // Delivered messages Meta priced as a template (utility, marketing, authentication),
   // whatever the date. Raw count, for the owner's reports.
   metaTemplateMessages    Int      @default(0)
-  // What templates add to the plan on top of their own message: one more each from
-  // COMMERCIAL_TEMPLATE_WEIGHT_FROM on. The plan counts metaMessages + this.
+  // What campaign (marketing) messages add to the plan on top of their own message:
+  // one more each from COMMERCIAL_TEMPLATE_WEIGHT_FROM on (utility and authentication
+  // templates count once; the column keeps its first name). The plan counts metaMessages + this.
   templateExtraMessages   Int      @default(0)
   openaiInputTokens       Int      @default(0)
   openaiOutputTokens      Int      @default(0)

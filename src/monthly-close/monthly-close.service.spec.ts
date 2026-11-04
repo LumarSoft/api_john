@@ -50,7 +50,7 @@ function setup(overrides: Record<string, string> = {}) {
           name: 'Organización',
           isActive: true,
           phoneNumbers: [
-            // On Inicial since September: 400 sent, 50 of them templates counted twice = 450 consumed.
+            // On Inicial since September: 400 sent, 50 of them campaigns counted twice = 450 consumed.
             phone({
               id: 8,
               planId: 1,

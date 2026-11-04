@@ -194,7 +194,7 @@ export class PhoneNumbersService {
               }
             : {}),
           // Our cost and profit: owner only. OpenAI is prepaid, so the profit is billed minus Meta.
-          // The raw count (templates weigh more on the plan) is the owner's: the organization sees `messages`.
+          // The raw count (campaign messages count twice on the plan) is the owner's: the organization sees `messages`.
           ...(isOwner
             ? {
                 metaMessages: usage?.metaMessages ?? 0,

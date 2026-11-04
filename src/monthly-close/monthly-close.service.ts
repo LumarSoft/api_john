@@ -59,7 +59,7 @@ export interface MonthNumber {
   messages: number
   /** Of those, templates. */
   templateMessages: number
-  /** Plan messages consumed (a template counts twice from COMMERCIAL_TEMPLATE_WEIGHT_FROM on). */
+  /** Plan messages consumed (a campaign message counts twice from COMMERCIAL_TEMPLATE_WEIGHT_FROM on). */
   consumedMessages: number
   metaBillableMessages: number
   metaCostUsd: number

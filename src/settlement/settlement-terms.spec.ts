@@ -25,8 +25,8 @@ describe('the partner settlement', () => {
     })
   })
 
-  it('charges a template that counts twice as two messages', () => {
-    // 200 replies + 50 templates = 300 consumed: the same cost as 300 replies.
+  it('charges a campaign message, which counts twice, as two messages', () => {
+    // 200 replies + 50 campaign messages = 300 consumed: the same cost as 300 replies.
     expect(settle(25, 200 + 50 * 2, terms).serviceCostUsd).toBe(9)
   })
 
