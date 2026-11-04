@@ -37,7 +37,11 @@ const phone = (overrides: Record<string, unknown>) => ({
 /** 00:00:30 of 1 November 2026 in Argentina: October has just ended. */
 const firstOfNovember = new Date('2026-11-01T03:00:30Z')
 
-function setup(settings: Record<string, string> = {}) {
+/** Illustrative settlement rates: the real ones live only in the server's .env. */
+const RATES = { PARTNER_COST_PER_MESSAGE_USD: '0.03', PARTNER_PROFIT_SHARE: '0.4' }
+
+function setup(overrides: Record<string, string> = {}) {
+  const settings: Record<string, string> = { ...RATES, ...overrides }
   const prisma = {
     producer: {
       findMany: jest.fn().mockResolvedValue([
@@ -118,13 +122,13 @@ describe('the monthly close', () => {
       templateMessages: 50,
       consumedMessages: 450,
       billedUsd: 25,
-      // 450 consumed × USD 0.04 = 18; 25 − 18 = 7, half each.
-      costPerMessageUsd: 0.04,
-      serviceCostUsd: 18,
-      remainderUsd: 7,
-      partnerShare: 0.5,
-      partnerShareUsd: 3.5,
-      ownerShareUsd: 3.5,
+      // 450 consumed × USD 0.03 = 13.5; 25 − 13.5 = 11.5; 40% of it to the partner.
+      costPerMessageUsd: 0.03,
+      serviceCostUsd: 13.5,
+      remainderUsd: 11.5,
+      partnerShare: 0.4,
+      partnerShareUsd: 4.6,
+      ownerShareUsd: 6.9,
       backfilled: false,
       closedAt: firstOfNovember,
       deletedAt: null,
@@ -137,25 +141,46 @@ describe('the monthly close', () => {
       consumedMessages: 80,
       billedUsd: 0,
       // The trial bills nothing: its cost comes out of the split.
-      serviceCostUsd: 3.2,
-      remainderUsd: -3.2,
-      partnerShareUsd: -1.6,
-      ownerShareUsd: -1.6,
+      serviceCostUsd: 2.4,
+      remainderUsd: -2.4,
+      partnerShareUsd: -0.96,
+      ownerShareUsd: -1.44,
     })
   })
 
   it('freezes the rates of the day it closes', async () => {
-    const { service, prisma } = setup({ PARTNER_COST_PER_MESSAGE_USD: '0.03', PARTNER_PROFIT_SHARE: '0.4' })
+    const { service, prisma } = setup({ PARTNER_COST_PER_MESSAGE_USD: '0.05', PARTNER_PROFIT_SHARE: '0.25' })
     await service.close('2026-10', { now: firstOfNovember })
-    // 450 × 0.03 = 13.5; 25 − 13.5 = 11.5; 40% = 4.6 for the partner.
+    // 450 × 0.05 = 22.5; 25 − 22.5 = 2.5; 25% = 0.63 for the partner (rounded), the rest for the platform.
     expect(written(prisma)[0]).toMatchObject({
-      costPerMessageUsd: 0.03,
-      serviceCostUsd: 13.5,
-      remainderUsd: 11.5,
-      partnerShare: 0.4,
-      partnerShareUsd: 4.6,
-      ownerShareUsd: 6.9,
+      costPerMessageUsd: 0.05,
+      serviceCostUsd: 22.5,
+      remainderUsd: 2.5,
+      partnerShare: 0.25,
+      partnerShareUsd: 0.63,
+      ownerShareUsd: 1.87,
     })
+  })
+
+  it('still closes the month without settlement terms, leaving only the settlement empty', async () => {
+    const { service, prisma } = setup({ PARTNER_COST_PER_MESSAGE_USD: '', PARTNER_PROFIT_SHARE: '' })
+    expect(service.terms).toBeNull()
+    await expect(service.close('2026-10', { now: firstOfNovember })).resolves.toMatchObject({ closedNumbers: 2 })
+    const [onPlan] = written(prisma)
+    expect(onPlan).toMatchObject({
+      planName: 'Inicial',
+      consumedMessages: 450,
+      billedUsd: 25,
+      costPerMessageUsd: null,
+      serviceCostUsd: null,
+      remainderUsd: null,
+      partnerShare: null,
+      partnerShareUsd: null,
+      ownerShareUsd: null,
+    })
+    // The live month has no settlement either.
+    const [october] = await service.monthSnapshots(['2026-10'])
+    expect(october.numbers[0].settlement).toBeNull()
   })
 
   it('never writes a closed month again, unless forced', async () => {
@@ -239,12 +264,12 @@ describe('the monthly close', () => {
         metaCostUsd: 0,
         openaiCostUsd: 0,
         billedUsd: 12.5,
-        costPerMessageUsd: 0.04,
-        serviceCostUsd: 4,
-        remainderUsd: 8.5,
-        partnerShare: 0.5,
-        partnerShareUsd: 4.25,
-        ownerShareUsd: 4.25,
+        costPerMessageUsd: 0.03,
+        serviceCostUsd: 3,
+        remainderUsd: 9.5,
+        partnerShare: 0.4,
+        partnerShareUsd: 3.8,
+        ownerShareUsd: 5.7,
         backfilled: false,
         closedAt: new Date('2026-10-01T03:00:00Z'),
         producerCode: { code: '11425', holderName: null },
@@ -256,9 +281,52 @@ describe('the monthly close', () => {
     expect(september.numbers[0]).toMatchObject({
       billedUsd: 12.5,
       prorated: true,
-      settlement: { serviceCostUsd: 4, remainderUsd: 8.5, partnerShareUsd: 4.25 },
+      settlement: { costPerMessageUsd: 0.03, serviceCostUsd: 3, remainderUsd: 9.5, partnerShareUsd: 3.8 },
     })
     expect(october).toMatchObject({ closed: false })
     expect(october.numbers.map(n => n.phoneNumberId)).toEqual([8, 9, 10])
+  })
+
+  it('reads a month closed without settlement terms as a close with no settlement', async () => {
+    const { service, prisma } = setup()
+    const unsettled = {
+      period: '2026-09',
+      phoneNumberId: 8,
+      producerId: 1,
+      producerCodeId: null,
+      number: '+54 9 341 000-0000',
+      isActive: true,
+      inService: true,
+      firstMonth: false,
+      planId: 1,
+      planName: 'Inicial',
+      planMessages: 500,
+      planPriceUsd: 25,
+      planExtraBlocks: 0,
+      trial: false,
+      upgraded: false,
+      prorated: false,
+      messages: 100,
+      templateMessages: 0,
+      consumedMessages: 100,
+      metaBillableMessages: 0,
+      metaCostUsd: 0,
+      openaiCostUsd: 0,
+      billedUsd: 25,
+      costPerMessageUsd: null,
+      serviceCostUsd: null,
+      remainderUsd: null,
+      partnerShare: null,
+      partnerShareUsd: null,
+      ownerShareUsd: null,
+      backfilled: false,
+      closedAt: new Date('2026-10-01T03:00:00Z'),
+      producerCode: null,
+    }
+    prisma.monthlyClose.findMany.mockResolvedValueOnce([unsettled])
+    prisma.producer.findMany.mockResolvedValueOnce([{ id: 1, name: 'Organización', isActive: true, deletedAt: null }])
+    const [september] = await service.monthSnapshots(['2026-09'])
+    expect(september).toMatchObject({ closed: true })
+    expect(september.numbers[0]).toMatchObject({ billedUsd: 25, consumedMessages: 100, settlement: null })
   })
 })

@@ -1532,7 +1532,7 @@ The platform's month: what each organization and number is billed, what Meta rea
 
 ### POST /owner/billing/close
 
-Freezes a month that already ended, number by number (`MonthlyClose`): the plan it was billed on, its messages (sent, templates, consumed), what it was billed (the Tablero's figure), what Meta and OpenAI cost, Lumarsoft's per-message cost and the partner settlement, with that day's rates (`PARTNER_COST_PER_MESSAGE_USD`, `PARTNER_PROFIT_SHARE`). Every number in service that month, or that sent or cost something, gets a row; all in one transaction.
+Freezes a month that already ended, number by number (`MonthlyClose`): the plan it was billed on, its messages (sent, templates, consumed), what it was billed (the Tablero's figure), what Meta and OpenAI cost, Lumarsoft's per-message cost and the partner settlement, with that day's rates (`PARTNER_COST_PER_MESSAGE_USD`, `PARTNER_PROFIT_SHARE`; while they are not configured the month still closes, with the settlement columns `null`). Every number in service that month, or that sent or cost something, gets a row; all in one transaction.
 
 The API closes the previous month by itself on the 1st at 00:00 (Argentina), and on boot if it is still open (`MONTHLY_CLOSE_ENABLED`, on by default). This endpoint backfills the months before the close existed and redoes one with `force`. A close made after the 1st of the next month uses the plans of that day and is marked `backfilled`. A closed month is never written again without `force`.
 
@@ -1642,7 +1642,9 @@ Retires a plan (soft delete); its numbers go back to the smallest paid plan. The
 
 ## Owner — Liquidación (socio comercial)
 
-How each month's billing splits between Lumarsoft and its commercial partner. Per number: Lumarsoft's service cost = consumed messages × `PARTNER_COST_PER_MESSAGE_USD` (default 0.04; a template that counts twice costs twice); remainder = billed − that cost; the partner gets `PARTNER_PROFIT_SHARE` (default 0.5) of the remainder and Lumarsoft the rest. A trial bills 0, so its cost makes the remainder negative and comes out of the split. `billedUsd` is the Tablero's "Facturado" (prorated in the first month of service). **What Meta and OpenAI cost is never part of it nor returned here.** A closed month is read as frozen, with the rates of its close (`terms`); the running month (or one not closed yet) is computed now with today's rates.
+How each month's billing splits between Lumarsoft and its commercial partner. Per number: Lumarsoft's service cost = consumed messages × `PARTNER_COST_PER_MESSAGE_USD` (a template that counts twice costs twice); remainder = billed − that cost; the partner gets `PARTNER_PROFIT_SHARE` (0–1) of the remainder and Lumarsoft the rest. A trial bills 0, so its cost makes the remainder negative and comes out of the split. `billedUsd` is the Tablero's "Facturado" (prorated in the first month of service). **What Meta and OpenAI cost is never part of it nor returned here.** A closed month is read as frozen, with the rates of its close (`terms`); the running month (or one not closed yet, or closed before the rates were set) is computed now with today's rates.
+
+The two rates have **no default** and live only in the server's `.env` (the repository is public). While either is missing, both endpoints answer `503 Service Unavailable` and the monthly close still freezes everything else, with the settlement columns `null`. The examples below use illustrative rates (0.03 per message, 0.4 to the partner), not the real ones.
 
 ### GET /owner/settlement
 
@@ -1662,25 +1664,25 @@ One month: totals, per organization (only those with numbers in the settlement) 
   "closed": true,
   "closedAt": "2026-11-01T03:00:00.000Z",
   "backfilled": false,
-  "terms": { "costPerMessageUsd": 0.04, "partnerShare": 0.5 },
+  "terms": { "costPerMessageUsd": 0.03, "partnerShare": 0.4 },
   "totals": {
     "organizations": 1,
     "numbers": 2,
     "trialNumbers": 1,
     "consumedMessages": 380,
     "billedUsd": 25,
-    "serviceCostUsd": 15.2,
-    "remainderUsd": 9.8,
-    "partnerShareUsd": 4.9,
-    "ownerShareUsd": 4.9,
-    "ownerTotalUsd": 20.1
+    "serviceCostUsd": 11.4,
+    "remainderUsd": 13.6,
+    "partnerShareUsd": 5.44,
+    "ownerShareUsd": 8.16,
+    "ownerTotalUsd": 19.56
   },
   "organizations": [
     {
       "id": 1,
       "name": "Organización",
       "isActive": true,
-      "totals": { "consumedMessages": 380, "billedUsd": 25, "serviceCostUsd": 15.2, "remainderUsd": 9.8, "partnerShareUsd": 4.9, "ownerShareUsd": 4.9, "ownerTotalUsd": 20.1 },
+      "totals": { "consumedMessages": 380, "billedUsd": 25, "serviceCostUsd": 11.4, "remainderUsd": 13.6, "partnerShareUsd": 5.44, "ownerShareUsd": 8.16, "ownerTotalUsd": 19.56 },
       "numbers": [
         {
           "id": 8,
@@ -1695,11 +1697,11 @@ One month: totals, per organization (only those with numbers in the settlement) 
           "templateMessages": 50,
           "consumedMessages": 300,
           "billedUsd": 25,
-          "serviceCostUsd": 12,
-          "remainderUsd": 13,
-          "partnerShareUsd": 6.5,
-          "ownerShareUsd": 6.5,
-          "ownerTotalUsd": 18.5
+          "serviceCostUsd": 9,
+          "remainderUsd": 16,
+          "partnerShareUsd": 6.4,
+          "ownerShareUsd": 9.6,
+          "ownerTotalUsd": 18.6
         }
       ]
     }
@@ -1708,6 +1710,11 @@ One month: totals, per organization (only those with numbers in the settlement) 
 ```
 
 `400 Bad Request` — invalid or future month. `403 Forbidden` — not the OWNER.
+
+`503 Service Unavailable` — the settlement rates are not configured on the server.
+```json
+{ "statusCode": 503, "message": "La liquidación no está configurada en el servidor.", "error": "Service Unavailable" }
+```
 
 ---
 
@@ -1725,7 +1732,7 @@ The months ending at `to`: the money of each, active numbers (in service that mo
 ```json
 {
   "to": "2026-11",
-  "terms": { "costPerMessageUsd": 0.04, "partnerShare": 0.5 },
+  "terms": { "costPerMessageUsd": 0.03, "partnerShare": 0.4 },
   "months": [
     {
       "period": "2026-10",
@@ -1734,11 +1741,11 @@ The months ending at `to`: the money of each, active numbers (in service that mo
       "backfilled": true,
       "consumedMessages": 1730,
       "billedUsd": 125,
-      "serviceCostUsd": 69.2,
-      "remainderUsd": 55.8,
-      "partnerShareUsd": 27.9,
-      "ownerShareUsd": 27.9,
-      "ownerTotalUsd": 97.1,
+      "serviceCostUsd": 51.9,
+      "remainderUsd": 73.1,
+      "partnerShareUsd": 29.24,
+      "ownerShareUsd": 43.86,
+      "ownerTotalUsd": 95.76,
       "activeNumbers": 2,
       "newNumbers": 0,
       "stoppedNumbers": 0
@@ -1747,7 +1754,7 @@ The months ending at `to`: the money of each, active numbers (in service that mo
 }
 ```
 
-`400 Bad Request` — invalid or future `to`, or `months` out of range. `403 Forbidden` — not the OWNER.
+`400 Bad Request` — invalid or future `to`, or `months` out of range. `403 Forbidden` — not the OWNER. `503 Service Unavailable` — the settlement rates are not configured on the server (same body as `GET /owner/settlement`).
 
 ---
 

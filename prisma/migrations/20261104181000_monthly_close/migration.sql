@@ -2,8 +2,9 @@
 -- previous month of every number (MonthlyCloseService): the plan it was billed
 -- on, its messages, what it was billed, Lumarsoft's per-message cost and the
 -- partner settlement, with that day's rates. The owner's screens read closed
--- months from here instead of recomputing them with today's plans. Additive:
--- the previous API ignores the table.
+-- months from here instead of recomputing them with today's plans. The
+-- settlement columns stay NULL when the PARTNER_* terms are not configured.
+-- Additive: the previous API ignores the table.
 
 CREATE TABLE `MonthlyClose` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
@@ -27,12 +28,12 @@ CREATE TABLE `MonthlyClose` (
     `metaCostUsd` DECIMAL(12, 6) NOT NULL DEFAULT 0,
     `openaiCostUsd` DECIMAL(12, 6) NOT NULL DEFAULT 0,
     `billedUsd` DECIMAL(12, 2) NOT NULL,
-    `costPerMessageUsd` DECIMAL(10, 4) NOT NULL,
-    `serviceCostUsd` DECIMAL(12, 2) NOT NULL,
-    `remainderUsd` DECIMAL(12, 2) NOT NULL,
-    `partnerShare` DECIMAL(5, 4) NOT NULL,
-    `partnerShareUsd` DECIMAL(12, 2) NOT NULL,
-    `ownerShareUsd` DECIMAL(12, 2) NOT NULL,
+    `costPerMessageUsd` DECIMAL(10, 4) NULL,
+    `serviceCostUsd` DECIMAL(12, 2) NULL,
+    `remainderUsd` DECIMAL(12, 2) NULL,
+    `partnerShare` DECIMAL(5, 4) NULL,
+    `partnerShareUsd` DECIMAL(12, 2) NULL,
+    `ownerShareUsd` DECIMAL(12, 2) NULL,
     `backfilled` BOOLEAN NOT NULL DEFAULT false,
     `closedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

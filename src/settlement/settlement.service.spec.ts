@@ -1,10 +1,11 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common'
 import type { MonthlyCloseService, MonthNumber, MonthSnapshot } from '../monthly-close/monthly-close.service'
 import { currentPeriod } from '../usage/usage.service'
-import { settle } from './settlement-terms'
+import { settle, SettlementTerms } from './settlement-terms'
 import { SettlementService } from './settlement.service'
 
-const terms = { costPerMessageUsd: 0.04, partnerShare: 0.5 }
+// Illustrative rates: the real ones live only in the server's .env.
+const terms = { costPerMessageUsd: 0.03, partnerShare: 0.4 }
 
 function number(id: number, producerId: number, values: Partial<MonthNumber> = {}): MonthNumber {
   const billedUsd = values.billedUsd ?? 25
@@ -52,9 +53,9 @@ function month(period: string, numbers: MonthNumber[], closed = false): MonthSna
   }
 }
 
-function setup(snapshots: MonthSnapshot[]) {
+function setup(snapshots: MonthSnapshot[], today: SettlementTerms | null = terms) {
   const closes = {
-    terms,
+    terms: today,
     monthSnapshot: jest.fn().mockImplementation((period: string) => snapshots.find(s => s.period === period)),
     monthSnapshots: jest
       .fn()
@@ -90,19 +91,19 @@ describe('the settlement of a month', () => {
       templateMessages: 50,
       consumedMessages: 300,
       billedUsd: 25,
-      serviceCostUsd: 12,
-      remainderUsd: 13,
-      partnerShareUsd: 6.5,
-      ownerShareUsd: 6.5,
-      ownerTotalUsd: 18.5,
+      serviceCostUsd: 9,
+      remainderUsd: 16,
+      partnerShareUsd: 6.4,
+      ownerShareUsd: 9.6,
+      ownerTotalUsd: 18.6,
     })
     expect(result.organizations[1].totals).toMatchObject({
       billedUsd: 0,
-      serviceCostUsd: 3.2,
-      remainderUsd: -3.2,
-      partnerShareUsd: -1.6,
-      ownerShareUsd: -1.6,
-      ownerTotalUsd: 1.6,
+      serviceCostUsd: 2.4,
+      remainderUsd: -2.4,
+      partnerShareUsd: -0.96,
+      ownerShareUsd: -1.44,
+      ownerTotalUsd: 0.96,
     })
     expect(result.totals).toEqual({
       organizations: 2,
@@ -110,11 +111,11 @@ describe('the settlement of a month', () => {
       trialNumbers: 1,
       consumedMessages: 380,
       billedUsd: 25,
-      serviceCostUsd: 15.2,
-      remainderUsd: 9.8,
-      partnerShareUsd: 4.9,
-      ownerShareUsd: 4.9,
-      ownerTotalUsd: 20.1,
+      serviceCostUsd: 11.4,
+      remainderUsd: 13.6,
+      partnerShareUsd: 5.44,
+      ownerShareUsd: 8.16,
+      ownerTotalUsd: 19.56,
     })
   })
 
@@ -125,12 +126,29 @@ describe('the settlement of a month', () => {
   })
 
   it('settles a closed month with the rates it was frozen with', async () => {
-    const frozen = { costPerMessageUsd: 0.03, partnerShare: 0.4 }
+    const frozen = { costPerMessageUsd: 0.05, partnerShare: 0.25 }
     const row = number(8, 1, { settlement: settle(25, 300, frozen) })
     const { service } = setup([month('2026-09', [row], true)])
     const result = await service.month('2026-09')
     expect(result).toMatchObject({ closed: true, closedAt: '2026-10-01T03:00:00.000Z', terms: frozen })
+    expect(result.totals).toMatchObject({ serviceCostUsd: 15, remainderUsd: 10, partnerShareUsd: 2.5 })
+  })
+
+  it("settles with today's rates a month closed before the terms were configured", async () => {
+    const row = number(8, 1, { settlement: null })
+    const { service } = setup([month('2026-09', [row], true)])
+    const result = await service.month('2026-09')
+    expect(result).toMatchObject({ closed: true, terms })
     expect(result.totals).toMatchObject({ serviceCostUsd: 9, remainderUsd: 16, partnerShareUsd: 6.4 })
+  })
+
+  it('answers 503 while the settlement terms are not configured', async () => {
+    const { service, closes } = setup([month('2026-10', [number(8, 1, { settlement: null })])], null)
+    await expect(service.month('2026-10')).rejects.toThrow(ServiceUnavailableException)
+    await expect(service.month('2026-10')).rejects.toThrow('La liquidación no está configurada en el servidor.')
+    await expect(service.series('2026-10')).rejects.toThrow(ServiceUnavailableException)
+    expect(closes.monthSnapshot).not.toHaveBeenCalled()
+    expect(closes.monthSnapshots).not.toHaveBeenCalled()
   })
 
   it('rejects a malformed or future month', async () => {
@@ -165,11 +183,11 @@ describe('the settlement series', () => {
     expect(result.months.at(-2)).toMatchObject({ activeNumbers: 1, newNumbers: 0, stoppedNumbers: 1 })
     expect(result.months[5]).toMatchObject({
       billedUsd: 50,
-      serviceCostUsd: 24,
-      remainderUsd: 26,
-      partnerShareUsd: 13,
-      ownerShareUsd: 13,
-      ownerTotalUsd: 37,
+      serviceCostUsd: 18,
+      remainderUsd: 32,
+      partnerShareUsd: 12.8,
+      ownerShareUsd: 19.2,
+      ownerTotalUsd: 37.2,
     })
   })
 })

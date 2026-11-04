@@ -80,6 +80,10 @@ lo apaga.
   (`POST /owner/billing/close`), que es como se cargan octubre de 2026 y los anteriores, y rehacer uno con `force`.
 - Un cierre hecho después del día 1 del mes siguiente usa los planes de ese día y queda marcado `backfilled`
   («recalculado»): es la mejor aproximación disponible, no lo que se veía a fin de mes.
+- Liquidación con el socio: costo de servicio por mensaje consumido (`PARTNER_COST_PER_MESSAGE_USD`) y parte del socio
+  en lo que queda (`PARTNER_PROFIT_SHARE`). No tienen valor por defecto y se cargan solo en el `.env` del servidor (el
+  repo es público). Sin ellas la liquidación no está configurada: sus endpoints responden 503 y el cierre guarda todo
+  lo demás con la liquidación vacía; un mes cerrado así se liquida con los valores del día en que se consulta.
 - Migración `20261104181000_monthly_close`, aditiva (tabla nueva).
 
 ## Funciones por plan (desde el 3 de noviembre)

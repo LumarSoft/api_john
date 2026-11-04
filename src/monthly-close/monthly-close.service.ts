@@ -65,7 +65,8 @@ export interface MonthNumber {
   openaiCostUsd: number
   /** The owner's "Facturado": the plan, prorated in the first month of service. */
   billedUsd: number
-  settlement: Settlement
+  /** Null when the settlement terms were not configured (live: today; closed: on the day of the close). */
+  settlement: Settlement | null
 }
 
 export interface MonthSnapshot {
@@ -134,8 +135,8 @@ const CLOSE_SELECT = {
 export class MonthlyCloseService implements OnApplicationBootstrap {
   private readonly logger = new Logger(MonthlyCloseService.name)
   private readonly enabled: boolean
-  /** The settlement terms of today: a live month uses them, a closed month keeps its own. */
-  readonly terms: SettlementTerms
+  /** The settlement terms of today (null = not configured): a live month uses them, a closed month keeps its own. */
+  readonly terms: SettlementTerms | null
   private closing = false
 
   constructor(
@@ -145,6 +146,8 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
   ) {
     this.enabled = config.get<string>('MONTHLY_CLOSE_ENABLED') !== 'false'
     this.terms = readSettlementTerms(config)
+    if (!this.terms)
+      this.logger.warn('Partner settlement terms not configured: months close without their settlement figures')
   }
 
   onApplicationBootstrap(): void {
@@ -335,7 +338,7 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
           metaCostUsd: round2(Number(usage?.metaCostUsd ?? 0)),
           openaiCostUsd: round2(Number(usage?.openaiCostUsd ?? 0)),
           billedUsd: bill.billedUsd,
-          settlement: settle(bill.billedUsd, consumedMessages(usage), this.terms),
+          settlement: this.terms ? settle(bill.billedUsd, consumedMessages(usage), this.terms) : null,
         }
       }),
     )
@@ -382,12 +385,13 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
       metaCostUsd: n.metaCostUsd,
       openaiCostUsd: n.openaiCostUsd,
       billedUsd: n.billedUsd,
-      costPerMessageUsd: n.settlement.costPerMessageUsd,
-      serviceCostUsd: n.settlement.serviceCostUsd,
-      remainderUsd: n.settlement.remainderUsd,
-      partnerShare: n.settlement.partnerShare,
-      partnerShareUsd: n.settlement.partnerShareUsd,
-      ownerShareUsd: n.settlement.ownerShareUsd,
+      // Without settlement terms the month still closes: only the settlement stays empty.
+      costPerMessageUsd: n.settlement?.costPerMessageUsd ?? null,
+      serviceCostUsd: n.settlement?.serviceCostUsd ?? null,
+      remainderUsd: n.settlement?.remainderUsd ?? null,
+      partnerShare: n.settlement?.partnerShare ?? null,
+      partnerShareUsd: n.settlement?.partnerShareUsd ?? null,
+      ownerShareUsd: n.settlement?.ownerShareUsd ?? null,
     }
   }
 
@@ -420,14 +424,17 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
       metaCostUsd: round2(Number(row.metaCostUsd)),
       openaiCostUsd: round2(Number(row.openaiCostUsd)),
       billedUsd: Number(row.billedUsd),
-      settlement: {
-        costPerMessageUsd: Number(row.costPerMessageUsd),
-        partnerShare: Number(row.partnerShare),
-        serviceCostUsd: Number(row.serviceCostUsd),
-        remainderUsd: Number(row.remainderUsd),
-        partnerShareUsd: Number(row.partnerShareUsd),
-        ownerShareUsd: Number(row.ownerShareUsd),
-      },
+      settlement:
+        row.costPerMessageUsd == null || row.partnerShare == null
+          ? null
+          : {
+              costPerMessageUsd: Number(row.costPerMessageUsd),
+              partnerShare: Number(row.partnerShare),
+              serviceCostUsd: Number(row.serviceCostUsd),
+              remainderUsd: Number(row.remainderUsd),
+              partnerShareUsd: Number(row.partnerShareUsd),
+              ownerShareUsd: Number(row.ownerShareUsd),
+            },
     }
   }
 }
