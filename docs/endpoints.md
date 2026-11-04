@@ -1027,6 +1027,116 @@ siniestros. All metrics are scoped to the authenticated user's producer.
 
 ---
 
+## Admin — Balance mensual
+
+The organization's numbers at the close of each month, to see where it grows and where it weakens. A row per producer code and month (`MonthlyBalance`) is written on the 1st at 00:30 (Argentina) for the month that just closed; when the API starts (and on the 1st) any of the last `MONTHLY_BALANCE_BACKFILL_MONTHS` months (default 6) without rows is rebuilt from dated records. A month is never rewritten unless the owner forces it. Turn both off with `MONTHLY_BALANCE_ENABLED=false`.
+
+Every record is credited to one of the organization's codes: its own code; else the code billed for the number it came through; else the master code. Quotes go by the number they came through first (their code is a default). So the section filter works as everywhere: the user's codes, narrowed by `producerCodeId` or by `phoneNumberId` (the codes that number serves).
+
+**Metrics.** Policy dates are Triunfo's calendar days; everything else is the month in Argentina.
+
+| Metric                                                                    | Meaning                                                                                       |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| policiesInForce                                                           | Policies not cancelled that started by the last day of the month and run past it              |
+| policiesNew                                                               | Policies whose first term starts in the month (a renewal keeps its start)                     |
+| policiesLost                                                              | Policies not cancelled whose term ended in the month without a renewal                        |
+| premiumInForce \*                                                         | Premium of the policies in force                                                              |
+| debtAmount \*, installmentsOverdue \*, installmentsRejected \*            | Pending + overdue + rejected cuotas (credits left out), as in the dashboard; overdue/rejected |
+| claimsFiled / claimsOpen \*                                               | Claims filed in the month / pending or in progress at the close                               |
+| claimsBlockedNoPolicy, claimsBlockedRejectedPayment, claimsBlockedOverdue | Claims the bot refused to file ("denuncias frenadas"), by reason                              |
+| quotesBot / quotesWeb                                                     | Triunfo quotes through a WhatsApp number / through the web or the panel                       |
+| quoteRequests / contactLeads                                              | Coverage requests on a quote / advisor-contact leads made in the month                        |
+| requestsClosed \*                                                         | Of those requests and leads, the ones closed at the close                                     |
+| handoffs                                                                  | Requests for a person (cleared or deleted matters count too: the request happened)            |
+| conversationsNew                                                          | WhatsApp chats that started in the month                                                      |
+| messagesSent                                                              | Messages the platform sent on the organization's numbers                                      |
+| rejectionNoticesSent / expiryNoticesSent                                  | Rejected-payment / expired-policy notices sent by WhatsApp                                    |
+| quotes, claimsBlocked                                                     | Totals of the two quote channels and of the three stopped-claim reasons (response only)       |
+
+\* Month-end state: only a balance taken within 3 days of the close reads it. A rebuilt month (`backfilled: true`) has it as `null`, shown as "sin dato" — never 0. Months before the organization existed have no balance.
+
+### GET /admin/balance
+
+The last closed months, oldest first, each metric with its change against the month before. SuperAdmin only: an ADMIN gets 403 (the OWNER passes the role check like on every SuperAdmin route, but the panel never shows it the page).
+
+**Auth required:** Yes (user JWT, SuperAdmin)
+
+**Query params**
+
+| Param          | Type   | Required | Constraints                                                    |
+| -------------- | ------ | -------- | -------------------------------------------------------------- |
+| months         | number | No       | 1–24, default 12. The last one is the month before the current |
+| producerCodeId | number | No       | One of the user's codes; another returns no data               |
+| phoneNumberId  | number | No       | A PhoneNumber id: the codes that number serves                 |
+
+**Responses**
+
+`200 OK` — `recorded: false` = no balance that month (every value `null`). `value: null` = not recorded. `changePct` is `null` without a previous value or when it was 0. Amounts are pesos with 2 decimals.
+
+```json
+{
+  "months": [
+    {
+      "period": "2026-10",
+      "recorded": true,
+      "backfilled": false,
+      "snapshotAt": "2026-11-01T03:30:00.000Z",
+      "metrics": {
+        "policiesInForce": { "value": 2140, "previous": 2101, "change": 39, "changePct": 1.9 },
+        "debtAmount": { "value": 1823400.5, "previous": null, "change": null, "changePct": null },
+        "claimsBlocked": { "value": 6, "previous": 4, "change": 2, "changePct": 50 }
+      }
+    }
+  ]
+}
+```
+
+(Every metric of the table above comes in `metrics`; three are shown.)
+
+`400 Bad Request` — `months` out of range or a non-numeric filter
+
+`401 Unauthorized` — Missing or invalid JWT
+
+`403 Forbidden` — Token is not an employee/admin token, or the user is not a SuperAdmin
+
+### POST /owner/balance/snapshots
+
+Closes a month's balance by hand: every active organization, or one. A month that already has a balance is left as it is unless `force` is true. Run within 3 days of the close it reads the month-end state; later it is rebuilt (`backfilled`).
+
+**Auth required:** Yes (user JWT, role OWNER)
+
+**Request body**
+
+| Field      | Type    | Required | Constraints                            |
+| ---------- | ------- | -------- | -------------------------------------- |
+| period     | string  | Yes      | `YYYY-MM`, a month that has ended      |
+| force      | boolean | No       | Rewrites a month already closed        |
+| producerId | number  | No       | Only this organization (active or not) |
+
+```json
+{ "period": "2026-10", "force": true, "producerId": 1 }
+```
+
+**Responses**
+
+`201 Created` — `skipped` says why an organization got no rows: `already_closed`, `not_created_yet` or `no_codes`.
+
+```json
+{
+  "period": "2026-10",
+  "monthEnd": false,
+  "organizations": [{ "producerId": 1, "rows": 25 }]
+}
+```
+
+`400 Bad Request` — `period` malformed or the month has not ended
+
+`403 Forbidden` — Not the OWNER
+
+`409 Conflict` — A balance is already being written
+
+---
+
 ## Health
 
 ### GET /
@@ -1918,7 +2028,7 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 
 **Responses**
 
-`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat. `globalBotDisabled` is the organization's bot switch and `numberBotDisabled` the switch of the number the chat came through (`PATCH /admin/phone-numbers/:id/bot-status`): with either on, the office answers the chat without taking it over.
+`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat. `globalBotDisabled` is the organization's bot switch and `numberBotDisabled` the switch of the number the chat came through (`PATCH /admin/phone-numbers/:id/bot-status`): with either on, the office answers the chat without taking it over. `blockedClaim` is set while the chat's open advisor request is a claim the bot refused to file ("denuncia frenada"): `NO_POLICY` (no policy in force), `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS`; `null` otherwise.
 
 ```json
 [
@@ -1943,7 +2053,8 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
       "content": "Hola Evelyn, ¿en qué te puedo ayudar?",
       "mediaType": null,
       "createdAt": "2026-06-22T19:39:00.000Z"
-    }
+    },
+    "blockedClaim": null
   }
 ]
 ```
@@ -2076,7 +2187,7 @@ Paginated list of novedades, unread first then newest.
 
 **Responses**
 
-`200 OK` — `client` is the linked insured (null for an unidentified handoff).
+`200 OK` — `client` is the linked insured (null for an unidentified handoff). `blockedClaimReason` marks a handoff that is a claim the bot refused to file ("denuncia frenada"): `NO_POLICY`, `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS`; `null` for any other matter.
 
 ```json
 {
@@ -2096,9 +2207,10 @@ Paginated list of novedades, unread first then newest.
       "type": "handoff",
       "refId": 1,
       "title": "Pedido de asesor · Ana Gómez",
-      "body": null,
+      "body": "Denuncia de siniestro no registrada: la póliza 9001 figura con un cobro rechazado.",
       "readAt": "2026-06-22T18:10:00.000Z",
       "createdAt": "2026-06-22T18:02:00.000Z",
+      "blockedClaimReason": "REJECTED_PAYMENT",
       "client": { "id": 5, "firstName": "Ana", "lastName": "Gómez", "dni": "27888999" }
     }
   ],
@@ -2792,6 +2904,38 @@ Leaves a `baja_poliza` notification for the office with the policy, the client's
 `400 Bad Request` — The conversation has no identified client
 
 `404 Not Found` — The policy is not the identified client's
+
+### POST /bot/conversation/:conversationId/request-handoff
+
+The customer needs a person: the conversation goes to `pending` and the office gets a `handoff` matter in Asuntos pendientes (an exact repeat, or a follow-up of an open request of the same kind within 24 h, joins the open one). When the bot refused to file a claim it sends `blockedClaimReason`; the matter is marked "denuncia frenada", filed under siniestros and counted in the monthly balance. No claim is created. A bot that only sends `reason` still gets the mark when the reason starts with "Denuncia de siniestro no registrada:".
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field              | Type   | Required | Constraints                                               |
+| ------------------ | ------ | -------- | --------------------------------------------------------- |
+| reason             | string | No       | ≤ 2000 chars, shown to the office                         |
+| blockedClaimReason | string | No       | `NO_POLICY`, `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS` |
+
+```json
+{
+  "reason": "Denuncia de siniestro no registrada: la póliza 9001 figura con un cobro rechazado.",
+  "blockedClaimReason": "REJECTED_PAYMENT"
+}
+```
+
+**Responses**
+
+`201 Created`
+
+```json
+{ "ok": true }
+```
+
+`400 Bad Request` — `blockedClaimReason` is not one of the values above
+
+`404 Not Found` — Unknown conversation
 
 ### POST /bot/conversation/:conversationId/identify-by-phone
 

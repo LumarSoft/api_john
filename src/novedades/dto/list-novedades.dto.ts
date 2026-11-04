@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer'
 import { IsDateString, IsBoolean, IsEnum, IsInt, IsOptional, Max, MaxLength, Min, IsString } from 'class-validator'
+import { BlockedClaimReason } from 'generated/prisma/client'
 
 export enum NovedadType {
   SINIESTRO = 'siniestro',
@@ -39,6 +40,12 @@ export class HandoffReasonDto {
   @IsString()
   @MaxLength(2000)
   reason?: string
+
+  // Set by the bot when it refused to file a claim ("denuncia frenada"). Older
+  // bots only send the reason text, which is read for it instead.
+  @IsOptional()
+  @IsEnum(BlockedClaimReason)
+  blockedClaimReason?: BlockedClaimReason
 }
 export class ListNovedadesDto {
   @IsOptional()

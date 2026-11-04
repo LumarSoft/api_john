@@ -1,10 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
-import { Prisma } from 'generated/prisma/client'
+import { type BlockedClaimReason, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { type ChatScope, numberWhere } from '../common/scope/scope.service'
 import { ListNovedadesDto, NovedadType, MatterCategory, MatterStatus, UpdateMatterDto } from './dto/list-novedades.dto'
 
 import { classifyMatter } from './classify-matter'
+import { blockedClaimReasonFromText } from './blocked-claim'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -24,6 +25,7 @@ const NOVEDAD_SELECT = {
   body: true,
   readAt: true,
   createdAt: true,
+  blockedClaimReason: true,
   client: { select: { id: true, firstName: true, lastName: true, dni: true } },
 } as const
 
@@ -63,6 +65,8 @@ export class NovedadesService {
     producerId: number,
     input: {
       reason?: string
+      /** The bot refused to file a claim ("denuncia frenada"); read from the reason when absent. */
+      blockedClaimReason?: BlockedClaimReason | null
       conversationId: number
       clientId: number | null
       clienteNombre: string
@@ -72,7 +76,9 @@ export class NovedadesService {
     },
   ): Promise<void> {
     const body = input.reason?.trim() || null
-    const category = classifyMatter(body ?? undefined)
+    const blockedClaimReason = input.blockedClaimReason ?? blockedClaimReasonFromText(body)
+    // A stopped claim is a claims matter whatever words its reason uses.
+    const category = blockedClaimReason ? MatterCategory.SINIESTRO : classifyMatter(body ?? undefined)
     // Exact repeats share a pending matter; a different request remains separate.
     const existing = await this.prisma.notification
       .findFirst({
@@ -88,7 +94,7 @@ export class NovedadesService {
       })
       .catch(() => null)
     if (existing) return
-    if (await this.joinOpenHandoff(input.conversationId, producerId, body, category)) return
+    if (await this.joinOpenHandoff(input.conversationId, producerId, body, category, blockedClaimReason)) return
     await this.safeCreate(producerId, {
       category,
       type: NovedadType.HANDOFF,
@@ -98,6 +104,7 @@ export class NovedadesService {
       phoneNumberId: input.phoneNumberId ?? null,
       title: `Pedido de asesor · ${input.clienteNombre}`,
       body,
+      blockedClaimReason,
     })
   }
 
@@ -159,13 +166,15 @@ export class NovedadesService {
    * opening another one: one chat got three alerts for the same papers. Only
    * within HANDOFF_JOIN_WINDOW_MS and the same kind of matter (a generic one
    * takes any), so a payment and a cancellation still stay apart. The joined
-   * matter is marked unread and moved up so the office sees the addition.
+   * matter is marked unread and moved up so the office sees the addition; a
+   * stopped claim joined to it carries its mark over.
    */
   private async joinOpenHandoff(
     conversationId: number,
     producerId: number,
     body: string | null,
     category: MatterCategory,
+    blockedClaimReason: BlockedClaimReason | null,
   ): Promise<boolean> {
     try {
       const open = await this.prisma.notification.findFirst({
@@ -190,6 +199,7 @@ export class NovedadesService {
         data: {
           body: open.body ? `${open.body}\n\n${body}` : body,
           category: openCategory === MatterCategory.OTHER ? category : openCategory,
+          ...(blockedClaimReason ? { blockedClaimReason } : {}),
           // The customer wrote again: the matter waits for the office once more.
           status: MatterStatus.PENDING,
           readAt: null,
@@ -216,11 +226,13 @@ export class NovedadesService {
       phoneNumberId?: string | null
       title: string
       body: string | null
+      blockedClaimReason?: BlockedClaimReason | null
     },
   ): Promise<void> {
     try {
       await this.prisma.notification.create({
         data: {
+          ...(data.blockedClaimReason ? { blockedClaimReason: data.blockedClaimReason } : {}),
           producerId,
           category: data.category ?? MatterCategory.OTHER,
           type: data.type,
@@ -238,6 +250,35 @@ export class NovedadesService {
   }
 
   // ─── Admin panel ───────────────────────────────────────
+
+  /**
+   * The chats among `conversationIds` whose open advisor request is a claim the
+   * bot refused to file, with why (newest first wins). For the inbox badge.
+   */
+  async blockedClaimsByConversation(
+    producerId: number,
+    conversationIds: number[],
+  ): Promise<Map<number, BlockedClaimReason>> {
+    if (!conversationIds.length) return new Map()
+    const rows = await this.prisma.notification.findMany({
+      where: {
+        producerId,
+        type: NovedadType.HANDOFF,
+        refId: { in: conversationIds },
+        blockedClaimReason: { not: null },
+        status: { not: MatterStatus.RESOLVED },
+        deletedAt: null,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { refId: true, blockedClaimReason: true },
+    })
+    const byConversation = new Map<number, BlockedClaimReason>()
+    for (const row of rows) {
+      if (row.blockedClaimReason && !byConversation.has(row.refId))
+        byConversation.set(row.refId, row.blockedClaimReason)
+    }
+    return byConversation
+  }
 
   // Code-level visibility for an admin. Includes novedades not yet attributed to
   // a code (handoffs from unidentified numbers) so they stay visible to the org.

@@ -40,6 +40,7 @@ import { PlanFeaturesModule } from './plan-features/plan-features.module'
 import { SalesCampaignsModule } from './sales-campaigns/sales-campaigns.module'
 import { AssistantModule } from './assistant/assistant.module'
 import { OrganizationLogoModule } from './organization-logo/organization-logo.module'
+import { BalanceModule } from './balance/balance.module'
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { OrganizationLogoModule } from './organization-logo/organization-logo.mo
     SalesCampaignsModule,
     AssistantModule,
     OrganizationLogoModule,
+    BalanceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

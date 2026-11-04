@@ -12,6 +12,7 @@ const novedadesMock = () =>
   ({
     markConversationAnswered: jest.fn().mockResolvedValue(0),
     resolveAnsweredMatters: jest.fn().mockResolvedValue(0),
+    blockedClaimsByConversation: jest.fn().mockResolvedValue(new Map()),
   }) as unknown as NovedadesService
 
 /** A SuperAdmin of code 2: its chats plus the unattributed ones. */
@@ -72,6 +73,7 @@ describe('InboxService.listConversations', () => {
           mediaType: null,
           createdAt: new Date('2026-09-30T12:00:01.000Z'),
         },
+        blockedClaim: null,
       },
     ])
     expect(groupBy).toHaveBeenCalledWith(
@@ -173,6 +175,31 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
     const [conversation] = await service.listConversations(1, SUPERADMIN_CHATS, {} as ListInboxDto)
 
     expect(conversation.contactName).toBe('John Pellegrini')
+  })
+})
+
+describe('InboxService.listConversations stopped claims', () => {
+  it('marks the chat whose open request is a claim the bot refused to file', async () => {
+    const novedades = novedadesMock()
+    ;(novedades.blockedClaimsByConversation as jest.Mock).mockResolvedValue(new Map([[7, 'REJECTED_PAYMENT']]))
+    const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
+      conversation: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 7, waId: '549341', phoneNumberId: 'P1', client: null, messages: [], _count: { messages: 1 } },
+          { id: 8, waId: '549342', phoneNumberId: 'P1', client: null, messages: [], _count: { messages: 1 } },
+        ]),
+      },
+      message: { groupBy: jest.fn().mockResolvedValue([]) },
+      whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const service = new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedades)
+
+    const [stopped, other] = await service.listConversations(1, SUPERADMIN_CHATS, {} as ListInboxDto)
+
+    expect(novedades.blockedClaimsByConversation).toHaveBeenCalledWith(1, [7, 8])
+    expect(stopped.blockedClaim).toBe('REJECTED_PAYMENT')
+    expect(other.blockedClaim).toBeNull()
   })
 })
 
