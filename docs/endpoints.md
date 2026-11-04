@@ -2091,6 +2091,42 @@ Soft-deletes the task. Only its creator or a SuperAdmin.
 
 `403 Forbidden` — The task does not involve the user · `404 Not Found` — No such task
 
+## Admin — Asistente
+
+The panel's AI assistant: the office asks in plain words about the portfolio ("¿Cuál es el estado de la póliza de Juan Pérez?", "¿Qué pólizas vencen esta semana?") and the model answers with read-only tools over the user's own codes (as Asegurados shows them): search clients (name, DNI/CUIT, phone, e-mail, plate, policy number), a client's file (policies with coverage, validity and payment method, unpaid installments, claims), policies ending within N days, unpaid installments and the portfolio in numbers. It cannot send messages or change anything. Same OpenAI account and model as the bot (`OPENAI_API_KEY`, `OPENAI_MODEL`); nothing is stored: the panel sends the conversation each time. Plan function `ai_assistant`.
+
+### POST /admin/assistant/ask
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field              | Type   | Required | Constraints                                                        |
+| ------------------ | ------ | -------- | ------------------------------------------------------------------ |
+| messages           | array  | Yes      | 1–20, oldest first; the last one is the question                   |
+| messages[].role    | string | Yes      | `user` or `assistant`                                              |
+| messages[].content | string | Yes      | 1–4000 characters; the last (the question) at most 2000           |
+
+```json
+{ "messages": [{ "role": "user", "content": "¿Cuál es el estado de la póliza de Juan Pérez?" }] }
+```
+
+**Responses**
+
+`201 Created` — Spanish with light markdown (`**negrita**`, `- ` lists) and links to client files as `[Nombre](asegurado:ID)`; a link without a real id is turned into plain text.
+
+```json
+{ "reply": "La póliza de [Juan Pérez](asegurado:60) está **vigente**: Ford Ka 2015 · AB123CD, vence el 20/11/2026. Tiene 1 cuota vencida de $ 90.315." }
+```
+
+`400 Bad Request` — `"La última parte de la conversación tiene que ser una pregunta de hasta 2000 caracteres."`
+
+`403 Forbidden` — `"El plan de tus números no incluye el asistente con IA. Se puede cambiar en Facturación."`
+
+`429 Too Many Requests` — `"Hiciste muchas preguntas seguidas. Esperá unos minutos."` (60 per person per hour)
+
+`503 Service Unavailable` — `"El asistente todavía no está configurado."` (no `OPENAI_API_KEY`) or `"El asistente no pudo responder. Probá de nuevo en un rato."`
+
 ## Admin — Campañas
 
 Nico's sales campaigns (2026-11-03). Each organization turns a campaign on, writes its message and its discount; the panel lists who the campaign finds in the portfolio (or, for `quote_followup`, in the bot's quotes) and the office ticks who to write to. Nothing goes out on its own.

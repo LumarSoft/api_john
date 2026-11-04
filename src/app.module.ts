@@ -36,6 +36,7 @@ import { ExpiredPoliciesModule } from './expired-policies/expired-policies.modul
 import { BillingModule } from './billing/billing.module'
 import { PlanFeaturesModule } from './plan-features/plan-features.module'
 import { SalesCampaignsModule } from './sales-campaigns/sales-campaigns.module'
+import { AssistantModule } from './assistant/assistant.module'
 import { OrganizationLogoModule } from './organization-logo/organization-logo.module'
 
 @Module({
@@ -75,6 +76,7 @@ import { OrganizationLogoModule } from './organization-logo/organization-logo.mo
     BillingModule,
     PlanFeaturesModule,
     SalesCampaignsModule,
+    AssistantModule,
     OrganizationLogoModule,
   ],
   controllers: [AppController],

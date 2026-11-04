@@ -18,6 +18,11 @@ export const PLAN_FEATURES = [
     description: 'Enviar por WhatsApp el aviso a los asegurados con la póliza vencida.',
   },
   {
+    key: 'ai_assistant',
+    label: 'Asistente con IA',
+    description: 'Preguntarle a la IA por clientes, pólizas, cuotas y vencimientos desde el panel.',
+  },
+  {
     key: 'campaign_coverage_upgrade',
     label: 'Campaña: mejora de coberturas',
     description: 'Ofrecer una cobertura más completa a quien tiene una básica.',
@@ -55,6 +60,7 @@ export const FEATURE_NOT_IN_PLAN: Record<PlanFeatureKey, string> = {
     'El plan de tus números no incluye el envío de avisos de rechazos. Se puede cambiar en Facturación.',
   expiry_notices:
     'El plan de tus números no incluye el envío de avisos de pólizas vencidas. Se puede cambiar en Facturación.',
+  ai_assistant: 'El plan de tus números no incluye el asistente con IA. Se puede cambiar en Facturación.',
   campaign_coverage_upgrade: 'El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación.',
   campaign_quote_followup: 'El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación.',
   campaign_renewal: 'El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación.',
