@@ -75,3 +75,10 @@ one scoped transaction, so the next inbound message creates a fresh chat without
 conflicting with the unique WhatsApp/producer key. Business records are retained;
 contact leads are detached and related HANDOFF notices are soft-deleted. Media
 files remain subject to the existing retention policy.
+
+## Counting events that were soft deleted
+
+The monthly balance (`src/balance/`) counts handoff notifications whatever their
+`deletedAt`: clearing "Asuntos pendientes" or deleting a chat soft-deletes the
+matter to take it off the worklist, but the customer did ask for a person. Every
+other balance query filters `deletedAt: null`.

@@ -81,6 +81,7 @@ model Producer {
   triunfoCredential       TriunfoCredential?
   triunfoAuthStatus       TriunfoAuthStatus?
   triunfoErrors           TriunfoError[]
+  monthlyBalances         MonthlyBalance[]
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
@@ -266,6 +267,7 @@ model ProducerCode {
   usageMonthly          UsageMonthly[]
   paymentRejections     PaymentRejection[]
   policyExpiryNotices   PolicyExpiryNotice[]
+  monthlyBalances       MonthlyBalance[]
 
   @@unique([producerId, code])
   @@index([producerId, isActive])
@@ -1592,4 +1594,55 @@ model SalesCampaignOptOut {
   createdBy   User?    @relation("sales_campaign_opt_outs_made", fields: [createdById], references: [id])
 
   @@unique([producerId, waId])
+}
+
+// ─── BALANCE MENSUAL ─────────────────────────────────────
+/// Month-end business balance of one producer code: one row per code per
+/// month ("YYYY-MM", Argentina time), written by MonthlyBalanceSnapshotService
+/// on the 1st for the month that just closed. Rows are summed over the codes a
+/// user may see, so the scope filters work as in every admin list. Every metric
+/// is nullable: null = not recorded that month (never a guessed 0). Definitions
+/// are in src/balance/balance-metrics.ts.
+model MonthlyBalance {
+  id                           Int       @id @default(autoincrement())
+  period                       String    @db.VarChar(7)
+  // Rebuilt after the fact from dated records: the month-end state (debt,
+  // open claims, closed requests, premium) could not be read and is null.
+  backfilled                   Boolean   @default(false)
+  // When the numbers were taken.
+  snapshotAt                   DateTime
+  policiesInForce              Int?
+  policiesNew                  Int?
+  policiesLost                 Int?
+  premiumInForce               Decimal?  @db.Decimal(16, 2)
+  debtAmount                   Decimal?  @db.Decimal(16, 2)
+  installmentsOverdue          Int?
+  installmentsRejected         Int?
+  claimsFiled                  Int?
+  claimsOpen                   Int?
+  claimsBlockedNoPolicy        Int?
+  claimsBlockedRejectedPayment Int?
+  claimsBlockedOverdue         Int?
+  quotesBot                    Int?
+  quotesWeb                    Int?
+  quoteRequests                Int?
+  contactLeads                 Int?
+  requestsClosed               Int?
+  handoffs                     Int?
+  conversationsNew             Int?
+  messagesSent                 Int?
+  rejectionNoticesSent         Int?
+  expiryNoticesSent            Int?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+  deletedAt                    DateTime?
+
+  producerId     Int
+  producer       Producer     @relation(fields: [producerId], references: [id])
+  producerCodeId Int
+  producerCode   ProducerCode @relation(fields: [producerCodeId], references: [id])
+
+  @@unique([producerId, producerCodeId, period])
+  @@index([producerId, period])
+  @@index([producerCodeId])
 }

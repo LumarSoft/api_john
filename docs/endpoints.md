@@ -1027,6 +1027,72 @@ siniestros. All metrics are scoped to the authenticated user's producer.
 
 ---
 
+## Admin — Balance mensual
+
+The organization's numbers at the close of each month, to see where it grows and where it weakens. A row per producer code and month (`MonthlyBalance`) is written on the 1st at 00:30 (Argentina) for the month that just closed; when the API starts (and on the 1st) any of the last `MONTHLY_BALANCE_BACKFILL_MONTHS` months (default 6) without rows is rebuilt from dated records. A month is never rewritten unless the owner forces it. Turn both off with `MONTHLY_BALANCE_ENABLED=false`.
+
+Every record is credited to one of the organization's codes: its own code; else the code billed for the number it came through; else the master code. Quotes go by the number they came through first (their code is a default). So the section filter works as everywhere: the user's codes, narrowed by `producerCodeId` or by `phoneNumberId` (the codes that number serves).
+
+**Metrics.** Policy dates are Triunfo's calendar days; everything else is the month in Argentina.
+
+| Metric                                                                    | Meaning                                                                                       |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| policiesInForce                                                           | Policies not cancelled that started by the last day of the month and run past it              |
+| policiesNew                                                               | Policies whose first term starts in the month (a renewal keeps its start)                     |
+| policiesLost                                                              | Policies not cancelled whose term ended in the month without a renewal                        |
+| premiumInForce \*                                                         | Premium of the policies in force                                                              |
+| debtAmount \*, installmentsOverdue \*, installmentsRejected \*            | Pending + overdue + rejected cuotas (credits left out), as in the dashboard; overdue/rejected |
+| claimsFiled / claimsOpen \*                                               | Claims filed in the month / pending or in progress at the close                               |
+| claimsBlockedNoPolicy, claimsBlockedRejectedPayment, claimsBlockedOverdue | Claims the bot refused to file ("denuncias frenadas"), by reason                              |
+| quotesBot / quotesWeb                                                     | Triunfo quotes through a WhatsApp number / through the web or the panel                       |
+| quoteRequests / contactLeads                                              | Coverage requests on a quote / advisor-contact leads made in the month                        |
+| requestsClosed \*                                                         | Of those requests and leads, the ones closed at the close                                     |
+| handoffs                                                                  | Requests for a person (cleared or deleted matters count too: the request happened)            |
+| conversationsNew                                                          | WhatsApp chats that started in the month                                                      |
+| messagesSent                                                              | Messages the platform sent on the organization's numbers                                      |
+| rejectionNoticesSent / expiryNoticesSent                                  | Rejected-payment / expired-policy notices sent by WhatsApp                                    |
+| quotes, claimsBlocked                                                     | Totals of the two quote channels and of the three stopped-claim reasons (response only)       |
+
+\* Month-end state: only a balance taken within 3 days of the close reads it. A rebuilt month (`backfilled: true`) has it as `null`, shown as "sin dato" — never 0. Months before the organization existed have no balance.
+
+### POST /owner/balance/snapshots
+
+Closes a month's balance by hand: every active organization, or one. A month that already has a balance is left as it is unless `force` is true. Run within 3 days of the close it reads the month-end state; later it is rebuilt (`backfilled`).
+
+**Auth required:** Yes (user JWT, role OWNER)
+
+**Request body**
+
+| Field      | Type    | Required | Constraints                            |
+| ---------- | ------- | -------- | -------------------------------------- |
+| period     | string  | Yes      | `YYYY-MM`, a month that has ended      |
+| force      | boolean | No       | Rewrites a month already closed        |
+| producerId | number  | No       | Only this organization (active or not) |
+
+```json
+{ "period": "2026-10", "force": true, "producerId": 1 }
+```
+
+**Responses**
+
+`201 Created` — `skipped` says why an organization got no rows: `already_closed`, `not_created_yet` or `no_codes`.
+
+```json
+{
+  "period": "2026-10",
+  "monthEnd": false,
+  "organizations": [{ "producerId": 1, "rows": 25 }]
+}
+```
+
+`400 Bad Request` — `period` malformed or the month has not ended
+
+`403 Forbidden` — Not the OWNER
+
+`409 Conflict` — A balance is already being written
+
+---
+
 ## Health
 
 ### GET /
