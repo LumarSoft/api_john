@@ -76,6 +76,9 @@ model Producer {
   paymentRejectionImports PaymentRejectionImport[]
   paymentRejections       PaymentRejection[]
   policyExpiryNotices     PolicyExpiryNotice[]
+  salesCampaigns          SalesCampaign[]
+  salesCampaignMessages   SalesCampaignMessage[]
+  salesCampaignOptOuts    SalesCampaignOptOut[]
   triunfoCredential       TriunfoCredential?
   triunfoAuthStatus       TriunfoAuthStatus?
   triunfoErrors           TriunfoError[]
@@ -248,21 +251,22 @@ model ProducerCode {
   producerId Int
   producer   Producer @relation(fields: [producerId], references: [id])
 
-  users                UserProducerCode[]
-  clients              Client[]
-  policies             Policy[]
-  quotes               Quote[]
-  claims               Claim[]
-  contactLeads         ContactLead[]
-  conversations        Conversation[]
-  notifications        Notification[]
+  users                 UserProducerCode[]
+  clients               Client[]
+  policies              Policy[]
+  quotes                Quote[]
+  claims                Claim[]
+  contactLeads          ContactLead[]
+  conversations         Conversation[]
+  notifications         Notification[]
   // Phone numbers whose billing is attributed to this code.
-  responsibleForPhones PhoneNumber[]             @relation("phone_responsible_code")
+  responsibleForPhones  PhoneNumber[]             @relation("phone_responsible_code")
+  salesCampaignMessages SalesCampaignMessage[]
   // Phone numbers this code is served by (many-to-many, e.g. shared office line).
-  servedByPhones       PhoneNumberProducerCode[]
-  usageMonthly         UsageMonthly[]
-  paymentRejections    PaymentRejection[]
-  policyExpiryNotices  PolicyExpiryNotice[]
+  servedByPhones        PhoneNumberProducerCode[]
+  usageMonthly          UsageMonthly[]
+  paymentRejections     PaymentRejection[]
+  policyExpiryNotices   PolicyExpiryNotice[]
 
   @@unique([producerId, code])
   @@index([producerId, isActive])
@@ -359,44 +363,44 @@ model PhoneNumber {
   // The number's own assistant, for a branch or a producer that answers on its
   // own line. Each one left null takes the organization's value (same field on
   // Producer), so a number nobody configured behaves exactly as before.
-  botName          String?           @db.VarChar(60)
-  staffNames       String?           @db.VarChar(255)
-  businessHours    Json?
+  botName              String?           @db.VarChar(60)
+  staffNames           String?           @db.VarChar(255)
+  businessHours        Json?
   // Only the Producer.botProfile fields this number changes (same flat shape).
-  botProfile       Json?
+  botProfile           Json?
   // The bot's switch, one per number (there is no organization-wide one): false
   // stops the bot on this number only. The admin of the number flips it; every
   // flip is a BotStatusChange row.
-  botEnabled       Boolean           @default(true)
+  botEnabled           Boolean           @default(true)
   // The number's view of the organization's coverages: { "<code>": { isActive,
   // highlighted, sortOrder } } with only the fields it changes. Wording and
   // year windows stay the organization's. Null = offers them as the organization does.
-  coverageSettings Json?
-  botStatusChanges BotStatusChange[]
+  coverageSettings     Json?
+  botStatusChanges     BotStatusChange[]
   // The number's own holidays and closures: a branch's closure never closes
   // another branch. National holidays are loaded into each number.
-  businessClosures BusinessClosure[]
+  businessClosures     BusinessClosure[]
   // The plan the SuperAdmin assigned (null = the smallest paid plan of the
   // catalog). A number never moves up on its own: when its messages reach the
   // plan, its assistant pauses until someone picks the next plan or the month
   // ends. A new account's number starts on the trial plan, valid only in its
   // first month of service.
-  planId           Int?
-  plan             MessagePlan?      @relation(fields: [planId], references: [id], onDelete: SetNull)
+  planId               Int?
+  plan                 MessagePlan?      @relation(fields: [planId], references: [id], onDelete: SetNull)
   // When the number last moved up a plan (someone chose to continue at the
   // limit): Facturación shows "subió de plan este mes" from it.
-  planUpgradedAt   DateTime?
+  planUpgradedAt       DateTime?
   // When the month's messages reached the plan and the assistant paused. Only
   // the month it falls in counts: the next month the assistant answers again.
-  planPausedAt     DateTime?
+  planPausedAt         DateTime?
   // When someone chose to keep it paused until next month (hides the prompt).
   planPauseConfirmedAt DateTime?
   // Blocks of 1,000 messages past the largest plan accepted for `extraBlocksPeriod`.
-  extraBlocks       Int               @default(0)
-  extraBlocksPeriod String?           @db.VarChar(7)
+  extraBlocks          Int               @default(0)
+  extraBlocksPeriod    String?           @db.VarChar(7)
   // Legacy (billing before 2026-10-30, free first-month tokens). Unused; kept
   // so an older API can still run against this database. Drop later.
-  trialTokens      Int               @default(0)
+  trialTokens          Int               @default(0)
 
   @@index([responsibleProducerCodeId])
   @@index([wabaAccountId])
@@ -502,23 +506,26 @@ model User {
   updatedAt                DateTime  @updatedAt
   deletedAt                DateTime?
 
-  producerId              Int
-  producer                Producer                 @relation(fields: [producerId], references: [id])
+  producerId                Int
+  producer                  Producer                 @relation(fields: [producerId], references: [id])
   // Producer codes this admin may access (ignored for SUPERADMIN = all codes).
-  producerCodes           UserProducerCode[]
-  quotes                  Quote[]
-  assignedConversations   Conversation[]           @relation("assigned_conversations")
-  botStatusChanges        BotStatusChange[]
-  proposals               ImprovementProposal[]
-  tasksCreated            Task[]                   @relation("tasks_created")
-  tasksAssigned           Task[]                   @relation("tasks_assigned")
-  taskComments            TaskComment[]
-  internalChatMemberships InternalChatMember[]
-  internalChatMessages    InternalChatMessage[]
-  paymentRejectionImports PaymentRejectionImport[]
-  policiesHidden          Policy[]                 @relation("policies_hidden")
-  paymentRejectionsSent   PaymentRejection[]
-  policyExpiryNoticesSent PolicyExpiryNotice[]     @relation("policy_expiry_notices_sent")
+  producerCodes             UserProducerCode[]
+  quotes                    Quote[]
+  assignedConversations     Conversation[]           @relation("assigned_conversations")
+  botStatusChanges          BotStatusChange[]
+  proposals                 ImprovementProposal[]
+  tasksCreated              Task[]                   @relation("tasks_created")
+  tasksAssigned             Task[]                   @relation("tasks_assigned")
+  taskComments              TaskComment[]
+  internalChatMemberships   InternalChatMember[]
+  internalChatMessages      InternalChatMessage[]
+  paymentRejectionImports   PaymentRejectionImport[]
+  policiesHidden            Policy[]                 @relation("policies_hidden")
+  paymentRejectionsSent     PaymentRejection[]
+  policyExpiryNoticesSent   PolicyExpiryNotice[]     @relation("policy_expiry_notices_sent")
+  salesCampaignMessagesSent SalesCampaignMessage[]   @relation("sales_campaign_messages_sent")
+  salesCampaignsUpdated     SalesCampaign[]          @relation("sales_campaigns_updated")
+  salesCampaignOptOutsMade  SalesCampaignOptOut[]    @relation("sales_campaign_opt_outs_made")
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
@@ -539,18 +546,19 @@ model Client {
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
-  producerId          Int
-  producer            Producer             @relation(fields: [producerId], references: [id])
+  producerId            Int
+  producer              Producer               @relation(fields: [producerId], references: [id])
   // Triunfo agent code that owns this client's cartera. Nullable during migration;
   // back-filled to the org master code, then refined per Triunfo cartera.
-  producerCodeId      Int?
-  producerCode        ProducerCode?        @relation(fields: [producerCodeId], references: [id])
-  conversations       Conversation[]
-  policies            Policy[]
-  claims              Claim[]
-  notifications       Notification[]
-  paymentRejections   PaymentRejection[]
-  policyExpiryNotices PolicyExpiryNotice[]
+  producerCodeId        Int?
+  producerCode          ProducerCode?          @relation(fields: [producerCodeId], references: [id])
+  conversations         Conversation[]
+  policies              Policy[]
+  claims                Claim[]
+  notifications         Notification[]
+  paymentRejections     PaymentRejection[]
+  policyExpiryNotices   PolicyExpiryNotice[]
+  salesCampaignMessages SalesCampaignMessage[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
@@ -603,11 +611,12 @@ model Policy {
   producerCodeId Int?
   producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
 
-  vehicle           Vehicle?
-  installments      Installment[]
-  claims            Claim[]
-  paymentRejections PaymentRejection[]
-  expiryNotices     PolicyExpiryNotice[]
+  vehicle               Vehicle?
+  installments          Installment[]
+  claims                Claim[]
+  paymentRejections     PaymentRejection[]
+  expiryNotices         PolicyExpiryNotice[]
+  salesCampaignMessages SalesCampaignMessage[]
 
   @@unique([certificateNumber, producerId])
   @@index([producerCodeId])
@@ -767,22 +776,30 @@ model Quote {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  producerId     Int
-  producer       Producer      @relation(fields: [producerId], references: [id])
+  producerId            Int
+  producer              Producer               @relation(fields: [producerId], references: [id])
   // Triunfo agent code credited with this quote (defaults to the quoting user's code).
-  producerCodeId Int?
-  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
-  userId         Int?
-  user           User?         @relation(fields: [userId], references: [id])
-  quoteRequest   QuoteRequest?
+  producerCodeId        Int?
+  producerCode          ProducerCode?          @relation(fields: [producerCodeId], references: [id])
+  userId                Int?
+  user                  User?                  @relation(fields: [userId], references: [id])
+  quoteRequest          QuoteRequest?
   // Meta id of the WhatsApp number this came through (as Conversation.phoneNumberId):
   // the panel shows each branch only what came through its own number. Null = not
   // from a chat (web, panel) or older than this column; it counts as the
   // organization's default number's.
-  phoneNumberId  String?
+  phoneNumberId         String?
+  // The bot's chat the quote was asked in (null for the web and the panel): who to
+  // follow up with when it does not end in a policy (sales campaign QUOTE_FOLLOWUP).
+  conversationId        Int?
+  conversation          Conversation?          @relation(fields: [conversationId], references: [id])
+  // The vehicle as the bot named it to the client ("FORD KA 1.5 SE"), for the follow-up.
+  vehicleLabel          String?                @db.VarChar(160)
+  salesCampaignMessages SalesCampaignMessage[]
 
   @@index([producerCodeId])
   @@index([producerId, phoneNumberId])
+  @@index([conversationId])
 }
 
 // ─── SOLICITUDES DE COBERTURA (LEADS) ────────────────────
@@ -934,28 +951,30 @@ model Conversation {
   assignedTo       User?              @relation("assigned_conversations", fields: [assignedToUserId], references: [id])
   handedOverAt     DateTime?
 
-  producerId          Int
-  producer            Producer             @relation(fields: [producerId], references: [id])
+  producerId            Int
+  producer              Producer               @relation(fields: [producerId], references: [id])
   // Triunfo agent code this chat resolves to. Set when the client identifies
   // (DNI/patente) — a number shared by several codes routes to the right code by
   // identification, not by the number. Drives inbox scoping for admins.
-  producerCodeId      Int?
-  producerCode        ProducerCode?        @relation(fields: [producerCodeId], references: [id])
-  clientId            Int? // se vincula cuando el cliente se identifica por DNI
-  client              Client?              @relation(fields: [clientId], references: [id])
+  producerCodeId        Int?
+  producerCode          ProducerCode?          @relation(fields: [producerCodeId], references: [id])
+  clientId              Int? // se vincula cuando el cliente se identifica por DNI
+  client                Client?                @relation(fields: [clientId], references: [id])
   // When the current client link was made. A chat can be about someone else's
   // policy (a relative writes with the holder's DNI): unless the client's phone
   // is this WhatsApp number, the link only lasts for the session it was made in.
-  clientLinkedAt      DateTime?
+  clientLinkedAt        DateTime?
   // WhatsApp profile name of whoever writes from this number (Meta `contacts`).
   // The inbox shows it instead of the linked client when they are not the same person.
-  contactName         String?              @db.VarChar(191)
+  contactName           String?                @db.VarChar(191)
   // Name an advisor set by hand in the inbox. Wins over the address book and
   // the WhatsApp profile name, which the bot refreshes on every message.
-  contactNameManual   String?              @db.VarChar(191)
-  messages            Message[]
-  paymentRejections   PaymentRejection[]
-  policyExpiryNotices PolicyExpiryNotice[]
+  contactNameManual     String?                @db.VarChar(191)
+  messages              Message[]
+  paymentRejections     PaymentRejection[]
+  policyExpiryNotices   PolicyExpiryNotice[]
+  quotes                Quote[]
+  salesCampaignMessages SalesCampaignMessage[]
 
   @@unique([waId, producerId])
   @@index([producerCodeId])
@@ -1025,26 +1044,26 @@ model WhatsAppContact {
 // Each organization brings its OWN WABA and its own business token: the token is
 // customer-scoped, so it belongs in the database and not in the environment.
 model WabaAccount {
-  id               Int       @id @default(autoincrement())
-  wabaId           String    @unique @db.VarChar(64)
-  producerId       Int
-  producer         Producer  @relation(fields: [producerId], references: [id])
+  id                   Int       @id @default(autoincrement())
+  wabaId               String    @unique @db.VarChar(64)
+  producerId           Int
+  producer             Producer  @relation(fields: [producerId], references: [id])
   // Business token from the Embedded Signup code exchange, encrypted at rest with
   // WABA_TOKEN_ENCRYPTION_KEY (AES-256-GCM). Never log it, never return it from an
   // endpoint other than the bot context call.
-  accessToken      String    @db.Text
+  accessToken          String    @db.Text
   // Cuándo vence el business token. La plantilla estándar de Embedded Signup
   // emite tokens de 60 DÍAS: si nadie lo renueva, el número deja de responder
   // de un día para el otro y sin aviso. Null = la respuesta de Meta no informó
   // vencimiento (token de larga duración).
-  tokenExpiresAt   DateTime?
+  tokenExpiresAt       DateTime?
   // True when onboarded through Coexistence — the business keeps using the
   // WhatsApp Business app on the same number.
-  isCoexistence    Boolean   @default(false)
+  isCoexistence        Boolean   @default(false)
   // Stamped when Meta reports account_update -> PARTNER_REMOVED. Non-null means
   // the number stopped delivering webhooks (usually: nobody opened the app in 13 days).
-  disconnectedAt   DateTime?
-  disconnectReason String?   @db.VarChar(64)
+  disconnectedAt       DateTime?
+  disconnectReason     String?   @db.VarChar(64)
   // What Meta says about the account (WhatsappPortfolioService, refreshed at onboarding and daily): its name, the
   // business portfolio that owns it and that portfolio's verification status. Null until first read.
   wabaName             String?   @db.VarChar(255)
@@ -1052,8 +1071,8 @@ model WabaAccount {
   businessName         String?   @db.VarChar(255)
   businessVerification String?   @db.VarChar(32)
   portfolioCheckedAt   DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   phoneNumbers PhoneNumber[]
 
@@ -1511,4 +1530,106 @@ model MessagePlan {
   @@index([producerId, isActive, sortOrder])
   @@index([isActive, sortOrder])
   @@map("TokenPlan")
+}
+
+// ─── CAMPAÑAS COMERCIALES ───
+// Nico's sales proposal (2026-11-03): the platform finds in each organization's
+// portfolio who to offer something to, and the office picks who to write to.
+// Every message goes out with the organization's own Meta template (MARKETING),
+// which the panel submits for review whenever the office edits the text.
+
+enum SalesCampaignKind {
+  COVERAGE_UPGRADE // a basic coverage (RC, B) that could go further
+  QUOTE_FOLLOWUP // a bot quote that did not end in a policy
+  RENEWAL // a policy about to end
+  WINBACK // a policy cancelled or dropped
+  CROSS_SELL // a client with a vehicle and no home policy
+}
+
+enum SalesCampaignMessageStatus {
+  SENDING
+  SENT
+  FAILED
+  MARKED
+}
+
+/// One campaign of one organization: on or off, its message, its discount and settings.
+model SalesCampaign {
+  id              Int               @id @default(autoincrement())
+  kind            SalesCampaignKind
+  enabled         Boolean           @default(false)
+  /// The discount the message offers, the {porcentaje} of the text (0–100).
+  discountPercent Int               @default(15)
+  /// The message as the office wrote it, with {nombre}, {porcentaje}... (src/sales-campaigns/campaign-catalog.ts).
+  body            String            @db.Text
+  /// The campaign's own settings (days before the end, coverages counted as basic...). Null = the defaults.
+  settings        Json?
+  /// Bumped with every new text: the Meta template is campana_<kind>_v<version>.
+  templateVersion Int               @default(0)
+  /// Meta's review of the template in each WhatsApp account: { "<wabaAccountId>": { name, id, status, reason, checkedAt } }.
+  templates       Json?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  deletedAt       DateTime?
+
+  producerId  Int
+  producer    Producer @relation(fields: [producerId], references: [id])
+  updatedById Int?
+  updatedBy   User?    @relation("sales_campaigns_updated", fields: [updatedById], references: [id])
+
+  messages SalesCampaignMessage[]
+
+  @@unique([producerId, kind])
+}
+
+/// One campaign message to one client: sent from the panel, or MARKED when the office reached them by other means.
+model SalesCampaignMessage {
+  id              Int                        @id @default(autoincrement())
+  status          SalesCampaignMessageStatus @default(SENDING)
+  phone           String?                    @db.VarChar(40)
+  waId            String?                    @db.VarChar(20)
+  /// The discount the message offered when it went out.
+  discountPercent Int?
+  error           String?                    @db.VarChar(500)
+  sentAt          DateTime?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  deletedAt       DateTime?
+
+  campaignId     Int
+  campaign       SalesCampaign @relation(fields: [campaignId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
+  clientId       Int?
+  client         Client?       @relation(fields: [clientId], references: [id])
+  policyId       Int?
+  policy         Policy?       @relation(fields: [policyId], references: [id])
+  quoteId        Int?
+  quote          Quote?        @relation(fields: [quoteId], references: [id])
+  conversationId Int?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  sentById       Int?
+  sentBy         User?         @relation("sales_campaign_messages_sent", fields: [sentById], references: [id])
+
+  @@index([campaignId, createdAt])
+  @@index([producerId, waId])
+  @@index([policyId])
+  @@index([quoteId])
+}
+
+/// A person who asked not to get campaign messages: left out of every campaign of the organization.
+model SalesCampaignOptOut {
+  id        Int       @id @default(autoincrement())
+  waId      String    @db.VarChar(20)
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  producerId  Int
+  producer    Producer @relation(fields: [producerId], references: [id])
+  createdById Int?
+  createdBy   User?    @relation("sales_campaign_opt_outs_made", fields: [createdById], references: [id])
+
+  @@unique([producerId, waId])
 }

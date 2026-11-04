@@ -21,6 +21,7 @@ import { TriunfoService } from '../triunfo/triunfo.service'
 import { bodySample, TriunfoErrorsService } from '../triunfo/triunfo-errors.service'
 import { InfoAutoService } from '../infoauto/infoauto.service'
 import { VehicleType } from '../infoauto/infoauto.types'
+import { BotQuoteVehicleDto } from './dto/bot-quote-vehicle.dto'
 import { QuoteVehicleDto } from './dto/quote-vehicle.dto'
 import { CoverageRequestDto } from './dto/coverage-request.dto'
 import { isVisiblePaymentMethod, paymentMethodLabel } from '../common/payment-methods'
@@ -111,6 +112,8 @@ export class CotizadorService {
     coverageOverrides: CoverageOverrides | null = null,
     // Meta id of the WhatsApp number the quote came through (null for the web and the panel).
     originPhoneNumberId: string | null = null,
+    // The bot's chat and the vehicle as it named it (for the follow-up of an unfinished quote).
+    chatOrigin: { conversationId: number | null; vehicleLabel: string | null } | null = null,
   ): Promise<QuoteAutoResult> {
     const brandNumber = Number(dto.brand)
     const codiaNumber = Number(dto.model)
@@ -220,8 +223,14 @@ export class CotizadorService {
           producerCodeId: await this.resolveDefaultProducerCodeId(resolvedProducerId),
           userId,
           phoneNumberId: originPhoneNumberId,
+          conversationId: chatOrigin?.conversationId ?? null,
+          vehicleLabel: chatOrigin?.vehicleLabel ?? null,
         },
-        update: { result: result as Prisma.InputJsonValue },
+        update: {
+          result: result as Prisma.InputJsonValue,
+          ...(chatOrigin?.conversationId ? { conversationId: chatOrigin.conversationId } : {}),
+          ...(chatOrigin?.vehicleLabel ? { vehicleLabel: chatOrigin.vehicleLabel } : {}),
+        },
       })
     }
 
@@ -305,7 +314,7 @@ export class CotizadorService {
   async quoteVehicleForNumber(
     phoneNumberId: string,
     vehicleType: VehicleType,
-    dto: QuoteVehicleDto,
+    dto: BotQuoteVehicleDto,
   ): Promise<QuoteAutoResult> {
     const phone = await this.prisma.phoneNumber.findFirst({
       where: { phoneNumberId, isActive: true, deletedAt: null },
@@ -314,13 +323,22 @@ export class CotizadorService {
     if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
     // The number's own view of the coverages (which to offer, recommend and first).
     const overrides = parseCoverageOverrides(phone.coverageSettings)
+    const { conversationId, vehicleLabel, ...vehicle } = dto
+    // Only a chat of the number's own organization is kept on the quote.
+    const chat = conversationId
+      ? await this.prisma.conversation.findFirst({
+          where: { id: conversationId, producerId: phone.producerId },
+          select: { id: true },
+        })
+      : null
     return this.quoteVehicle(
       vehicleType,
-      dto,
+      vehicle,
       phone.producerId,
       null,
       Object.keys(overrides).length ? overrides : null,
       phoneNumberId,
+      { conversationId: chat?.id ?? null, vehicleLabel: vehicleLabel?.replace(/\s+/g, ' ').trim() || null },
     )
   }
 

@@ -53,20 +53,18 @@ const admin = { id: 2, producerId: 7, role: Role.ADMIN }
 
 describe('plan features', () => {
   it('includes every function a plan does not turn off', () => {
-    expect(featuresOf(null)).toEqual({ rejection_notices: true, expiry_notices: true, internal_chat: true })
-    expect(featuresOf({ internal_chat: false, gone: false })).toEqual({
-      rejection_notices: true,
-      expiry_notices: true,
-      internal_chat: false,
-    })
+    expect(Object.values(featuresOf(null)).every(Boolean)).toBe(true)
+    const stored = featuresOf({ internal_chat: false, gone: false })
+    expect(stored).toEqual(
+      expect.objectContaining({ rejection_notices: true, expiry_notices: true, internal_chat: false }),
+    )
+    expect(stored).not.toHaveProperty('gone')
   })
 
   it('takes the owner changes and refuses a function that does not exist', () => {
-    expect(withChanges({ internal_chat: false }, { rejection_notices: false })).toEqual({
-      rejection_notices: false,
-      expiry_notices: true,
-      internal_chat: false,
-    })
+    expect(withChanges({ internal_chat: false }, { rejection_notices: false })).toEqual(
+      expect.objectContaining({ rejection_notices: false, expiry_notices: true, internal_chat: false }),
+    )
     expect(() => withChanges(null, { reports: true })).toThrow(BadRequestException)
     expect(() => withChanges(null, { internal_chat: 'no' })).toThrow(BadRequestException)
   })
@@ -87,13 +85,17 @@ describe('PlanFeaturesService.forUser', () => {
 
     const result = await service.forUser(admin)
 
-    expect(result.features).toEqual({ rejection_notices: false, expiry_notices: true, internal_chat: false })
+    expect(result.features).toEqual(
+      expect.objectContaining({ rejection_notices: false, expiry_notices: true, internal_chat: false }),
+    )
     // The cheapest paid plan that includes each function, for "disponible en el plan X".
-    expect(result.availableIn).toEqual({
-      rejection_notices: 'Profesional',
-      expiry_notices: 'Inicial',
-      internal_chat: 'Empresa',
-    })
+    expect(result.availableIn).toEqual(
+      expect.objectContaining({
+        rejection_notices: 'Profesional',
+        expiry_notices: 'Inicial',
+        internal_chat: 'Empresa',
+      }),
+    )
   })
 
   it('gives the organization what any of its numbers has', async () => {

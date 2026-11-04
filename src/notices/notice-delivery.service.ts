@@ -54,6 +54,7 @@ export class NoticeDeliveryService {
       .sort((a, b) => Number(b.wabaAccountId != null) - Number(a.wabaAccountId != null))
       .map(p => ({
         phoneNumberId: p.phoneNumberId,
+        wabaAccountId: p.wabaAccountId,
         codeIds: [
           ...(p.responsibleProducerCodeId != null ? [p.responsibleProducerCodeId] : []),
           ...p.servedCodes.map(s => s.producerCodeId),

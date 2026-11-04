@@ -22,6 +22,31 @@ export const PLAN_FEATURES = [
     label: 'Chat interno',
     description: 'Chat entre los usuarios del panel de la organización.',
   },
+  {
+    key: 'campaign_coverage_upgrade',
+    label: 'Campaña: mejora de coberturas',
+    description: 'Ofrecer una cobertura más completa a quien tiene una básica.',
+  },
+  {
+    key: 'campaign_quote_followup',
+    label: 'Campaña: cotizaciones sin cerrar',
+    description: 'Retomar las cotizaciones del bot que no terminaron en póliza.',
+  },
+  {
+    key: 'campaign_renewal',
+    label: 'Campaña: renovaciones',
+    description: 'Escribir antes de que venza la póliza.',
+  },
+  {
+    key: 'campaign_winback',
+    label: 'Campaña: bajas y anulaciones',
+    description: 'Ofrecer una alternativa a quien se dio de baja.',
+  },
+  {
+    key: 'campaign_cross_sell',
+    label: 'Campaña: venta cruzada',
+    description: 'Ofrecer hogar y otros seguros a quien tiene solo el del vehículo.',
+  },
 ] as const
 
 export type PlanFeatureKey = (typeof PLAN_FEATURES)[number]['key']
@@ -36,6 +61,11 @@ export const FEATURE_NOT_IN_PLAN: Record<PlanFeatureKey, string> = {
   expiry_notices:
     'El plan de tus números no incluye el envío de avisos de pólizas vencidas. Se puede cambiar en Facturación.',
   internal_chat: 'El plan de tus números no incluye el chat interno. Se puede cambiar en Facturación.',
+  campaign_coverage_upgrade: 'El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación.',
+  campaign_quote_followup: 'El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación.',
+  campaign_renewal: 'El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación.',
+  campaign_winback: 'El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación.',
+  campaign_cross_sell: 'El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación.',
 }
 
 const KEYS = new Set<string>(PLAN_FEATURES.map(f => f.key))

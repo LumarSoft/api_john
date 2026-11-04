@@ -1,7 +1,7 @@
 import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common'
 import { BotAuthGuard } from '../bot/bot-auth.guard'
 import { CotizadorService } from './cotizador.service'
-import { QuoteVehicleDto } from './dto/quote-vehicle.dto'
+import { BotQuoteVehicleDto } from './dto/bot-quote-vehicle.dto'
 import { BotQuoteParamsDto } from './dto/bot-quote-params.dto'
 import { vehicleTypeFromParam } from '../infoauto/infoauto.types'
 
@@ -12,7 +12,7 @@ export class BotCotizadorController {
   constructor(private readonly cotizadorService: CotizadorService) {}
 
   @Post('numbers/:phoneNumberId/cotizador/:vehicleType')
-  quoteVehicle(@Param() params: BotQuoteParamsDto, @Body() dto: QuoteVehicleDto) {
+  quoteVehicle(@Param() params: BotQuoteParamsDto, @Body() dto: BotQuoteVehicleDto) {
     return this.cotizadorService.quoteVehicleForNumber(
       params.phoneNumberId,
       vehicleTypeFromParam(params.vehicleType),

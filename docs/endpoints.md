@@ -2355,6 +2355,181 @@ Soft-deletes one of the person's own messages: it stops showing in the chat for 
 { "statusCode": 404, "message": "Message 31 not found", "error": "Not Found" }
 ```
 
+## Admin — Campañas
+
+Nico's sales campaigns (2026-11-03). Each organization turns a campaign on, writes its message and its discount; the panel lists who the campaign finds in the portfolio (or, for `quote_followup`, in the bot's quotes) and the office ticks who to write to. Nothing goes out on its own.
+
+| `kind`             | Who it finds                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| `coverage_upgrade` | cars and motorbikes in force on a basic coverage (setting `basicCoverages`, default A, B, B1)       |
+| `quote_followup`   | bot quotes between `afterDays` and `withinDays` old, without a request, whose chat got no policy after them; one per chat |
+| `renewal`          | policies in force ending within `daysBefore` days without the next policy issued                  |
+| `winback`          | policies cancelled within `withinDays` (not replaced, not by mistake) with nothing running on the same vehicle or risk |
+| `cross_sell`       | clients with a car or motorbike in force and no home policy in force; one per client             |
+
+Every campaign has `cooldownDays`: someone written to (or marked) is not offered again until then. People who asked not to get these (`opt-out`) are left out of every campaign.
+
+**Messages and Meta.** A business can only start a WhatsApp chat with an approved template, and a template lives in one WhatsApp Business account. So every text of a campaign is submitted (category MARKETING, `es_AR`) to each account of the organization with an active number, as `campana_<slug>_v<n>`: a new text is a new version and goes back to review; the discount is a variable and changing it needs no review. A campaign sends only from numbers whose plan includes it (`campaign_<kind>` of the plan functions) and whose account has the current version APPROVED. The office writes placeholders between braces: `{nombre}` (first name), `{bien}` (vehicle as a person says it, or the product), `{vencimiento}` (renewal only) and `{porcentaje}`. Each message lands in the client's chat as the office's (`rawData.notice = "sales_campaign"`), so the bot hands their answer to the office like a reply to a rechazo. Template reviews still pending are asked again every 30 minutes and when the panel opens.
+
+### GET /admin/campaigns
+
+The five campaigns of the organization, configured or not (an unconfigured one is off with the default text and 15%).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+{
+  "campaigns": [
+    {
+      "kind": "renewal",
+      "label": "Renovaciones",
+      "description": "Pólizas vigentes que vencen pronto y todavía no tienen la renovación emitida.",
+      "enabled": true,
+      "discountPercent": 15,
+      "body": "¡Hola, {nombre}! El seguro de tu {bien} vence el {vencimiento}. …",
+      "placeholders": [{ "key": "nombre", "label": "Nombre", "example": "Juan" }],
+      "settings": { "daysBefore": 30, "cooldownDays": 60 },
+      "settingFields": [{ "key": "daysBefore", "label": "Avisar desde (días antes del vencimiento)", "type": "number", "min": 1, "max": 90, "help": "…" }],
+      "templates": [{ "wabaName": "Oficina", "numbers": ["+54 9 341 000-0001"], "status": "APPROVED", "reason": null }],
+      "ready": true,
+      "plan": { "included": true, "availableIn": "Inicial" },
+      "candidates": 42,
+      "preview": "¡Hola, Juan! El seguro de tu Ford Ka vence el 30/11/2026. …",
+      "updatedAt": "2026-11-04T15:00:00.000Z"
+    }
+  ]
+}
+```
+
+`templates[].status`: `PENDING` (in Meta's review), `APPROVED`, `REJECTED` (with Meta's reason), `NOT_SUBMITTED` (an account connected after the last text: `POST …/templates/refresh` submits it) or `ERROR` (Meta could not be reached or refused the request).
+
+---
+
+### PATCH /admin/campaigns/:kind
+
+Turns a campaign on or off and changes its discount, text or settings; what is left out stays. A new `body`, or turning it on for the first time, submits the text to Meta as a new version.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field           | Type    | Required | Constraints                                                                 |
+| --------------- | ------- | -------- | --------------------------------------------------------------------------- |
+| enabled         | boolean | No       | turning it on needs a plan that includes the campaign                        |
+| discountPercent | number  | No       | integer 0–100                                                               |
+| body            | string  | No       | max 1024; only the campaign's placeholders; not starting or ending with one; no two in a row; at most one blank line in a row |
+| settings        | object  | No       | the keys of `settingFields`: numbers within `min`–`max`, codes as a list of 1–20 strings |
+
+`200 OK` — the campaign as `GET /admin/campaigns` lists it.
+
+`400 Bad Request` — e.g. `"El mensaje no puede empezar ni terminar con un dato variable: Meta lo rechaza."`, `"{vencimiento} no es un dato que esta campaña conozca. Podés usar {nombre}, {bien}, {porcentaje}."`, `"No repetir antes de (días): tiene que estar entre 7 y 365."`
+
+`403 Forbidden` — `"El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación."`
+
+---
+
+### POST /admin/campaigns/:kind/templates/refresh
+
+Asks Meta again for the review of the campaign's templates, and submits the current text to any account that does not have it yet.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`201 Created` — the campaign as `GET /admin/campaigns` lists it.
+
+---
+
+### GET /admin/campaigns/:kind/candidates
+
+Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas), never-contacted first. Query: `search` (name, DNI, vehicle, reason), `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+{
+  "data": [
+    {
+      "id": 815,
+      "client": { "id": 60, "name": "Juan Perez", "dni": "20999001", "phone": "341159990001" },
+      "item": "Ford Ka 2015 · AB123CD",
+      "detail": "Vence el 20/11/2026",
+      "date": "2026-11-20T03:00:00.000Z",
+      "producerCode": { "id": 3, "code": "11425" },
+      "values": { "nombre": "Juan", "bien": "Ford Ka", "vencimiento": "20/11/2026" },
+      "lastMessage": null,
+      "optedOut": false
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "pageSize": 25,
+  "totalPages": 2
+}
+```
+
+`id` is the policy (the quote for `quote_followup`): what `send`, `mark` and `opt-out` take. `values` are what the message fills in for that person. `lastMessage.status`: `SENDING`, `SENT`, `FAILED`, `MARKED`.
+
+---
+
+### POST /admin/campaigns/:kind/send
+
+Writes to the chosen people one by one in the background (1.5 s apart); poll the candidates while any `lastMessage.status` is `SENDING`. Someone still going out (`SENDING`), written to or marked within `cooldownDays` (`ALREADY_SENT`), who asked not to get these (`OPTED_OUT`) or without a usable WhatsApp (`NO_PHONE`) is left out and reported.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field | Type     | Required | Constraints                        |
+| ----- | -------- | -------- | ---------------------------------- |
+| ids   | number[] | Yes      | 1–500 ids from the candidates list |
+
+`201 Created`
+
+```json
+{ "sent": 3, "skipped": [{ "id": 816, "reason": "ALREADY_SENT" }] }
+```
+
+`400 Bad Request` — `"A ninguno de los elegidos se le puede escribir ahora."`
+
+`403 Forbidden` — no connected number is on a plan with the campaign
+
+`409 Conflict` — `"La campaña está apagada. Prendela para enviar."`, `"Meta todavía no aprobó el mensaje de esta campaña en las cuentas de WhatsApp que pueden enviarla."` or no connected number
+
+---
+
+### POST /admin/campaigns/:kind/mark
+
+The office reached these people by other means: a `MARKED` message is recorded and they are not offered again for `cooldownDays`. Someone still going out is skipped.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body:** as `send`.
+
+`201 Created`
+
+```json
+{ "marked": 2 }
+```
+
+---
+
+### POST /admin/campaigns/:kind/opt-out
+
+These people asked not to get campaign messages: no campaign of the organization offers them again (by WhatsApp id, every reading of an ambiguous mobile).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body:** as `send`.
+
+`201 Created`
+
+```json
+{ "optedOut": 2 }
+```
+
 ## Bot (WhatsApp)
 
 All `/bot/*` endpoints require the header `x-bot-secret` matching the `BOT_SECRET` env variable. They are consumed exclusively by `whatsapp-bot-seguros` — the bot never accesses the database directly.
@@ -2428,6 +2603,15 @@ Live hours (formatted week, open now, today's closure) of the number: its own we
 A quote the bot asks for on a number: same body and response as `POST /cotizador/:vehicleType`, but the quote belongs to the number's organization, goes out with that organization's Triunfo account and offers, recommends and orders the car coverages as the number configured them (`coverageSettings` of `PATCH /admin/phone-numbers/:id/assistant`), with the organization's wording.
 
 **Auth required:** Yes (`x-bot-secret`)
+
+**Request body** — the fields of `POST /cotizador/:vehicleType`, plus:
+
+| Field          | Type   | Required | Constraints                                                                 |
+| -------------- | ------ | -------- | --------------------------------------------------------------------------- |
+| conversationId | number | No       | the chat the quote is for; kept only if it belongs to the number's organization |
+| vehicleLabel   | string | No       | max 160, the vehicle as the bot named it ("CHEVROLET ONIX 1.0T PREMIER")     |
+
+Both are kept on the quote so the office can follow up a quote that did not end in a policy (campaign `quote_followup` of `GET /admin/campaigns`). The public endpoint rejects them (400).
 
 **Responses**
 

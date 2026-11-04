@@ -11,10 +11,12 @@ export const SEND_GAP_MS = 1500
 export interface Sender {
   phoneNumberId: string
   codeIds: number[]
+  /** The WhatsApp account it belongs to: a template only exists in its own account. */
+  wabaAccountId?: number | null
 }
 
 /** What the platform wrote on its own in a chat, for the bot to tell from a person's reply. */
-export type NoticeKind = 'payment_rejection' | 'policy_expiry'
+export type NoticeKind = 'payment_rejection' | 'policy_expiry' | 'sales_campaign'
 
 /**
  * The first phone, in order of preference, that reads as one WhatsApp id. A
