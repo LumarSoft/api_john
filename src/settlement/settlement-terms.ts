@@ -2,9 +2,9 @@ import { ConfigService } from '@nestjs/config'
 
 /**
  * How the platform's profit is split with its commercial partner. Lumarsoft charges a service cost for every plan
- * message a number consumes (a template that counts twice costs twice); what the month billed minus that cost is the
- * remainder, and the partner gets `partnerShare` of it (Lumarsoft the rest). Set by env only (the repository is
- * public): no default, no value in the panel's copy.
+ * message a number consumes (a campaign message, which counts twice, costs twice); what the month billed minus that
+ * cost is the remainder, and the partner gets `partnerShare` of it (Lumarsoft the rest). Set by env only (the
+ * repository is public): no default, no value in the panel's copy.
  */
 export interface SettlementTerms {
   /** PARTNER_COST_PER_MESSAGE_USD: Lumarsoft's cost per consumed message. */

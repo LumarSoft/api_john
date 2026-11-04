@@ -21,7 +21,6 @@ function number(id: number, producerId: number, values: Partial<MonthNumber> = {
     plan: { id: 1, name: 'Inicial', includedMessages: 500, priceUsd: 25, trial: false, extraBlocks: 0 },
     assignedPlan: null,
     upgraded: false,
-    prorated: false,
     paused: false,
     inService: true,
     firstMonth: false,

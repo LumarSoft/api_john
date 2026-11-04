@@ -1,5 +1,9 @@
 # Consumo mensual por número desde octubre de 2026
 
+> **Reemplazado** por `token-plans-october-2026.md` (29/10) y `message-plans-october-2026.md` (30/10). Desde el
+> 2026-11-04 el primer mes ya no se prorratea: el ciclo de facturación es el mes calendario (del 1 al último día) y se
+> cobra completo, también el mes en que el número sale.
+
 ## Tarifa comercial del servicio: planes por tokens
 
 Desde el 27 de octubre de 2026 cada número se factura con planes por tokens,

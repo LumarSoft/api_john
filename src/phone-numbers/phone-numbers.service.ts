@@ -181,9 +181,8 @@ export class PhoneNumbersService {
           assignedPlan: bill.assignedPlan,
           plan: bill.plan,
           upgraded: bill.upgraded,
-          // The organization pays the whole plan; only the owner sees the first month prorated.
-          prorated: isOwner && bill.prorated,
-          billedUsd: isOwner ? bill.billedUsd : bill.fullPriceUsd,
+          // The whole plan: the calendar month is always charged whole.
+          billedUsd: bill.billedUsd,
           // Its assistant is paused this month for reaching the plan.
           planPaused: period === currentPeriod() && pausedIn(n.planPausedAt, period),
           ...(seesActivity
@@ -195,7 +194,7 @@ export class PhoneNumbersService {
               }
             : {}),
           // Our cost and profit: owner only. OpenAI is prepaid, so the profit is billed minus Meta.
-          // The raw count (templates weigh more on the plan) is the owner's: the organization sees `messages`.
+          // The raw count (campaign messages count twice on the plan) is the owner's: the organization sees `messages`.
           ...(isOwner
             ? {
                 metaMessages: usage?.metaMessages ?? 0,

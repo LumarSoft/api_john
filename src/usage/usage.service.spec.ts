@@ -1,6 +1,11 @@
 import { ConfigService } from '@nestjs/config'
 import { CatalogPlan, UsageService, consumedMessages, currentPeriod } from './usage.service'
-import { isTemplateCategory, readCommercialPricing, templateExtraMessages } from './commercial-pricing'
+import {
+  campaignExtraMessages,
+  isCampaignCategory,
+  isTemplateCategory,
+  readCommercialPricing,
+} from './commercial-pricing'
 
 const catalogRows = [
   { id: 9, name: 'Prueba', messages: 100, priceUsd: 0, isTrial: true, isActive: true },
@@ -103,7 +108,6 @@ describe('message plans', () => {
       upgraded: false,
       limitReached: true,
       billedUsd: 25,
-      fullPriceUsd: 25,
     })
     expect(service.billFor({ ...live, planId: 1 }, { metaMessages: 499 }, catalog, '2026-10').limitReached).toBe(false)
     expect(
@@ -160,7 +164,6 @@ describe('message plans', () => {
     expect(service.billFor(trial, { metaMessages: 80 }, catalog, '2026-11')).toMatchObject({
       plan: { name: 'Prueba', includedMessages: 100, priceUsd: 0, trial: true },
       billedUsd: 0,
-      prorated: false,
       limitReached: false,
     })
     expect(service.billFor(trial, { metaMessages: 100 }, catalog, '2026-11')).toMatchObject({
@@ -182,33 +185,30 @@ describe('message plans', () => {
 
   it('does not bill a number before it goes live, nor a switched-off number that sent nothing', () => {
     const { service } = setup()
-    expect(service.billFor({ ...live, serviceStartedAt: null }, undefined, catalog, '2026-10')).toMatchObject({
-      billedUsd: 0,
-      fullPriceUsd: 0,
-    })
+    expect(service.billFor({ ...live, serviceStartedAt: null }, undefined, catalog, '2026-10').billedUsd).toBe(0)
     expect(service.billFor(live, undefined, catalog, '2026-07').billedUsd).toBe(0)
     expect(service.billFor({ ...live, isActive: false }, undefined, catalog, '2026-10').billedUsd).toBe(0)
     // Switched off after sending: its plan, whole.
-    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 600 }, catalog, '2026-10')).toMatchObject({
-      billedUsd: 25,
-      fullPriceUsd: 25,
-    })
+    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 600 }, catalog, '2026-10').billedUsd).toBe(25)
   })
 
-  it('prorates the first month for the owner only; the organization pays the whole plan', () => {
+  it('charges the whole calendar month, also the month a number goes live', () => {
     const { service } = setup()
     const startedOct21 = { isActive: true, serviceStartedAt: new Date('2026-10-21T13:00:00Z'), planId: null }
-    // 11 of 31 days of Inicial (USD 25) for the owner; the organization pays USD 25.
+    // Live on the 21st: the whole Inicial plan, not the days left in the month.
     expect(service.billFor(startedOct21, { metaMessages: 100 }, catalog, '2026-10')).toMatchObject({
-      billedUsd: 8.87,
-      prorated: true,
-      fullPriceUsd: 25,
+      plan: { name: 'Inicial' },
+      billedUsd: 25,
     })
-    // Blocks accepted past the largest plan are charged whole.
+    // Live on the last day of the month: still the whole plan.
+    const startedOct31 = { ...startedOct21, serviceStartedAt: new Date('2026-10-31T20:00:00Z') }
+    expect(service.billFor(startedOct31, { metaMessages: 3 }, catalog, '2026-10').billedUsd).toBe(25)
+    // Blocks accepted past the largest plan are charged whole too.
     expect(
       service.billFor({ ...startedOct21, planId: 2, extraBlocks: 1 }, { metaMessages: 1500 }, catalog, '2026-10'),
-    ).toMatchObject({ plan: { name: 'Profesional + 1.000' }, billedUsd: 100, prorated: false, fullPriceUsd: 100 })
+    ).toMatchObject({ plan: { name: 'Profesional + 1.000' }, billedUsd: 100 })
     expect(service.billFor(startedOct21, { metaMessages: 100 }, catalog, '2026-11').billedUsd).toBe(25)
+    expect(service.billFor(startedOct21, { metaMessages: 100 }, catalog, '2026-10')).not.toHaveProperty('prorated')
   })
 
   it('keeps the numbers of a plan switched off on it but moves nobody to it, and drops a retired plan', () => {
@@ -473,35 +473,50 @@ describe('templates on the plan', () => {
       expect(isTemplateCategory(template)).toBe(true)
   })
 
-  it('counts a template twice only from COMMERCIAL_TEMPLATE_WEIGHT_FROM, midnight in Argentina by default', () => {
+  it('tells a campaign (marketing) message from every other one', () => {
+    for (const campaign of ['marketing', 'MARKETING', 'marketing_lite']) expect(isCampaignCategory(campaign)).toBe(true)
+    for (const other of ['service', 'referral_conversion', 'utility', 'authentication'])
+      expect(isCampaignCategory(other)).toBe(false)
+  })
+
+  it('counts only a campaign twice, from COMMERCIAL_TEMPLATE_WEIGHT_FROM, midnight in Argentina by default', () => {
     const pricing = readCommercialPricing(config({}))
-    expect(pricing.templateWeightFrom.toISOString()).toBe('2026-12-01T03:00:00.000Z')
-    expect(templateExtraMessages(pricing, 'utility', new Date('2026-12-01T02:59:59Z'))).toBe(0)
-    expect(templateExtraMessages(pricing, 'utility', new Date('2026-12-01T03:00:00Z'))).toBe(1)
-    expect(templateExtraMessages(pricing, 'service', new Date('2026-12-15T12:00:00Z'))).toBe(0)
+    expect(pricing.campaignWeightFrom.toISOString()).toBe('2026-12-01T03:00:00.000Z')
+    expect(campaignExtraMessages(pricing, 'marketing', new Date('2026-12-01T02:59:59Z'))).toBe(0)
+    expect(campaignExtraMessages(pricing, 'marketing', new Date('2026-12-01T03:00:00Z'))).toBe(1)
+    // Notices (utility), authentication and replies count once, also after the start date.
+    for (const once of ['utility', 'authentication', 'service', 'referral_conversion'])
+      expect(campaignExtraMessages(pricing, once, new Date('2026-12-15T12:00:00Z'))).toBe(0)
     const earlier = readCommercialPricing(config({ COMMERCIAL_TEMPLATE_WEIGHT_FROM: '2026-11-15' }))
-    expect(templateExtraMessages(earlier, 'marketing', new Date('2026-11-20T12:00:00Z'))).toBe(1)
+    expect(campaignExtraMessages(earlier, 'marketing', new Date('2026-11-20T12:00:00Z'))).toBe(1)
+    expect(campaignExtraMessages(earlier, 'utility', new Date('2026-11-20T12:00:00Z'))).toBe(0)
     expect(() => readCommercialPricing(config({ COMMERCIAL_TEMPLATE_WEIGHT_FROM: 'someday' }))).toThrow()
   })
 
-  it('records the raw template count always and the extra plan message from the start date on', async () => {
+  it('records the raw template count always and the extra plan message of a campaign from the start date on', async () => {
     const { service, prisma } = setup()
-    await service.recordMeta(message('before', 'utility', '2026-11-20T12:00:00Z'))
-    await service.recordMeta(message('after', 'marketing', '2026-12-02T12:00:00Z'))
+    await service.recordMeta(message('before', 'marketing', '2026-11-20T12:00:00Z'))
+    await service.recordMeta(message('campaign', 'marketing', '2026-12-02T12:00:00Z'))
+    await service.recordMeta(message('notice', 'utility', '2026-12-02T12:01:00Z'))
+    await service.recordMeta(message('code', 'authentication', '2026-12-02T12:02:00Z'))
     await service.recordMeta(message('reply', 'service', '2026-12-02T12:05:00Z'))
-    const [before, after, reply] = prisma.usageMonthly.upsert.mock.calls.map(([args]) => args)
+    const [before, campaign, notice, code, reply] = prisma.usageMonthly.upsert.mock.calls.map(([args]) => args)
     expect(before.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 1, templateExtraMessages: 0 })
     expect(before.update).toMatchObject({
       metaTemplateMessages: { increment: 1 },
       templateExtraMessages: { increment: 0 },
     })
-    expect(after.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 1, templateExtraMessages: 1 })
+    expect(campaign.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 1, templateExtraMessages: 1 })
+    expect(campaign.update).toMatchObject({ templateExtraMessages: { increment: 1 } })
+    // A notice or an authentication code is still a template, but it counts once on the plan.
+    expect(notice.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 1, templateExtraMessages: 0 })
+    expect(code.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 1, templateExtraMessages: 0 })
     expect(reply.create).toMatchObject({ metaMessages: 1, metaTemplateMessages: 0, templateExtraMessages: 0 })
   })
 
   it('bills, fills the bar and reaches the limit on the consumed messages', () => {
     const { service } = setup()
-    // 380 replies + 60 templates after the start date = 440 sent, 500 consumed.
+    // 380 replies + 60 campaign messages after the start date = 440 sent, 500 consumed.
     const usage = { metaMessages: 440, metaTemplateMessages: 60, templateExtraMessages: 60 }
     expect(consumedMessages(usage)).toBe(500)
     expect(service.billFor({ ...live, planId: 1 }, usage, catalog, '2026-12')).toMatchObject({
@@ -516,16 +531,16 @@ describe('templates on the plan', () => {
     ).toMatchObject({ messages: 440, limitReached: false })
   })
 
-  it('pauses the assistant when a template takes the month to the plan', async () => {
+  it('pauses the assistant when a campaign message takes the month to the plan', async () => {
     const { service, prisma } = setup({ planId: 1 }, { COMMERCIAL_TEMPLATE_WEIGHT_FROM: '2026-01-01' })
-    // 499 sent, one of them a template counting twice: 500 of Inicial's 500.
+    // 499 sent, one of them a campaign message counting twice: 500 of Inicial's 500.
     prisma.usageMonthly.upsert.mockResolvedValue({
       id: 9,
       openaiCostUsd: 0,
       metaMessages: 499,
       templateExtraMessages: 1,
     })
-    await service.recordMeta({ ...message('t-499', 'utility', '2026-01-01T12:00:00Z'), timestamp: Date.now() / 1000 })
+    await service.recordMeta({ ...message('t-499', 'marketing', '2026-01-01T12:00:00Z'), timestamp: Date.now() / 1000 })
     expect(prisma.usageMonthly.upsert.mock.calls[0][0].create).toMatchObject({ templateExtraMessages: 1 })
     expect(prisma.phoneNumber.updateMany).toHaveBeenCalledWith({
       where: { id: 4, OR: [{ planPausedAt: null }, { planPausedAt: { lt: expect.any(Date) } }] },

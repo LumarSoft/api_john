@@ -2,10 +2,10 @@ import { metaMessageRate } from './meta-rates'
 import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
+  campaignExtraMessages,
   CommercialPricing,
   isTemplateCategory,
   readCommercialPricing,
-  templateExtraMessages,
 } from './commercial-pricing'
 import { initialPlanId } from './initial-plan'
 import { PrismaService } from '../prisma/prisma.service'
@@ -41,13 +41,13 @@ export interface MonthlyBillableUsage {
   metaMessages?: number
   /** Of those, the ones Meta priced as a template (raw count). */
   metaTemplateMessages?: number
-  /** What templates add to the plan on top of their own message (see consumedMessages). */
+  /** What campaign (marketing) messages add to the plan on top of their own message (see consumedMessages). */
   templateExtraMessages?: number
 }
 
 /**
- * The plan messages a month consumed: every message sent counts 1, and a template delivered from
- * COMMERCIAL_TEMPLATE_WEIGHT_FROM on counts TEMPLATE_WEIGHT. The unit every plan, limit and bar counts.
+ * The plan messages a month consumed: every message sent counts 1, and a campaign (marketing) message delivered from
+ * COMMERCIAL_TEMPLATE_WEIGHT_FROM on counts CAMPAIGN_WEIGHT. The unit every plan, limit and bar counts.
  */
 export function consumedMessages(usage: MonthlyBillableUsage | undefined | null): number {
   return (usage?.metaMessages ?? 0) + (usage?.templateExtraMessages ?? 0)
@@ -89,7 +89,7 @@ export interface BilledPlan {
 }
 
 export interface MonthlyBill {
-  /** Plan messages the month consumed (consumedMessages: templates weigh more from their start date). */
+  /** Plan messages the month consumed (consumedMessages: campaign messages count twice from their start date). */
   messages: number
   /** The plan the number is on before this month's messages (the trial counts only in its first month). */
   assignedPlan: BilledPlan | null
@@ -99,12 +99,8 @@ export interface MonthlyBill {
   upgraded: boolean
   /** The month's messages reached what the plan includes: the assistant pauses until someone chooses. */
   limitReached: boolean
-  /** The owner's figure: the plan, prorated in the first month of service. */
-  billedUsd: number
-  /** True when billedUsd was prorated for the first month of service. */
-  prorated: boolean
   /** What the organization is charged: the whole plan, whatever it used (0 when the number is not billed). */
-  fullPriceUsd: number
+  billedUsd: number
 }
 
 /** The number fields usage recording reads (resolvePhone). */
@@ -155,19 +151,6 @@ export function pausedIn(planPausedAt: Date | null | undefined, period: string):
 /** The blocks past the largest plan a number accepted for `period` (they last that month only). */
 export function acceptedBlocks(phone: { extraBlocks: number; extraBlocksPeriod: string | null }, period: string) {
   return phone.extraBlocksPeriod === period ? phone.extraBlocks : 0
-}
-
-/**
- * Share of the month a number was in service when it went live during it: the
- * day it started counts, so starting on the 1st is the whole month.
- */
-function serviceShareOfMonth(period: string, startedAt: Date): number {
-  const [year, month] = period.split('-').map(Number)
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  const startDay = Number(
-    new Intl.DateTimeFormat('en-CA', { timeZone: ARGENTINA_TZ, day: 'numeric' }).format(startedAt),
-  )
-  return (daysInMonth - startDay + 1) / daysInMonth
 }
 
 const CATALOG_SELECT = {
@@ -342,10 +325,11 @@ export class UsageService {
    * One message, one unit; a template, two from its start date (consumedMessages).
    * The month is billed on the number's assigned plan plus the blocks it accepted
    * past the largest one: never on a bigger plan nobody chose (reaching it only
-   * flags limitReached). An active number pays at least its plan; in its first month of
-   * service, on its own paid plan, that plan is prorated from the day it went
-   * live. The trial plan is free and holds only in the first month. A number
-   * that never went live, or that was switched off and sent nothing, is not billed.
+   * flags limitReached). The cycle is the calendar month and it is always charged
+   * whole: an active number pays its full plan, also in the month it went live,
+   * whatever day that was. The trial plan is free and holds only in the first
+   * month. A number that never went live, or that was switched off and sent
+   * nothing, is not billed.
    */
   billFor(
     phone: BillablePhone,
@@ -363,20 +347,9 @@ export class UsageService {
       : this.planFor(messages, null, catalog)
     const upgraded = assignedPlan !== null && plan.includedMessages > assignedPlan.includedMessages
     const limitReached = plan.includedMessages > 0 && messages >= plan.includedMessages
-    if (!startPeriod || startPeriod > period || (!phone.isActive && messages === 0)) {
-      return { messages, assignedPlan, plan, upgraded, limitReached, billedUsd: 0, prorated: false, fullPriceUsd: 0 }
-    }
-    const share = firstMonth && !upgraded && !plan.trial ? serviceShareOfMonth(period, phone.serviceStartedAt!) : 1
-    return {
-      messages,
-      assignedPlan,
-      plan,
-      upgraded,
-      limitReached,
-      billedUsd: round2(plan.priceUsd * share),
-      prorated: share < 1,
-      fullPriceUsd: plan.priceUsd,
-    }
+    // Not live yet that month, or switched off without sending: nothing to bill. Otherwise the whole plan.
+    const notBilled = !startPeriod || startPeriod > period || (!phone.isActive && messages === 0)
+    return { messages, assignedPlan, plan, upgraded, limitReached, billedUsd: notBilled ? 0 : plan.priceUsd }
   }
 
   /**
@@ -537,9 +510,10 @@ export class UsageService {
     }
     // Meta's billable flag accounts for the 1,000 free service messages and
     // free entry-point windows for provider cost only. Commercial pricing counts all
-    // messages, and a template twice from its start date (templateExtraMessages).
+    // messages, and a campaign (marketing) message twice from its start date (templateExtraMessages, a column
+    // named before only campaigns counted twice). metaTemplateMessages stays the raw count of every template.
     const template = isTemplateCategory(input.category) ? 1 : 0
-    const extra = templateExtraMessages(this.commercialPricing, input.category, deliveredAt)
+    const extra = campaignExtraMessages(this.commercialPricing, input.category, deliveredAt)
     let row: MonthlyBillableUsage & { id: number; openaiCostUsd: unknown }
     try {
       row = await this.prisma.$transaction(async tx => {
@@ -789,7 +763,6 @@ export class UsageService {
         ...r,
         messages: bill.messages,
         plan: bill.plan,
-        prorated: bill.prorated,
         billedUsd: bill.billedUsd,
         // OpenAI is prepaid: the profit is what we bill minus what Meta charges.
         marginUsd: round2(bill.billedUsd - Number(r.metaCostUsd)),

@@ -66,9 +66,9 @@ function periodsEndingAt(to: string, count: number): string[] {
 /**
  * "Liquidación" (owner only): how each month's billing splits between Lumarsoft and its commercial partner.
  *
- * For every number, Lumarsoft charges a service cost per consumed message (PARTNER_COST_PER_MESSAGE_USD; a template
- * that counts twice costs twice); what the month billed minus that cost is the remainder, and the partner gets
- * PARTNER_PROFIT_SHARE of it. A trial bills 0, so its cost makes the remainder negative and comes out of the split.
+ * For every number, Lumarsoft charges a service cost per consumed message (PARTNER_COST_PER_MESSAGE_USD; a campaign
+ * message, which counts twice, costs twice); what the month billed minus that cost is the remainder, and the partner
+ * gets PARTNER_PROFIT_SHARE of it. A trial bills 0, so its cost makes the remainder negative and comes out of the split.
  * What Meta and OpenAI really cost is not part of it and is never returned here (the Tablero has it). A closed month
  * is read with the rates it was frozen with; the running month uses today's. Without the terms in the environment
  * the settlement is not configured and every endpoint answers 503.
@@ -94,7 +94,6 @@ export class SettlementService {
         responsibleCode: n.responsibleCode,
         plan: { name: n.plan.name, includedMessages: n.plan.includedMessages, priceUsd: n.plan.priceUsd },
         trial: n.plan.trial,
-        prorated: n.prorated,
         firstMonth: n.firstMonth,
         sentMessages: n.messages,
         templateMessages: n.templateMessages,
