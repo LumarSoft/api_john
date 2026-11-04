@@ -34,6 +34,7 @@ import { TasksModule } from './tasks/tasks.module'
 import { RejectionsModule } from './rejections/rejections.module'
 import { ExpiredPoliciesModule } from './expired-policies/expired-policies.module'
 import { BillingModule } from './billing/billing.module'
+import { PlanFeaturesModule } from './plan-features/plan-features.module'
 import { OrganizationLogoModule } from './organization-logo/organization-logo.module'
 
 @Module({
@@ -71,6 +72,7 @@ import { OrganizationLogoModule } from './organization-logo/organization-logo.mo
     RejectionsModule,
     ExpiredPoliciesModule,
     BillingModule,
+    PlanFeaturesModule,
     OrganizationLogoModule,
   ],
   controllers: [AppController],

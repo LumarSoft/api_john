@@ -46,6 +46,19 @@ Reemplaza los planes por tokens del 29 de octubre (`token-plans-october-2026.md`
 - El presupuesto de IA por número (`monthlyBudgetUsd`, solo lo fija el Owner) limita solo el gasto de OpenAI y no
   tiene relación con el plan.
 
+## Funciones por plan (desde el 3 de noviembre)
+
+Además de los mensajes, cada plan dice qué funciones del panel incluye. El Owner las prende y apaga por plan en
+Facturación → Planes → «Funciones por plan». El catálogo de funciones está en `src/plan-features/plan-features.ts`
+(hoy: avisos de rechazos, avisos de pólizas vencidas y chat interno). Un plan que nunca apagó una función la incluye, así
+que una función nueva llega a todos los planes hasta que alguien la apague, y al desplegar no cambia nada.
+
+- Una organización tiene una función si el plan de alguno de sus números activos la incluye (el mismo plan que lee la
+  facturación: el asignado, la Prueba solo en el primer mes, si no el pago más chico). Sin números, el plan con el que
+  va a arrancar el primero.
+- El panel la pide en `GET /admin/billing/features` para mostrarla o bloquearla con «disponible en el plan X».
+- Los avisos por plantilla salen solo desde números cuyo plan los incluye; si ninguno, la API responde 403.
+
 ## Ejemplos con el catálogo inicial
 
 Catálogo inicial: Prueba 100 mensajes USD 0, Inicial 500 USD 25, Profesional 1.000 USD 50. Costo de Meta en

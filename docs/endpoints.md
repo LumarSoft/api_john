@@ -1275,7 +1275,10 @@ A policy is left out, and reported in `skipped`, when the client has no usable p
 { "sent": 3, "skipped": [{ "policyId": 815, "reason": "NO_PHONE" }] }
 ```
 
+Only the numbers whose plan includes the function `expiry_notices` send (see `GET /admin/billing/features`).
+
 `400 Bad Request` — None of the chosen policies can be sent
+`403 Forbidden` — No connected number is on a plan with `expiry_notices`: "El plan de tus números no incluye el envío de avisos de pólizas vencidas. Se puede cambiar en Facturación."
 `409 Conflict` — `POLICY_EXPIRY_TEMPLATE` is not configured, or no WhatsApp number is connected
 
 ---
@@ -1391,6 +1394,22 @@ En `GET /admin/billing` cada número trae `limit`: `reached` (sus mensajes llega
 está en pausa este mes), `confirmed` (alguien eligió dejarlo en pausa), `pausedAt` y `resumesOn` (`YYYY-MM-01`).
 `nextPlan` es lo que da "continuar". `billedUsd` es el plan completo; solo el Owner lo ve prorrateado (`prorated`).
 
+### GET /admin/billing/features
+
+Which panel functions the user's organization may use, for the panel to show or lock them. A function counts when the plan of one of the organization's active numbers includes it (the assigned plan; the trial only in the number's first month; else the smallest paid plan). An organization without numbers gets the plan its first number will start on. The OWNER gets every function. `availableIn` names the cheapest active paid plan that includes each function (null if none does), for "disponible en el plan X".
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+```json
+{
+  "features": { "rejection_notices": false, "expiry_notices": true, "internal_chat": false },
+  "availableIn": { "rejection_notices": "Profesional", "expiry_notices": "Inicial", "internal_chat": "Empresa" }
+}
+```
+
+---
+
 ### PATCH /admin/billing/numbers/:id/plan
 
 Puts a number of the organization on a paid plan of the catalog. Clears the number's automatic upgrade mark.
@@ -1474,7 +1493,7 @@ The platform's month: what each organization and number is billed, what Meta rea
 
 ### GET /owner/plans
 
-The whole catalog, plans switched off included.
+The whole catalog, plans switched off included, with the panel functions a plan can include (`features`, from `src/plan-features/plan-features.ts`) and which of them each plan includes. A function a plan never turned off is included.
 
 **Auth required:** Yes (OWNER)
 
@@ -1482,9 +1501,20 @@ The whole catalog, plans switched off included.
 ```json
 {
   "blockMessages": 1000,
+  "features": [
+    { "key": "rejection_notices", "label": "Avisos de rechazos de pago", "description": "Enviar por WhatsApp los avisos del Excel de rechazos de débito." },
+    { "key": "expiry_notices", "label": "Avisos de pólizas vencidas", "description": "Enviar por WhatsApp el aviso a los asegurados con la póliza vencida." },
+    { "key": "internal_chat", "label": "Chat interno", "description": "Chat entre los usuarios del panel de la organización." }
+  ],
   "plans": [
-    { "id": 1, "name": "Prueba", "messages": 100, "priceUsd": 0, "isTrial": true, "isActive": true, "sortOrder": 0 },
-    { "id": 2, "name": "Inicial", "messages": 500, "priceUsd": 25, "isTrial": false, "isActive": true, "sortOrder": 1 }
+    {
+      "id": 1, "name": "Prueba", "messages": 100, "priceUsd": 0, "isTrial": true, "isActive": true, "sortOrder": 0,
+      "features": { "rejection_notices": true, "expiry_notices": true, "internal_chat": true }
+    },
+    {
+      "id": 2, "name": "Inicial", "messages": 500, "priceUsd": 25, "isTrial": false, "isActive": true, "sortOrder": 1,
+      "features": { "rejection_notices": false, "expiry_notices": false, "internal_chat": false }
+    }
   ]
 }
 ```
@@ -1506,6 +1536,7 @@ Adds a plan to the catalog.
 | priceUsd  | number  | Yes      | 0–100,000, 2 decimals (0 allowed)                            |
 | isTrial   | boolean | No       | the trial plan; must be free, only one active (default false) |
 | sortOrder | number  | No       | integer ≥ 0 (default: last)                                  |
+| features  | object  | No       | `{ "<key>": true \| false }` with keys of `features` in `GET /owner/plans` (default: all included) |
 
 `201 Created` — the plan as `GET /owner/plans` lists it.
 `400 Bad Request` — "El plan de prueba es gratis: su precio tiene que ser 0."
@@ -1519,9 +1550,9 @@ Renames, resizes, reprices, reorders or switches a plan on or off. A plan switch
 
 **Auth required:** Yes (OWNER)
 
-**Request body**: `name`, `messages`, `priceUsd`, `isTrial`, `isActive`, `sortOrder`, all optional (same constraints as POST).
+**Request body**: `name`, `messages`, `priceUsd`, `isTrial`, `isActive`, `sortOrder`, `features`, all optional (same constraints as POST). `features` changes only the functions it lists: `{ "internal_chat": false }` turns the internal chat off and leaves the rest as they were.
 
-`200 OK` — the plan. `400 Bad Request` — a paid trial, or the last active paid plan switched off. `404 Not Found` — no such plan. `409 Conflict` — a second active trial.
+`200 OK` — the plan. `400 Bad Request` — a paid trial, the last active paid plan switched off, a function that does not exist ("La función reports no existe.") or a value that is not true/false. `404 Not Found` — no such plan. `409 Conflict` — a second active trial.
 
 ---
 
@@ -3836,7 +3867,11 @@ avisos). El panel consulta la carga hasta que ninguna quede en `SENDING`.
 
 `201 Created` → la carga, con las filas en `SENDING`
 
+Solo envían los números cuyo plan incluye la función `rejection_notices` (ver `GET /admin/billing/features`).
+
 `400 Bad Request` — `Ninguno de los avisos elegidos se puede enviar.`
+
+`403 Forbidden` — Ningún número conectado tiene un plan con `rejection_notices`: `El plan de tus números no incluye el envío de avisos de rechazos. Se puede cambiar en Facturación.`
 
 `404 Not Found` — Rejection import not found
 

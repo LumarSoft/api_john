@@ -1,10 +1,21 @@
 import { Type } from 'class-transformer'
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator'
+import {
+  IsBoolean,
+  IsInt,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator'
 
 /**
  * A plan of the platform's catalog (owner only): a name, how many messages it
- * includes a month and its price. A price of 0 is allowed; the trial plan must
- * be free and only one can be active.
+ * includes a month, its price and the panel functions it includes. A price of 0
+ * is allowed; the trial plan must be free and only one can be active.
  */
 export class CreateMessagePlanDto {
   @IsString()
@@ -33,6 +44,11 @@ export class CreateMessagePlanDto {
   @IsInt()
   @Min(0)
   sortOrder?: number
+
+  /** Functions to turn on or off: { "<key>": true | false } (src/plan-features/plan-features.ts). */
+  @IsOptional()
+  @IsObject()
+  features?: Record<string, boolean>
 }
 
 export class UpdateMessagePlanDto {
@@ -69,4 +85,9 @@ export class UpdateMessagePlanDto {
   @IsInt()
   @Min(0)
   sortOrder?: number
+
+  /** Functions to turn on or off: { "<key>": true | false } (src/plan-features/plan-features.ts). */
+  @IsOptional()
+  @IsObject()
+  features?: Record<string, boolean>
 }

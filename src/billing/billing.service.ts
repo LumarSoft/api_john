@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../common/scope/scope.service'
+import { featuresOf, PLAN_FEATURES, withChanges } from '../plan-features/plan-features'
 import {
   acceptedBlocks,
   BilledPlan,
@@ -21,6 +22,7 @@ const PLAN_SELECT = {
   isTrial: true,
   isActive: true,
   sortOrder: true,
+  features: true,
 } as const
 
 type PlanRow = {
@@ -31,6 +33,7 @@ type PlanRow = {
   isTrial: boolean
   isActive: boolean
   sortOrder: number
+  features: unknown
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100
@@ -61,14 +64,18 @@ export class BillingService {
 
   // ─── Catalog (owner) ───────────────────────────────────
 
-  /** The whole catalog, plans switched off included, in the owner's order. */
+  /** The whole catalog, plans switched off included, in the owner's order, with the functions a plan can include. */
   async listPlans() {
     const plans = await this.prisma.messagePlan.findMany({
       where: { producerId: null, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { messages: 'asc' }, { id: 'asc' }],
       select: PLAN_SELECT,
     })
-    return { blockMessages: this.usage.commercialPricing.blockMessages, plans: plans.map(p => this.toPlan(p)) }
+    return {
+      blockMessages: this.usage.commercialPricing.blockMessages,
+      features: PLAN_FEATURES,
+      plans: plans.map(p => this.toPlan(p)),
+    }
   }
 
   async createPlan(dto: CreateMessagePlanDto) {
@@ -82,6 +89,7 @@ export class BillingService {
         priceUsd: round2(dto.priceUsd),
         isTrial,
         sortOrder: dto.sortOrder ?? (await this.nextSortOrder()),
+        ...(dto.features !== undefined ? { features: withChanges(null, dto.features) } : {}),
       },
       select: PLAN_SELECT,
     })
@@ -105,6 +113,7 @@ export class BillingService {
         ...(dto.isTrial !== undefined ? { isTrial: dto.isTrial } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+        ...(dto.features !== undefined ? { features: withChanges(current.features, dto.features) } : {}),
       },
       select: PLAN_SELECT,
     })
@@ -493,7 +502,7 @@ export class BillingService {
   private async findPlan(id: number) {
     const plan = await this.prisma.messagePlan.findFirst({
       where: { id, producerId: null, deletedAt: null },
-      select: { id: true, priceUsd: true, isTrial: true, isActive: true },
+      select: { id: true, priceUsd: true, isTrial: true, isActive: true, features: true },
     })
     if (!plan) throw new NotFoundException(`Plan ${id} not found`)
     return plan
@@ -516,6 +525,7 @@ export class BillingService {
       isTrial: plan.isTrial,
       isActive: plan.isActive,
       sortOrder: plan.sortOrder,
+      features: featuresOf(plan.features),
     }
   }
 

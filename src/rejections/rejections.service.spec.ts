@@ -1,8 +1,10 @@
+import { ForbiddenException } from '@nestjs/common'
 import { Prisma, Role } from 'generated/prisma/client'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { ScopeService } from '../common/scope/scope.service'
 import type { BotNotifierService } from '../inbox/bot-notifier.service'
+import type { PlanFeaturesService } from '../plan-features/plan-features.service'
 import type { PaymentRejectionRowDto } from './dto/payment-rejection.dto'
 import { NoticeDeliveryService } from '../notices/notice-delivery.service'
 import { RejectionsService, pickSender, pickWhatsApp } from './rejections.service'
@@ -66,6 +68,8 @@ function setup(template: string | null = 'aviso_rechazo_pago') {
     canAccessCode: jest.fn().mockResolvedValue(true),
   }
   const botNotifier = { sendTemplate: jest.fn().mockResolvedValue(undefined) }
+  // Every number's plan includes the notices unless a test says otherwise.
+  const planFeatures = { keepWith: jest.fn(<T>(numbers: T[]) => Promise.resolve(numbers)) }
   const config = {
     get: jest.fn((key: string) => (key === 'PAYMENT_REJECTION_TEMPLATE' ? (template ?? undefined) : undefined)),
   }
@@ -73,10 +77,10 @@ function setup(template: string | null = 'aviso_rechazo_pago') {
     prisma as unknown as PrismaService,
     scope as unknown as ScopeService,
     botNotifier as unknown as BotNotifierService,
-    new NoticeDeliveryService(prisma as unknown as PrismaService),
+    new NoticeDeliveryService(prisma as unknown as PrismaService, planFeatures as unknown as PlanFeaturesService),
     config as unknown as ConfigService,
   )
-  return { service, prisma, scope, botNotifier }
+  return { service, prisma, scope, botNotifier, planFeatures }
 }
 
 /** The rows `create` stored, from the nested createMany. */
@@ -148,6 +152,18 @@ describe('RejectionsService.send', () => {
     const { service, prisma } = setup(null)
 
     await expect(service.send(mili, 9, [1])).rejects.toThrow('plantilla')
+    expect(prisma.paymentRejection.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('sends nothing when no number is on a plan with these notices', async () => {
+    const { service, prisma, planFeatures } = setup()
+    planFeatures.keepWith.mockRejectedValue(new ForbiddenException('El plan de tus números no incluye el envío'))
+
+    await expect(service.send(mili, 9, [1])).rejects.toThrow(ForbiddenException)
+    expect(planFeatures.keepWith).toHaveBeenCalledWith(
+      [expect.objectContaining({ phoneNumberId: 'meta-1' })],
+      'rejection_notices',
+    )
     expect(prisma.paymentRejection.updateMany).not.toHaveBeenCalled()
   })
 

@@ -191,7 +191,8 @@ export class ExpiredPoliciesService implements OnModuleInit {
         'La plantilla de WhatsApp para avisar pólizas vencidas todavía no está habilitada. No se envió ningún aviso.',
       )
     }
-    const senders = await this.delivery.senders(user.producerId)
+    // Only the numbers whose plan includes these notices send them (403 when none does).
+    const senders = await this.delivery.senders(user.producerId, 'expiry_notices')
     if (!senders.length) {
       throw new ConflictException('No hay un número de WhatsApp conectado para enviar los avisos. Revisalo en Números.')
     }

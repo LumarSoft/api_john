@@ -1426,6 +1426,9 @@ model MessagePlan {
   priceUsd  Decimal   @db.Decimal(10, 2)
   /// The free plan of a new account's number in its first month of service.
   isTrial   Boolean   @default(false)
+  /// The panel functions the plan includes: { "<key>": true | false } with the keys of
+  /// src/plan-features/plan-features.ts. A function it does not list is included.
+  features  Json?
   isActive  Boolean   @default(true)
   sortOrder Int       @default(0)
   createdAt DateTime  @default(now())

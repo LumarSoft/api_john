@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { PlanFeatureKey } from '../plan-features/plan-features'
+import { PlanFeaturesService } from '../plan-features/plan-features.service'
 import { NoticeKind, Sender } from './notice-delivery'
 
 /** The chat a notice lands in, when the client already has one. */
@@ -19,11 +21,18 @@ export interface ExistingChat {
  */
 @Injectable()
 export class NoticeDeliveryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly planFeatures: PlanFeaturesService,
+  ) {}
 
-  /** Active numbers that can send, the ones on a connected WABA first. */
-  async senders(producerId: number): Promise<Sender[]> {
-    const phones = await this.prisma.phoneNumber.findMany({
+  /**
+   * Active numbers that can send, the ones on a connected WABA first. With a
+   * `feature`, only the numbers whose plan includes it; when there are numbers
+   * but none of them has it, it answers 403 with the plan's message.
+   */
+  async senders(producerId: number, feature?: PlanFeatureKey): Promise<Sender[]> {
+    const connected = await this.prisma.phoneNumber.findMany({
       where: {
         producerId,
         isActive: true,
@@ -32,12 +41,15 @@ export class NoticeDeliveryService {
       },
       orderBy: { id: 'asc' },
       select: {
+        id: true,
+        planId: true,
         phoneNumberId: true,
         wabaAccountId: true,
         responsibleProducerCodeId: true,
         servedCodes: { select: { producerCodeId: true } },
       },
     })
+    const phones = feature ? await this.planFeatures.keepWith(connected, feature) : connected
     return phones
       .sort((a, b) => Number(b.wabaAccountId != null) - Number(a.wabaAccountId != null))
       .map(p => ({
