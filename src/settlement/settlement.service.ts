@@ -94,7 +94,6 @@ export class SettlementService {
         responsibleCode: n.responsibleCode,
         plan: { name: n.plan.name, includedMessages: n.plan.includedMessages, priceUsd: n.plan.priceUsd },
         trial: n.plan.trial,
-        prorated: n.prorated,
         firstMonth: n.firstMonth,
         sentMessages: n.messages,
         templateMessages: n.templateMessages,

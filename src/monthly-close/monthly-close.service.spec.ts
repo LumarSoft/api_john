@@ -148,6 +148,33 @@ describe('the monthly close', () => {
     })
   })
 
+  it('closes a paid number that went live mid-month on its whole plan', async () => {
+    const { service, prisma } = setup()
+    prisma.producer.findMany.mockResolvedValueOnce([
+      {
+        id: 1,
+        name: 'Organización',
+        isActive: true,
+        phoneNumbers: [phone({ id: 9, planId: 1, usageMonthly: [usageRow({ metaMessages: 80 })] })],
+      },
+    ])
+    // Live on 21 October: the calendar month is charged whole all the same.
+    prisma.usageEvent.groupBy.mockResolvedValue([
+      { phoneNumberId: 9, _min: { deliveredAt: new Date('2026-10-21T15:00:00Z') } },
+    ])
+    await service.close('2026-10', { now: firstOfNovember })
+    expect(written(prisma)).toEqual([
+      expect.objectContaining({
+        phoneNumberId: 9,
+        firstMonth: true,
+        planName: 'Inicial',
+        trial: false,
+        billedUsd: 25,
+        prorated: false,
+      }),
+    ])
+  })
+
   it('freezes the rates of the day it closes', async () => {
     const { service, prisma } = setup({ PARTNER_COST_PER_MESSAGE_USD: '0.05', PARTNER_PROFIT_SHARE: '0.25' })
     await service.close('2026-10', { now: firstOfNovember })
@@ -256,7 +283,6 @@ describe('the monthly close', () => {
         planExtraBlocks: 0,
         trial: false,
         upgraded: false,
-        prorated: true,
         messages: 100,
         templateMessages: 0,
         consumedMessages: 100,
@@ -278,11 +304,12 @@ describe('the monthly close', () => {
     prisma.producer.findMany.mockResolvedValueOnce([{ id: 1, name: 'Organización', isActive: true, deletedAt: null }])
     const [september, october] = await service.monthSnapshots(['2026-09', '2026-10'])
     expect(september).toMatchObject({ closed: true, backfilled: false })
+    // A first month closed before the month was always charged whole keeps the figure it was billed.
     expect(september.numbers[0]).toMatchObject({
       billedUsd: 12.5,
-      prorated: true,
       settlement: { costPerMessageUsd: 0.03, serviceCostUsd: 3, remainderUsd: 9.5, partnerShareUsd: 3.8 },
     })
+    expect(september.numbers[0]).not.toHaveProperty('prorated')
     expect(october).toMatchObject({ closed: false })
     expect(october.numbers.map(n => n.phoneNumberId)).toEqual([8, 9, 10])
   })
@@ -305,7 +332,6 @@ describe('the monthly close', () => {
       planExtraBlocks: 0,
       trial: false,
       upgraded: false,
-      prorated: false,
       messages: 100,
       templateMessages: 0,
       consumedMessages: 100,

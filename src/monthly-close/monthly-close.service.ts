@@ -49,7 +49,6 @@ export interface MonthNumber {
   /** The plan the number is on before the month's messages; not kept by a close (null). */
   assignedPlan: BilledPlan | null
   upgraded: boolean
-  prorated: boolean
   /** Its assistant is paused for its plan (running month only). */
   paused: boolean
   /** Billed or sending that month: an active number of the month. */
@@ -65,7 +64,7 @@ export interface MonthNumber {
   metaBillableMessages: number
   metaCostUsd: number
   openaiCostUsd: number
-  /** The owner's "Facturado": the plan, prorated in the first month of service. */
+  /** The owner's "Facturado": the whole plan (a month closed before 2026-11-04 keeps its prorated first month). */
   billedUsd: number
   /** Null when the settlement terms were not configured (live: today; closed: on the day of the close). */
   settlement: Settlement | null
@@ -106,7 +105,6 @@ const CLOSE_SELECT = {
   planExtraBlocks: true,
   trial: true,
   upgraded: true,
-  prorated: true,
   messages: true,
   templateMessages: true,
   consumedMessages: true,
@@ -332,7 +330,6 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
           plan: bill.plan,
           assignedPlan: bill.assignedPlan,
           upgraded: bill.upgraded || (n.planUpgradedAt != null && currentPeriod(n.planUpgradedAt) === period),
-          prorated: bill.prorated,
           paused: running && pausedIn(n.planPausedAt, period),
           inService: startPeriod !== null && startPeriod <= period && (n.isActive || messages > 0),
           firstMonth: startPeriod === period,
@@ -382,7 +379,8 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
       planExtraBlocks: n.plan.extraBlocks,
       trial: n.plan.trial,
       upgraded: n.upgraded,
-      prorated: n.prorated,
+      // No month is prorated any more: the column only matters for months closed before 2026-11-04.
+      prorated: false,
       messages: n.messages,
       templateMessages: n.templateMessages,
       consumedMessages: n.consumedMessages,
@@ -419,7 +417,6 @@ export class MonthlyCloseService implements OnApplicationBootstrap {
       },
       assignedPlan: null,
       upgraded: row.upgraded,
-      prorated: row.prorated,
       paused: false,
       inService: row.inService,
       firstMonth: row.firstMonth,
@@ -461,7 +458,6 @@ interface CloseRow {
   planExtraBlocks: number
   trial: boolean
   upgraded: boolean
-  prorated: boolean
   messages: number
   templateMessages: number
   consumedMessages: number

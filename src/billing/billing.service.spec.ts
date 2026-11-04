@@ -226,19 +226,21 @@ describe('the month of each number', () => {
     })
   })
 
-  it('shows the organization the whole plan and only the owner the first month prorated', async () => {
+  it('bills the whole plan to everyone in the month a number goes live', async () => {
     const { service, prisma } = setup([number({ usageMonthly: [{ metaMessages: 100, updatedAt: null }] })])
-    // In service since 21 October: 11 of 31 days.
+    // In service since 21 October: the month is still charged whole.
     prisma.usageMonthly.groupBy.mockResolvedValue([{ phoneNumberId: 8, _min: { period: '2026-10' } }])
     prisma.usageEvent.groupBy.mockResolvedValue([
       { phoneNumberId: 8, _min: { deliveredAt: new Date('2026-10-21T13:00:00Z') } },
     ])
     const forSuperadmin = await service.overview(superadmin, '2026-10')
-    expect(forSuperadmin.numbers[0]).toMatchObject({ billedUsd: 25, prorated: false })
+    expect(forSuperadmin.numbers[0]).toMatchObject({ billedUsd: 25 })
+    expect(forSuperadmin.numbers[0]).not.toHaveProperty('prorated')
     expect(forSuperadmin.totalBilledUsd).toBe(25)
-    expect((await service.overview(admin, '2026-10')).numbers[0]).toMatchObject({ billedUsd: 25, prorated: false })
+    expect((await service.overview(admin, '2026-10')).numbers[0]).toMatchObject({ billedUsd: 25 })
     const forOwner = await service.overview(owner, '2026-10')
-    expect(forOwner.numbers[0]).toMatchObject({ billedUsd: 8.87, prorated: true })
+    expect(forOwner.numbers[0]).toMatchObject({ billedUsd: 25 })
+    expect(forOwner.numbers[0]).not.toHaveProperty('prorated')
   })
 
   it('still shows a number that moved up on its own this month as moved up', async () => {
@@ -414,7 +416,6 @@ describe("the owner's dashboard", () => {
         planExtraBlocks: 0,
         trial: false,
         upgraded: false,
-        prorated: false,
         messages: 300,
         templateMessages: 20,
         consumedMessages: 320,

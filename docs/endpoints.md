@@ -1415,7 +1415,7 @@ The office told these clients by other means (a call, in person): a `MARKED` not
 
 ## Facturación (planes de mensajes)
 
-Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends); a **template** (a message Meta prices as utility, marketing or authentication: rejection and expiry notices, campaigns) delivered from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on (default 2026-12-01) consumes **2**. Every figure the organization sees (`messages`, `messagesUsed`, the bar, the limit) is that consumed count; the weight, the raw counts and the categories are the OWNER's only. The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). A number never moves up on its own: when its consumed messages reach its plan, its assistant **pauses**; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and an e-mail, and chooses to continue on the next plan (`POST /admin/billing/numbers/:id/limit`) or to wait for next month. Past the largest plan, continuing adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message. An active number pays at least its plan; in its first month of service, on its own paid plan, the plan is prorated from the day it went live. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost; the profit is billed − Meta (OpenAI is prepaid). Rules and examples: `docs/message-plans-october-2026.md`.
+Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends); a **template** (a message Meta prices as utility, marketing or authentication: rejection and expiry notices, campaigns) delivered from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on (default 2026-12-01) consumes **2**. Every figure the organization sees (`messages`, `messagesUsed`, the bar, the limit) is that consumed count; the weight, the raw counts and the categories are the OWNER's only. The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). A number never moves up on its own: when its consumed messages reach its plan, its assistant **pauses**; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and an e-mail, and chooses to continue on the next plan (`POST /admin/billing/numbers/:id/limit`) or to wait for next month. Past the largest plan, continuing adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message. The billing cycle is the calendar month (from the 1st to the last day) and it is always charged whole: an active number pays its whole plan, also in the month it went live, whatever day that was. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost; the profit is billed − Meta (OpenAI is prepaid). Rules and examples: `docs/message-plans-october-2026.md`.
 
 ### GET /admin/billing
 
@@ -1458,7 +1458,6 @@ The month of every number in scope: its assigned plan, the plan the month is bil
       "percentUsed": 50.2,
       "nextPlan": { "name": "Profesional + 1.000", "messages": 2000, "priceUsd": 100 },
       "billedUsd": 50,
-      "prorated": false,
       "updatedAt": "2026-10-30T04:57:17.600Z"
     }
   ],
@@ -1503,7 +1502,7 @@ puede responder por los números de sus códigos.
 
 En `GET /admin/billing` cada número trae `limit`: `reached` (sus mensajes llegaron al plan), `paused` (su asistente
 está en pausa este mes), `confirmed` (alguien eligió dejarlo en pausa), `pausedAt` y `resumesOn` (`YYYY-MM-01`).
-`nextPlan` es lo que da "continuar". `billedUsd` es el plan completo; solo el Owner lo ve prorrateado (`prorated`).
+`nextPlan` es lo que da "continuar". `billedUsd` es el plan completo para todos los roles: el mes se cobra completo, también el mes en que el número salió.
 
 ### GET /admin/billing/features
 
@@ -1605,7 +1604,6 @@ The platform's month: what each organization and number is billed, what Meta rea
           "plan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
           "assignedPlan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
           "upgraded": true,
-          "prorated": false,
           "paused": false,
           "messages": 502,
           "sentMessages": 502,
@@ -1753,7 +1751,7 @@ Retires a plan (soft delete); its numbers go back to the smallest paid plan. The
 
 ## Owner — Liquidación (socio comercial)
 
-How each month's billing splits between Lumarsoft and its commercial partner. Per number: Lumarsoft's service cost = consumed messages × `PARTNER_COST_PER_MESSAGE_USD` (a template that counts twice costs twice); remainder = billed − that cost; the partner gets `PARTNER_PROFIT_SHARE` (0–1) of the remainder and Lumarsoft the rest. A trial bills 0, so its cost makes the remainder negative and comes out of the split. `billedUsd` is the Tablero's "Facturado" (prorated in the first month of service). **What Meta and OpenAI cost is never part of it nor returned here.** A closed month is read as frozen, with the rates of its close (`terms`); the running month (or one not closed yet, or closed before the rates were set) is computed now with today's rates.
+How each month's billing splits between Lumarsoft and its commercial partner. Per number: Lumarsoft's service cost = consumed messages × `PARTNER_COST_PER_MESSAGE_USD` (a template that counts twice costs twice); remainder = billed − that cost; the partner gets `PARTNER_PROFIT_SHARE` (0–1) of the remainder and Lumarsoft the rest. A trial bills 0, so its cost makes the remainder negative and comes out of the split. `billedUsd` is the Tablero's "Facturado": the whole plan, also in a number's first month (a month closed before 2026-11-04 keeps the prorated first month it was frozen with). **What Meta and OpenAI cost is never part of it nor returned here.** A closed month is read as frozen, with the rates of its close (`terms`); the running month (or one not closed yet, or closed before the rates were set) is computed now with today's rates.
 
 The two rates have **no default** and live only in the server's `.env` (the repository is public). While either is missing, both endpoints answer `503 Service Unavailable` and the monthly close still freezes everything else, with the settlement columns `null`. The examples below use illustrative rates (0.03 per message, 0.4 to the partner), not the real ones.
 
@@ -1802,7 +1800,6 @@ One month: totals, per organization (only those with numbers in the settlement) 
           "responsibleCode": { "code": "11425", "holderName": null },
           "plan": { "name": "Inicial", "includedMessages": 500, "priceUsd": 25 },
           "trial": false,
-          "prorated": false,
           "firstMonth": false,
           "sentMessages": 250,
           "templateMessages": 50,
@@ -3242,9 +3239,9 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 | Role       | `usage` fields                                                                                                                       | Number fields                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| ADMIN      | `period`, `messages` (plan messages consumed this month: a template counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on), `assignedPlan`, `plan` (the plan the month is billed on; its price, never its cost), `upgraded`, `prorated` (always `false`), `billedUsd` (the plan's full price), `planPaused` | no budget fields |
+| ADMIN      | `period`, `messages` (plan messages consumed this month: a template counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on), `assignedPlan`, `plan` (the plan the month is billed on; its price, never its cost), `upgraded`, `billedUsd` (the plan's full price: the month is always charged whole), `planPaused` | no budget fields |
 | SUPERADMIN | plus `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
-| OWNER      | plus `metaMessages` (sent, one each) and `metaTemplateMessages` (of those, templates), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta); `prorated` and `billedUsd` are the first month's prorated amount | `monthlyBudgetUsd`, `budgetExceededAt` |
+| OWNER      | plus `metaMessages` (sent, one each) and `metaTemplateMessages` (of those, templates), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta) | `monthlyBudgetUsd`, `budgetExceededAt` |
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 

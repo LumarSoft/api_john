@@ -439,8 +439,8 @@ model UsageMonthly {
   metaCostUsd             Decimal  @default(0) @db.Decimal(12, 6)
   // What the number COSTS us (OpenAI + Meta). Measured, never adjusted.
   totalCostUsd            Decimal  @default(0) @db.Decimal(12, 6)
-  // What the client is INVOICED for this number this month:
-  //   commercial token/message tariff, prorated monthly minimum and full-month cap
+  // What the client is INVOICED for this number this month: the whole plan the
+  // month is billed on (the cycle is the calendar month, always charged whole).
   // A business rule, not a measurement — kept in its own column precisely so the
   // measured cost above stays truthful and the margin is visible.
   billedUsd               Decimal  @default(0) @db.Decimal(12, 2)
@@ -483,6 +483,8 @@ model MonthlyClose {
   planExtraBlocks      Int       @default(0)
   trial                Boolean   @default(false)
   upgraded             Boolean   @default(false)
+  // Only matters for months closed before 2026-11-04, when a first month was prorated:
+  // the month is now always charged whole, so closes write false and no screen reads it.
   prorated             Boolean   @default(false)
   // Messages sent (one each), of them templates, and the plan messages they consumed.
   messages             Int       @default(0)
@@ -492,7 +494,7 @@ model MonthlyClose {
   metaBillableMessages Int       @default(0)
   metaCostUsd          Decimal   @default(0) @db.Decimal(12, 6)
   openaiCostUsd        Decimal   @default(0) @db.Decimal(12, 6)
-  // What the organization is billed for the number (the owner's figure, prorated in the first month).
+  // What the organization is billed for the number: the whole plan (prorated in a first month closed before 2026-11-04).
   billedUsd            Decimal   @db.Decimal(12, 2)
   // Partner settlement: Lumarsoft's cost per consumed message and the partner's share of the remainder.
   // Null when the settlement terms (PARTNER_* env) were not configured on the day of the close.

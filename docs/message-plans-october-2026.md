@@ -38,8 +38,9 @@ Reemplaza los planes por tokens del 29 de octubre (`token-plans-october-2026.md`
 - El mes se cobra al plan del número, nunca a uno más grande que nadie eligió.
 - Pasado el plan más grande, solo con los bloques aceptados ese mes: ese plan más bloques de
   `COMMERCIAL_BLOCK_MESSAGES` (1.000) mensajes al precio por mensaje del plan más grande.
-- Solo el Owner ve el primer mes prorrateado desde el día en que salió el primer mensaje (el día de inicio cuenta):
-  `billedUsd` del tablero del Owner. El resto de los roles recibe el precio completo.
+- El ciclo de facturación es el mes calendario, del 1 al último día, y **el mes se cobra completo** (desde el 4 de
+  noviembre de 2026): un número que sale a mitad de mes paga su plan completo ese mes, para todos los roles, el Owner
+  incluido. Antes, solo el tablero del Owner prorrateaba el primer mes desde el día del primer mensaje.
 - No se factura un número que todavía no envió nada, ni uno inactivo sin mensajes en el mes.
 - Un plan apagado conserva sus números, pero ningún número sube a él. Un plan retirado manda sus números al plan
   pago más chico. Siempre tiene que quedar al menos un plan pago activo.
@@ -68,8 +69,8 @@ conversación (del bot o de la oficina, categoría `service`) consume 1. Rige pa
 
 El 1 de cada mes a las 00:00 (Argentina) la API congela el mes anterior de cada número en `MonthlyClose`
 (`MonthlyCloseService`): plan con el que se facturó (nombre, mensajes, precio, bloques, si era Prueba), mensajes
-enviados, plantillas y consumidos, lo facturado (la misma cifra «Facturado» del Tablero, con el prorrateo del primer
-mes), lo que costaron Meta y OpenAI, el costo de servicio por mensaje y la liquidación con el socio, con los valores de
+enviados, plantillas y consumidos, lo facturado (la misma cifra «Facturado» del Tablero: el plan completo; un primer mes cerrado antes
+del 4/11 conserva el prorrateo con el que se congeló), lo que costaron Meta y OpenAI, el costo de servicio por mensaje y la liquidación con el socio, con los valores de
 ese día. Si la API arranca y el mes anterior sigue abierto, lo cierra en ese momento. `MONTHLY_CLOSE_ENABLED=false`
 lo apaga.
 
@@ -111,7 +112,7 @@ marketing.
 | Mes tranquilo | Inicial | 180 | Inicial | USD 25 | USD 0 | USD 25 |
 | Supera su plan | Inicial | 900 | Profesional (sube) | USD 50 | USD 0 | USD 50 |
 | Pasa los 1.000 gratis de Meta | Profesional | 1.350 | Profesional + 1.000 | USD 100 | USD 9,10 | USD 90,90 |
-| Número que salió el 21 de octubre | Inicial | 100 | Inicial, 11 de 31 días | USD 8,87 | USD 0 | USD 8,87 |
+| Número que salió el 21 de octubre | Inicial | 100 | Inicial, mes completo | USD 25 | USD 0 | USD 25 |
 
 ## Base de datos
 

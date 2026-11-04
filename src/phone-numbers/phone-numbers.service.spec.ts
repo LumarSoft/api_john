@@ -94,7 +94,6 @@ describe('monthly phone number report', () => {
       assignedPlan: { id: 2, name: 'Profesional', includedMessages: 1000, priceUsd: 50, trial: false, extraBlocks: 0 },
       plan: beyond,
       upgraded: true,
-      prorated: false,
       billedUsd: 100,
       planPaused: false,
     })

@@ -181,9 +181,8 @@ export class PhoneNumbersService {
           assignedPlan: bill.assignedPlan,
           plan: bill.plan,
           upgraded: bill.upgraded,
-          // The organization pays the whole plan; only the owner sees the first month prorated.
-          prorated: isOwner && bill.prorated,
-          billedUsd: isOwner ? bill.billedUsd : bill.fullPriceUsd,
+          // The whole plan: the calendar month is always charged whole.
+          billedUsd: bill.billedUsd,
           // Its assistant is paused this month for reaching the plan.
           planPaused: period === currentPeriod() && pausedIn(n.planPausedAt, period),
           ...(seesActivity

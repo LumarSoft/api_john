@@ -103,7 +103,6 @@ describe('message plans', () => {
       upgraded: false,
       limitReached: true,
       billedUsd: 25,
-      fullPriceUsd: 25,
     })
     expect(service.billFor({ ...live, planId: 1 }, { metaMessages: 499 }, catalog, '2026-10').limitReached).toBe(false)
     expect(
@@ -160,7 +159,6 @@ describe('message plans', () => {
     expect(service.billFor(trial, { metaMessages: 80 }, catalog, '2026-11')).toMatchObject({
       plan: { name: 'Prueba', includedMessages: 100, priceUsd: 0, trial: true },
       billedUsd: 0,
-      prorated: false,
       limitReached: false,
     })
     expect(service.billFor(trial, { metaMessages: 100 }, catalog, '2026-11')).toMatchObject({
@@ -182,33 +180,30 @@ describe('message plans', () => {
 
   it('does not bill a number before it goes live, nor a switched-off number that sent nothing', () => {
     const { service } = setup()
-    expect(service.billFor({ ...live, serviceStartedAt: null }, undefined, catalog, '2026-10')).toMatchObject({
-      billedUsd: 0,
-      fullPriceUsd: 0,
-    })
+    expect(service.billFor({ ...live, serviceStartedAt: null }, undefined, catalog, '2026-10').billedUsd).toBe(0)
     expect(service.billFor(live, undefined, catalog, '2026-07').billedUsd).toBe(0)
     expect(service.billFor({ ...live, isActive: false }, undefined, catalog, '2026-10').billedUsd).toBe(0)
     // Switched off after sending: its plan, whole.
-    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 600 }, catalog, '2026-10')).toMatchObject({
-      billedUsd: 25,
-      fullPriceUsd: 25,
-    })
+    expect(service.billFor({ ...live, isActive: false }, { metaMessages: 600 }, catalog, '2026-10').billedUsd).toBe(25)
   })
 
-  it('prorates the first month for the owner only; the organization pays the whole plan', () => {
+  it('charges the whole calendar month, also the month a number goes live', () => {
     const { service } = setup()
     const startedOct21 = { isActive: true, serviceStartedAt: new Date('2026-10-21T13:00:00Z'), planId: null }
-    // 11 of 31 days of Inicial (USD 25) for the owner; the organization pays USD 25.
+    // Live on the 21st: the whole Inicial plan, not the days left in the month.
     expect(service.billFor(startedOct21, { metaMessages: 100 }, catalog, '2026-10')).toMatchObject({
-      billedUsd: 8.87,
-      prorated: true,
-      fullPriceUsd: 25,
+      plan: { name: 'Inicial' },
+      billedUsd: 25,
     })
-    // Blocks accepted past the largest plan are charged whole.
+    // Live on the last day of the month: still the whole plan.
+    const startedOct31 = { ...startedOct21, serviceStartedAt: new Date('2026-10-31T20:00:00Z') }
+    expect(service.billFor(startedOct31, { metaMessages: 3 }, catalog, '2026-10').billedUsd).toBe(25)
+    // Blocks accepted past the largest plan are charged whole too.
     expect(
       service.billFor({ ...startedOct21, planId: 2, extraBlocks: 1 }, { metaMessages: 1500 }, catalog, '2026-10'),
-    ).toMatchObject({ plan: { name: 'Profesional + 1.000' }, billedUsd: 100, prorated: false, fullPriceUsd: 100 })
+    ).toMatchObject({ plan: { name: 'Profesional + 1.000' }, billedUsd: 100 })
     expect(service.billFor(startedOct21, { metaMessages: 100 }, catalog, '2026-11').billedUsd).toBe(25)
+    expect(service.billFor(startedOct21, { metaMessages: 100 }, catalog, '2026-10')).not.toHaveProperty('prorated')
   })
 
   it('keeps the numbers of a plan switched off on it but moves nobody to it, and drops a retired plan', () => {

@@ -252,7 +252,6 @@ export class OwnerService {
           assignedPlan: bill.assignedPlan,
           plan: bill.plan,
           upgraded: bill.upgraded,
-          prorated: bill.prorated,
           planPaused: pausedIn(p.planPausedAt, period),
           // What the platform invoices the organization, and what is left after Meta (OpenAI is prepaid).
           billedUsd: bill.billedUsd,

@@ -53,8 +53,9 @@ const movedUpIn = (at: Date | null | undefined, period: string): boolean => at !
  * trial). The SuperAdmin assigns a plan to each number of the organization. A
  * number never moves up on its own: at its plan's limit its assistant pauses
  * (UsageService.followLimit) until the office chooses the next plan or the month
- * ends (resolveLimit). The organization pays the whole plan; only the OWNER sees
- * the first month prorated, and what Meta and OpenAI really cost.
+ * ends (resolveLimit). The cycle is the calendar month and the organization
+ * pays the whole plan, also in the month a number goes live; only the OWNER sees
+ * what Meta and OpenAI really cost.
  */
 @Injectable()
 export class BillingService {
@@ -182,8 +183,6 @@ export class BillingService {
     ])
     const starts = await this.usage.serviceStarts(numbers.map(n => n.id))
     const { blockMessages } = this.usage.commercialPricing
-    // The organization pays the whole plan; only the owner sees the first month prorated.
-    const ownerView = user.role === Role.OWNER
     const running = period === currentPeriod()
 
     const rows = numbers.map(n => {
@@ -217,8 +216,7 @@ export class BillingService {
         remainingMessages: Math.max(0, included - bill.messages),
         percentUsed: included > 0 ? Math.round((bill.messages / included) * 1000) / 10 : 0,
         nextPlan: this.nextPlan(bill.plan, catalog),
-        billedUsd: ownerView ? bill.billedUsd : bill.fullPriceUsd,
-        prorated: ownerView && bill.prorated,
+        billedUsd: bill.billedUsd,
         // At the plan's limit the assistant pauses until someone continues on nextPlan or the month ends.
         limit: {
           reached: bill.limitReached,
@@ -369,7 +367,6 @@ export class BillingService {
             plan: n.plan,
             assignedPlan: n.assignedPlan,
             upgraded: n.upgraded,
-            prorated: n.prorated,
             paused: n.paused,
             // The plan messages consumed (what the plan counts), and of the messages sent, the templates.
             messages: n.consumedMessages,
