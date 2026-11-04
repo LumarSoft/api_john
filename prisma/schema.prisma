@@ -321,6 +321,10 @@ model PhoneNumber {
   id            Int       @id @default(autoincrement())
   phoneNumberId String    @unique // ID de Meta
   number        String // display: "+1 555 151 7253"
+  // What the office calls the branch the number belongs to ("27 de Febrero",
+  // "Pueblo Esther"): the panel shows it next to the number so people pick it
+  // by the name they remember. Null = only the number.
+  branchName    String?   @db.VarChar(60)
   isActive      Boolean   @default(true)
   deletedAt     DateTime?
   producerId    Int

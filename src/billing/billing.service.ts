@@ -160,6 +160,7 @@ export class BillingService {
         select: {
           id: true,
           number: true,
+          branchName: true,
           isActive: true,
           planId: true,
           planUpgradedAt: true,
@@ -197,6 +198,7 @@ export class BillingService {
       return {
         id: n.id,
         number: n.number,
+        branchName: n.branchName,
         isActive: n.isActive,
         responsibleCode: n.responsibleProducerCode,
         assignedPlan: bill.assignedPlan,
@@ -339,6 +341,7 @@ export class BillingService {
             select: {
               id: true,
               number: true,
+              branchName: true,
               isActive: true,
               planId: true,
               planUpgradedAt: true,
@@ -386,6 +389,7 @@ export class BillingService {
         const row = {
           id: n.id,
           number: n.number,
+          branchName: n.branchName,
           isActive: n.isActive,
           responsibleCode: n.responsibleProducerCode,
           plan: bill.plan,

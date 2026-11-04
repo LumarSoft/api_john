@@ -315,6 +315,20 @@ describe("a number's own assistant", () => {
     })
   })
 
+  it('names the branch of the number, and clears it with an empty name', async () => {
+    const { service, prisma } = setup({ branchName: 'Centro' })
+
+    await expect(service.getAssistant(8, superAdmin)).resolves.toMatchObject({ branchName: 'Centro' })
+
+    await service.updateAssistant(8, superAdmin, { branchName: ' Pueblo Esther ' })
+    await service.updateAssistant(8, superAdmin, { branchName: ' ' })
+
+    expect(prisma.phoneNumber.update.mock.calls.map(([call]) => call.data)).toEqual([
+      { branchName: 'Pueblo Esther' },
+      { branchName: null },
+    ])
+  })
+
   it('clears every setting back to the organization', async () => {
     const { service, prisma } = setup({ botName: 'Sofi', businessHours: { mon: [] }, botProfile: { orgName: 'X' } })
 
