@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { ScopeUser } from '../common/scope/scope.service'
 import { PlanFeatureKey } from '../plan-features/plan-features'
 import { PlanFeaturesService } from '../plan-features/plan-features.service'
 import { NoticeKind, Sender } from './notice-delivery'
@@ -25,6 +26,11 @@ export class NoticeDeliveryService {
     private readonly prisma: PrismaService,
     private readonly planFeatures: PlanFeaturesService,
   ) {}
+
+  /** 403 when the user's role has these notices off (the owner decides it next to the plans). */
+  assertRole(user: ScopeUser, feature: PlanFeatureKey): Promise<void> {
+    return this.planFeatures.assertRole(user, feature)
+  }
 
   /**
    * Active numbers that can send, the ones on a connected WABA first. With a

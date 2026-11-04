@@ -1431,6 +1431,19 @@ model PolicyExpiryNotice {
 // tokens at the platform's fixed unit price (COMMERCIAL_TOKEN_PRICE_USD, USD
 // 0.05: 500 = USD 25, 1.000 = USD 50). The SuperAdmin picks the sizes, never
 // the price. priceUsd is stored as it was when the plan was saved.
+/// Who may use a plan function besides the plan (Facturación → Planes): one row
+/// per function key of src/plan-features/plan-features.ts. No row = both roles.
+/// The OWNER always has every function.
+model PlanFeatureRole {
+  id         Int       @id @default(autoincrement())
+  feature    String    @unique @db.VarChar(60)
+  admin      Boolean   @default(true)
+  superAdmin Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+}
+
 /// A plan of the platform's catalog: a number of messages a WhatsApp number
 /// may send in a month for a price. Only the OWNER (Lumar) edits the catalog;
 /// it is the same for every organization (the SuperAdmin assigns a plan to each

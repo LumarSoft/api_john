@@ -12,7 +12,7 @@ import { firstValueFrom } from 'rxjs'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeUser } from '../common/scope/scope.service'
 import { parseBotProfile } from '../common/bot-profile'
-import { FEATURE_NOT_IN_PLAN } from '../plan-features/plan-features'
+import { FEATURE_NOT_FOR_ROLE, FEATURE_NOT_IN_PLAN } from '../plan-features/plan-features'
 import { PlanFeaturesService } from '../plan-features/plan-features.service'
 import { ProposalsService } from '../improvements/proposals.service'
 import { AssistantDataService } from './assistant-data.service'
@@ -206,6 +206,7 @@ export class AssistantService {
   async ask(user: ScopeUser, codeIds: number[], dto: AskAssistantDto, now = new Date()): Promise<{ reply: string }> {
     if (!this.apiKey) throw new ServiceUnavailableException('El asistente todavía no está configurado.')
     const plans = await this.planFeatures.forUser(user)
+    if (plans.blockedByRole.includes('ai_assistant')) throw new ForbiddenException(FEATURE_NOT_FOR_ROLE)
     if (!plans.features.ai_assistant) throw new ForbiddenException(FEATURE_NOT_IN_PLAN.ai_assistant)
     this.countQuestion(user.id, now)
 

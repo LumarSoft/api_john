@@ -15,7 +15,7 @@ import { whatsAppIds } from '../common/phone-match'
 import { BotNotifierService } from '../inbox/bot-notifier.service'
 import { describeFailure, pickSender, pickWhatsApp, SEND_GAP_MS, Sender, sleep } from '../notices/notice-delivery'
 import { NoticeDeliveryService } from '../notices/notice-delivery.service'
-import { FEATURE_NOT_IN_PLAN } from '../plan-features/plan-features'
+import { FEATURE_NOT_FOR_ROLE, FEATURE_NOT_IN_PLAN } from '../plan-features/plan-features'
 import { PlanFeaturesService } from '../plan-features/plan-features.service'
 import {
   CAMPAIGNS,
@@ -123,6 +123,7 @@ export class SalesCampaignsService implements OnModuleInit {
     const definition = campaignOf(kind)
     const current = await this.findRow(user.producerId, definition)
     const plans = await this.planFeatures.forUser(user)
+    if (plans.blockedByRole.includes(definition.feature)) throw new ForbiddenException(FEATURE_NOT_FOR_ROLE)
     if (dto.enabled === true && !plans.features[definition.feature]) {
       throw new ForbiddenException(FEATURE_NOT_IN_PLAN[definition.feature])
     }
@@ -267,6 +268,7 @@ export class SalesCampaignsService implements OnModuleInit {
    */
   async send(user: ScopeUser, kind: string, codeIds: number[], ids: number[], now = new Date()) {
     const definition = campaignOf(kind)
+    await this.planFeatures.assertRole(user, definition.feature)
     const row = await this.findRow(user.producerId, definition)
     if (!row?.enabled) throw new ConflictException('La campaña está apagada. Prendela para enviar.')
 
@@ -345,6 +347,7 @@ export class SalesCampaignsService implements OnModuleInit {
   /** The office reached these clients by other means: they are not offered again for the cooldown. */
   async mark(user: ScopeUser, kind: string, codeIds: number[], ids: number[], now = new Date()) {
     const definition = campaignOf(kind)
+    await this.planFeatures.assertRole(user, definition.feature)
     const row = await this.ensureRow(user, definition)
     const targets = await this.finder.find(
       definition,
@@ -379,6 +382,7 @@ export class SalesCampaignsService implements OnModuleInit {
   /** These people asked not to get campaign messages: no campaign of the organization offers them again. */
   async optOut(user: ScopeUser, kind: string, codeIds: number[], ids: number[], now = new Date()) {
     const definition = campaignOf(kind)
+    await this.planFeatures.assertRole(user, definition.feature)
     const row = await this.findRow(user.producerId, definition)
     const targets = await this.finder.find(
       definition,
@@ -538,7 +542,12 @@ export class SalesCampaignsService implements OnModuleInit {
       settingFields: definition.settingFields,
       templates,
       ready: templates.some(t => t.status === 'APPROVED'),
-      plan: { included: plans.features[definition.feature], availableIn: plans.availableIn[definition.feature] },
+      plan: {
+        included: plans.features[definition.feature],
+        availableIn: plans.availableIn[definition.feature],
+        // The plans include it but the user's role has it off.
+        byRole: plans.blockedByRole.includes(definition.feature),
+      },
       candidates,
       preview: renderBody(body, { ...examples, porcentaje: String(discountPercent) }),
       updatedAt: row?.updatedAt.toISOString() ?? null,

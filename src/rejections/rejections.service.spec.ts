@@ -69,7 +69,10 @@ function setup(template: string | null = 'aviso_rechazo_pago') {
   }
   const botNotifier = { sendTemplate: jest.fn().mockResolvedValue(undefined) }
   // Every number's plan includes the notices unless a test says otherwise.
-  const planFeatures = { keepWith: jest.fn(<T>(numbers: T[]) => Promise.resolve(numbers)) }
+  const planFeatures = {
+    keepWith: jest.fn(<T>(numbers: T[]) => Promise.resolve(numbers)),
+    assertRole: jest.fn().mockResolvedValue(undefined),
+  }
   const config = {
     get: jest.fn((key: string) => (key === 'PAYMENT_REJECTION_TEMPLATE' ? (template ?? undefined) : undefined)),
   }

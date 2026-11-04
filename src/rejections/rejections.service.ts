@@ -246,6 +246,7 @@ export class RejectionsService implements OnModuleInit {
       )
     }
     await this.assertImport(user, importId)
+    await this.delivery.assertRole(user, 'rejection_notices')
 
     // Only the numbers whose plan includes these notices send them (403 when none does).
     const senders = await this.delivery.senders(user.producerId, 'rejection_notices')

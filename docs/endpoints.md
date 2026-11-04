@@ -1396,16 +1396,46 @@ está en pausa este mes), `confirmed` (alguien eligió dejarlo en pausa), `pause
 
 ### GET /admin/billing/features
 
-Which panel functions the user's organization may use, for the panel to show or lock them. A function counts when the plan of one of the organization's active numbers includes it (the assigned plan; the trial only in the number's first month; else the smallest paid plan). An organization without numbers gets the plan its first number will start on. The OWNER gets every function. `availableIn` names the cheapest active paid plan that includes each function (null if none does), for "disponible en el plan X".
+Which panel functions the user may use, for the panel to show or lock them. A function counts when the plan of one of the organization's active numbers includes it (the assigned plan; the trial only in the number's first month; else the smallest paid plan) **and** the user's role has it on (`/owner/plan-features/roles`). An organization without numbers gets the plan its first number will start on. The OWNER gets every function. `availableIn` names the cheapest active paid plan that includes each function (null if none does), for "disponible en el plan X"; `blockedByRole` lists the functions the plans include but the user's role has off.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
 `200 OK`
 ```json
 {
-  "features": { "rejection_notices": false, "expiry_notices": true, "campaign_renewal": false },
-  "availableIn": { "rejection_notices": "Profesional", "expiry_notices": "Inicial", "campaign_renewal": "Empresa" }
+  "features": { "rejection_notices": true, "expiry_notices": true, "ai_assistant": false, "campaign_renewal": false },
+  "availableIn": { "rejection_notices": "Inicial", "expiry_notices": "Inicial", "ai_assistant": "Empresa", "campaign_renewal": null },
+  "blockedByRole": ["ai_assistant"]
 }
+```
+
+### GET /owner/plan-features/roles
+
+Who may use each function besides the plan. A function nobody set is on for both roles.
+
+**Auth required:** Yes (OWNER)
+
+`200 OK`
+```json
+{ "roles": { "ai_assistant": { "ADMIN": false, "SUPERADMIN": true }, "rejection_notices": { "ADMIN": true, "SUPERADMIN": true } } }
+```
+
+### PATCH /owner/plan-features/roles/:key
+
+Turns a function on or off for administrators and/or SuperAdmins (`key` = a function of `features` in `GET /owner/plans`). What is left out stays. A role with a function off gets 403 `"Tu usuario no tiene habilitada esta función. Lo define el soporte de la plataforma."` from its endpoints (assistant, campaign sends, notice sends).
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field      | Type    | Required | Constraints |
+| ---------- | ------- | -------- | ----------- |
+| ADMIN      | boolean | No       |             |
+| SUPERADMIN | boolean | No       |             |
+
+`200 OK`
+```json
+{ "ADMIN": false, "SUPERADMIN": true }
 ```
 
 ---
@@ -1493,7 +1523,7 @@ The platform's month: what each organization and number is billed, what Meta rea
 
 ### GET /owner/plans
 
-The whole catalog, plans switched off included, with the panel functions a plan can include (`features`, from `src/plan-features/plan-features.ts`) and which of them each plan includes. A function a plan never turned off is included.
+The whole catalog, plans switched off included, with the panel functions a plan can include (`features`, from `src/plan-features/plan-features.ts`) and which of them each plan includes. A function a plan never set takes its default: the rejection and expiry notices (older than plan functions) start on; everything added since 2026-11-04 (assistant, campaigns, any new one) starts off until the owner turns it on.
 
 **Auth required:** Yes (OWNER)
 

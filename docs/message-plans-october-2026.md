@@ -50,8 +50,7 @@ Reemplaza los planes por tokens del 29 de octubre (`token-plans-october-2026.md`
 
 Además de los mensajes, cada plan dice qué funciones del panel incluye. El Owner las prende y apaga por plan en
 Facturación → Planes → «Funciones por plan». El catálogo de funciones está en `src/plan-features/plan-features.ts`
-(hoy: avisos de rechazos, avisos de pólizas vencidas, asistente con IA y las cinco campañas comerciales). Un plan que nunca apagó una función la incluye, así
-que una función nueva llega a todos los planes hasta que alguien la apague, y al desplegar no cambia nada.
+(hoy: avisos de rechazos, avisos de pólizas vencidas, asistente con IA y las cinco campañas comerciales). Lo que un plan nunca tocó toma el valor por defecto de la función: los avisos (que ya se usaban antes) arrancan prendidos y todo lo que se sumó desde el 4/11 (asistente, campañas y cualquier función nueva) arranca apagado hasta que el Owner lo prenda. Además, cada función se puede apagar por rol (Administrador / SuperAdmin) en la misma tabla.
 
 - Una organización tiene una función si el plan de alguno de sus números activos la incluye (el mismo plan que lee la
   facturación: el asignado, la Prueba solo en el primer mes, si no el pago más chico). Sin números, el plan con el que

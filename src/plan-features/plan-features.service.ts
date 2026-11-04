@@ -5,7 +5,10 @@ import { ScopeUser } from '../common/scope/scope.service'
 import { CatalogPlan, currentPeriod, UsageService } from '../usage/usage.service'
 import {
   allFeatures,
+  defaultFeatures,
+  FEATURE_NOT_FOR_ROLE,
   FEATURE_NOT_IN_PLAN,
+  FeatureRoles,
   featuresOf,
   PLAN_FEATURES,
   PlanFeatureKey,
@@ -21,10 +24,15 @@ export interface PlannedNumber {
 }
 
 export interface OrganizationFeatures {
-  /** What the organization may use: a function counts when the plan of one of its active numbers includes it. */
+  /**
+   * What the user may use: the plan of one of the organization's active numbers
+   * includes it and the user's role has it on.
+   */
   features: PlanFeatures
   /** The cheapest active paid plan that includes each function ("disponible en el plan X"), or null. */
   availableIn: Record<PlanFeatureKey, string | null>
+  /** Functions the plans include but the user's role has off (the panel says so instead of naming a plan). */
+  blockedByRole: PlanFeatureKey[]
 }
 
 /**
@@ -40,12 +48,54 @@ export class PlanFeaturesService {
     private readonly usage: UsageService,
   ) {}
 
-  /** The functions of the user's organization; the owner has them all. */
+  /** The functions the user may use; the owner has them all. */
   async forUser(user: ScopeUser): Promise<OrganizationFeatures> {
     const [catalog, stored] = await this.load()
-    const features =
-      user.role === Role.OWNER ? allFeatures() : await this.organizationFeatures(user.producerId, catalog, stored)
-    return { features, availableIn: this.availableIn(catalog, stored) }
+    const availableIn = this.availableIn(catalog, stored)
+    if (user.role === Role.OWNER) return { features: allFeatures(), availableIn, blockedByRole: [] }
+    const [organization, roles] = await Promise.all([
+      this.organizationFeatures(user.producerId, catalog, stored),
+      this.roles(),
+    ])
+    const blockedByRole = PLAN_FEATURES.map(f => f.key).filter(key => organization[key] && !allowed(roles[key], user))
+    const features = Object.fromEntries(
+      PLAN_FEATURES.map(f => [f.key, organization[f.key] && !blockedByRole.includes(f.key)]),
+    ) as PlanFeatures
+    return { features, availableIn, blockedByRole }
+  }
+
+  /** 403 when the user's role has `key` off (the plan is checked apart, by the numbers that send). */
+  async assertRole(user: ScopeUser, key: PlanFeatureKey): Promise<void> {
+    if (user.role === Role.OWNER) return
+    const roles = await this.roles()
+    if (!allowed(roles[key], user)) throw new ForbiddenException(FEATURE_NOT_FOR_ROLE)
+  }
+
+  /** Who may use each function besides the plan; a function nobody set is on for both roles. */
+  async roles(): Promise<Record<PlanFeatureKey, FeatureRoles>> {
+    const rows = await this.prisma.planFeatureRole.findMany({
+      where: { deletedAt: null },
+      select: { feature: true, admin: true, superAdmin: true },
+    })
+    const byKey = new Map(rows.map(r => [r.feature, r]))
+    return Object.fromEntries(
+      PLAN_FEATURES.map(f => {
+        const row = byKey.get(f.key)
+        return [f.key, { ADMIN: row?.admin ?? true, SUPERADMIN: row?.superAdmin ?? true }]
+      }),
+    ) as Record<PlanFeatureKey, FeatureRoles>
+  }
+
+  /** The owner turns a function on or off for a role. */
+  async setRoles(key: PlanFeatureKey, changes: Partial<FeatureRoles>): Promise<FeatureRoles> {
+    const current = (await this.roles())[key]
+    const next = { ...current, ...changes }
+    await this.prisma.planFeatureRole.upsert({
+      where: { feature: key },
+      create: { feature: key, admin: next.ADMIN, superAdmin: next.SUPERADMIN },
+      update: { admin: next.ADMIN, superAdmin: next.SUPERADMIN, deletedAt: null },
+    })
+    return next
   }
 
   /** True when the plan of one of the organization's active numbers includes `key`. */
@@ -111,7 +161,7 @@ export class PlanFeaturesService {
   }
 
   private featuresOfPlan(planId: number | null, stored: Map<number, PlanFeatures>): PlanFeatures {
-    return (planId != null ? stored.get(planId) : undefined) ?? allFeatures()
+    return (planId != null ? stored.get(planId) : undefined) ?? defaultFeatures()
   }
 
   private availableIn(
@@ -124,4 +174,9 @@ export class PlanFeaturesService {
       PLAN_FEATURES.map(f => [f.key, paid.find(p => this.featuresOfPlan(p.id, stored)[f.key])?.name ?? null]),
     ) as Record<PlanFeatureKey, string | null>
   }
+}
+
+/** A role a function is on for; an unknown role reads as an administrator. */
+function allowed(roles: FeatureRoles, user: ScopeUser): boolean {
+  return user.role === Role.SUPERADMIN ? roles.SUPERADMIN : roles.ADMIN
 }

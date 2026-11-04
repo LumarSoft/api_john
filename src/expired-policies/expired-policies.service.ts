@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { PolicyExpiryNoticeStatus, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { ScopeUser } from '../common/scope/scope.service'
 import { parseBotProfile } from '../common/bot-profile'
 import { notCancelledPolizaWhere } from '../common/poliza-vigencia'
 import { productNameOf } from '../common/poliza-detail'
@@ -184,13 +185,14 @@ export class ExpiredPoliciesService implements OnModuleInit {
    * policy without a usable phone, one told in the last month or one still
    * going out is left out and reported as such.
    */
-  async send(user: { id: number; producerId: number }, codeIds: number[], ids: number[], now = new Date()) {
+  async send(user: ScopeUser, codeIds: number[], ids: number[], now = new Date()) {
     const template = this.template
     if (!template) {
       throw new ConflictException(
         'La plantilla de WhatsApp para avisar pólizas vencidas todavía no está habilitada. No se envió ningún aviso.',
       )
     }
+    await this.delivery.assertRole(user, 'expiry_notices')
     // Only the numbers whose plan includes these notices send them (403 when none does).
     const senders = await this.delivery.senders(user.producerId, 'expiry_notices')
     if (!senders.length) {

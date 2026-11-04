@@ -12,6 +12,7 @@ function build(prisma: Record<string, unknown>, template: string | null = 'aviso
   const botNotifier = { sendTemplate: jest.fn().mockResolvedValue(undefined) }
   const delivery = {
     senders: jest.fn().mockResolvedValue([{ phoneNumberId: 'meta-1', codeIds: [7] }]),
+    assertRole: jest.fn().mockResolvedValue(undefined),
     knownWaIds: jest.fn().mockResolvedValue(new Set<string>()),
     findConversation: jest.fn().mockResolvedValue(null),
     recordInChat: jest.fn().mockResolvedValue(99),

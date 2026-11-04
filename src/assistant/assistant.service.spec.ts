@@ -29,7 +29,9 @@ function setup({ key = 'sk-prueba' as string | null } = {}) {
     unpaidInstallments: jest.fn(),
     portfolioSummary: jest.fn(),
   }
-  const planFeatures = { forUser: jest.fn().mockResolvedValue({ features: allFeatures(), availableIn: {} }) }
+  const planFeatures = {
+    forUser: jest.fn().mockResolvedValue({ features: allFeatures(), availableIn: {}, blockedByRole: [] }),
+  }
   const proposals = { create: jest.fn().mockResolvedValue({ id: 31 }) }
   const config = { get: jest.fn((name: string) => (name === 'OPENAI_API_KEY' ? key : undefined)) }
   const service = new AssistantService(
@@ -102,7 +104,11 @@ describe('AssistantService.ask', () => {
     await expect(setup({ key: null }).service.ask(mili, [3], question)).rejects.toThrow(ServiceUnavailableException)
 
     const { service, planFeatures, http } = setup()
-    planFeatures.forUser.mockResolvedValue({ features: { ...allFeatures(), ai_assistant: false }, availableIn: {} })
+    planFeatures.forUser.mockResolvedValue({
+      features: { ...allFeatures(), ai_assistant: false },
+      availableIn: {},
+      blockedByRole: [],
+    })
     await expect(service.ask(mili, [3], question)).rejects.toThrow(ForbiddenException)
     expect(http.post).not.toHaveBeenCalled()
   })

@@ -92,7 +92,8 @@ function setup({ row = {}, targets = [target()], messages = [] as unknown[], opt
     approvedAccounts: RealTemplates.prototype.approvedAccounts,
   }
   const planFeatures = {
-    forUser: jest.fn().mockResolvedValue({ features: allFeatures(), availableIn: {} }),
+    forUser: jest.fn().mockResolvedValue({ features: allFeatures(), availableIn: {}, blockedByRole: [] }),
+    assertRole: jest.fn().mockResolvedValue(undefined),
   }
   const delivery = {
     senders: jest.fn().mockResolvedValue([
@@ -217,6 +218,7 @@ describe('SalesCampaignsService.update', () => {
     planFeatures.forUser.mockResolvedValue({
       features: { ...allFeatures(), campaign_renewal: false },
       availableIn: { campaign_renewal: 'Empresa' },
+      blockedByRole: [],
     })
 
     await expect(service.update(mili, 'renewal', { enabled: true }, [3])).rejects.toThrow(ForbiddenException)

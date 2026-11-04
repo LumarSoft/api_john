@@ -27,12 +27,14 @@ function setup({
   features = {} as Record<number, unknown>,
   starts = new Map<number, Date>(),
   initialPlanId = null as number | null,
+  roles = [] as Array<{ feature: string; admin: boolean; superAdmin: boolean }>,
 } = {}) {
   const prisma = {
     messagePlan: {
       findMany: jest.fn().mockResolvedValue(CATALOG.map(p => ({ id: p.id, features: features[p.id] ?? null }))),
     },
     phoneNumber: { findMany: jest.fn().mockResolvedValue(numbers) },
+    planFeatureRole: { findMany: jest.fn().mockResolvedValue(roles), upsert: jest.fn().mockResolvedValue({}) },
   }
   const usage = {
     catalog: jest.fn().mockResolvedValue(CATALOG),
@@ -52,27 +54,32 @@ function setup({
 const admin = { id: 2, producerId: 7, role: Role.ADMIN }
 
 describe('plan features', () => {
-  it('includes every function a plan does not turn off', () => {
-    expect(Object.values(featuresOf(null)).every(Boolean)).toBe(true)
-    const stored = featuresOf({ campaign_cross_sell: false, gone: false })
-    expect(stored).toEqual(
-      expect.objectContaining({ rejection_notices: true, expiry_notices: true, campaign_cross_sell: false }),
+  it('gives what a plan never set its default: the old notices on, everything added since off', () => {
+    expect(featuresOf(null)).toEqual(
+      expect.objectContaining({
+        rejection_notices: true,
+        expiry_notices: true,
+        ai_assistant: false,
+        campaign_cross_sell: false,
+      }),
     )
+    const stored = featuresOf({ campaign_cross_sell: true, rejection_notices: false, gone: false })
+    expect(stored).toEqual(expect.objectContaining({ rejection_notices: false, campaign_cross_sell: true }))
     expect(stored).not.toHaveProperty('gone')
   })
 
   it('takes the owner changes and refuses a function that does not exist', () => {
-    expect(withChanges({ campaign_cross_sell: false }, { rejection_notices: false })).toEqual(
-      expect.objectContaining({ rejection_notices: false, expiry_notices: true, campaign_cross_sell: false }),
+    expect(withChanges({ campaign_cross_sell: true }, { rejection_notices: false })).toEqual(
+      expect.objectContaining({ rejection_notices: false, expiry_notices: true, campaign_cross_sell: true }),
     )
     expect(() => withChanges(null, { reports: true })).toThrow(BadRequestException)
     expect(() => withChanges(null, { campaign_cross_sell: 'no' })).toThrow(BadRequestException)
   })
 
   it('counts a function when one of the plans includes it', () => {
-    const off = featuresOf({ campaign_cross_sell: false })
-    expect(unionOf([off, featuresOf(null)]).campaign_cross_sell).toBe(true)
-    expect(unionOf([off]).campaign_cross_sell).toBe(false)
+    const on = featuresOf({ campaign_cross_sell: true })
+    expect(unionOf([on, featuresOf(null)]).campaign_cross_sell).toBe(true)
+    expect(unionOf([featuresOf(null)]).campaign_cross_sell).toBe(false)
   })
 })
 
@@ -80,7 +87,7 @@ describe('PlanFeaturesService.forUser', () => {
   it('leaves out what the plan of every active number turns off', async () => {
     const { service } = setup({
       numbers: [{ id: 11, planId: 4 }],
-      features: { 4: { rejection_notices: false, campaign_cross_sell: false }, 5: { campaign_cross_sell: false } },
+      features: { 4: { rejection_notices: false }, 6: { campaign_cross_sell: true } },
     })
 
     const result = await service.forUser(admin)
@@ -104,14 +111,15 @@ describe('PlanFeaturesService.forUser', () => {
         { id: 11, planId: 4 },
         { id: 12, planId: 6 },
       ],
-      features: { 4: { campaign_cross_sell: false } },
+      features: { 6: { campaign_cross_sell: true } },
     })
 
     expect((await service.forUser(admin)).features.campaign_cross_sell).toBe(true)
   })
 
   it('reads the trial only in the number’s first month, and the smallest paid plan after it', async () => {
-    const features = { 3: { campaign_cross_sell: true }, 4: { campaign_cross_sell: false } }
+    // Inicial never set it: the campaign's default, off.
+    const features = { 3: { campaign_cross_sell: true } }
     const firstMonth = setup({ numbers: [{ id: 11, planId: 3 }], features })
     const later = setup({ numbers: [{ id: 11, planId: 3 }], features, starts: new Map([[11, new Date('2026-09-10')]]) })
 
@@ -153,5 +161,51 @@ describe('PlanFeaturesService.keepWith', () => {
 
     await expect(service.keepWith([{ id: 11, planId: 4 }], 'rejection_notices')).rejects.toThrow(ForbiddenException)
     await expect(service.keepWith([], 'rejection_notices')).resolves.toEqual([])
+  })
+})
+
+describe('plan functions by role', () => {
+  const superAdmin = { id: 3, producerId: 7, role: Role.SUPERADMIN }
+
+  it('takes off what the user’s role has off, and says it was the role', async () => {
+    const { service } = setup({
+      numbers: [{ id: 11, planId: 6 }],
+      features: { 6: { ai_assistant: true, campaign_renewal: true } },
+      roles: [{ feature: 'ai_assistant', admin: false, superAdmin: true }],
+    })
+
+    const forAdmin = await service.forUser(admin)
+    expect(forAdmin.features.ai_assistant).toBe(false)
+    expect(forAdmin.blockedByRole).toEqual(['ai_assistant'])
+    expect(forAdmin.features.campaign_renewal).toBe(true)
+
+    const forSuperAdmin = await service.forUser(superAdmin)
+    expect(forSuperAdmin.features.ai_assistant).toBe(true)
+    expect(forSuperAdmin.blockedByRole).toEqual([])
+  })
+
+  it('answers 403 to a role that has the function off, never to the owner', async () => {
+    const { service } = setup({ roles: [{ feature: 'rejection_notices', admin: false, superAdmin: true }] })
+
+    await expect(service.assertRole(admin, 'rejection_notices')).rejects.toThrow(ForbiddenException)
+    await expect(service.assertRole(superAdmin, 'rejection_notices')).resolves.toBeUndefined()
+    await expect(
+      service.assertRole({ id: 1, producerId: 1, role: Role.OWNER }, 'rejection_notices'),
+    ).resolves.toBeUndefined()
+  })
+
+  it('keeps both roles on until the owner changes one', async () => {
+    const { service, prisma } = setup()
+
+    expect((await service.roles()).campaign_winback).toEqual({ ADMIN: true, SUPERADMIN: true })
+    await expect(service.setRoles('campaign_winback', { ADMIN: false })).resolves.toEqual({
+      ADMIN: false,
+      SUPERADMIN: true,
+    })
+    expect(prisma.planFeatureRole.upsert).toHaveBeenCalledWith({
+      where: { feature: 'campaign_winback' },
+      create: { feature: 'campaign_winback', admin: false, superAdmin: true },
+      update: { admin: false, superAdmin: true, deletedAt: null },
+    })
   })
 })
