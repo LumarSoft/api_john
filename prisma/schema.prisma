@@ -72,7 +72,6 @@ model Producer {
   improvements            Improvement[]
   proposals               ImprovementProposal[]
   tasks                   Task[]
-  internalChats           InternalChat[]
   paymentRejectionImports PaymentRejectionImport[]
   paymentRejections       PaymentRejection[]
   policyExpiryNotices     PolicyExpiryNotice[]
@@ -517,8 +516,6 @@ model User {
   tasksCreated              Task[]                   @relation("tasks_created")
   tasksAssigned             Task[]                   @relation("tasks_assigned")
   taskComments              TaskComment[]
-  internalChatMemberships   InternalChatMember[]
-  internalChatMessages      InternalChatMessage[]
   paymentRejectionImports   PaymentRejectionImport[]
   policiesHidden            Policy[]                 @relation("policies_hidden")
   paymentRejectionsSent     PaymentRejection[]
@@ -1292,69 +1289,6 @@ model TaskComment {
   user   User @relation(fields: [userId], references: [id])
 
   @@index([taskId, createdAt])
-}
-
-// ─── CHAT INTERNO ────────────────────────────────────────
-
-enum InternalChatKind {
-  TEAM
-  DIRECT
-}
-
-/// Chat between the panel users of one organization ("Chat interno"), apart from
-/// the WhatsApp chats with clients: nothing goes through Meta. Each organization
-/// has one TEAM chat (everyone in the office) and one DIRECT chat per pair.
-model InternalChat {
-  id            Int              @id @default(autoincrement())
-  kind          InternalChatKind
-  /// "team", or "direct:<lower user id>:<higher user id>": one chat per pair.
-  key           String           @db.VarChar(40)
-  lastMessageAt DateTime?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  deletedAt     DateTime?
-
-  producerId Int
-  producer   Producer              @relation(fields: [producerId], references: [id])
-  members    InternalChatMember[]
-  messages   InternalChatMessage[]
-
-  @@unique([producerId, key])
-}
-
-/// Who is in a chat and how far they have read. A direct chat gets its two rows
-/// when it is created; the team chat gets each person's row the first time the
-/// panel asks for their chats.
-model InternalChatMember {
-  id                Int       @id @default(autoincrement())
-  /// Last message this person has read (theirs count as read); null = none.
-  lastReadMessageId Int?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  deletedAt         DateTime?
-
-  chatId Int
-  chat   InternalChat @relation(fields: [chatId], references: [id])
-  userId Int
-  user   User         @relation(fields: [userId], references: [id])
-
-  @@unique([chatId, userId])
-  @@index([userId])
-}
-
-model InternalChatMessage {
-  id        Int       @id @default(autoincrement())
-  body      String    @db.Text
-  createdAt DateTime  @default(now())
-  /// Set when the sender deletes it: it no longer shows in the chat.
-  deletedAt DateTime?
-
-  chatId   Int
-  chat     InternalChat @relation(fields: [chatId], references: [id])
-  senderId Int
-  sender   User         @relation(fields: [senderId], references: [id])
-
-  @@index([chatId, id])
 }
 
 // ─── RECHAZOS DE PAGO ────────────────────────────────────

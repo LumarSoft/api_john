@@ -54,25 +54,25 @@ const admin = { id: 2, producerId: 7, role: Role.ADMIN }
 describe('plan features', () => {
   it('includes every function a plan does not turn off', () => {
     expect(Object.values(featuresOf(null)).every(Boolean)).toBe(true)
-    const stored = featuresOf({ internal_chat: false, gone: false })
+    const stored = featuresOf({ campaign_cross_sell: false, gone: false })
     expect(stored).toEqual(
-      expect.objectContaining({ rejection_notices: true, expiry_notices: true, internal_chat: false }),
+      expect.objectContaining({ rejection_notices: true, expiry_notices: true, campaign_cross_sell: false }),
     )
     expect(stored).not.toHaveProperty('gone')
   })
 
   it('takes the owner changes and refuses a function that does not exist', () => {
-    expect(withChanges({ internal_chat: false }, { rejection_notices: false })).toEqual(
-      expect.objectContaining({ rejection_notices: false, expiry_notices: true, internal_chat: false }),
+    expect(withChanges({ campaign_cross_sell: false }, { rejection_notices: false })).toEqual(
+      expect.objectContaining({ rejection_notices: false, expiry_notices: true, campaign_cross_sell: false }),
     )
     expect(() => withChanges(null, { reports: true })).toThrow(BadRequestException)
-    expect(() => withChanges(null, { internal_chat: 'no' })).toThrow(BadRequestException)
+    expect(() => withChanges(null, { campaign_cross_sell: 'no' })).toThrow(BadRequestException)
   })
 
   it('counts a function when one of the plans includes it', () => {
-    const off = featuresOf({ internal_chat: false })
-    expect(unionOf([off, featuresOf(null)]).internal_chat).toBe(true)
-    expect(unionOf([off]).internal_chat).toBe(false)
+    const off = featuresOf({ campaign_cross_sell: false })
+    expect(unionOf([off, featuresOf(null)]).campaign_cross_sell).toBe(true)
+    expect(unionOf([off]).campaign_cross_sell).toBe(false)
   })
 })
 
@@ -80,20 +80,20 @@ describe('PlanFeaturesService.forUser', () => {
   it('leaves out what the plan of every active number turns off', async () => {
     const { service } = setup({
       numbers: [{ id: 11, planId: 4 }],
-      features: { 4: { rejection_notices: false, internal_chat: false }, 5: { internal_chat: false } },
+      features: { 4: { rejection_notices: false, campaign_cross_sell: false }, 5: { campaign_cross_sell: false } },
     })
 
     const result = await service.forUser(admin)
 
     expect(result.features).toEqual(
-      expect.objectContaining({ rejection_notices: false, expiry_notices: true, internal_chat: false }),
+      expect.objectContaining({ rejection_notices: false, expiry_notices: true, campaign_cross_sell: false }),
     )
     // The cheapest paid plan that includes each function, for "disponible en el plan X".
     expect(result.availableIn).toEqual(
       expect.objectContaining({
         rejection_notices: 'Profesional',
         expiry_notices: 'Inicial',
-        internal_chat: 'Empresa',
+        campaign_cross_sell: 'Empresa',
       }),
     )
   })
@@ -104,19 +104,19 @@ describe('PlanFeaturesService.forUser', () => {
         { id: 11, planId: 4 },
         { id: 12, planId: 6 },
       ],
-      features: { 4: { internal_chat: false } },
+      features: { 4: { campaign_cross_sell: false } },
     })
 
-    expect((await service.forUser(admin)).features.internal_chat).toBe(true)
+    expect((await service.forUser(admin)).features.campaign_cross_sell).toBe(true)
   })
 
   it('reads the trial only in the number’s first month, and the smallest paid plan after it', async () => {
-    const features = { 3: { internal_chat: true }, 4: { internal_chat: false } }
+    const features = { 3: { campaign_cross_sell: true }, 4: { campaign_cross_sell: false } }
     const firstMonth = setup({ numbers: [{ id: 11, planId: 3 }], features })
     const later = setup({ numbers: [{ id: 11, planId: 3 }], features, starts: new Map([[11, new Date('2026-09-10')]]) })
 
-    expect((await firstMonth.service.forUser(admin)).features.internal_chat).toBe(true)
-    expect((await later.service.forUser(admin)).features.internal_chat).toBe(false)
+    expect((await firstMonth.service.forUser(admin)).features.campaign_cross_sell).toBe(true)
+    expect((await later.service.forUser(admin)).features.campaign_cross_sell).toBe(false)
   })
 
   it('uses the plan the first number will start on when there is no number yet', async () => {
@@ -127,9 +127,12 @@ describe('PlanFeaturesService.forUser', () => {
   })
 
   it('gives the owner every function', async () => {
-    const { service, prisma } = setup({ numbers: [{ id: 11, planId: 4 }], features: { 4: { internal_chat: false } } })
+    const { service, prisma } = setup({
+      numbers: [{ id: 11, planId: 4 }],
+      features: { 4: { campaign_cross_sell: false } },
+    })
 
-    expect((await service.forUser({ id: 1, producerId: 1, role: Role.OWNER })).features.internal_chat).toBe(true)
+    expect((await service.forUser({ id: 1, producerId: 1, role: Role.OWNER })).features.campaign_cross_sell).toBe(true)
     expect(prisma.phoneNumber.findMany).not.toHaveBeenCalled()
   })
 })
