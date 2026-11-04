@@ -3,6 +3,7 @@ import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../common/scope/scope.service'
 import { featuresOf, PLAN_FEATURES, withChanges } from '../plan-features/plan-features'
+import { MonthlyCloseService } from '../monthly-close/monthly-close.service'
 import {
   acceptedBlocks,
   BilledPlan,
@@ -61,6 +62,7 @@ export class BillingService {
     private readonly prisma: PrismaService,
     private readonly usage: UsageService,
     private readonly scope: ScopeService,
+    private readonly closes: MonthlyCloseService,
   ) {}
 
   // ─── Catalog (owner) ───────────────────────────────────
@@ -332,119 +334,78 @@ export class BillingService {
   /**
    * What the platform bills each organization in a month and what Meta really
    * charges for it. OpenAI is prepaid, so it is shown apart and left out of the
-   * profit: profit = billed − Meta.
+   * profit: profit = billed − Meta. A closed month is read as it was frozen on the
+   * 1st of the next month (MonthlyCloseService); only a month not closed yet (the
+   * running one) is computed with each number's current plan.
    */
   async ownerDashboard(period = currentPeriod()) {
     this.assertPeriod(period)
-    const [organizations, catalog] = await Promise.all([
-      this.prisma.producer.findMany({
-        where: { deletedAt: null },
-        orderBy: { createdAt: 'asc' },
-        select: {
-          id: true,
-          name: true,
-          isActive: true,
-          phoneNumbers: {
-            where: { deletedAt: null },
-            orderBy: { id: 'asc' },
-            select: {
-              id: true,
-              number: true,
-              isActive: true,
-              planId: true,
-              planUpgradedAt: true,
-              planPausedAt: true,
-              extraBlocks: true,
-              extraBlocksPeriod: true,
-              responsibleProducerCode: { select: { code: true, holderName: true } },
-              usageMonthly: {
-                where: { period },
-                select: {
-                  metaMessages: true,
-                  metaBillableMessages: true,
-                  metaCostUsd: true,
-                  openaiCostUsd: true,
-                },
-              },
-            },
-          },
-        },
-      }),
-      this.usage.catalog(),
-    ])
-    const starts = await this.usage.serviceStarts(organizations.flatMap(o => o.phoneNumbers.map(n => n.id)))
+    const month = await this.closes.monthSnapshot(period)
 
-    const zero = () => ({ messages: 0, metaBillableMessages: 0, billedUsd: 0, metaCostUsd: 0, openaiCostUsd: 0 })
-    const totals = { ...zero(), profitUsd: 0, activeNumbers: 0, upgradedNumbers: 0, pausedNumbers: 0 }
+    const zero = () => ({
+      messages: 0,
+      sentMessages: 0,
+      templateMessages: 0,
+      metaBillableMessages: 0,
+      billedUsd: 0,
+      metaCostUsd: 0,
+      openaiCostUsd: 0,
+    })
+    const totals = { ...zero(), activeNumbers: 0, upgradedNumbers: 0, pausedNumbers: 0 }
 
-    const rows = organizations.map(org => {
-      const sum = { ...zero(), profitUsd: 0 }
-      const numbers = org.phoneNumbers.map(n => {
-        const usage = n.usageMonthly[0]
-        const bill = this.usage.billFor(
-          {
+    const rows = month.organizations.map(org => {
+      const sum = zero()
+      const numbers = month.numbers
+        .filter(n => n.producerId === org.id)
+        .map(n => {
+          const row = {
+            id: n.phoneNumberId,
+            number: n.number,
             isActive: n.isActive,
-            serviceStartedAt: starts.get(n.id) ?? null,
-            planId: n.planId,
-            extraBlocks: acceptedBlocks(n, period),
-          },
-          usage,
-          catalog,
-          period,
-        )
-        const metaCostUsd = Number(usage?.metaCostUsd ?? 0)
-        const openaiCostUsd = Number(usage?.openaiCostUsd ?? 0)
-        const row = {
-          id: n.id,
-          number: n.number,
-          isActive: n.isActive,
-          responsibleCode: n.responsibleProducerCode,
-          plan: bill.plan,
-          assignedPlan: bill.assignedPlan,
-          upgraded: bill.upgraded || movedUpIn(n.planUpgradedAt, period),
-          prorated: bill.prorated,
-          paused: period === currentPeriod() && pausedIn(n.planPausedAt, period),
-          messages: bill.messages,
-          metaBillableMessages: usage?.metaBillableMessages ?? 0,
-          billedUsd: bill.billedUsd,
-          metaCostUsd: round2(metaCostUsd),
-          openaiCostUsd: round2(openaiCostUsd),
-          profitUsd: round2(bill.billedUsd - metaCostUsd),
-        }
-        sum.messages += row.messages
-        sum.metaBillableMessages += row.metaBillableMessages
-        sum.billedUsd += row.billedUsd
-        sum.metaCostUsd += metaCostUsd
-        sum.openaiCostUsd += openaiCostUsd
-        if (n.isActive) totals.activeNumbers++
-        if (row.upgraded) totals.upgradedNumbers++
-        if (row.paused) totals.pausedNumbers++
-        return row
-      })
-      sum.profitUsd = sum.billedUsd - sum.metaCostUsd
-      totals.messages += sum.messages
-      totals.metaBillableMessages += sum.metaBillableMessages
-      totals.billedUsd += sum.billedUsd
-      totals.metaCostUsd += sum.metaCostUsd
-      totals.openaiCostUsd += sum.openaiCostUsd
+            responsibleCode: n.responsibleCode,
+            plan: n.plan,
+            assignedPlan: n.assignedPlan,
+            upgraded: n.upgraded,
+            prorated: n.prorated,
+            paused: n.paused,
+            // The plan messages consumed (what the plan counts), and of the messages sent, the templates.
+            messages: n.consumedMessages,
+            sentMessages: n.messages,
+            templateMessages: n.templateMessages,
+            metaBillableMessages: n.metaBillableMessages,
+            billedUsd: n.billedUsd,
+            metaCostUsd: n.metaCostUsd,
+            openaiCostUsd: n.openaiCostUsd,
+            profitUsd: round2(n.billedUsd - n.metaCostUsd),
+          }
+          for (const key of Object.keys(sum) as (keyof typeof sum)[]) sum[key] += row[key]
+          if (n.isActive) totals.activeNumbers++
+          if (row.upgraded) totals.upgradedNumbers++
+          if (row.paused) totals.pausedNumbers++
+          return row
+        })
+      for (const key of Object.keys(sum) as (keyof typeof sum)[]) totals[key] += sum[key]
       return {
         id: org.id,
         name: org.name,
         isActive: org.isActive,
         numbers,
         totals: {
-          messages: sum.messages,
-          metaBillableMessages: sum.metaBillableMessages,
+          ...sum,
           billedUsd: round2(sum.billedUsd),
           metaCostUsd: round2(sum.metaCostUsd),
           openaiCostUsd: round2(sum.openaiCostUsd),
-          profitUsd: round2(sum.profitUsd),
+          profitUsd: round2(sum.billedUsd - sum.metaCostUsd),
         },
       }
     })
 
     return {
       period,
+      // Frozen on the 1st of the next month; `backfilled` = closed later, with that day's plans.
+      closed: month.closed,
+      closedAt: month.closedAt?.toISOString() ?? null,
+      backfilled: month.backfilled,
       organizations: rows,
       totals: {
         organizations: rows.length,
@@ -452,6 +413,8 @@ export class BillingService {
         upgradedNumbers: totals.upgradedNumbers,
         pausedNumbers: totals.pausedNumbers,
         messages: totals.messages,
+        sentMessages: totals.sentMessages,
+        templateMessages: totals.templateMessages,
         metaBillableMessages: totals.metaBillableMessages,
         billedUsd: round2(totals.billedUsd),
         metaCostUsd: round2(totals.metaCostUsd),

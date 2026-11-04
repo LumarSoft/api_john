@@ -1467,7 +1467,7 @@ Puts a number of the organization on a paid plan of the catalog. Clears the numb
 
 ### GET /owner/billing
 
-The platform's month: what each organization and number is billed, what Meta really charged, OpenAI apart, and the profit (billed − Meta).
+The platform's month: what each organization and number is billed, what Meta really charged, OpenAI apart, and the profit (billed − Meta). A **closed** month (see `POST /owner/billing/close`) is read as it was frozen: plan, messages, billed and costs of that day, never recomputed with today's plans; `assignedPlan` is `null` and `paused` `false` there. Only a month not closed yet (the running one, or a past one before its close) is computed with each number's current plan. `messages` is the plan messages consumed (a template counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on); `sentMessages` counts each message once and `templateMessages` the templates among them.
 
 **Auth required:** Yes (OWNER)
 
@@ -1477,6 +1477,9 @@ The platform's month: what each organization and number is billed, what Meta rea
 ```json
 {
   "period": "2026-10",
+  "closed": true,
+  "closedAt": "2026-11-01T03:00:00.000Z",
+  "backfilled": false,
   "organizations": [
     {
       "id": 1,
@@ -1492,7 +1495,10 @@ The platform's month: what each organization and number is billed, what Meta rea
           "assignedPlan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
           "upgraded": true,
           "prorated": false,
+          "paused": false,
           "messages": 502,
+          "sentMessages": 502,
+          "templateMessages": 2,
           "metaBillableMessages": 2,
           "billedUsd": 50,
           "metaCostUsd": 0.05,
@@ -1500,14 +1506,17 @@ The platform's month: what each organization and number is billed, what Meta rea
           "profitUsd": 49.95
         }
       ],
-      "totals": { "messages": 502, "metaBillableMessages": 2, "billedUsd": 50, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
+      "totals": { "messages": 502, "sentMessages": 502, "templateMessages": 2, "metaBillableMessages": 2, "billedUsd": 50, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
     }
   ],
   "totals": {
     "organizations": 1,
     "activeNumbers": 1,
     "upgradedNumbers": 1,
+    "pausedNumbers": 0,
     "messages": 502,
+    "sentMessages": 502,
+    "templateMessages": 2,
     "metaBillableMessages": 2,
     "billedUsd": 50,
     "metaCostUsd": 0.05,
@@ -1518,6 +1527,38 @@ The platform's month: what each organization and number is billed, what Meta rea
 ```
 
 `400 Bad Request` — Invalid month. `403 Forbidden` — not the OWNER.
+
+---
+
+### POST /owner/billing/close
+
+Freezes a month that already ended, number by number (`MonthlyClose`): the plan it was billed on, its messages (sent, templates, consumed), what it was billed (the Tablero's figure), what Meta and OpenAI cost, Lumarsoft's per-message cost and the partner settlement, with that day's rates (`PARTNER_COST_PER_MESSAGE_USD`, `PARTNER_PROFIT_SHARE`). Every number in service that month, or that sent or cost something, gets a row; all in one transaction.
+
+The API closes the previous month by itself on the 1st at 00:00 (Argentina), and on boot if it is still open (`MONTHLY_CLOSE_ENABLED`, on by default). This endpoint backfills the months before the close existed and redoes one with `force`. A close made after the 1st of the next month uses the plans of that day and is marked `backfilled`. A closed month is never written again without `force`.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field  | Type    | Required | Constraints                                                     |
+|--------|---------|----------|-----------------------------------------------------------------|
+| period | string  | Yes      | `YYYY-MM`, a month that already ended                           |
+| force  | boolean | No       | recompute a month already closed, with today's plans (default false) |
+
+```json
+{ "period": "2026-10" }
+```
+
+**Responses**
+
+`200 OK`
+```json
+{ "period": "2026-10", "alreadyClosed": false, "closedNumbers": 3, "backfilled": true, "closedAt": "2026-11-05T15:00:00.000Z" }
+```
+
+`400 Bad Request` — the running month, a future one or a malformed one ("Solo se cierra un mes que ya terminó.").
+`409 Conflict` — already closed without `force` ("Ese mes ya está cerrado. Para recalcularlo con los planes de hoy, usá force."), or another close running ("Ya hay un cierre de mes en curso.").
+`403 Forbidden` — not the OWNER.
 
 ---
 

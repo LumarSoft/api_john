@@ -34,6 +34,7 @@ import { TasksModule } from './tasks/tasks.module'
 import { RejectionsModule } from './rejections/rejections.module'
 import { ExpiredPoliciesModule } from './expired-policies/expired-policies.module'
 import { BillingModule } from './billing/billing.module'
+import { MonthlyCloseModule } from './monthly-close/monthly-close.module'
 import { PlanFeaturesModule } from './plan-features/plan-features.module'
 import { SalesCampaignsModule } from './sales-campaigns/sales-campaigns.module'
 import { AssistantModule } from './assistant/assistant.module'
@@ -74,6 +75,7 @@ import { OrganizationLogoModule } from './organization-logo/organization-logo.mo
     RejectionsModule,
     ExpiredPoliciesModule,
     BillingModule,
+    MonthlyCloseModule,
     PlanFeaturesModule,
     SalesCampaignsModule,
     AssistantModule,

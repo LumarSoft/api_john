@@ -67,6 +67,7 @@ model Producer {
   messagePlans            MessagePlan[]
   businessClosures        BusinessClosure[]
   usageMonthly            UsageMonthly[]
+  monthlyCloses           MonthlyClose[]
   coverageSettings        CoverageSetting[]
   botStatusChanges        BotStatusChange[]
   improvements            Improvement[]
@@ -264,6 +265,7 @@ model ProducerCode {
   // Phone numbers this code is served by (many-to-many, e.g. shared office line).
   servedByPhones        PhoneNumberProducerCode[]
   usageMonthly          UsageMonthly[]
+  monthlyCloses         MonthlyClose[]
   paymentRejections     PaymentRejection[]
   policyExpiryNotices   PolicyExpiryNotice[]
 
@@ -351,6 +353,7 @@ model PhoneNumber {
 
   usageEvents      UsageEvent[]
   usageMonthly     UsageMonthly[]
+  monthlyCloses    MonthlyClose[]
   whatsappContacts WhatsAppContact[]
 
   // Last Coexistence payload successfully persisted for this number. These
@@ -451,6 +454,64 @@ model UsageMonthly {
 }
 
 // Durable deduplication: retries and delivered/read callbacks bill only once.
+/// A number's month, frozen on the 1st of the next month (MonthlyCloseService): the plan
+/// it was billed on, its messages, what it was billed, Lumarsoft's per-message cost and
+/// the partner settlement, with the rates of that day. The owner's screens read a closed
+/// month from here; only the running month is computed live. A month closed after the
+/// 1st of the next one (or backfilled) recomputes it with that day's plans: `backfilled`.
+model MonthlyClose {
+  id                   Int       @id @default(autoincrement())
+  period               String    @db.VarChar(7) // "YYYY-MM"
+  // Snapshot of the number at the close.
+  number               String    @db.VarChar(40)
+  isActive             Boolean
+  // Billed or sending that month (the "active numbers" of the owner's series).
+  inService            Boolean
+  // Its first month of service (the "new numbers" of the owner's series).
+  firstMonth           Boolean
+  // The plan the month was billed on: a catalog plan, or the largest plus blocks (planId null).
+  planId               Int?
+  planName             String    @db.VarChar(80)
+  planMessages         Int
+  planPriceUsd         Decimal   @db.Decimal(10, 2)
+  planExtraBlocks      Int       @default(0)
+  trial                Boolean   @default(false)
+  upgraded             Boolean   @default(false)
+  prorated             Boolean   @default(false)
+  // Messages sent (one each), of them templates, and the plan messages they consumed.
+  messages             Int       @default(0)
+  templateMessages     Int       @default(0)
+  consumedMessages     Int       @default(0)
+  // Measured provider figures, for the owner's Tablero.
+  metaBillableMessages Int       @default(0)
+  metaCostUsd          Decimal   @default(0) @db.Decimal(12, 6)
+  openaiCostUsd        Decimal   @default(0) @db.Decimal(12, 6)
+  // What the organization is billed for the number (the owner's figure, prorated in the first month).
+  billedUsd            Decimal   @db.Decimal(12, 2)
+  // Partner settlement: Lumarsoft's cost per consumed message and the partner's share of the remainder.
+  costPerMessageUsd    Decimal   @db.Decimal(10, 4)
+  serviceCostUsd       Decimal   @db.Decimal(12, 2)
+  remainderUsd         Decimal   @db.Decimal(12, 2)
+  partnerShare         Decimal   @db.Decimal(5, 4)
+  partnerShareUsd      Decimal   @db.Decimal(12, 2)
+  ownerShareUsd        Decimal   @db.Decimal(12, 2)
+  backfilled           Boolean   @default(false)
+  closedAt             DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
+
+  phoneNumberId  Int
+  phoneNumber    PhoneNumber   @relation(fields: [phoneNumberId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
+
+  @@unique([period, phoneNumberId])
+  @@index([period, producerId])
+}
+
 model UsageEvent {
   id            Int         @id @default(autoincrement())
   eventId       String      @db.VarChar(191)
