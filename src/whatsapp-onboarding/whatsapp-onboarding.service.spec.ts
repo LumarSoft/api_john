@@ -124,6 +124,16 @@ describe('WhatsappOnboardingService', () => {
       expect(prisma.conversation.updateMany).not.toHaveBeenCalled()
     })
 
+    it('keeps the branch name on a reconnect that sends none, and renames it when one is typed', async () => {
+      const kept = setup({ sameId: { ...OLD_ROW, phoneNumberId: 'NEW-ID' } })
+      await kept.service.onboard(superAdmin(1), dto)
+      expect(kept.prisma.phoneNumber.update.mock.calls[0][0].data).not.toHaveProperty('branchName')
+
+      const renamed = setup({ sameId: { ...OLD_ROW, phoneNumberId: 'NEW-ID' } })
+      await renamed.service.onboard(superAdmin(1), { ...dto, branchName: ' 27 de Febrero ' })
+      expect(renamed.prisma.phoneNumber.update.mock.calls[0][0].data).toMatchObject({ branchName: '27 de Febrero' })
+    })
+
     it('refuses a number that is live in another organization', async () => {
       const { service, subscribe } = setup({ sameId: { ...OLD_ROW, phoneNumberId: 'NEW-ID', producerId: 2 } })
 
@@ -238,6 +248,13 @@ describe('WhatsappOnboardingService', () => {
         producerId: 1,
         responsibleProducerCodeId: 14,
       })
+    })
+
+    it('saves the branch name typed before connecting', async () => {
+      const { service, prisma } = setup()
+
+      await service.onboard(admin, { ...dto, branchName: '  Pueblo Esther ' })
+      expect(prisma.phoneNumber.create.mock.calls[0][0].data).toMatchObject({ branchName: 'Pueblo Esther' })
     })
 
     it("refuses a code that is not theirs before spending Meta's code", async () => {

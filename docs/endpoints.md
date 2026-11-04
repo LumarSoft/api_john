@@ -2908,6 +2908,12 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 
 Running Embedded Signup again for a number that Meta dropped reuses its `PhoneNumber` row, so the month's usage, the budget and the producer codes stay with it: the row with the same Meta id is revived (even if it is still listed, instead of answering `409`); on Coexistence, if Meta hands out a new `phone_number_id`, the latest deleted or disconnected row of the same WABA (or with the same display number) is re-pointed and its chats move with it. The response adds `"reconnected": true`. `409 Conflict` is only returned when the number is live in another organization. `GET /admin/phone-numbers` now includes `disconnectedAt`, `disconnectReason` and `disconnectReasonLabel` for each number.
 
+**Branch name.** `branchName` (string, optional, ≤ 60 chars, trimmed; empty = none) is what the office calls the number's branch (`"Pueblo Esther"`). The panel always asks for it before opening Embedded Signup and sends it with the `code`. A new number is created with it; a reconnect without it keeps the name the number already had.
+
+```json
+{ "code": "AQB…", "wabaId": "1018755496", "isCoexistence": true, "branchName": "Pueblo Esther" }
+```
+
 ### Meta portfolio of each number
 
 `GET /admin/phone-numbers` (every role that sees the number) and `GET /owner/organizations/:id` include `portfolio` for
@@ -2939,7 +2945,7 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 
-Every number also carries `branchName` (the branch it belongs to, as the office calls it: `"27 de Febrero"`, or `null`; set with `PATCH /admin/phone-numbers/:id/assistant`; the panel shows it next to the number), `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization), `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own) and `botEnabled` (the number's own bot switch, see `PATCH /admin/phone-numbers/:id/bot-status`).
+Every number also carries `branchName` (the branch it belongs to, as the office calls it: `"27 de Febrero"`, or `null`; set when the number is connected, `branchName` in `POST /admin/whatsapp/onboard`, or registered by hand, `branchName` in `POST /admin/phone-numbers` (≤ 60 chars, trimmed); changed with `PATCH /admin/phone-numbers/:id` or `PATCH /admin/phone-numbers/:id/assistant`, where an empty string clears it; the panel shows it next to the number), `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization), `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own) and `botEnabled` (the number's own bot switch, see `PATCH /admin/phone-numbers/:id/bot-status`).
 
 ### GET /admin/phone-numbers/:id/assistant
 

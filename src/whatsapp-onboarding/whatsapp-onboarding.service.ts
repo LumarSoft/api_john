@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, type ScopeUser } from '../common/scope/scope.service'
 import { readCommercialPricing } from '../usage/commercial-pricing'
 import { initialPlanId } from '../usage/initial-plan'
+import { toBranchName } from '../phone-numbers/branch-name'
 import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 import { describeGraphError } from './graph-errors'
@@ -150,18 +151,21 @@ export class WhatsappOnboardingService {
     // Which business portfolio owns the account, for the panel. Read-only; a failure does not stop the onboarding.
     await this.portfolio.refreshWith(waba.id, dto.wabaId, accessToken)
 
+    const branchName = dto.branchName !== undefined ? toBranchName(dto.branchName) : null
     const phoneNumber = existing
       ? await this.reconnectNumber(existing, {
           phoneNumberId,
           producerId,
           wabaAccountId: waba.id,
           number: displayPhoneNumber,
+          branchName,
           responsibleProducerCodeId: dto.responsibleProducerCodeId,
         })
       : await this.prisma.phoneNumber.create({
           data: {
             phoneNumberId,
             number: displayPhoneNumber ?? phoneNumberId,
+            branchName,
             producerId,
             wabaAccountId: waba.id,
             responsibleProducerCodeId: billing.responsibleProducerCodeId ?? null,
@@ -386,6 +390,7 @@ export class WhatsappOnboardingService {
       producerId: number
       wabaAccountId: number
       number?: string
+      branchName: string | null
       responsibleProducerCodeId?: number
     },
   ): Promise<{ id: number }> {
@@ -398,6 +403,8 @@ export class WhatsappOnboardingService {
         isActive: true,
         deletedAt: null,
         ...(data.number ? { number: data.number } : {}),
+        // A reconnect without a name keeps the one the number already had.
+        ...(data.branchName ? { branchName: data.branchName } : {}),
         // The panel's connect button sends no code: keep the one already set.
         ...(data.responsibleProducerCodeId !== undefined
           ? { responsibleProducerCodeId: data.responsibleProducerCodeId }

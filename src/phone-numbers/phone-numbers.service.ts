@@ -8,6 +8,7 @@ import { normalizeCoverageOverrides, parseCoverageOverrides } from '../common/co
 import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import { BotStatusAlertService } from '../users/bot-status-alert.service'
+import { toBranchName } from './branch-name'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
@@ -229,6 +230,7 @@ export class PhoneNumbersService {
       data: {
         phoneNumberId: dto.phoneNumberId,
         number: dto.number,
+        branchName: dto.branchName !== undefined ? toBranchName(dto.branchName) : null,
         producerId,
         responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
         monthlyBudgetUsd: this.budgetFrom(dto, role) ?? null,
@@ -254,6 +256,7 @@ export class PhoneNumbersService {
       where: { id },
       data: {
         ...(dto.number !== undefined ? { number: dto.number } : {}),
+        ...(dto.branchName !== undefined ? { branchName: toBranchName(dto.branchName) } : {}),
         ...(dto.responsibleProducerCodeId !== undefined
           ? { responsibleProducerCodeId: dto.responsibleProducerCodeId }
           : {}),
@@ -425,7 +428,7 @@ export class PhoneNumbersService {
     }
 
     const data: Prisma.PhoneNumberUpdateInput = {}
-    if (dto.branchName !== undefined) data.branchName = dto.branchName.trim() || null
+    if (dto.branchName !== undefined) data.branchName = toBranchName(dto.branchName)
     if (dto.botName !== undefined) data.botName = dto.botName.trim() || null
     if (dto.staffNames !== undefined) data.staffNames = serializeStaffNames(dto.staffNames)
     if (dto.businessHours !== undefined) {
