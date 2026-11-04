@@ -1057,9 +1057,9 @@ Every record is credited to one of the organization's codes: its own code; else 
 
 ### GET /admin/balance
 
-The last closed months, oldest first, each metric with its change against the month before.
+The last closed months, oldest first, each metric with its change against the month before. SuperAdmin only: an ADMIN gets 403 (the OWNER passes the role check like on every SuperAdmin route, but the panel never shows it the page).
 
-**Auth required:** Yes (user JWT)
+**Auth required:** Yes (user JWT, SuperAdmin)
 
 **Query params**
 
@@ -1097,7 +1097,7 @@ The last closed months, oldest first, each metric with its change against the mo
 
 `401 Unauthorized` — Missing or invalid JWT
 
-`403 Forbidden` — Token is not an employee/admin token
+`403 Forbidden` — Token is not an employee/admin token, or the user is not a SuperAdmin
 
 ### POST /owner/balance/snapshots
 

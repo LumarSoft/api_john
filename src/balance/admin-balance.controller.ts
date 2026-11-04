@@ -1,4 +1,7 @@
 import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common'
+import { Role } from 'generated/prisma/client'
+import { Roles } from '../auth/roles.decorator'
+import { RolesGuard } from '../auth/roles.guard'
 import { UserAuthGuard } from '../auth/user-auth.guard'
 import { ScopeService } from '../common/scope/scope.service'
 import type { AuthenticatedRequest } from '../common/types/authenticated-request.type'
@@ -7,8 +10,9 @@ import { GetBalanceDto } from './dto/get-balance.dto'
 
 const DEFAULT_MONTHS = 12
 
-/** "Balance mensual": the month-end numbers of the codes the user sees. */
-@UseGuards(UserAuthGuard)
+/** "Balance mensual": the month-end numbers of the organization, for its SuperAdmin only (an ADMIN never sees it). */
+@UseGuards(UserAuthGuard, RolesGuard)
+@Roles(Role.SUPERADMIN)
 @Controller('admin/balance')
 export class AdminBalanceController {
   constructor(
