@@ -14,5 +14,7 @@ import { ProposalsService } from './proposals.service'
     OwnerProposalsController,
   ],
   providers: [ImprovementsService, ProposalsService],
+  // The AI assistant sends a proposal the office drafted with it.
+  exports: [ProposalsService],
 })
 export class ImprovementsModule {}

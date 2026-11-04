@@ -6,6 +6,7 @@ import { of } from 'rxjs'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { PlanFeaturesService } from '../plan-features/plan-features.service'
 import { allFeatures } from '../plan-features/plan-features'
+import type { ProposalsService } from '../improvements/proposals.service'
 import type { AssistantDataService } from './assistant-data.service'
 import { AssistantService, cleanLinks } from './assistant.service'
 
@@ -29,15 +30,17 @@ function setup({ key = 'sk-prueba' as string | null } = {}) {
     portfolioSummary: jest.fn(),
   }
   const planFeatures = { forUser: jest.fn().mockResolvedValue({ features: allFeatures(), availableIn: {} }) }
+  const proposals = { create: jest.fn().mockResolvedValue({ id: 31 }) }
   const config = { get: jest.fn((name: string) => (name === 'OPENAI_API_KEY' ? key : undefined)) }
   const service = new AssistantService(
     http as unknown as HttpService,
     prisma as unknown as PrismaService,
     data as unknown as AssistantDataService,
     planFeatures as unknown as PlanFeaturesService,
+    proposals as unknown as ProposalsService,
     config as unknown as ConfigService,
   )
-  return { service, http, data, planFeatures }
+  return { service, http, data, planFeatures, proposals }
 }
 
 describe('AssistantService.ask', () => {
@@ -113,6 +116,59 @@ describe('AssistantService.ask', () => {
     await expect(service.ask(mili, [3], question, now)).rejects.toThrow(HttpException)
     await expect(service.ask(mili, [3], question, new Date('2026-11-04T16:01:00Z'))).resolves.toEqual({
       reply: 'Listo.',
+    })
+  })
+})
+
+describe('AssistantService panel help and proposals', () => {
+  const call = (id: string, name: string, args: unknown) => ({
+    id,
+    type: 'function',
+    function: { name, arguments: JSON.stringify(args) },
+  })
+
+  it('reads the panel guide when asked how to do something', async () => {
+    const { service, http } = setup()
+    http.post
+      .mockReturnValueOnce(completion({ content: null, tool_calls: [call('g1', 'como_usar_el_panel', {})] }))
+      .mockReturnValueOnce(completion({ content: 'Entrá a Rechazos y tocá Cargar Excel.' }))
+
+    await expect(service.ask(mili, [3], question)).resolves.toEqual({ reply: 'Entrá a Rechazos y tocá Cargar Excel.' })
+    const second = http.post.mock.calls[1][1] as { messages: Array<{ role: string; content: string }> }
+    expect(second.messages.at(-1)?.content).toContain('Rechazos')
+  })
+
+  it('sends a proposal only once the person confirmed it, signed by them', async () => {
+    const { service, http, proposals } = setup()
+    const draft = {
+      titulo: 'Filtro por cobertura en Asegurados',
+      descripcion: 'Hoy no se puede filtrar por cobertura; propongo un filtro.',
+    }
+    http.post
+      .mockReturnValueOnce(
+        completion({
+          content: null,
+          tool_calls: [call('p1', 'enviar_propuesta_de_mejora', { ...draft, confirmado: false })],
+        }),
+      )
+      .mockReturnValueOnce(completion({ content: '¿La envío?' }))
+      .mockReturnValueOnce(
+        completion({
+          content: null,
+          tool_calls: [call('p2', 'enviar_propuesta_de_mejora', { ...draft, confirmado: true })],
+        }),
+      )
+      .mockReturnValueOnce(completion({ content: 'Listo, la envié a Mejoras › Propuestas.' }))
+
+    await service.ask(mili, [3], question)
+    expect(proposals.create).not.toHaveBeenCalled()
+
+    await expect(service.ask(mili, [3], question)).resolves.toEqual({
+      reply: 'Listo, la envié a Mejoras › Propuestas.',
+    })
+    expect(proposals.create).toHaveBeenCalledWith(7, 2, {
+      title: 'Filtro por cobertura en Asegurados',
+      description: 'Hoy no se puede filtrar por cobertura; propongo un filtro.',
     })
   })
 })
