@@ -164,6 +164,23 @@ el endpoint está protegido y no implica una falla. No habilitar
   `.env` local del bot todavía debe alinearse con ese valor para no reintroducir
   el token anterior en un despliegue futuro.
 
+## Auditoría del 05/11/2026
+
+- Hasta ese día la app solo había sumado `smb_message_echoes`: seguía sin
+  `smb_app_state_sync` ni `history`. Por eso `WhatsAppContact` estaba vacía
+  para los cuatro números activos aunque cada alta había pedido el sync y Meta
+  lo había aceptado: los webhooks con la agenda se descartaron por falta de
+  suscripción, y el panel mostraba el nombre de perfil del cliente en vez del
+  de la agenda.
+- El 05/11/2026 se suscribieron `smb_app_state_sync` e `history` con
+  `POST /{app_id}/subscriptions` (token de app, mismo callback y verify token;
+  Meta reverificó el webhook del bot). Desde entonces cada alta o edición de un
+  contacto en la app de WhatsApp Business llega como `smb_app_state_sync`.
+- La sincronización inicial es de una sola vez por número: reintentarla
+  devuelve `(#4) Synchronization Request limit exceeded`, incluso dentro de las
+  24 horas. La agenda completa de un número ya conectado solo se recupera
+  desconectándolo y volviendo a hacer Embedded Signup.
+
 ## Smoke test obligatorio antes de habilitar el bot
 
 Con `BOT_AUTOREPLY_ENABLED=false`:
