@@ -7,6 +7,7 @@ import type { BotNotifierService } from '../inbox/bot-notifier.service'
 import type { PlanFeaturesService } from '../plan-features/plan-features.service'
 import type { PaymentRejectionRowDto } from './dto/payment-rejection.dto'
 import { NoticeDeliveryService } from '../notices/notice-delivery.service'
+import type { WabaTemplatesService } from '../notices/waba-templates.service'
 import { RejectionsService, pickSender, pickWhatsApp } from './rejections.service'
 
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
@@ -76,14 +77,20 @@ function setup(template: string | null = 'aviso_rechazo_pago') {
   const config = {
     get: jest.fn((key: string) => (key === 'PAYMENT_REJECTION_TEMPLATE' ? (template ?? undefined) : undefined)),
   }
+  // Every WhatsApp account has the template approved unless a test says otherwise.
+  const templates = { notApprovedIn: jest.fn().mockResolvedValue(new Set<number>()) }
   const service = new RejectionsService(
     prisma as unknown as PrismaService,
     scope as unknown as ScopeService,
     botNotifier as unknown as BotNotifierService,
-    new NoticeDeliveryService(prisma as unknown as PrismaService, planFeatures as unknown as PlanFeaturesService),
+    new NoticeDeliveryService(
+      prisma as unknown as PrismaService,
+      planFeatures as unknown as PlanFeaturesService,
+      templates as unknown as WabaTemplatesService,
+    ),
     config as unknown as ConfigService,
   )
-  return { service, prisma, scope, botNotifier, planFeatures }
+  return { service, prisma, scope, botNotifier, planFeatures, templates }
 }
 
 /** The rows `create` stored, from the nested createMany. */
@@ -249,6 +256,51 @@ describe('RejectionsService.send', () => {
       where: { id: 1 },
       data: { status: 'FAILED', error: 'WhatsApp rechazó el mensaje (131026).' },
     })
+  })
+
+  it("sends from another number when the client's number's account lacks the template", async () => {
+    const { service, prisma, templates } = setup()
+    // The office (account 1) has the template; the branch (account 2), where the client chats, does not.
+    prisma.phoneNumber.findMany.mockResolvedValue([
+      { phoneNumberId: 'meta-1', wabaAccountId: 1, responsibleProducerCodeId: 1, servedCodes: [] },
+      { phoneNumberId: 'branch', wabaAccountId: 2, responsibleProducerCodeId: 3, servedCodes: [] },
+    ])
+    templates.notApprovedIn.mockResolvedValue(new Set([2]))
+    prisma.conversation.findUnique.mockResolvedValue({ id: 31, clientId: 60, phoneNumberId: 'branch' })
+    prisma.paymentRejection.findMany.mockResolvedValueOnce([{ id: 1 }]).mockResolvedValue([])
+    prisma.paymentRejection.findUniqueOrThrow.mockResolvedValue({
+      id: 1,
+      holderName: 'PEREZ JUAN',
+      certificateNumber: '1234567',
+      installmentNumber: 2,
+      dueDate: new Date('2026-09-28T00:00:00.000Z'),
+      amount: new Prisma.Decimal(90315),
+      reason: 'FALTA DE FONDOS',
+      waId: '5493419990001',
+      producerId: 7,
+      producerCodeId: 3,
+      clientId: 60,
+      client: { firstName: 'JUAN' },
+    })
+    const { botNotifier } = setupSend(service)
+
+    await service.send(mili, 9, [1])
+    await flush()
+
+    expect(templates.notApprovedIn).toHaveBeenCalledWith([1, 2], { name: 'aviso_rechazo_pago', lang: 'es_AR' })
+    expect(botNotifier.sendTemplate).toHaveBeenCalledWith(expect.objectContaining({ phoneNumberId: 'meta-1' }))
+    expect(prisma.paymentRejection.update).toHaveBeenLastCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({ status: 'SENT', conversationId: 31 }),
+    })
+  })
+
+  it("sends nothing when no number's account has the template approved", async () => {
+    const { service, prisma, templates } = setup()
+    templates.notApprovedIn.mockResolvedValue(new Set([1]))
+
+    await expect(service.send(mili, 9, [1])).rejects.toThrow('aviso_rechazo_pago')
+    expect(prisma.paymentRejection.updateMany).not.toHaveBeenCalled()
   })
 })
 

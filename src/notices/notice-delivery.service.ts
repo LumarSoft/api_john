@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common'
+import { ConflictException, Injectable } from '@nestjs/common'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeUser } from '../common/scope/scope.service'
 import { PlanFeatureKey } from '../plan-features/plan-features'
 import { PlanFeaturesService } from '../plan-features/plan-features.service'
 import { NoticeKind, Sender } from './notice-delivery'
+import { TemplateRef, WabaTemplatesService } from './waba-templates.service'
 
 /** The chat a notice lands in, when the client already has one. */
 export interface ExistingChat {
@@ -25,6 +26,7 @@ export class NoticeDeliveryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly planFeatures: PlanFeaturesService,
+    private readonly templates: WabaTemplatesService,
   ) {}
 
   /** 403 when the user's role has these notices off (the owner decides it next to the plans). */
@@ -35,9 +37,11 @@ export class NoticeDeliveryService {
   /**
    * Active numbers that can send, the ones on a connected WABA first. With a
    * `feature`, only the numbers whose plan includes it; when there are numbers
-   * but none of them has it, it answers 403 with the plan's message.
+   * but none of them has it, it answers 403 with the plan's message. With a
+   * `template`, only the numbers whose WhatsApp account has it approved (Meta
+   * refuses it from any other); when none has it, it answers 409.
    */
-  async senders(producerId: number, feature?: PlanFeatureKey): Promise<Sender[]> {
+  async senders(producerId: number, feature?: PlanFeatureKey, template?: TemplateRef): Promise<Sender[]> {
     const connected = await this.prisma.phoneNumber.findMany({
       where: {
         producerId,
@@ -56,7 +60,7 @@ export class NoticeDeliveryService {
       },
     })
     const phones = feature ? await this.planFeatures.keepWith(connected, feature) : connected
-    return phones
+    const senders = phones
       .sort((a, b) => Number(b.wabaAccountId != null) - Number(a.wabaAccountId != null))
       .map(p => ({
         phoneNumberId: p.phoneNumberId,
@@ -66,6 +70,20 @@ export class NoticeDeliveryService {
           ...p.servedCodes.map(s => s.producerCodeId),
         ],
       }))
+    return template ? this.keepWithTemplate(senders, template) : senders
+  }
+
+  /** The senders whose account has the template approved; a number without an account of its own stays. */
+  private async keepWithTemplate(senders: Sender[], template: TemplateRef): Promise<Sender[]> {
+    const accountIds = [...new Set(senders.flatMap(s => (s.wabaAccountId != null ? [s.wabaAccountId] : [])))]
+    const missing = await this.templates.notApprovedIn(accountIds, template)
+    const kept = senders.filter(s => s.wabaAccountId == null || !missing.has(s.wabaAccountId))
+    if (senders.length && !kept.length) {
+      throw new ConflictException(
+        `Meta no tiene aprobada la plantilla ${template.name} en la cuenta de WhatsApp de ninguno de tus números. No se envió ningún aviso.`,
+      )
+    }
+    return kept
   }
 
   /** WhatsApp ids among `candidates` that already have a chat: they surely use WhatsApp. */

@@ -249,7 +249,11 @@ export class RejectionsService implements OnModuleInit {
     await this.delivery.assertRole(user, 'rejection_notices')
 
     // Only the numbers whose plan includes these notices send them (403 when none does).
-    const senders = await this.delivery.senders(user.producerId, 'rejection_notices')
+    // ...and whose WhatsApp account has the template approved (409 when none has it).
+    const senders = await this.delivery.senders(user.producerId, 'rejection_notices', {
+      name: template,
+      lang: this.templateLang,
+    })
     if (!senders.length) {
       throw new ConflictException('No hay un número de WhatsApp conectado para enviar los avisos. Revisalo en Números.')
     }
