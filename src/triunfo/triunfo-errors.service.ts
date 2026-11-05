@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { isAxiosError } from 'axios'
 import { TriunfoErrorKind } from 'generated/prisma/client'
+import { documentDownloadKey, type IntegrationComponentKey } from '../integration-status/integration-components'
 import { IntegrationStatusService } from '../integration-status/integration-status.service'
 import { MailService } from '../mail/mail.service'
 import { MatterCategory, MatterStatus, NovedadType } from '../novedades/dto/list-novedades.dto'
@@ -16,6 +17,12 @@ export type TriunfoOperation =
   | 'documentDownload'
   | 'RESTCotizadorAutV2'
 
+/** The document a download was for: its RESTDocumentosV2 code and the name the office knows it by. */
+export interface TriunfoDocumentRef {
+  code: string
+  name: string
+}
+
 export interface TriunfoFailure {
   operation: TriunfoOperation
   /** Organization whose credentials made the call; null = the default organization. */
@@ -25,6 +32,8 @@ export interface TriunfoFailure {
   httpStatus?: number | null
   /** The answer behind it. Never the request: it carries the password. */
   sample?: string | null
+  /** For a download: each document is its own row and its own service in the Status section. */
+  document?: TriunfoDocumentRef
 }
 
 export interface TriunfoAuthState {
@@ -94,12 +103,14 @@ export class TriunfoErrorsService {
   }
 
   /** Triunfo answered the operation as expected, for the Status section. */
-  answered(operation: TriunfoOperation): void {
-    void this.status.succeeded(`triunfo.${operation}`)
+  answered(operation: TriunfoOperation, documentCode?: string): void {
+    void this.status.succeeded(statusKey(operation, documentCode))
   }
 
   /** Records a failed call to Triunfo. */
-  async record(failure: TriunfoFailure): Promise<void> {
+  async record(input: TriunfoFailure): Promise<void> {
+    // "Constancia de pago: HTTP 404": the document tells one failure from another.
+    const failure = input.document ? { ...input, message: `${input.document.name}: ${input.message}` } : input
     this.reportStatus(failure)
     try {
       const producerId = await this.resolveProducerId(failure.producerId)
@@ -116,8 +127,13 @@ export class TriunfoErrorsService {
   }
 
   /** Records a call that threw: an HTTP status, a timeout, no connection. */
-  recordException(operation: TriunfoOperation, producerId: number | null, err: unknown): Promise<void> {
-    return this.record({ operation, producerId, ...describeException(err) })
+  recordException(
+    operation: TriunfoOperation,
+    producerId: number | null,
+    err: unknown,
+    document?: TriunfoDocumentRef,
+  ): Promise<void> {
+    return this.record({ operation, producerId, ...describeException(err), ...(document ? { document } : {}) })
   }
 
   /** Triunfo accepted the organization's credentials: ends an open outage. */
@@ -190,10 +206,10 @@ export class TriunfoErrorsService {
    */
   private reportStatus(failure: TriunfoFailure): void {
     if (failure.kind === TriunfoErrorKind.REJECTED || failure.kind === TriunfoErrorKind.CREDENTIALS_REJECTED) {
-      this.answered(failure.operation)
+      this.answered(failure.operation, failure.document?.code)
       return
     }
-    void this.status.failed(`triunfo.${failure.operation}`, {
+    void this.status.failed(statusKey(failure.operation, failure.document?.code), {
       kind: failure.kind,
       httpStatus: failure.httpStatus,
       message: failure.message,
@@ -420,6 +436,11 @@ export function fingerprintOf(
   return createHash('sha256')
     .update([producerId, failure.operation, failure.kind, failure.httpStatus ?? '', message].join('|'))
     .digest('hex')
+}
+
+/** The Status service of an operation; a download, that of its document. */
+function statusKey(operation: TriunfoOperation, documentCode?: string): IntegrationComponentKey {
+  return operation === 'documentDownload' && documentCode ? documentDownloadKey(documentCode) : `triunfo.${operation}`
 }
 
 function unique(emails: string[]): string[] {

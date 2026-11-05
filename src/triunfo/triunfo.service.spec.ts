@@ -114,6 +114,7 @@ describe('TriunfoService.getDocumentos', () => {
 
 describe('TriunfoService.downloadDocumento', () => {
   const pdf = Buffer.from('%PDF-1.4 fake')
+  const CARD = { code: '1050', name: 'Tarjeta verde (Mercosur)' }
 
   it('follows the redirect carrying the session cookies it sets', async () => {
     const get = jest
@@ -130,7 +131,7 @@ describe('TriunfoService.downloadDocumento', () => {
       )
       .mockReturnValueOnce(of({ status: 200, headers: {}, data: pdf }))
 
-    expect(await createService({ get }).downloadDocumento(LINK, 1)).toEqual(pdf)
+    expect(await createService({ get }).downloadDocumento(LINK, 1, CARD)).toEqual(pdf)
     expect(get).toHaveBeenNthCalledWith(
       2,
       'https://www.triunfonet.com.ar/gauswebtriunfo/servlet/otarjetaverde_sp?def',
@@ -149,7 +150,7 @@ describe('TriunfoService.downloadDocumento', () => {
       )
       .mockReturnValueOnce(of({ status: 200, headers: {}, data: pdf }))
 
-    await createService({ get }).downloadDocumento(LINK, 1)
+    await createService({ get }).downloadDocumento(LINK, 1, CARD)
     for (const call of get.mock.calls) {
       expect(call[1].headers).toMatchObject({ Referer: 'https://www.triunfonet.com.ar/' })
     }
@@ -157,13 +158,13 @@ describe('TriunfoService.downloadDocumento', () => {
 
   it('fails when Triunfo answers something that is not a PDF', async () => {
     const get = jest.fn().mockReturnValue(of({ status: 403, headers: {}, data: Buffer.from('<html>') }))
-    await expect(createService({ get }).downloadDocumento(LINK, 1)).rejects.toMatchObject({ status: 502 })
+    await expect(createService({ get }).downloadDocumento(LINK, 1, CARD)).rejects.toMatchObject({ status: 502 })
   })
 
   it('records the status and the page Triunfo answered instead of the PDF', async () => {
     const errors = fakeErrors()
     const get = jest.fn().mockReturnValue(of({ status: 403, headers: {}, data: Buffer.from('<html>Cloudflare') }))
-    await expect(createService({ get }, errors).downloadDocumento(LINK, 7)).rejects.toMatchObject({ status: 502 })
+    await expect(createService({ get }, errors).downloadDocumento(LINK, 7, CARD)).rejects.toMatchObject({ status: 502 })
     expect(errors.record).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: 'documentDownload',
@@ -171,13 +172,21 @@ describe('TriunfoService.downloadDocumento', () => {
         kind: 'HTTP_ERROR',
         httpStatus: 403,
         sample: '<html>Cloudflare',
+        document: CARD,
       }),
     )
   })
 
+  it('tells the Status section which document came down', async () => {
+    const errors = fakeErrors()
+    const get = jest.fn().mockReturnValue(of({ status: 200, headers: {}, data: pdf }))
+    await createService({ get }, errors).downloadDocumento(LINK, 1, CARD)
+    expect(errors.answered).toHaveBeenCalledWith('documentDownload', '1050')
+  })
+
   it('never follows a link outside triunfonet', async () => {
     const get = jest.fn()
-    await expect(createService({ get }).downloadDocumento('https://evil.test/x.pdf', 1)).rejects.toMatchObject({
+    await expect(createService({ get }).downloadDocumento('https://evil.test/x.pdf', 1, CARD)).rejects.toMatchObject({
       status: 502,
     })
     expect(get).not.toHaveBeenCalled()

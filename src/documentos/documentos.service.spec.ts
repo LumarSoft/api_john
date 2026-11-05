@@ -66,7 +66,10 @@ describe('DocumentosService', () => {
     const file = await service.downloadForPolicy({ id: 1 }, '1050')
 
     expect(triunfo.getDocumentos).toHaveBeenCalledWith(expect.any(Object), { fresh: true })
-    expect(triunfo.downloadDocumento).toHaveBeenCalledWith(LINK('htarjetaverdec'), 3)
+    expect(triunfo.downloadDocumento).toHaveBeenCalledWith(LINK('htarjetaverdec'), 3, {
+      code: '1050',
+      name: 'Tarjeta verde (Mercosur)',
+    })
     expect(file.filename).toBe('Tarjeta verde (Mercosur) - AB123CD.pdf')
   })
 

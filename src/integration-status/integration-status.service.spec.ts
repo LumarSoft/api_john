@@ -243,12 +243,21 @@ describe('IntegrationStatusService — reports', () => {
     expect(incidents.size).toBe(2)
   })
 
+  it("keeps a document's incident open while other documents download, as the constancia de pago on 5/11", async () => {
+    const { service, incidents } = setup()
+    await service.failed('triunfo.documentDownload.1040', NOT_FOUND)
+    await service.succeeded('triunfo.documentDownload.1050')
+    await service.succeeded('triunfo.documentDownload.1020')
+
+    expect([...incidents.values()]).toEqual([expect.objectContaining({ endedAt: null })])
+  })
+
   it('serializes reports of one component, so concurrent failures share one incident', async () => {
     const { service, incidents } = setup()
     await Promise.all([
-      service.failed('triunfo.documentDownload', NOT_FOUND),
-      service.failed('triunfo.documentDownload', NOT_FOUND),
-      service.failed('triunfo.documentDownload', NOT_FOUND),
+      service.failed('triunfo.documentDownload.1040', NOT_FOUND),
+      service.failed('triunfo.documentDownload.1040', NOT_FOUND),
+      service.failed('triunfo.documentDownload.1040', NOT_FOUND),
     ])
     expect(incidents.size).toBe(1)
     expect([...incidents.values()][0].failures).toBe(3)
@@ -275,7 +284,7 @@ describe('IntegrationStatusService — overview', () => {
     const overview = await service.overview({ id: 5, producerId: 1, role: 'SUPERADMIN' })
     const byKey = new Map(overview.components.map(c => [c.key, c]))
 
-    expect(overview.components).toHaveLength(7)
+    expect(overview.components).toHaveLength(13)
     expect(byKey.get('triunfo.RESTDocumentosV2')).toMatchObject({
       status: 'failing',
       incident: {
@@ -443,14 +452,14 @@ describe('IntegrationStatusService — mail to the sales advisor', () => {
 
   it('mails the explanation once the model answers', async () => {
     const { service, mail } = setup(ADVISOR)
-    await service.failed('triunfo.documentDownload', NOT_FOUND)
+    await service.failed('triunfo.documentDownload.1040', NOT_FOUND)
     await settle()
 
     expect(mail.sendAlert).toHaveBeenCalledTimes(1)
     const alert = mail.sendAlert.mock.calls[0][0] as { to: string[]; subject: string; text: string }
     expect(alert.to).toEqual(['asesor@example.com', 'ventas@example.com'])
     expect(alert.subject).toBe(
-      '⚠️ Falla en Triunfo Seguros: la descarga de PDFs de TriunfoNet — responsable: Triunfo Seguros',
+      '⚠️ Falla en Triunfo Seguros: la descarga del PDF de la constancia de pago desde TriunfoNet — responsable: Triunfo Seguros',
     )
     expect(alert.text).toContain(EXPLANATION.explanation)
     expect(alert.text).toContain(`Responsable: ${EXPLANATION.blameReason}`)
@@ -461,7 +470,7 @@ describe('IntegrationStatusService — mail to the sales advisor', () => {
 
   it('mails nothing without recipients, nor for a blip that ended while the model answered', async () => {
     const quiet = setup()
-    await quiet.service.failed('triunfo.documentDownload', NOT_FOUND)
+    await quiet.service.failed('triunfo.documentDownload.1040', NOT_FOUND)
     await settle()
     expect(quiet.mail.sendAlert).not.toHaveBeenCalled()
 
@@ -478,19 +487,19 @@ describe('IntegrationStatusService — mail to the sales advisor', () => {
   it('mails the same service failing the same way at most every 6 hours', async () => {
     jest.useFakeTimers({ now: new Date('2026-11-03T12:00:00Z') })
     const { service, mail } = setup(ADVISOR)
-    await service.failed('triunfo.documentDownload', NOT_FOUND)
+    await service.failed('triunfo.documentDownload.1040', NOT_FOUND)
     await settle()
     jest.setSystemTime(new Date('2026-11-03T12:30:00Z'))
-    await service.succeeded('triunfo.documentDownload')
+    await service.succeeded('triunfo.documentDownload.1040')
     jest.setSystemTime(new Date('2026-11-03T13:00:00Z'))
-    await service.failed('triunfo.documentDownload', NOT_FOUND)
+    await service.failed('triunfo.documentDownload.1040', NOT_FOUND)
     await settle()
     expect(mail.sendAlert).toHaveBeenCalledTimes(1)
 
     jest.setSystemTime(new Date('2026-11-03T19:00:00Z'))
-    await service.succeeded('triunfo.documentDownload')
+    await service.succeeded('triunfo.documentDownload.1040')
     jest.setSystemTime(new Date('2026-11-03T19:30:00Z'))
-    await service.failed('triunfo.documentDownload', NOT_FOUND)
+    await service.failed('triunfo.documentDownload.1040', NOT_FOUND)
     await settle()
     expect(mail.sendAlert).toHaveBeenCalledTimes(2)
     jest.useRealTimers()

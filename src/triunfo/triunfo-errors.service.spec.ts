@@ -226,6 +226,32 @@ describe('TriunfoErrorsService — Status section', () => {
     expect(status.succeeded.mock.calls).toEqual([['triunfo.RESTDocumentosV2'], ['triunfo.getTokenRest']])
     expect(status.failed).not.toHaveBeenCalled()
   })
+  it("reports each document's download as its own service, so one PDF failing does not hide behind another", async () => {
+    const { service, status, errors } = setup()
+    const receipt = { code: '1040', name: 'Constancia de pago' }
+    await service.record({ ...NEW_HEADER, httpStatus: 404, message: 'HTTP 404', document: receipt })
+    await service.record({
+      ...NEW_HEADER,
+      httpStatus: 404,
+      message: 'HTTP 404',
+      document: { code: '1050', name: 'Tarjeta verde (Mercosur)' },
+    })
+    service.answered('documentDownload', '1050')
+
+    expect(status.failed).toHaveBeenCalledWith(
+      'triunfo.documentDownload.1040',
+      expect.objectContaining({ message: 'Constancia de pago: HTTP 404' }),
+    )
+    expect(status.failed).toHaveBeenCalledWith('triunfo.documentDownload.1050', expect.anything())
+    expect(status.succeeded).toHaveBeenCalledWith('triunfo.documentDownload.1050')
+    expect(errors.size).toBe(2)
+  })
+
+  it('reports a document without its own service to the shared one', async () => {
+    const { service, status } = setup()
+    await service.record({ ...NEW_HEADER, document: { code: '1010', name: 'Certificado de Cobertura' } })
+    expect(status.failed).toHaveBeenCalledWith('triunfo.documentDownload', expect.anything())
+  })
 })
 
 describe('TriunfoErrorsService — credential outages', () => {

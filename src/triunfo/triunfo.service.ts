@@ -11,7 +11,7 @@ import { firstValueFrom } from 'rxjs'
 import { TriunfoErrorKind } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
-import { bodySample, TriunfoErrorsService } from './triunfo-errors.service'
+import { bodySample, TriunfoErrorsService, type TriunfoDocumentRef } from './triunfo-errors.service'
 
 // ─── Triunfo response types ──────────────────────────────
 
@@ -663,11 +663,20 @@ export class TriunfoService {
    * by hand carrying the cookies. Every hop also says it comes from TriunfoNet
    * (Referer): without it the link itself answers 403. The panel, the client
    * portal and the bot all download through here. `producerId` is the
-   * organization the policy belongs to, for the error record.
+   * organization the policy belongs to and `document` the one asked for, for
+   * the error record and the Status section.
    */
-  async downloadDocumento(url: string, producerId: number): Promise<Buffer> {
+  async downloadDocumento(url: string, producerId: number, document: TriunfoDocumentRef): Promise<Buffer> {
     const fail = (kind: TriunfoErrorKind, message: string, httpStatus?: number, sample?: string | null) => {
-      void this.errors.record({ operation: 'documentDownload', producerId, kind, message, httpStatus, sample })
+      void this.errors.record({
+        operation: 'documentDownload',
+        producerId,
+        kind,
+        message,
+        httpStatus,
+        sample,
+        document,
+      })
       return new BadGatewayException(`Triunfo document download failed: ${message}`)
     }
     if (!this.isTriunfoUrl(url))
@@ -695,7 +704,7 @@ export class TriunfoService {
           }),
         )
       } catch (err) {
-        void this.errors.recordException('documentDownload', producerId, err)
+        void this.errors.recordException('documentDownload', producerId, err, document)
         throw err
       }
 
@@ -722,7 +731,7 @@ export class TriunfoService {
       if (body.subarray(0, 5).toString('latin1') !== '%PDF-') {
         throw fail(TriunfoErrorKind.UNEXPECTED_RESPONSE, 'La respuesta no es un PDF', response.status, bodySample(body))
       }
-      this.errors.answered('documentDownload')
+      this.errors.answered('documentDownload', document.code)
       return body
     }
     throw fail(TriunfoErrorKind.UNEXPECTED_RESPONSE, 'Demasiadas redirecciones')

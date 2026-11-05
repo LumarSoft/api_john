@@ -4611,7 +4611,7 @@ Removes the organization's own credentials (soft delete).
 
 ### GET /owner/organizations/:id/triunfo/errors
 
-The organization's failed calls to Triunfo, one row per distinct failure (same operation, kind, status and message with its numbers blanked), the latest 50 by when they last happened. `kind` is one of `CREDENTIALS_REJECTED`, `REJECTED` (Triunfo answered with an error of its own), `UNEXPECTED_RESPONSE`, `HTTP_ERROR`, `TIMEOUT`, `NETWORK`. `sample` is the latest answer behind it, cut to 2000 characters.
+The organization's failed calls to Triunfo, one row per distinct failure (same operation, kind, status and message with its numbers blanked), the latest 50 by when they last happened. `kind` is one of `CREDENTIALS_REJECTED`, `REJECTED` (Triunfo answered with an error of its own), `UNEXPECTED_RESPONSE`, `HTTP_ERROR`, `TIMEOUT`, `NETWORK`. `sample` is the latest answer behind it, cut to 2000 characters. A download's `message` starts with the document's name ("Constancia de pago: HTTP 404"), so each document is a row of its own.
 
 **Auth required:** Yes (OWNER)
 
@@ -4626,7 +4626,7 @@ The organization's failed calls to Triunfo, one row per distinct failure (same o
     "operation": "documentDownload",
     "kind": "HTTP_ERROR",
     "httpStatus": 403,
-    "message": "HTTP 403",
+    "message": "Tarjeta verde (Mercosur): HTTP 403",
     "sample": "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0;url=/\">",
     "occurrences": 37,
     "firstSeenAt": "2026-10-29T12:04:11.000Z",
@@ -4666,7 +4666,7 @@ Each incident is handed once to the AI model (OpenAI, `OPENAI_API_KEY` and `OPEN
 
 **Responses**
 
-`200 OK` — `components` always lists the 7 services in this order: `triunfo.getTokenRest`, `triunfo.RESTCotizadorAutV2`, `triunfo.RESTDocumentosV2`, `triunfo.documentDownload`, `triunfo.RESTNovedadesCartera`, `infoauto.cars`, `infoauto.motorcycles`. `status` is `operational` (the latest call worked), `failing` (an incident is open) or `unknown` (never called since this was installed). `kind` is one of `CREDENTIALS_REJECTED`, `UNEXPECTED_RESPONSE`, `HTTP_ERROR`, `TIMEOUT`, `NETWORK`; `answer` is the visible text of the error page the service answered, or null. `incidents` holds the latest 20 of the last 30 days, open ones included.
+`200 OK` — `components` always lists the 13 services in this order: `triunfo.getTokenRest`, `triunfo.RESTCotizadorAutV2`, `triunfo.RESTDocumentosV2`, `triunfo.documentDownload.1050`, `triunfo.documentDownload.1000`, `triunfo.documentDownload.1040`, `triunfo.documentDownload.1060`, `triunfo.documentDownload.1020`, `triunfo.documentDownload.1030`, `triunfo.documentDownload`, `triunfo.RESTNovedadesCartera`, `infoauto.cars`, `infoauto.motorcycles`. Each `triunfo.documentDownload.<code>` is the PDF download of one document, by its RESTDocumentosV2 code (1050 tarjeta verde, 1000 certificado de cobertura, 1040 constancia de pago, 1060 cuponera, 1020 póliza, 1030 cláusulas): each comes from its own TriunfoNet page and fails on its own. `triunfo.documentDownload` is any other code, and holds the incidents from before 5/11/2026, when every PDF was one service. `status` is `operational` (the latest call worked), `failing` (an incident is open) or `unknown` (never called since this was installed). `kind` is one of `CREDENTIALS_REJECTED`, `UNEXPECTED_RESPONSE`, `HTTP_ERROR`, `TIMEOUT`, `NETWORK`; `answer` is the visible text of the error page the service answered, or null. `incidents` holds the latest 20 of the last 30 days, open ones included.
 
 ```json
 {

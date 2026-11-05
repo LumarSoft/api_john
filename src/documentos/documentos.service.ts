@@ -75,8 +75,9 @@ export class DocumentosService {
     const documento = ref ? (await this.triunfo.getDocumentos(ref, { fresh: true })).find(d => d.Codigo === code) : null
     if (!ref || !documento) throw new NotFoundException(`Document ${code} is not available for this policy`)
 
-    const buffer = await this.triunfo.downloadDocumento(documento.URL, ref.producerId)
-    return { filename: documentFilename(documentName(code, documento.Nombre), reference), buffer }
+    const name = documentName(code, documento.Nombre)
+    const buffer = await this.triunfo.downloadDocumento(documento.URL, ref.producerId, { code, name })
+    return { filename: documentFilename(name, reference), buffer }
   }
 
   /**
