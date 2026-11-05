@@ -90,7 +90,8 @@ export class CoexistenceSyncService {
         const messages = thread.messages ?? []
         receivedMessages += messages.length
         const rows = messages.flatMap(message => {
-          if (!message.id) {
+          // A reaction is not a message: imported, it would show as the chat's last one.
+          if (!message.id || message.type === 'reaction') {
             skippedMessages += 1
             return []
           }

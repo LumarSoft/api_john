@@ -109,6 +109,36 @@ describe('CoexistenceSyncService', () => {
     expect(prisma.phoneNumber.update).not.toHaveBeenCalled()
   })
 
+  it('does not import reactions as messages', async () => {
+    prisma.message.createMany.mockClear()
+
+    const result = await service.persistHistory({
+      phoneNumberId: 'META-P1',
+      chunks: [
+        {
+          threads: [
+            {
+              id: '5493410000000',
+              messages: [
+                {
+                  from: 'business',
+                  to: '5493410000000',
+                  id: 'wamid.reaction',
+                  timestamp: '1700000002',
+                  type: 'reaction',
+                  reaction: { message_id: 'wamid.user', emoji: '👍' },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(prisma.message.createMany).not.toHaveBeenCalled()
+    expect(result.skippedMessages).toBe(1)
+  })
+
   it('upserts contact additions and soft-deletes removals', async () => {
     const result = await service.persistContacts({
       phoneNumberId: 'META-P1',
