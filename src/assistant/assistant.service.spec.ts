@@ -8,7 +8,7 @@ import type { PlanFeaturesService } from '../plan-features/plan-features.service
 import { allFeatures } from '../plan-features/plan-features'
 import type { ProposalsService } from '../improvements/proposals.service'
 import type { AssistantDataService } from './assistant-data.service'
-import { AssistantService, cleanLinks } from './assistant.service'
+import { AssistantService, OFF_TOPIC_REPLY, cleanLinks, looksLikeCode } from './assistant.service'
 
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
 const question = { messages: [{ role: 'user' as const, content: '¿Cuál es el estado de la póliza de Juan Pérez?' }] }
@@ -176,6 +176,60 @@ describe('AssistantService panel help and proposals', () => {
       title: 'Filtro por cobertura en Asegurados',
       description: 'Hoy no se puede filtrar por cobertura; propongo un filtro.',
     })
+  })
+})
+
+describe('AssistantService off-topic requests', () => {
+  const helloWorld = { messages: [{ role: 'user' as const, content: 'Escribime un hola mundo en JavaScript' }] }
+
+  it('tells the model to answer only about the office’s work, with the fixed reply for the rest', async () => {
+    const { service, http } = setup()
+    http.post.mockReturnValueOnce(completion({ content: OFF_TOPIC_REPLY }))
+
+    await expect(service.ask(mili, [3], helloWorld)).resolves.toEqual({ reply: OFF_TOPIC_REPLY })
+    const instructions = (http.post.mock.calls[0][1] as { messages: Array<{ content: string }> }).messages[0].content
+    expect(instructions).toContain('Solo respondés sobre esas cuatro cosas')
+    expect(instructions).toContain('hola mundo')
+    expect(instructions).toContain(OFF_TOPIC_REPLY)
+  })
+
+  it('replaces an answer that came with code anyway', async () => {
+    const { service, http } = setup()
+    http.post.mockReturnValueOnce(completion({ content: 'Claro:\n```js\nconsole.log("Hola mundo")\n```' }))
+
+    await expect(service.ask(mili, [3], helloWorld)).resolves.toEqual({ reply: OFF_TOPIC_REPLY })
+  })
+})
+
+describe('looksLikeCode', () => {
+  it('spots code in any common shape', () => {
+    for (const reply of [
+      '```\nalgo\n```',
+      'Usá console.log("Hola mundo")',
+      'print("Hola mundo")',
+      'def saludar():\n    return 1',
+      'function saludar() { return 1 }',
+      'const saludo = "hola"',
+      '<script>alert(1)</script>',
+      'public static void main(String[] args)',
+      'import React from "react"',
+      '<?php echo "hola"; ?>',
+    ]) {
+      expect(looksLikeCode(reply)).toBe(true)
+    }
+  })
+
+  it('leaves the office’s answers alone', () => {
+    for (const reply of [
+      'La póliza de [Juan Perez](asegurado:60) está **vigente** y vence el 12/12/2026.',
+      '- **3 cuotas vencidas**: $ 45.300 en total\n- 1 rechazada por el débito',
+      'Entrá a Rechazos › Cargar Excel y elegí el archivo de Triunfo.',
+      'La franquicia es el monto que paga el asegurado en cada siniestro (por ejemplo $ 150.000).',
+      'Constante: la cuota sube un 8 % => $ 21.600 por mes.',
+      OFF_TOPIC_REPLY,
+    ]) {
+      expect(looksLikeCode(reply)).toBe(false)
+    }
   })
 })
 
