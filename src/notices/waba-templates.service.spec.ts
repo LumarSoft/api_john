@@ -20,7 +20,7 @@ function setup(answers: Record<string, unknown>) {
   }
   const config = { get: jest.fn().mockReturnValue(undefined) }
   const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(((url: URL) => {
-    const waba = url.pathname.split('/')[2]
+    const waba = new URL(String(url)).pathname.split('/')[2]
     const answer = answers[waba]
     if (answer instanceof Error) return Promise.reject(answer)
     return Promise.resolve({

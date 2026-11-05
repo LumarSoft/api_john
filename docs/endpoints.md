@@ -1887,6 +1887,67 @@ The active plans of the catalog, for the landing. Cached 5 minutes.
 
 ---
 
+## Owner — Plantillas de WhatsApp
+
+### GET /owner/templates
+
+Every WhatsApp Business account that can send (connected, with an active number), grouped by organization: its numbers with the quality and daily limit Meta reports, the templates the platform needs there (the notices configured on the server and each campaign's current text) and every other template Meta has in it. A needed template Meta does not have in that language comes as `MISSING`. Asks Meta on every call.
+
+**Auth required:** Yes — OWNER only.
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "checkedAt": "2026-11-05T13:10:00.000Z",
+  "organizations": [
+    {
+      "id": 1,
+      "name": "John Pellegrini Management Group",
+      "accounts": [
+        {
+          "id": 8,
+          "wabaName": "John Pellegrini management group",
+          "numbers": [
+            { "number": "+54 9 341 000-0002", "branchName": "Pueblo Esther", "quality": "GREEN", "messagingLimit": "TIER_250" }
+          ],
+          "error": null,
+          "templates": [
+            {
+              "name": "aviso_rechazo_pago",
+              "language": "es_AR",
+              "category": "UTILITY",
+              "status": "PENDING",
+              "reason": null,
+              "quality": null,
+              "use": "Avisos de rechazos de pago",
+              "inUse": true
+            },
+            {
+              "name": "campana_renovacion_v1",
+              "language": "es_AR",
+              "category": "MARKETING",
+              "status": "APPROVED",
+              "reason": null,
+              "quality": "UNKNOWN",
+              "use": "Campaña: Renovaciones",
+              "inUse": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `status`: Meta's (`APPROVED`, `PENDING`, `REJECTED`, `PAUSED`, `DISABLED`, `IN_APPEAL`…) or `MISSING`.
+- `use`: what the platform sends it for; `null` for a template it does not use. An old campaign text says "(texto anterior)" and has `inUse: false`.
+- `error`: set when Meta did not return the account's templates (an expired token…); `templates` is then empty.
+
+`401 Unauthorized` / `403 Forbidden` — not logged in, or not the owner.
+
 ## Admin — Siniestros
 
 Triunfo's API has no claims endpoint, so claims filed through the bot or the client portal are stored locally with `status: "pending"`. The admin reviews them here, files them manually in Triunfo's web, and records the official claim number via `PATCH`.
