@@ -1,6 +1,6 @@
 /**
  * How the admin panel works, as the AI assistant reads it to explain a task
- * (tool como_usar_el_panel). Written from the panel's code on 2026-11-04: when
+ * (tool como_usar_el_panel). Written from the panel's code on 2026-11-04 (campaign pages 2026-11-05): when
  * a section, tab or button changes, change it here too, or the assistant will
  * explain steps that no longer exist. Same text for Polisend and the JPMG
  * panel (they are level); who sets the plans is "el soporte de la plataforma".
@@ -75,7 +75,7 @@ export const PANEL_GUIDE = `# Guía del panel
 - "Eliminar carga" borra la lista; los avisos que ya salieron quedan en los chats.
 
 ## Campañas
-- El sistema busca en la cartera a quién ofrecerle algo y la oficina elige a quién escribirle. Hay cinco: Mejora de coberturas, Cotizaciones sin cerrar, Renovaciones, Bajas y anulaciones, y Venta cruzada. Cada campaña es una tarjeta con su interruptor de prendido, la cantidad de clientes, el porcentaje de beneficio y el estado ante Meta.
+- El sistema busca en la cartera a quién ofrecerle algo y la oficina elige a quién escribirle. Hay cinco, cada una con su página dentro del grupo "Campañas" del menú lateral: Mejora de coberturas, Cotizaciones sin cerrar, Renovaciones, Bajas y anulaciones, y Venta cruzada. Arriba de cada página está el interruptor de prendido (Prendida / Apagada), la cantidad de clientes, el porcentaje de beneficio y el estado ante Meta.
 - Para enviar, la campaña tiene que estar incluida en el plan, prendida y con el mensaje aprobado por Meta. Si falta algo, un cartel dice qué.
 - Pestaña "Clientes": tildar clientes y elegir "Enviar (n)" (Meta cobra cada mensaje como marketing), "Ya lo contactamos (n)" o "No escribirle más (n)". Este último corta las campañas para ese cliente, pero no los avisos de rechazos ni de vencidas.
 - Pestaña "Mensaje": se edita el texto con "Insertar dato", el "Beneficio (%)" y los ajustes de la campaña, y se toca "Guardar". Si cambiás el texto vuelve a revisión de Meta (de minutos a un día). "Consultar a Meta" actualiza el estado.
