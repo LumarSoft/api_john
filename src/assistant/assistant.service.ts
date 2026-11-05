@@ -16,7 +16,7 @@ import { FEATURE_NOT_FOR_ROLE, FEATURE_NOT_IN_PLAN } from '../plan-features/plan
 import { PlanFeaturesService } from '../plan-features/plan-features.service'
 import { ProposalsService } from '../improvements/proposals.service'
 import { AssistantDataService } from './assistant-data.service'
-import { PANEL_GUIDE } from './panel-guide'
+import { PANEL_GUIDE, PANEL_TOURS } from './panel-guide'
 import { AskAssistantDto } from './dto/ask-assistant.dto'
 
 /** One message as the Chat Completions API takes and returns it. */
@@ -173,7 +173,7 @@ function systemPrompt(orgName: string, today: string): string {
 
 Ayudás con cuatro cosas:
 1. Consultas sobre la cartera: clientes, pólizas, cuotas, vencimientos y siniestros. Usá las herramientas: no respondas esos datos de memoria ni los inventes.
-2. Cómo usar el panel: dónde está algo o cómo se hace una tarea. Leé la guía con como_usar_el_panel y explicá los pasos con los nombres exactos de secciones, pestañas y botones. Si la guía no lo cubre, decí que no lo sabés en vez de suponer.
+2. Cómo usar el panel: dónde está algo o cómo se hace una tarea. Leé la guía con como_usar_el_panel y explicá los pasos con los nombres exactos de secciones, pestañas y botones. Si la guía no lo cubre, decí que no lo sabés en vez de suponer. Si la tarea está en "Recorridos en pantalla" de la guía, explicá los pasos igual y terminá la respuesta con el enlace [Mostrame en pantalla](recorrido:ID), con el id exacto de esa lista: el panel lleva a la persona a la pantalla y le marca cada botón. Uno solo por respuesta, y ninguno si la tarea no está en la lista.
 3. Ideas de mejora del panel o del bot: ayudá a pensarla y ordenarla (qué pasa hoy, qué se propone, un ejemplo concreto), con preguntas si falta algo. Mostrá el título y el texto finales y preguntá si la enviás a Mejoras › Propuestas; enviala con enviar_propuesta_de_mejora solo cuando la persona diga que sí.
 4. Dudas del trabajo con seguros: qué es una franquicia, qué suele cubrir terceros completo o todo riesgo, cómo se hace una denuncia de siniestro, cómo explicarle algo a un asegurado, redactar un mensaje para un asegurado o una compañía, o una cuenta con números del trabajo (una cuota con aumento, el total de varias cuotas, una comisión, una diferencia de precio entre coberturas): esas cuentas hacelas. Explicá en general; las condiciones de una compañía o de una póliza concreta no las inventes: buscalas con las herramientas o decí que hay que confirmarlas con la compañía.
 
@@ -358,9 +358,18 @@ export function looksLikeCode(reply: string): boolean {
   )
 }
 
-/** A link to a client only with a real id: "[Juan](asegurado:?)" stays as "Juan". */
+const TOUR_IDS = new Set(PANEL_TOURS.map(tour => tour.id))
+
+/**
+ * A link to a client only with a real id: "[Juan](asegurado:?)" stays as
+ * "Juan". A tour link only to a tour the panel has: any other goes away whole,
+ * since its text ("Mostrame en pantalla") means nothing without the button.
+ */
 export function cleanLinks(reply: string): string {
-  return reply.replace(/\[([^\]]+)\]\(asegurado:(?!\d+\))[^)]*\)/g, '$1')
+  return reply
+    .replace(/\[([^\]]+)\]\(asegurado:(?!\d+\))[^)]*\)/g, '$1')
+    .replace(/[ \t]*\[[^\]]+\]\(recorrido:([^)]*)\)/g, (link, id: string) => (TOUR_IDS.has(id) ? link : ''))
+    .trim()
 }
 
 function formatToday(now: Date): string {

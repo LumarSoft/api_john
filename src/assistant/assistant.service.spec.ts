@@ -8,6 +8,7 @@ import type { PlanFeaturesService } from '../plan-features/plan-features.service
 import { allFeatures } from '../plan-features/plan-features'
 import type { ProposalsService } from '../improvements/proposals.service'
 import type { AssistantDataService } from './assistant-data.service'
+import { PANEL_GUIDE, PANEL_TOURS } from './panel-guide'
 import { AssistantService, OFF_TOPIC_REPLY, cleanLinks, looksLikeCode } from './assistant.service'
 
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
@@ -191,6 +192,7 @@ describe('AssistantService off-topic requests', () => {
     expect(instructions).toContain('Solo respondés sobre esas cuatro cosas')
     expect(instructions).toContain('hola mundo')
     expect(instructions).toContain(OFF_TOPIC_REPLY)
+    expect(instructions).toContain('(recorrido:ID)')
   })
 
   it('replaces an answer that came with code anyway', async () => {
@@ -238,5 +240,19 @@ describe('cleanLinks', () => {
     expect(cleanLinks('[Juan Perez](asegurado:60) y [Ana](asegurado:?) y [Luis](asegurado:)')).toBe(
       '[Juan Perez](asegurado:60) y Ana y Luis',
     )
+  })
+
+  it('keeps a tour link only when the panel has that tour', () => {
+    expect(cleanLinks('Entrá a Rechazos.\n\n[Mostrame en pantalla](recorrido:cargar-rechazos)')).toBe(
+      'Entrá a Rechazos.\n\n[Mostrame en pantalla](recorrido:cargar-rechazos)',
+    )
+    expect(cleanLinks('Entrá a Usuarios. [Mostrame en pantalla](recorrido:nuevo-usuario)')).toBe('Entrá a Usuarios.')
+  })
+})
+
+describe('panel tours', () => {
+  it('lists every tour, by its id, in the guide the assistant reads', () => {
+    for (const tour of PANEL_TOURS) expect(PANEL_GUIDE).toContain(`- ${tour.id}: `)
+    expect(new Set(PANEL_TOURS.map(tour => tour.id)).size).toBe(PANEL_TOURS.length)
   })
 })

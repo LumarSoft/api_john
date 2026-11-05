@@ -5,7 +5,38 @@
  * explain steps that no longer exist. Same text for Polisend and the JPMG
  * panel (they are level); who sets the plans is "el soporte de la plataforma".
  */
-export const PANEL_GUIDE = `# Guía del panel
+/**
+ * The on-screen tours the panel can run ("Mostrame en pantalla"): it goes to
+ * the screen, highlights the real buttons one by one and explains each. The
+ * steps live in the panels (src/features/admin/lib/panel-tours.ts in
+ * front_John and Polisend) under these same ids: add a tour there first, then
+ * here, or the assistant offers a button that does nothing.
+ */
+export const PANEL_TOURS: ReadonlyArray<{ id: string; what: string }> = [
+  { id: 'cargar-rechazos', what: 'cargar el Excel de rechazos de Triunfo y enviar los avisos' },
+  { id: 'nueva-tarea', what: 'crear una tarea para alguien del equipo' },
+  { id: 'escribir-cliente', what: 'tomar un chat de Whatsapp para escribirle a un cliente' },
+  { id: 'devolver-al-bot', what: 'devolverle un chat al bot' },
+  { id: 'estado-asunto', what: 'cambiar el estado de un asunto pendiente (en atención, resuelto)' },
+  { id: 'gestionar-siniestro', what: 'cambiar el estado de un siniestro y cargar el N° de siniestro de la compañía' },
+  { id: 'documentos-asegurado', what: 'buscar un asegurado y bajar sus documentos (póliza, tarjeta, certificados)' },
+  { id: 'recordar-pago', what: 'recordarle a un cliente una cuota vencida por WhatsApp desde Cobranzas' },
+  { id: 'avisar-vencidas', what: 'avisarles a los clientes con pólizas vencidas sin renovar' },
+  { id: 'estado-solicitud', what: 'cambiar el estado de una solicitud de cotización y dejar notas internas' },
+  { id: 'proponer-mejora', what: 'enviar una propuesta de mejora desde Mejoras' },
+  { id: 'apariencia', what: 'pasar el panel a modo oscuro o cambiarle los colores' },
+  { id: 'bot-en-un-numero', what: 'apagar o prender el bot en un solo número' },
+  { id: 'horarios', what: 'cargar los horarios de atención de la oficina' },
+]
+
+const TOURS_SECTION = `
+## Recorridos en pantalla
+Para estas tareas el panel puede mostrar el camino en la pantalla, marcando cada botón. Usá el id exacto en el enlace [Mostrame en pantalla](recorrido:ID):
+${PANEL_TOURS.map(tour => `- ${tour.id}: ${tour.what}.`).join('\n')}
+`
+
+export const PANEL_GUIDE =
+  `# Guía del panel
 
 ## Roles y cosas generales
 - Administrador: ve solo los datos de sus códigos de productor y de sus números. SuperAdmin: ve toda la organización y además maneja Usuarios, el alta y la baja de números y los planes. El dueño de la plataforma tiene su propio panel (Organizaciones y el catálogo de planes), que no se explica acá.
@@ -126,4 +157,4 @@ export const PANEL_GUIDE = `# Guía del panel
 - No permite cargar siniestros, solicitudes ni coberturas a mano.
 - Desde el chat no se puede mandar un mensaje libre pasadas las 24 horas, y tampoco hay opción para enviar plantillas.
 - No cambia la contraseña de TriunfoNet ni los precios de los planes de mensajes.
-`
+` + TOURS_SECTION
