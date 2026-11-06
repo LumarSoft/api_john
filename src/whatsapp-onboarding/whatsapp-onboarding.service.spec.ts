@@ -257,6 +257,37 @@ describe('WhatsappOnboardingService', () => {
       expect(prisma.phoneNumber.create.mock.calls[0][0].data).toMatchObject({ branchName: 'Pueblo Esther' })
     })
 
+    it('saves the assistant typed before connecting: name, presentation, people and hours', async () => {
+      const { service, prisma } = setup()
+      const week = { mon: [{ from: '09:00', to: '13:00' }], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+
+      await service.onboard(admin, {
+        ...dto,
+        branchName: 'Roldán',
+        botName: 'Nico',
+        presentationName: 'Vanesa Aguilar',
+        staffNames: ['Vanesa', 'Emilia'],
+        businessHours: week,
+      })
+      expect(prisma.phoneNumber.create.mock.calls[0][0].data).toMatchObject({
+        branchName: 'Roldán',
+        botName: 'Nico',
+        staffNames: 'Vanesa, Emilia',
+        businessHours: week,
+        botProfile: { orgName: 'Vanesa Aguilar', orgLegalName: 'Vanesa Aguilar', orgShortName: 'Vanesa Aguilar' },
+      })
+    })
+
+    it('rejects broken hours before spending the code', async () => {
+      const { service, prisma, exchange } = setup()
+
+      await expect(service.onboard(admin, { ...dto, businessHours: { mon: 'x' } })).rejects.toBeInstanceOf(
+        BadRequestException,
+      )
+      expect(prisma.phoneNumber.create).not.toHaveBeenCalled()
+      expect(exchange).not.toHaveBeenCalled()
+    })
+
     it("refuses a code that is not theirs before spending Meta's code", async () => {
       const { service, exchange } = setup()
 

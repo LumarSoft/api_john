@@ -15,6 +15,7 @@ import { ScopeService, type ScopeUser } from '../common/scope/scope.service'
 import { readCommercialPricing } from '../usage/commercial-pricing'
 import { initialPlanId } from '../usage/initial-plan'
 import { toBranchName } from '../phone-numbers/branch-name'
+import { assistantSetupData, type AssistantSetupData } from '../phone-numbers/assistant-setup'
 import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 import { describeGraphError } from './graph-errors'
@@ -76,6 +77,9 @@ export class WhatsappOnboardingService {
     const billing = await this.resolveBilling(user, dto)
 
     // 1 — code → business token. The code dies 30s after the popup closes.
+    // The assistant typed before connecting (name, presentation, people,
+    // hours), validated before the code is spent: it expires in 30 seconds.
+    const assistant = assistantSetupData(dto)
     const { accessToken, expiresAt } = await this.exchangeCode(dto.code)
 
     // Coexistence's session event is allowed to omit phone_number_id. Resolve it
@@ -160,12 +164,14 @@ export class WhatsappOnboardingService {
           number: displayPhoneNumber,
           branchName,
           responsibleProducerCodeId: dto.responsibleProducerCodeId,
+          assistant,
         })
       : await this.prisma.phoneNumber.create({
           data: {
             phoneNumberId,
             number: displayPhoneNumber ?? phoneNumberId,
             branchName,
+            ...assistant,
             producerId,
             wabaAccountId: waba.id,
             responsibleProducerCodeId: billing.responsibleProducerCodeId ?? null,
@@ -392,6 +398,7 @@ export class WhatsappOnboardingService {
       number?: string
       branchName: string | null
       responsibleProducerCodeId?: number
+      assistant?: AssistantSetupData
     },
   ): Promise<{ id: number }> {
     const update = this.prisma.phoneNumber.update({
@@ -405,6 +412,8 @@ export class WhatsappOnboardingService {
         ...(data.number ? { number: data.number } : {}),
         // A reconnect without a name keeps the one the number already had.
         ...(data.branchName ? { branchName: data.branchName } : {}),
+        // Same for the assistant: only the fields the panel sent.
+        ...(data.assistant ?? {}),
         // The panel's connect button sends no code: keep the one already set.
         ...(data.responsibleProducerCodeId !== undefined
           ? { responsibleProducerCodeId: data.responsibleProducerCodeId }

@@ -1,7 +1,8 @@
 import { Type } from 'class-transformer'
 import { ArrayUnique, IsArray, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator'
+import { AssistantSetupDto } from './assistant-setup.dto'
 
-export class CreatePhoneNumberDto {
+export class CreatePhoneNumberDto extends AssistantSetupDto {
   // Meta phone_number_id (the id Meta sends in webhook metadata).
   @IsString()
   @MinLength(3)

@@ -12,6 +12,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator'
+import { AssistantSetupDto } from '../../phone-numbers/dto/assistant-setup.dto'
 
 /**
  * Payload the admin panel sends right after Embedded Signup finishes.
@@ -19,7 +20,7 @@ import {
  * `code` has a time-to-live of 30 SECONDS, so the front must post this the
  * moment the popup closes — no confirmation dialogs in between.
  */
-export class OnboardWhatsappDto {
+export class OnboardWhatsappDto extends AssistantSetupDto {
   // Exchangeable token code returned by Embedded Signup (NOT an access token).
   @IsString()
   @MinLength(10)

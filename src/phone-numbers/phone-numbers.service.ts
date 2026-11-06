@@ -9,6 +9,7 @@ import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import { BotStatusAlertService } from '../users/bot-status-alert.service'
 import { toBranchName } from './branch-name'
+import { assistantSetupData } from './assistant-setup'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
@@ -235,6 +236,7 @@ export class PhoneNumbersService {
         phoneNumberId: dto.phoneNumberId,
         number: dto.number,
         branchName: dto.branchName !== undefined ? toBranchName(dto.branchName) : null,
+        ...assistantSetupData(dto),
         producerId,
         responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
         monthlyBudgetUsd: this.budgetFrom(dto, role) ?? null,
