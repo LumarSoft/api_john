@@ -184,6 +184,41 @@ describe('BotService', () => {
     })
   })
 
+  describe('holderOf', () => {
+    beforeEach(() => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 2, clientId: 5 })
+    })
+
+    it("says a plate on one of the client's policies is theirs", async () => {
+      prisma.policy.count.mockResolvedValueOnce(1)
+      await expect(service.holderOf(3, { plate: 'ac 677-nh' })).resolves.toEqual({ holder: 'self' })
+      expect(prisma.policy.count.mock.calls[0][0].where).toMatchObject({
+        clientId: 5,
+        vehicle: { licensePlate: 'AC677NH', deletedAt: null },
+      })
+    })
+
+    it("says a plate of another client's policy is someone else's, without naming them", async () => {
+      prisma.policy.count.mockResolvedValueOnce(0)
+      prisma.policy.findFirst.mockResolvedValueOnce({ clientId: 9, producerCodeId: 8 })
+      await expect(service.holderOf(3, { plate: 'LOS659' })).resolves.toEqual({ holder: 'other' })
+      expect(prisma.conversation.update).not.toHaveBeenCalled()
+    })
+
+    it("says a DNI of another client is someone else's and the own one is theirs", async () => {
+      prisma.client.findFirst.mockResolvedValueOnce({ id: 9, producerCodeId: 8 })
+      await expect(service.holderOf(3, { dni: '40123456' })).resolves.toEqual({ holder: 'other' })
+      prisma.client.findFirst.mockResolvedValueOnce({ id: 5, producerCodeId: 8 })
+      await expect(service.holderOf(3, { dni: '30123456' })).resolves.toEqual({ holder: 'self' })
+    })
+
+    it('says nobody has a plate or DNI the cartera does not know', async () => {
+      prisma.policy.count.mockResolvedValueOnce(0)
+      prisma.policy.findFirst.mockResolvedValueOnce(null)
+      await expect(service.holderOf(3, { plate: 'ZZZ999' })).resolves.toEqual({ holder: 'none' })
+    })
+  })
+
   describe('identifyByPhone', () => {
     beforeEach(() => {
       prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 2, clientId: null, waId: '5493413404951' })

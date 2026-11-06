@@ -89,6 +89,9 @@ function isClientLinkActive(link: ClientLink): boolean {
  */
 const inCodes = (codeIds: number[] | null) => (codeIds ? { producerCodeId: { in: codeIds } } : {})
 
+/** A plate as the cartera stores it: "ab 123-cd" → "AB123CD". */
+const normalizePlate = (plate: string) => plate.replace(/[\s-]/g, '').toUpperCase()
+
 /**
  * The clients a number may identify and serve: those of one of its codes, or
  * with a policy under one of them. A branch's number never answers for a client
@@ -737,13 +740,57 @@ export class BotService {
    */
   async identifyClient(conversationId: number, dto: IdentifyClientDto) {
     const conversation = await this.findConversation(conversationId)
+    const codeIds = await this.numberCodeIds(conversation.phoneNumberId)
+    const client = await this.findClientBy(conversation.producerId, dto, codeIds)
+    if (!client) {
+      throw new NotFoundException('No client found for the given dni/plate')
+    }
 
+    return this.linkClient(conversationId, client, codeIds)
+  }
+
+  /**
+   * Whose a DNI or a plate is, seen from the client the chat identified:
+   * theirs (`self`), another client's (`other`) or nobody's among the clients
+   * the number serves (`none`). Says nothing about who the other client is:
+   * the bot only tells the person that the policy is in someone else's name,
+   * so its holder asks for it from their own WhatsApp.
+   */
+  async holderOf(conversationId: number, dto: IdentifyClientDto): Promise<{ holder: 'self' | 'other' | 'none' }> {
+    const conversation = await this.findConversation(conversationId)
+    const codeIds = await this.numberCodeIds(conversation.phoneNumberId)
+    const plate = dto.plate ? normalizePlate(dto.plate) : null
+    if (plate && conversation.clientId) {
+      // A plate can be on policies of two clients (a sold car): theirs first.
+      const own = await this.prisma.policy.count({
+        where: {
+          clientId: conversation.clientId,
+          producerId: conversation.producerId,
+          deletedAt: null,
+          vehicle: { licensePlate: plate, deletedAt: null },
+          ...inCodes(codeIds),
+        },
+      })
+      if (own) return { holder: 'self' }
+    }
+    const client = await this.findClientBy(conversation.producerId, dto, codeIds)
+    if (!client) return { holder: 'none' }
+    return { holder: client.id === conversation.clientId ? 'self' : 'other' }
+  }
+
+  /**
+   * The client a DNI (or CUIT/CUIL) or a plate points to, among the clients of
+   * the codes the number serves: on a branch's number another office's client
+   * is not found.
+   */
+  private async findClientBy(
+    producerId: number,
+    dto: IdentifyClientDto,
+    codeIds: number[] | null,
+  ): Promise<{ id: number; producerCodeId: number | null } | null> {
     if (!dto.dni && !dto.plate) {
       throw new BadRequestException('Either dni or plate is required')
     }
-    const codeIds = await this.numberCodeIds(conversation.phoneNumberId)
-
-    let client: { id: number; producerCodeId: number | null } | null = null
 
     if (dto.dni) {
       // Companies are stored by CUIT; people by DNI, so a person's CUIL falls
@@ -751,38 +798,33 @@ export class BotService {
       const dni = dto.dni.trim()
       const cuilDni = /^(?:20|23|24|27)\d{9}$/.test(dni) ? String(Number(dni.slice(2, 10))) : null
       for (const candidate of cuilDni ? [dni, cuilDni] : [dni]) {
-        client = await this.prisma.client.findFirst({
+        const client = await this.prisma.client.findFirst({
           where: {
             dni: candidate,
-            producerId: conversation.producerId,
+            producerId,
             deletedAt: null,
             ...servedClientWhere(codeIds),
           },
           select: { id: true, producerCodeId: true },
         })
-        if (client) break
+        if (client) return client
       }
     }
 
-    if (!client && dto.plate) {
-      const plate = dto.plate.replace(/[\s-]/g, '').toUpperCase()
+    if (dto.plate) {
       const poliza = await this.prisma.policy.findFirst({
         where: {
-          producerId: conversation.producerId,
+          producerId,
           deletedAt: null,
-          vehicle: { licensePlate: plate, deletedAt: null },
+          vehicle: { licensePlate: normalizePlate(dto.plate), deletedAt: null },
           ...inCodes(codeIds),
         },
         select: { clientId: true, producerCodeId: true },
       })
-      if (poliza) client = { id: poliza.clientId, producerCodeId: poliza.producerCodeId }
+      if (poliza) return { id: poliza.clientId, producerCodeId: poliza.producerCodeId }
     }
 
-    if (!client) {
-      throw new NotFoundException('No client found for the given dni/plate')
-    }
-
-    return this.linkClient(conversationId, client, codeIds)
+    return null
   }
 
   /**

@@ -2934,6 +2934,35 @@ Only the clients the conversation's number serves are found: on a branch's numbe
 
 `404 Not Found` — No client matches the given dni/plate
 
+### POST /bot/conversation/:conversationId/holder
+
+Says whose a DNI (or CUIT/CUIL) or a plate is, seen from the client the conversation identified: `self` (theirs), `other` (another client of the organization) or `none` (nobody among the clients the number serves). It never says who the other client is: the bot uses it to tell a customer who asks about a relative's policy that it is in someone else's name and that its holder has to ask for it from their own WhatsApp, instead of answering as if the policy did not exist. A plate on policies of two clients (a sold car) is `self` when one of them is the identified client. Without an identified client, a match is `other`.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body** — same as `identify`
+
+| Field | Type   | Required | Constraints |
+| ----- | ------ | -------- | ----------- |
+| dni   | string | One of   | 6–11 chars  |
+| plate | string | One of   | 5–10 chars  |
+
+```json
+{ "plate": "LOS659" }
+```
+
+**Responses**
+
+`201 Created`
+
+```json
+{ "holder": "other" }
+```
+
+`400 Bad Request` — Neither `dni` nor `plate` provided
+
+`404 Not Found` — Conversation not found
+
 ### POST /bot/conversation/:conversationId/request-policy-cancellation
 
 Leaves a `baja_poliza` notification for the office with the policy, the client's DNI and, when the bot collected it, the reason the client gave (sale, cost, no longer needed, change of insurer or free text). The policy is never cancelled here; the conversation is flagged `pending` for the office.

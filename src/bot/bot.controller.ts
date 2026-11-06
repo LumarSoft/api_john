@@ -97,6 +97,12 @@ export class BotController {
     return this.botService.identifyClient(conversationId, dto)
   }
 
+  /** Whether a DNI or plate is the identified client's, another client's or nobody's. */
+  @Post('conversation/:conversationId/holder')
+  holderOf(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: IdentifyClientDto) {
+    return this.botService.holderOf(conversationId, dto)
+  }
+
   @Post('conversation/:conversationId/identify-by-phone')
   identifyByPhone(@Param('conversationId', ParseIntPipe) conversationId: number) {
     return this.botService.identifyByPhone(conversationId)
