@@ -2524,6 +2524,7 @@ The five campaigns of the organization, configured or not (an unconfigured one i
       "placeholders": [{ "key": "nombre", "label": "Nombre", "example": "Juan" }],
       "settings": { "daysBefore": 30, "cooldownDays": 60 },
       "settingFields": [{ "key": "daysBefore", "label": "Avisar desde (días antes del vencimiento)", "type": "number", "min": 1, "max": 90, "help": "…" }],
+      "filters": [],
       "templates": [{ "wabaName": "Oficina", "numbers": ["+54 9 341 000-0001"], "status": "APPROVED", "reason": null }],
       "ready": true,
       "plan": { "included": true, "availableIn": "Inicial" },
@@ -2534,6 +2535,8 @@ The five campaigns of the organization, configured or not (an unconfigured one i
   ]
 }
 ```
+
+`filters`: what the candidates list can be narrowed by besides the scope and the search: `coverage` (`coverage_upgrade`, `cross_sell`) or `reason` (`winback`).
 
 `templates[].status`: `PENDING` (in Meta's review), `APPROVED`, `REJECTED` (with Meta's reason), `NOT_SUBMITTED` (an account connected after the last text: `POST …/templates/refresh` submits it) or `ERROR` (Meta could not be reached or refused the request).
 
@@ -2574,7 +2577,7 @@ Asks Meta again for the review of the campaign's templates, and submits the curr
 
 ### GET /admin/campaigns/:kind/candidates
 
-Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas), never-contacted first. Query: `search` (name, DNI, vehicle, reason), `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`.
+Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas). Never-contacted first; within each group, who entered the list last first: the policy that started last (`coverage_upgrade`, `cross_sell`), the renewal that ends last (`renewal`), the latest cancellation (`winback`) or quote (`quote_followup`). Query: `search` (name, DNI, vehicle, reason), `sort` (`recent`, default, or `oldest`), `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`, and the campaign's own filters (its `filters` in `GET /admin/campaigns`): `coverage` (a coverage code, `coverage_upgrade` and `cross_sell`; in `cross_sell` any of the client's cars or motorbikes in force counts) and `reason` (`winback`: `falta_pago`, `venta`, `desistimiento`, `costo`, `cambio_compania`, `siniestro`, `rescision`, `otros`).
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -2598,9 +2601,18 @@ Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNum
   "total": 42,
   "page": 1,
   "pageSize": 25,
-  "totalPages": 2
+  "totalPages": 2,
+  "filters": {
+    "coverages": [
+      { "value": "A", "count": 30 },
+      { "value": "B1", "count": 12 }
+    ],
+    "reasons": null
+  }
 }
 ```
+
+`filters` lists the choices of the campaign's filters, from everyone it finds in the scope (whatever the search or the filter picked), with how many each has; `null` when the campaign has no such filter (`coverages` in `coverage_upgrade` and `cross_sell`, `reasons` in `winback`, as `{ value, label, count }`).
 
 `id` is the policy (the quote for `quote_followup`): what `send`, `mark` and `opt-out` take. `values` are what the message fills in for that person. `lastMessage.status`: `SENDING`, `SENT`, `FAILED`, `MARKED`.
 

@@ -26,6 +26,33 @@ export interface CampaignSettingField {
 
 export type CampaignSettings = Record<string, number | string[]>
 
+/** What the office can narrow a campaign's list by, besides the code or number and the search. */
+export type CampaignFilter = 'coverage' | 'reason'
+
+/** Why Triunfo cancelled a policy, grouped as the office reads it (Bajas y anulaciones). */
+export const CANCELLATION_REASONS = [
+  'falta_pago',
+  'venta',
+  'desistimiento',
+  'costo',
+  'cambio_compania',
+  'siniestro',
+  'rescision',
+  'otros',
+] as const
+export type CancellationReason = (typeof CANCELLATION_REASONS)[number]
+
+export const CANCELLATION_REASON_LABELS: Record<CancellationReason, string> = {
+  falta_pago: 'Falta de pago',
+  venta: 'Venta del bien',
+  desistimiento: 'La pidió el asegurado',
+  costo: 'Aumento de costo',
+  cambio_compania: 'Cambio de compañía',
+  siniestro: 'Siniestro',
+  rescision: 'Rescisión',
+  otros: 'Otros motivos',
+}
+
 export interface CampaignDefinition {
   kind: CampaignKind
   dbKind: SalesCampaignKind
@@ -38,6 +65,7 @@ export interface CampaignDefinition {
   defaultBody: string
   settingFields: CampaignSettingField[]
   defaultSettings: CampaignSettings
+  filters: CampaignFilter[]
 }
 
 const NOMBRE: CampaignPlaceholder = { key: 'nombre', label: 'Nombre', example: 'Juan' }
@@ -81,6 +109,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
       COOLDOWN,
     ],
     defaultSettings: { basicCoverages: ['A', 'B', 'B1'], cooldownDays: 90 },
+    filters: ['coverage'],
   },
   quote_followup: {
     kind: 'quote_followup',
@@ -112,6 +141,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
       COOLDOWN,
     ],
     defaultSettings: { afterDays: 2, withinDays: 30, cooldownDays: 30 },
+    filters: [],
   },
   renewal: {
     kind: 'renewal',
@@ -135,6 +165,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
       COOLDOWN,
     ],
     defaultSettings: { daysBefore: 30, cooldownDays: 60 },
+    filters: [],
   },
   winback: {
     kind: 'winback',
@@ -158,6 +189,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
       COOLDOWN,
     ],
     defaultSettings: { withinDays: 180, cooldownDays: 90 },
+    filters: ['reason'],
   },
   cross_sell: {
     kind: 'cross_sell',
@@ -171,6 +203,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
       '¡Hola, {nombre}! Además de tu seguro actual, tenemos alternativas para proteger otras cosas importantes, como tu hogar o tu familia. Por ser cliente, podemos prepararte una cotización y consultar si corresponde un beneficio del {porcentaje}%. ¿Te gustaría conocer las opciones?',
     settingFields: [COOLDOWN],
     defaultSettings: { cooldownDays: 120 },
+    filters: ['coverage'],
   },
 }
 

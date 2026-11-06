@@ -19,6 +19,8 @@ import { FEATURE_NOT_FOR_ROLE, FEATURE_NOT_IN_PLAN } from '../plan-features/plan
 import { PlanFeaturesService } from '../plan-features/plan-features.service'
 import {
   CAMPAIGNS,
+  CANCELLATION_REASON_LABELS,
+  CANCELLATION_REASONS,
   CampaignDefinition,
   campaignOf,
   campaignOfDbKind,
@@ -213,11 +215,14 @@ export class SalesCampaignsService implements OnModuleInit {
     ])
 
     const search = (query.search ?? '').trim().toLowerCase()
-    const rows = targets
+    const coverage = query.coverage?.trim().toUpperCase()
+    const listed = targets
       .filter(t => !search || [t.name, t.dni, t.item, t.detail].some(v => v?.toLowerCase().includes(search)))
+      .filter(t => !coverage || t.coverages.some(c => c.toUpperCase() === coverage))
+      .filter(t => !query.reason || t.reason === query.reason)
       .map(t => {
         const last = this.lastMessageFor(t, definition, messages)
-        return {
+        const row = {
           id: t.id,
           client: { id: t.clientId, name: t.name, dni: t.dni, phone: t.phone ?? (t.waId ? `+${t.waId}` : null) },
           item: t.item,
@@ -236,17 +241,21 @@ export class SalesCampaignsService implements OnModuleInit {
             : null,
           optedOut: this.isOptedOut(t, optedOut),
         }
+        return { row, sortDate: t.sortDate?.getTime() ?? 0 }
       })
 
-    // Who was never written to first; then the most urgent (renewals: soonest end) or the newest.
-    const soonest = definition.kind === 'renewal'
-    rows.sort((a, b) => {
-      const contacted = Number(a.lastMessage !== null || a.optedOut) - Number(b.lastMessage !== null || b.optedOut)
+    // Who was never written to first; then who entered the list last (the
+    // newest policy, quote or cancellation, the renewal furthest off), or the
+    // other way round when the office asks for the oldest.
+    const newestFirst = (query.sort ?? 'recent') === 'recent'
+    listed.sort((a, b) => {
+      const contacted =
+        Number(a.row.lastMessage !== null || a.row.optedOut) - Number(b.row.lastMessage !== null || b.row.optedOut)
       if (contacted) return contacted
-      const da = a.date ? Date.parse(a.date) : 0
-      const db = b.date ? Date.parse(b.date) : 0
-      return soonest ? da - db : db - da
+      const byDate = newestFirst ? b.sortDate - a.sortDate : a.sortDate - b.sortDate
+      return byDate || b.row.id - a.row.id
     })
+    const rows = listed.map(l => l.row)
 
     const page = query.page ?? 1
     const pageSize = query.pageSize ?? 25
@@ -256,6 +265,36 @@ export class SalesCampaignsService implements OnModuleInit {
       page,
       pageSize,
       totalPages: Math.max(1, Math.ceil(rows.length / pageSize)),
+      filters: this.filterOptions(definition, targets),
+    }
+  }
+
+  /**
+   * The choices of the campaign's filters, from everyone it finds in the
+   * user's scope (not only the page or the search), with how many each has.
+   */
+  private filterOptions(definition: CampaignDefinition, targets: CampaignTarget[]) {
+    const coverages = new Map<string, { value: string; count: number }>()
+    if (definition.filters.includes('coverage')) {
+      for (const t of targets) {
+        for (const code of t.coverages) {
+          const option = coverages.get(code.toUpperCase()) ?? { value: code, count: 0 }
+          option.count++
+          coverages.set(code.toUpperCase(), option)
+        }
+      }
+    }
+    return {
+      coverages: definition.filters.includes('coverage')
+        ? [...coverages.values()].sort((a, b) => a.value.localeCompare(b.value, 'es', { numeric: true }))
+        : null,
+      reasons: definition.filters.includes('reason')
+        ? CANCELLATION_REASONS.map(value => ({
+            value,
+            label: CANCELLATION_REASON_LABELS[value],
+            count: targets.filter(t => t.reason === value).length,
+          })).filter(option => option.count > 0)
+        : null,
     }
   }
 
@@ -540,6 +579,7 @@ export class SalesCampaignsService implements OnModuleInit {
       placeholders: definition.placeholders,
       settings: settingsOf(definition, row?.settings),
       settingFields: definition.settingFields,
+      filters: definition.filters,
       templates,
       ready: templates.some(t => t.status === 'APPROVED'),
       plan: {

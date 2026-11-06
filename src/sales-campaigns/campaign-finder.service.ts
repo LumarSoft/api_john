@@ -3,7 +3,13 @@ import { Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere, notCancelledPolizaWhere } from '../common/poliza-vigencia'
 import { productNameOf } from '../common/poliza-detail'
-import { CampaignDefinition, CampaignSettings, codesSetting, numberSetting } from './campaign-catalog'
+import {
+  CampaignDefinition,
+  CampaignSettings,
+  CancellationReason,
+  codesSetting,
+  numberSetting,
+} from './campaign-catalog'
 
 const DAY_MS = 86_400_000
 
@@ -27,6 +33,16 @@ export interface CampaignTarget {
   bien: string
   detail: string
   date: Date | null
+  /**
+   * What "más recientes" sorts by: when the person entered the list. The
+   * policy's start (coverage upgrade, cross-sell), its end (renewal), the
+   * cancellation (winback) or the quote.
+   */
+  sortDate: Date | null
+  /** Coverage codes of the vehicle ("A", "C2 Full"); in CROSS_SELL, of every car or motorbike in force. */
+  coverages: string[]
+  /** WINBACK: why Triunfo cancelled the policy. */
+  reason: CancellationReason | null
   producerCodeId: number | null
   producerCode: { id: number; code: string } | null
 }
@@ -43,18 +59,29 @@ const RISK_LABELS: Record<string, string> = {
 /** Cancellations that do not lose the client: the policy was replaced or issued by mistake. */
 const NOT_A_LOSS = ['ANULA POR REEMPLAZO', 'ANULA POR ERROR']
 
-const CANCELLATION_LABELS: Array<[string, string]> = [
-  ['ANULA COBRANZA', 'por falta de pago'],
-  ['ANULA POR VENTA', 'por venta del bien'],
-  ['ANULA DESISTIM', 'la pidió el asegurado'],
-  ['ANULA POR SINIESTRO', 'por siniestro'],
-  ['RESCISION', 'rescindida'],
+/**
+ * Why a policy was cancelled, by the start of Triunfo's movement (production,
+ * 2026-11: "ANULA COBRANZA", "ANULA POR VENTA", "ANULA DESISTIM.ASEG.",
+ * "ANULA P/ MOTIVOS VS.", "RESCISION UNILATERAL"…). Anything else is "otros".
+ */
+const CANCELLATIONS: Array<{ prefix: string; reason: CancellationReason; detail: string }> = [
+  { prefix: 'ANULA COBRANZA', reason: 'falta_pago', detail: 'por falta de pago' },
+  { prefix: 'ANULA POR VENTA', reason: 'venta', detail: 'por venta del bien' },
+  { prefix: 'ANULA DESISTIM', reason: 'desistimiento', detail: 'la pidió el asegurado' },
+  { prefix: 'ANULA P/AUMEN', reason: 'costo', detail: 'por aumento de costo' },
+  { prefix: 'ANUL.P/CAMBIO DE CIA', reason: 'cambio_compania', detail: 'por cambio de compañía' },
+  { prefix: 'ANULA POR SINIESTRO', reason: 'siniestro', detail: 'por siniestro' },
+  { prefix: 'ANULA STRO', reason: 'siniestro', detail: 'por un siniestro de la póliza anterior' },
+  { prefix: 'RESCISION', reason: 'rescision', detail: 'rescindida' },
+  { prefix: 'ANULA P/ MOTIVOS', reason: 'otros', detail: 'por motivos varios' },
+  { prefix: 'ANUL.CANCEL.PRENDA', reason: 'otros', detail: 'por cancelación de la prenda' },
 ]
 
 const POLICY_SELECT = {
   id: true,
   clientId: true,
   riskType: true,
+  validFrom: true,
   validTo: true,
   lastMovement: true,
   rawData: true,
@@ -117,7 +144,11 @@ export class CampaignFinderService {
       },
       now,
     )
-    return policies.map(p => policyTarget(p, `Cobertura ${p.vehicle?.coverage ?? ''}`.trim(), p.validTo))
+    return policies.map(p =>
+      policyTarget(p, [`Cobertura ${coverageOf(p) ?? ''}`.trim(), since(p)].filter(Boolean).join(' · '), p.validTo, {
+        sortDate: p.validFrom,
+      }),
+    )
   }
 
   /** A policy in force that ends within `daysBefore` and has no renewal issued yet. */
@@ -140,7 +171,7 @@ export class CampaignFinderService {
     )
     return policies
       .filter(p => !later.some(o => o.id !== p.id && o.key === keyOf(p) && o.validTo > (p.validTo ?? now)))
-      .map(p => policyTarget(p, `Vence el ${formatDay(p.validTo)}`, p.validTo))
+      .map(p => policyTarget(p, `Vence el ${formatDay(p.validTo)}`, p.validTo, { sortDate: p.validTo }))
   }
 
   /**
@@ -184,12 +215,20 @@ export class CampaignFinderService {
       if (!seen || seen.at < c.at) latest.set(key, c)
     }
     return [...latest.values()].map(({ policy, at }) => {
-      const why = CANCELLATION_LABELS.find(([prefix]) => policy.lastMovement.toUpperCase().startsWith(prefix))?.[1]
-      return policyTarget(policy, `Anulada el ${formatDay(at)}${why ? ` (${why})` : ''}`, at)
+      const movement = policy.lastMovement.trim().toUpperCase()
+      const why = CANCELLATIONS.find(c => movement.startsWith(c.prefix))
+      return policyTarget(policy, `Anulada el ${formatDay(at)}${why ? ` (${why.detail})` : ''}`, at, {
+        sortDate: at,
+        reason: why?.reason ?? 'otros',
+      })
     })
   }
 
-  /** A client with a car or motorbike in force and no home policy in force: one row per client. */
+  /**
+   * A client with a car or motorbike in force and no home policy in force: one
+   * row per client, showing the policy that started last. The filter by
+   * coverage reads all of them (a client with a car on A and a motorbike on C).
+   */
   private async crossSell(producerId: number, codeIds: number[], now: Date, ids?: number[]): Promise<CampaignTarget[]> {
     const policies = await this.policies(
       {
@@ -210,14 +249,22 @@ export class CampaignFinderService {
     })
     const hasHome = new Set(withHome.map(h => h.clientId))
     const byClient = new Map<number, PolicyRow>()
+    const coveragesByClient = new Map<number, Set<string>>()
     for (const p of policies) {
       if (hasHome.has(p.clientId)) continue
+      const coverage = coverageOf(p)
+      if (coverage) coveragesByClient.set(p.clientId, (coveragesByClient.get(p.clientId) ?? new Set()).add(coverage))
       const seen = byClient.get(p.clientId)
-      if (!seen || (seen.validTo ?? now) < (p.validTo ?? now)) byClient.set(p.clientId, p)
+      if (!seen || startOf(seen, now) < startOf(p, now)) byClient.set(p.clientId, p)
     }
-    return [...byClient.values()].map(p =>
-      policyTarget(p, `Tiene seguro de ${RISK_LABELS[p.riskType] ?? p.riskType}, no de hogar`, p.validTo),
-    )
+    return [...byClient.values()].map(p => {
+      const coverage = coverageOf(p)
+      const risk = `Tiene seguro de ${RISK_LABELS[p.riskType] ?? p.riskType}${coverage ? ` (cobertura ${coverage})` : ''}`
+      return policyTarget(p, [`${risk}, no de hogar`, since(p)].filter(Boolean).join(' · '), p.validTo, {
+        sortDate: p.validFrom,
+        coverages: [...(coveragesByClient.get(p.clientId) ?? [])],
+      })
+    })
   }
 
   /**
@@ -301,6 +348,9 @@ export class CampaignFinderService {
           bien: q.vehicleLabel ? shortVehicle(q.vehicleLabel) : vehicle,
           detail: `Cotizó el ${formatDate(q.createdAt)}`,
           date: q.createdAt,
+          sortDate: q.createdAt,
+          coverages: [],
+          reason: null,
           producerCodeId: q.producerCodeId,
           producerCode: q.producerCode,
         }
@@ -338,7 +388,12 @@ export class CampaignFinderService {
   }
 }
 
-function policyTarget(p: PolicyRow, detail: string, date: Date | null): CampaignTarget {
+function policyTarget(
+  p: PolicyRow,
+  detail: string,
+  date: Date | null,
+  extra: { sortDate: Date | null; coverages?: string[]; reason?: CancellationReason },
+): CampaignTarget {
   const vehicle = p.vehicle
   const vehicleName = vehicle ? [vehicle.brand, vehicle.model].filter(Boolean).join(' ') : ''
   const product = productNameOf(p.riskType, p.rawData)
@@ -363,9 +418,27 @@ function policyTarget(p: PolicyRow, detail: string, date: Date | null): Campaign
     bien,
     detail,
     date,
+    sortDate: extra.sortDate,
+    coverages: extra.coverages ?? (coverageOf(p) ? [coverageOf(p)!] : []),
+    reason: extra.reason ?? null,
     producerCodeId: p.producerCodeId,
     producerCode: p.producerCode,
   }
+}
+
+/** The vehicle's coverage code as Triunfo writes it ("A", "C2 Full"), or null. */
+function coverageOf(p: PolicyRow): string | null {
+  return p.vehicle?.coverage?.trim() || null
+}
+
+/** When the policy's current term started: what "más recientes" sorts a policy by. */
+function startOf(p: PolicyRow, now: Date): Date {
+  return p.validFrom ?? p.validTo ?? now
+}
+
+/** "vigente desde 04/11/2026", so the order by recent policies shows. */
+function since(p: PolicyRow): string {
+  return p.validFrom ? `vigente desde ${formatDay(p.validFrom)}` : ''
 }
 
 /** The same vehicle (by plate) or, without one, the same kind of risk of the same client. */

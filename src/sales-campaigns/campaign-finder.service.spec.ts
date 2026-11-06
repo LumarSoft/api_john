@@ -119,6 +119,73 @@ describe('CampaignFinderService', () => {
     expect(found.map(f => [f.id, f.detail])).toEqual([[1, 'Anulada el 10/09/2026 (por falta de pago)']])
   })
 
+  it('says why each policy was cancelled, so the list can be filtered by it', async () => {
+    const findMany = jest
+      .fn()
+      .mockResolvedValueOnce([
+        policy({ id: 1, lastMovement: 'ANULA COBRANZA', rawData: { FechaEmision: '2026-09-10' } }),
+        policy({
+          id: 2,
+          clientId: 62,
+          lastMovement: 'ANULA P/ MOTIVOS VS.',
+          rawData: { FechaEmision: '2026-10-10' },
+        }),
+        policy({ id: 3, clientId: 63, lastMovement: 'ANUL.P/CAMBIO DE CIA', rawData: { FechaEmision: '2026-10-20' } }),
+      ])
+      .mockResolvedValueOnce([])
+    const finder = setup({ policy: { findMany } })
+
+    const found = await finder.find(CAMPAIGNS.winback, settingsOf(CAMPAIGNS.winback, null), 7, [3], NOW)
+
+    expect(found.map(f => [f.id, f.reason, f.sortDate?.toISOString().slice(0, 10)])).toEqual([
+      [1, 'falta_pago', '2026-09-10'],
+      [2, 'otros', '2026-10-10'],
+      [3, 'cambio_compania', '2026-10-20'],
+    ])
+    expect(found[2].detail).toBe('Anulada el 20/10/2026 (por cambio de compañía)')
+  })
+
+  it('sorts a coverage upgrade by when the policy started and shows it', async () => {
+    const finder = setup({
+      policy: { findMany: jest.fn().mockResolvedValue([policy({ validFrom: new Date('2026-11-04T00:00:00Z') })]) },
+    })
+
+    const [found] = await finder.find(
+      CAMPAIGNS.coverage_upgrade,
+      settingsOf(CAMPAIGNS.coverage_upgrade, null),
+      7,
+      [3],
+      NOW,
+    )
+
+    expect(found.detail).toBe('Cobertura A · vigente desde 04/11/2026')
+    expect(found.coverages).toEqual(['A'])
+    expect(found.sortDate).toEqual(new Date('2026-11-04T00:00:00Z'))
+  })
+
+  it('offers cross-sell once per client, by the policy that started last, with all their coverages', async () => {
+    const findMany = jest
+      .fn()
+      .mockResolvedValueOnce([
+        policy({ id: 1, validFrom: new Date('2026-03-01T00:00:00Z') }),
+        policy({
+          id: 2,
+          riskType: 'moto',
+          validFrom: new Date('2026-10-01T00:00:00Z'),
+          vehicle: { licensePlate: 'A123BCD', brand: 'HONDA', model: 'WAVE', year: 2022, coverage: 'C2 Full' },
+        }),
+      ])
+      .mockResolvedValueOnce([])
+    const finder = setup({ policy: { findMany } })
+
+    const found = await finder.find(CAMPAIGNS.cross_sell, settingsOf(CAMPAIGNS.cross_sell, null), 7, [3], NOW)
+
+    expect(found).toHaveLength(1)
+    expect(found[0].id).toBe(2)
+    expect(found[0].coverages.sort()).toEqual(['A', 'C2 Full'])
+    expect(found[0].detail).toBe('Tiene seguro de moto (cobertura C2 Full), no de hogar · vigente desde 01/10/2026')
+  })
+
   it('follows up the latest quote of each chat unless it ended in a policy', async () => {
     const chat = (id: number, clientId: number | null) => ({
       id,

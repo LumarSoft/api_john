@@ -28,6 +28,9 @@ function target(overrides: Partial<CampaignTarget> = {}): CampaignTarget {
     bien: 'Ford Ka',
     detail: 'Vence el 20/11/2026',
     date: new Date('2026-11-20T12:00:00Z'),
+    sortDate: new Date('2026-11-20T12:00:00Z'),
+    coverages: ['B1'],
+    reason: null,
     producerCodeId: 3,
     producerCode: { id: 3, code: '11425' },
     ...overrides,
@@ -222,5 +225,76 @@ describe('SalesCampaignsService.update', () => {
     })
 
     await expect(service.update(mili, 'renewal', { enabled: true }, [3])).rejects.toThrow(ForbiddenException)
+  })
+})
+
+describe('SalesCampaignsService.candidates', () => {
+  const day = (iso: string) => new Date(`${iso}T12:00:00Z`)
+
+  it('lists who entered the list last first, and the oldest first when asked', async () => {
+    const targets = [
+      target({ id: 1, sortDate: day('2026-08-01') }),
+      target({ id: 2, sortDate: day('2026-11-01') }),
+      target({ id: 3, sortDate: day('2026-10-01') }),
+    ]
+    const { service } = setup({ targets })
+
+    const recent = await service.candidates(mili, 'coverage_upgrade', [3], {}, NOW)
+    expect(recent.data.map(r => r.id)).toEqual([2, 3, 1])
+
+    const oldest = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'oldest' }, NOW)
+    expect(oldest.data.map(r => r.id)).toEqual([1, 3, 2])
+  })
+
+  it('keeps who was already written to at the end, however recent', async () => {
+    const targets = [
+      target({ id: 1, clientId: 61, sortDate: day('2026-08-01') }),
+      target({ id: 2, clientId: 62, sortDate: day('2026-11-01') }),
+    ]
+    const messages = [{ status: 'SENT', sentAt: NOW, createdAt: NOW, error: null, clientId: 62, policyId: 2 }]
+    const { service } = setup({ targets, messages })
+
+    const result = await service.candidates(mili, 'coverage_upgrade', [3], {}, NOW)
+    expect(result.data.map(r => r.id)).toEqual([1, 2])
+  })
+
+  it('narrows by coverage and offers the coverages found, with how many each', async () => {
+    const targets = [
+      target({ id: 1, coverages: ['A'] }),
+      target({ id: 2, coverages: ['B1'] }),
+      target({ id: 3, coverages: ['C2 Full', 'A'] }),
+    ]
+    const { service } = setup({ targets })
+
+    const result = await service.candidates(mili, 'cross_sell', [3], { coverage: 'a' }, NOW)
+    expect(result.data.map(r => r.id).sort()).toEqual([1, 3])
+    expect(result.total).toBe(2)
+    expect(result.filters).toEqual({
+      coverages: [
+        { value: 'A', count: 2 },
+        { value: 'B1', count: 1 },
+        { value: 'C2 Full', count: 1 },
+      ],
+      reasons: null,
+    })
+  })
+
+  it('narrows the winback list by why the policy was cancelled', async () => {
+    const targets = [
+      target({ id: 1, reason: 'falta_pago' }),
+      target({ id: 2, reason: 'venta' }),
+      target({ id: 3, reason: 'falta_pago' }),
+    ]
+    const { service } = setup({ targets })
+
+    const result = await service.candidates(mili, 'winback', [3], { reason: 'venta' }, NOW)
+    expect(result.data.map(r => r.id)).toEqual([2])
+    expect(result.filters).toEqual({
+      coverages: null,
+      reasons: [
+        { value: 'falta_pago', label: 'Falta de pago', count: 2 },
+        { value: 'venta', label: 'Venta del bien', count: 1 },
+      ],
+    })
   })
 })
