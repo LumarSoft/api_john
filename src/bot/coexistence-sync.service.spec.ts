@@ -176,4 +176,58 @@ describe('CoexistenceSyncService', () => {
       expect.objectContaining({ data: { contactsLastSyncedAt: expect.any(Date) } }),
     )
   })
+
+  it('reads address-book timestamps sent in milliseconds', async () => {
+    // Shape of the change Meta sent on 06/11 when the office saved a contact in the app.
+    await service.persistContacts({
+      phoneNumberId: 'META-P1',
+      contacts: [
+        {
+          type: 'contact',
+          action: 'add',
+          contact: { full_name: 'Ana Pérez', first_name: 'Ana', phone_number: '5493412345678' },
+          metadata: { timestamp: '1793969865079' },
+        },
+        {
+          type: 'contact',
+          action: 'remove',
+          contact: { phone_number: '5493411111111' },
+          metadata: { timestamp: '1793969865080' },
+        },
+      ],
+    })
+
+    expect(prisma.whatsAppContact.upsert).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        create: expect.objectContaining({ sourceUpdatedAt: new Date(1793969865079), deletedAt: null }),
+      }),
+    )
+    expect(prisma.whatsAppContact.upsert).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        update: expect.objectContaining({ deletedAt: new Date(1793969865080) }),
+      }),
+    )
+  })
+
+  it('still reads history timestamps sent in seconds', async () => {
+    await service.persistContacts({
+      phoneNumberId: 'META-P1',
+      contacts: [
+        {
+          type: 'contact',
+          action: 'add',
+          contact: { phone_number: '5493412345678' },
+          metadata: { timestamp: '1700000000' },
+        },
+      ],
+    })
+
+    expect(prisma.whatsAppContact.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ sourceUpdatedAt: new Date(1700000000 * 1000) }),
+      }),
+    )
+  })
 })
