@@ -398,6 +398,14 @@ export class BotService {
 
     const shouldReopen = conversation.status === 'closed'
 
+    // One organization, several numbers (branches): the person wrote to a
+    // different one than last time. Logged so a chat that disappears from a
+    // branch's inbox can be traced.
+    if (phoneChanged)
+      this.logger.log(
+        `Conversación #${conversation.id} (${waId}) pasó del número ${conversation.phoneNumberId ?? 'sin número'} al ${phoneNumberId}` +
+          (foreignCode ? ' y perdió el código, que ese número no atiende' : ''),
+      )
     if (newSession || phoneChanged || shouldReopen) {
       // warnedAt is left as-is here; saveMessage clears it when the user's new
       // message lands, which avoids a race with the inactivity sweep.
