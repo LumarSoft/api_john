@@ -76,6 +76,11 @@ conflicting with the unique WhatsApp/producer key. Business records are retained
 contact leads are detached and related HANDOFF notices are soft-deleted. Media
 files remain subject to the existing retention policy.
 
+The **activity log** (`src/activity-log/activity-log.service.ts`) is the third:
+`ActivityLog` is an access log (who changed what in the panel and from which
+IP), not a business record, and it has to stay bounded. Rows older than
+`ACTIVITY_LOG_RETENTION_DAYS` (default 180) are hard-deleted every night.
+
 ## Counting events that were soft deleted
 
 The monthly balance (`src/balance/`) counts handoff notifications whatever their

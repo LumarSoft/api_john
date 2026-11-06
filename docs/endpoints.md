@@ -4749,3 +4749,78 @@ Each incident is handed once to the AI model (OpenAI, `OPENAI_API_KEY` and `OPEN
 ```json
 { "statusCode": 403, "message": "User access required", "error": "Forbidden" }
 ```
+
+## Owner — Actividad
+
+Every write request (POST/PUT/PATCH/DELETE) of a logged-in panel user and every
+`POST /auth/login` attempt is recorded once its response has gone out: who,
+method, path, status, the browser's IP (nginx `X-Real-IP`), user agent and the
+names of the fields sent — never their values. Reads, the bot, the client
+portal and the `…/visit` markers are not recorded. Rows are deleted after
+`ACTIVITY_LOG_RETENTION_DAYS` (default 180).
+
+### GET /owner/activity
+
+Lists the recorded activity, newest first.
+
+**Auth required:** Yes (role OWNER)
+
+**Query parameters**
+
+| Field      | Type    | Required | Constraints                                   |
+| ---------- | ------- | -------- | --------------------------------------------- |
+| producerId | number  | No       | Organization                                  |
+| userId     | number  | No       | Panel user (also matches login attempts on it) |
+| ip         | string  | No       | Exact IPv4/IPv6 address                       |
+| failed     | boolean | No       | `true` = only status 400 or more              |
+| from       | date    | No       | ISO date/time, inclusive                      |
+| to         | date    | No       | ISO date/time, inclusive                      |
+| page       | number  | No       | ≥ 1, default 1                                |
+| pageSize   | number  | No       | 1–200, default 50                             |
+
+**Responses**
+
+`200 OK`
+
+```json
+{
+  "data": [
+    {
+      "id": 812,
+      "createdAt": "2026-11-06T13:25:09.895Z",
+      "method": "PATCH",
+      "path": "/admin/config",
+      "statusCode": 200,
+      "ip": "190.112.216.238",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) …",
+      "fields": "staffNames",
+      "loginEmail": null,
+      "user": { "id": 6, "email": "sucursal@example.com", "name": "Roldan", "role": "ADMIN" },
+      "producer": { "id": 1, "name": "John" }
+    },
+    {
+      "id": 811,
+      "createdAt": "2026-11-06T13:38:50.000Z",
+      "method": "POST",
+      "path": "/auth/login",
+      "statusCode": 401,
+      "ip": "181.84.62.228",
+      "userAgent": "Mozilla/5.0 …",
+      "fields": "email,password",
+      "loginEmail": "oficina@example.com",
+      "user": { "id": 2, "email": "oficina@example.com", "name": "Rosario", "role": "SUPERADMIN" },
+      "producer": { "id": 1, "name": "John" }
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "pageSize": 50,
+  "totalPages": 1
+}
+```
+
+`400 Bad Request` — invalid filter (e.g. `ip` is not an address)
+
+`401 Unauthorized` — no or invalid token
+
+`403 Forbidden` — the user is not OWNER

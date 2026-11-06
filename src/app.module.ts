@@ -41,12 +41,14 @@ import { SalesCampaignsModule } from './sales-campaigns/sales-campaigns.module'
 import { AssistantModule } from './assistant/assistant.module'
 import { OrganizationLogoModule } from './organization-logo/organization-logo.module'
 import { BalanceModule } from './balance/balance.module'
+import { ActivityLogModule } from './activity-log/activity-log.module'
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    ActivityLogModule,
     ScopeModule,
     AuthModule,
     UsersModule,

@@ -83,12 +83,48 @@ model Producer {
   triunfoAuthStatus       TriunfoAuthStatus?
   triunfoErrors           TriunfoError[]
   monthlyBalances         MonthlyBalance[]
+  activityLogs            ActivityLog[]
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
 // One row per flip of a number's bot switch (PhoneNumber.botEnabled), so the
 // owner can see who turned the bot off, when and for how long. Rows without a
 // number are the organization-wide switch that existed until 29/10/2026.
+// What each panel user changed and from where: one row per write request
+// (POST/PUT/PATCH/DELETE) of a logged-in user and per login attempt. Reads are
+// never recorded, nor the values sent: only the names of the fields. Pruned by
+// ActivityLogService after ACTIVITY_LOG_RETENTION_DAYS (hard delete, see
+// docs/rules/database.md).
+model ActivityLog {
+  id        Int       @id @default(autoincrement())
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  // Who did it. On a login attempt, the account the e-mail belongs to (null
+  // when no account has it).
+  userId     Int?
+  user       User?     @relation(fields: [userId], references: [id])
+  producerId Int?
+  producer   Producer? @relation(fields: [producerId], references: [id])
+
+  method     String  @db.VarChar(8)
+  // The URL without its query string: "/users/2", "/admin/config".
+  path       String  @db.VarChar(255)
+  statusCode Int     @db.SmallInt
+  // The browser's address as nginx saw it (X-Real-IP).
+  ip         String  @db.VarChar(45)
+  userAgent  String? @db.VarChar(255)
+  // Names of the fields sent ("name,password"), never their values.
+  fields     String? @db.VarChar(255)
+  // The e-mail typed on a login attempt, whether or not an account has it.
+  loginEmail String? @db.VarChar(191)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([producerId, createdAt])
+  @@index([ip, createdAt])
+}
+
 model BotStatusChange {
   id         Int       @id @default(autoincrement())
   botEnabled Boolean
@@ -600,6 +636,7 @@ model User {
   salesCampaignMessagesSent SalesCampaignMessage[]   @relation("sales_campaign_messages_sent")
   salesCampaignsUpdated     SalesCampaign[]          @relation("sales_campaigns_updated")
   salesCampaignOptOutsMade  SalesCampaignOptOut[]    @relation("sales_campaign_opt_outs_made")
+  activityLogs              ActivityLog[]
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
