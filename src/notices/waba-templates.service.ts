@@ -2,12 +2,20 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '../prisma/prisma.service'
 import { decryptSecret, resolveKey } from '../common/crypto/secret-crypto'
+import { newestApproved, type NoticeTemplate, type NoticeTemplateVersion } from './notice-templates'
 
-/** A template the platform sends, as Meta names it. */
-export interface TemplateRef {
+/** A template to create in an account, as Meta takes it. */
+export interface NewTemplate {
   name: string
   lang: string
+  category: 'UTILITY' | 'MARKETING'
+  body: string
+  /** One sample per variable, in order, for Meta's review. */
+  example: string[]
 }
+
+/** What Meta answered when asked to create a template. */
+export type CreateTemplateResult = { ok: true } | { ok: false; reason: string }
 
 /** A WhatsApp Business account as the platform keeps it (its token encrypted). */
 export interface WabaAccountRef {
@@ -51,6 +59,10 @@ interface GraphPage<T> {
   error?: { message?: string }
 }
 
+interface GraphError {
+  error?: { message?: string; error_subcode?: number; error_user_msg?: string }
+}
+
 interface GraphTemplate {
   name?: string
   language?: string
@@ -75,7 +87,7 @@ interface GraphPhoneNumber {
 @Injectable()
 export class WabaTemplatesService {
   private readonly logger = new Logger(WabaTemplatesService.name)
-  private readonly cache = new Map<string, { approved: boolean; at: number }>()
+  private readonly cache = new Map<number, { templates: MetaTemplate[]; at: number }>()
 
   constructor(
     private readonly prisma: PrismaService,
@@ -83,22 +95,63 @@ export class WabaTemplatesService {
   ) {}
 
   /**
-   * The accounts among `accountIds` where Meta said the template is not
-   * approved (missing, in review, rejected or paused). An account Meta did not
-   * answer for is left out: the send itself then says what went wrong.
+   * For each account among `accountIds`, the newest version of the notice
+   * Meta approved there, or null when it has none approved (missing, in
+   * review, rejected or paused). An account Meta did not answer for is left
+   * out: the send itself then says what went wrong.
    */
-  async notApprovedIn(accountIds: number[], template: TemplateRef, now = Date.now()): Promise<Set<number>> {
-    const missing = new Set<number>()
-    if (!accountIds.length) return missing
+  async approvedVersionsIn(
+    accountIds: number[],
+    template: NoticeTemplate,
+    now = Date.now(),
+  ): Promise<Map<number, NoticeTemplateVersion | null>> {
+    const result = new Map<number, NoticeTemplateVersion | null>()
+    if (!accountIds.length) return result
     const accounts = await this.prisma.wabaAccount.findMany({
       where: { id: { in: accountIds } },
       select: { id: true, wabaId: true, accessToken: true },
     })
     for (const account of accounts) {
-      const approved = await this.isApproved(account, template, now)
-      if (approved === false) missing.add(account.id)
+      const templates = await this.cachedTemplatesOf(account, now)
+      if (!templates) continue
+      const approved = new Set(
+        templates.filter(t => t.language === template.lang && t.status === 'APPROVED').map(t => t.name),
+      )
+      result.set(account.id, newestApproved(template, approved))
     }
-    return missing
+    return result
+  }
+
+  /** Creates a template in the account; one Meta already has under that name counts as created. */
+  async createTemplate(account: WabaAccountRef, template: NewTemplate): Promise<CreateTemplateResult> {
+    this.cache.delete(account.id)
+    try {
+      const res = await fetch(`${this.graphBase}/${account.wabaId}/message_templates`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token(account.accessToken)}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: template.name,
+          language: template.lang,
+          category: template.category,
+          components: [
+            {
+              type: 'BODY',
+              text: template.body,
+              ...(template.example.length ? { example: { body_text: [template.example] } } : {}),
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (res.ok) return { ok: true }
+      const data = (await res.json()) as GraphError
+      if (data.error?.error_subcode === 2388023 || /already exists/i.test(data.error?.message ?? '')) {
+        return { ok: true }
+      }
+      return { ok: false, reason: data.error?.error_user_msg || data.error?.message || 'Meta no aceptó la plantilla.' }
+    } catch (error) {
+      return { ok: false, reason: `No se pudo llegar a Meta: ${(error as Error).message}` }
+    }
   }
 
   /** Every template of the account, in every language and state. Throws MetaGraphError when Meta does not answer. */
@@ -127,24 +180,17 @@ export class WabaTemplatesService {
     )
   }
 
-  /** True or false as Meta answered; null when it could not be asked. */
-  private async isApproved(account: WabaAccountRef, template: TemplateRef, now: number): Promise<boolean | null> {
-    const key = `${account.id}:${template.name}:${template.lang}`
-    const cached = this.cache.get(key)
-    if (cached && now - cached.at < CACHE_MS) return cached.approved
+  /** The account's templates as Meta listed them a few minutes ago at most; null when it could not be asked. */
+  private async cachedTemplatesOf(account: WabaAccountRef, now: number): Promise<MetaTemplate[] | null> {
+    const cached = this.cache.get(account.id)
+    if (cached && now - cached.at < CACHE_MS) return cached.templates
     try {
-      const rows = await this.list<GraphTemplate>(account, 'message_templates', {
-        name: template.name,
-        fields: 'name,status,language',
-      })
-      const approved = rows.some(
-        t => t.name === template.name && t.language === template.lang && t.status === 'APPROVED',
-      )
-      this.cache.set(key, { approved, at: now })
-      return approved
+      const templates = await this.templatesOf(account)
+      this.cache.set(account.id, { templates, at: now })
+      return templates
     } catch (error) {
       this.logger.warn(
-        `No se pudo consultar la plantilla ${template.name} de la cuenta ${account.id}: ${(error as Error).message}`,
+        `No se pudieron consultar las plantillas de la cuenta ${account.id}: ${(error as Error).message}`,
       )
       return null
     }

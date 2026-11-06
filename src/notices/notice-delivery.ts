@@ -1,5 +1,6 @@
 import { HttpException } from '@nestjs/common'
 import { whatsAppIds } from '../common/phone-match'
+import type { NoticeTemplateVersion } from './notice-templates'
 
 /**
  * Pause between notices. Meta caps throughput per number, and a burst of the
@@ -13,6 +14,8 @@ export interface Sender {
   codeIds: number[]
   /** The WhatsApp account it belongs to: a template only exists in its own account. */
   wabaAccountId?: number | null
+  /** For a notice: the version of its template this number sends (the newest its account has approved). */
+  template?: NoticeTemplateVersion
 }
 
 /** What the platform wrote on its own in a chat, for the bot to tell from a person's reply. */
@@ -41,6 +44,11 @@ export function pickSender(senders: Sender[], current: string | null | undefined
   if (current && senders.some(s => s.phoneNumberId === current)) return current
   const forCode = codeId != null ? senders.find(s => s.codeIds.includes(codeId)) : undefined
   return (forCode ?? senders[0]).phoneNumberId
+}
+
+/** The template version the chosen number sends. */
+export function templateOf(senders: Sender[], phoneNumberId: string): NoticeTemplateVersion | undefined {
+  return senders.find(s => s.phoneNumberId === phoneNumberId)?.template
 }
 
 /** Why WhatsApp did not take the notice, for the office. */

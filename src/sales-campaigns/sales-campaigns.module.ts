@@ -12,5 +12,6 @@ import { SalesCampaignsService } from './sales-campaigns.service'
   imports: [InboxModule, NoticesModule, PlanFeaturesModule],
   controllers: [AdminSalesCampaignsController],
   providers: [SalesCampaignsService, CampaignFinderService, CampaignTemplatesService],
+  exports: [SalesCampaignsService],
 })
 export class SalesCampaignsModule {}

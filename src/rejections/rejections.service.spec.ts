@@ -8,6 +8,8 @@ import type { PlanFeaturesService } from '../plan-features/plan-features.service
 import type { PaymentRejectionRowDto } from './dto/payment-rejection.dto'
 import { NoticeDeliveryService } from '../notices/notice-delivery.service'
 import type { WabaTemplatesService } from '../notices/waba-templates.service'
+import type { NoticeTemplateVersion } from '../notices/notice-templates'
+import { REJECTION_TEMPLATE } from './rejection-notice'
 import { RejectionsService, pickSender, pickWhatsApp } from './rejections.service'
 
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
@@ -32,6 +34,10 @@ function excelRow(overrides: Partial<PaymentRejectionRowDto> = {}): PaymentRejec
     ...overrides,
   }
 }
+
+/** How the notices name the organization: its bot's name for it. */
+const ORGANIZATION = { name: 'JOHN PELLEGRINI MANAGEMENT GROUP SRL', botProfile: { orgName: 'Seguros del Litoral' } }
+const [FIRST, CURRENT] = REJECTION_TEMPLATE.versions
 
 function setup(template: string | null = 'aviso_rechazo_pago') {
   const prisma = {
@@ -61,6 +67,7 @@ function setup(template: string | null = 'aviso_rechazo_pago') {
       create: jest.fn().mockResolvedValue({ id: 9 }),
       findFirst: jest.fn().mockResolvedValue({ id: 9, fileName: 'x.xls', periodLabel: null, createdAt: new Date() }),
     },
+    producer: { findUnique: jest.fn().mockResolvedValue(ORGANIZATION) },
     $transaction: jest.fn(),
   }
   prisma.$transaction.mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma))
@@ -77,8 +84,12 @@ function setup(template: string | null = 'aviso_rechazo_pago') {
   const config = {
     get: jest.fn((key: string) => (key === 'PAYMENT_REJECTION_TEMPLATE' ? (template ?? undefined) : undefined)),
   }
-  // Every WhatsApp account has the template approved unless a test says otherwise.
-  const templates = { notApprovedIn: jest.fn().mockResolvedValue(new Set<number>()) }
+  // Every WhatsApp account has the current text approved unless a test says otherwise.
+  const templates = {
+    approvedVersionsIn: jest.fn((ids: number[]) =>
+      Promise.resolve(new Map<number, NoticeTemplateVersion | null>(ids.map(id => [id, CURRENT]))),
+    ),
+  }
   const service = new RejectionsService(
     prisma as unknown as PrismaService,
     scope as unknown as ScopeService,
@@ -194,6 +205,7 @@ describe('RejectionsService.send', () => {
       producerCodeId: 1,
       clientId: 60,
       client: { firstName: 'JUAN' },
+      producer: ORGANIZATION,
     })
     const { botNotifier } = setupSend(service)
 
@@ -204,9 +216,9 @@ describe('RejectionsService.send', () => {
     expect(botNotifier.sendTemplate).toHaveBeenCalledWith({
       to: '5493419990001',
       phoneNumberId: 'meta-1',
-      template: 'aviso_rechazo_pago',
+      template: 'aviso_rechazo_pago_v2',
       lang: 'es_AR',
-      params: ['Juan', '2', '1234567', '28/09/2026', '90.315', 'falta de fondos en la cuenta'],
+      params: ['Juan', 'Seguros del Litoral', '2', '1234567', '28/09/2026', '90.315', 'falta de fondos en la cuenta'],
     })
     // The notice is the office's message in a new chat linked to the client.
     expect(prisma.conversation.create).toHaveBeenCalledWith({
@@ -243,6 +255,7 @@ describe('RejectionsService.send', () => {
       producerCodeId: null,
       clientId: null,
       client: null,
+      producer: ORGANIZATION,
     })
     const { BadGatewayException } = jest.requireActual<typeof import('@nestjs/common')>('@nestjs/common')
     const { botNotifier } = setupSend(service)
@@ -265,7 +278,12 @@ describe('RejectionsService.send', () => {
       { phoneNumberId: 'meta-1', wabaAccountId: 1, responsibleProducerCodeId: 1, servedCodes: [] },
       { phoneNumberId: 'branch', wabaAccountId: 2, responsibleProducerCodeId: 3, servedCodes: [] },
     ])
-    templates.notApprovedIn.mockResolvedValue(new Set([2]))
+    templates.approvedVersionsIn.mockResolvedValue(
+      new Map([
+        [1, CURRENT],
+        [2, null],
+      ]),
+    )
     prisma.conversation.findUnique.mockResolvedValue({ id: 31, clientId: 60, phoneNumberId: 'branch' })
     prisma.paymentRejection.findMany.mockResolvedValueOnce([{ id: 1 }]).mockResolvedValue([])
     prisma.paymentRejection.findUniqueOrThrow.mockResolvedValue({
@@ -281,13 +299,14 @@ describe('RejectionsService.send', () => {
       producerCodeId: 3,
       clientId: 60,
       client: { firstName: 'JUAN' },
+      producer: ORGANIZATION,
     })
     const { botNotifier } = setupSend(service)
 
     await service.send(mili, 9, [1])
     await flush()
 
-    expect(templates.notApprovedIn).toHaveBeenCalledWith([1, 2], { name: 'aviso_rechazo_pago', lang: 'es_AR' })
+    expect(templates.approvedVersionsIn).toHaveBeenCalledWith([1, 2], REJECTION_TEMPLATE)
     expect(botNotifier.sendTemplate).toHaveBeenCalledWith(expect.objectContaining({ phoneNumberId: 'meta-1' }))
     expect(prisma.paymentRejection.update).toHaveBeenLastCalledWith({
       where: { id: 1 },
@@ -295,9 +314,46 @@ describe('RejectionsService.send', () => {
     })
   })
 
+  it('keeps sending the first text from an account where Meta has not approved the new one yet', async () => {
+    const { service, prisma, templates } = setup()
+    templates.approvedVersionsIn.mockResolvedValue(new Map([[1, FIRST]]))
+    prisma.paymentRejection.findMany.mockResolvedValueOnce([{ id: 1 }]).mockResolvedValue([])
+    prisma.paymentRejection.findUniqueOrThrow.mockResolvedValue({
+      id: 1,
+      holderName: 'PEREZ JUAN',
+      certificateNumber: '1234567',
+      installmentNumber: 2,
+      dueDate: new Date('2026-09-28T00:00:00.000Z'),
+      amount: new Prisma.Decimal(90315),
+      reason: 'FALTA DE FONDOS',
+      waId: '5493419990001',
+      producerId: 7,
+      producerCodeId: 1,
+      clientId: 60,
+      client: { firstName: 'JUAN' },
+      producer: ORGANIZATION,
+    })
+    const { botNotifier } = setupSend(service)
+
+    await service.send(mili, 9, [1])
+    await flush()
+
+    expect(botNotifier.sendTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        template: 'aviso_rechazo_pago',
+        params: ['Juan', '2', '1234567', '28/09/2026', '90.315', 'falta de fondos en la cuenta'],
+      }),
+    )
+    // The chat shows what the client got.
+    expect(prisma.message.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ content: expect.stringContaining('te escribimos de JP Management Group') }),
+      select: { createdAt: true },
+    })
+  })
+
   it("sends nothing when no number's account has the template approved", async () => {
     const { service, prisma, templates } = setup()
-    templates.notApprovedIn.mockResolvedValue(new Set([1]))
+    templates.approvedVersionsIn.mockResolvedValue(new Map([[1, null]]))
 
     await expect(service.send(mili, 9, [1])).rejects.toThrow('aviso_rechazo_pago')
     expect(prisma.paymentRejection.updateMany).not.toHaveBeenCalled()

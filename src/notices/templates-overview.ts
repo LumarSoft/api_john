@@ -6,6 +6,10 @@ export interface ExpectedTemplate {
   name: string
   lang: string
   use: string
+  /** The platform creates it in every account by itself (TemplateSyncService). */
+  managed: boolean
+  /** Earlier texts of the same notice, oldest first: a number sends the newest one approved while this one is reviewed. */
+  previous?: string[]
 }
 
 /** One template of an account, as the owner's Plantillas page lists it. */
@@ -23,6 +27,8 @@ export interface TemplateRowView {
   use: string | null
   /** The platform sends it now (a configured notice, a campaign's current text). */
   inUse: boolean
+  /** The platform creates it by itself in every account: missing, it shows up within the hour. */
+  managed: boolean
 }
 
 /** Why Meta rejected a template, for the owner. */
@@ -69,19 +75,40 @@ export function accountRows(meta: MetaTemplate[], expected: ExpectedTemplate[]):
         quality: null,
         use: want.use,
         inUse: true,
+        managed: want.managed,
       }
     }
     used.add(found)
-    return { ...view(found), use: want.use, inUse: true }
+    return { ...view(found), use: want.use, inUse: true, managed: want.managed }
   })
   const others = meta
     .filter(t => !used.has(t))
     .sort((a, b) => a.name.localeCompare(b.name) || a.language.localeCompare(b.language))
-    .map(t => ({ ...view(t), use: campaignOfTemplate(t.name), inUse: false }))
+    .map(t => {
+      const notice = expected.find(want => want.lang === t.language && want.previous?.includes(t.name))
+      if (notice) {
+        return {
+          ...view(t),
+          use: `${notice.use} (texto anterior)`,
+          inUse: sendsEarlierText(meta, notice, t),
+          managed: false,
+        }
+      }
+      return { ...view(t), use: campaignOfTemplate(t.name), inUse: false, managed: false }
+    })
   return [...rows, ...others]
 }
 
-function view(t: MetaTemplate): Omit<TemplateRowView, 'use' | 'inUse'> {
+/** While Meta reviews a notice's new text, the account sends the newest earlier one it has approved. */
+function sendsEarlierText(meta: MetaTemplate[], notice: ExpectedTemplate, template: MetaTemplate): boolean {
+  const approved = (name: string) =>
+    meta.some(m => m.name === name && m.language === notice.lang && m.status === 'APPROVED')
+  if (approved(notice.name) || template.status !== 'APPROVED') return false
+  const earlier = (notice.previous ?? []).filter(approved)
+  return earlier[earlier.length - 1] === template.name
+}
+
+function view(t: MetaTemplate): Omit<TemplateRowView, 'use' | 'inUse' | 'managed'> {
   return {
     name: t.name,
     language: t.language,

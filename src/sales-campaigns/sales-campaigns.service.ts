@@ -166,23 +166,46 @@ export class SalesCampaignsService implements OnModuleInit {
     if (row && row.templateVersion > 0) {
       await this.refreshRow(row)
       // A number connected after the last text: its account gets the current one.
-      const stored = (row.templates as unknown as StoredTemplates | null) ?? {}
-      const missing = (await this.templates.accounts(user.producerId)).filter(a => !stored[String(a.id)])
-      if (missing.length) {
-        const added = await this.templates.submit(user.producerId, definition, row.body, row.templateVersion, missing)
-        const current = await this.findRow(user.producerId, definition)
-        await this.prisma.salesCampaign.update({
-          where: { id: row.id },
-          data: {
-            templates: {
-              ...((current?.templates as object | null) ?? {}),
-              ...added,
-            } as unknown as Prisma.InputJsonValue,
-          },
-        })
-      }
+      await this.submitToNewAccounts(row)
     }
     return this.one(user, definition, codeIds)
+  }
+
+  /**
+   * Every campaign text of the organization (or of all of them) sent to the
+   * WhatsApp accounts that do not have it yet: a number connected after the
+   * last text gets the current one without anybody touching the campaign.
+   * Returns how many templates went to Meta.
+   */
+  async syncNewAccounts(producerId?: number): Promise<number> {
+    const rows = await this.prisma.salesCampaign.findMany({
+      where: { deletedAt: null, templateVersion: { gt: 0 }, ...(producerId != null ? { producerId } : {}) },
+    })
+    let submitted = 0
+    for (const row of rows) submitted += await this.submitToNewAccounts(row)
+    return submitted
+  }
+
+  /** The campaign's current text to the accounts of its organization that do not have it. */
+  private async submitToNewAccounts(row: CampaignRow): Promise<number> {
+    const stored = (row.templates as unknown as StoredTemplates | null) ?? {}
+    const missing = (await this.templates.accounts(row.producerId)).filter(a => {
+      const template = stored[String(a.id)]
+      // Never there, or it did not reach Meta (or Meta lost it) a day ago: send it again.
+      return !template || (template.status === 'ERROR' && Date.now() - Date.parse(template.checkedAt) > DAY_MS)
+    })
+    if (!missing.length) return 0
+    const definition = campaignOfDbKind(row.kind)
+    const added = await this.templates.submit(row.producerId, definition, row.body, row.templateVersion, missing)
+    // Read again: a send or a refresh may have written the row meanwhile.
+    const current = await this.prisma.salesCampaign.findUnique({ where: { id: row.id }, select: { templates: true } })
+    await this.prisma.salesCampaign.update({
+      where: { id: row.id },
+      data: {
+        templates: { ...((current?.templates as object | null) ?? {}), ...added } as unknown as Prisma.InputJsonValue,
+      },
+    })
+    return missing.length
   }
 
   /** Templates still in review, every half hour, so the panel is not the only one asking. */

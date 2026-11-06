@@ -59,6 +59,7 @@ function setup({ row = {}, targets = [target()], messages = [] as unknown[], opt
     salesCampaign: {
       findFirst: jest.fn().mockResolvedValue(campaign),
       findMany: jest.fn().mockResolvedValue([campaign]),
+      findUnique: jest.fn().mockResolvedValue({ templates: campaign.templates }),
       upsert: jest.fn().mockResolvedValue(campaign),
       update: jest.fn().mockResolvedValue(campaign),
     },
@@ -225,6 +226,57 @@ describe('SalesCampaignsService.update', () => {
     })
 
     await expect(service.update(mili, 'renewal', { enabled: true }, [3])).rejects.toThrow(ForbiddenException)
+  })
+})
+
+describe('SalesCampaignsService.syncNewAccounts', () => {
+  const office = { id: 6, wabaId: 'w', wabaName: 'Oficina', accessToken: 'x', numbers: ['+54 9 341'] }
+  const branch = { id: 9, wabaId: 'b', wabaName: 'Sucursal', accessToken: 'y', numbers: ['+54 9 3492'] }
+
+  it("sends the current text to an account connected after it, keeping the others' reviews", async () => {
+    const { service, templates, prisma } = setup()
+    templates.accounts.mockResolvedValue([office, branch])
+    const pending = { name: 'campana_renovacion_v2', id: null, status: 'PENDING', reason: null, checkedAt: '' }
+    templates.submit.mockResolvedValue({ '9': pending })
+
+    await expect(service.syncNewAccounts(7)).resolves.toBe(1)
+
+    expect(prisma.salesCampaign.findMany).toHaveBeenCalledWith({
+      where: { deletedAt: null, templateVersion: { gt: 0 }, producerId: 7 },
+    })
+    expect(templates.submit).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ kind: 'renewal' }),
+      expect.stringContaining('{nombre}'),
+      2,
+      [branch],
+    )
+    expect(prisma.salesCampaign.update).toHaveBeenCalledWith({
+      where: { id: 5 },
+      data: { templates: { ...APPROVED, '9': pending } },
+    })
+  })
+
+  it('does nothing when every account has the text', async () => {
+    const { service, templates, prisma } = setup()
+
+    await expect(service.syncNewAccounts()).resolves.toBe(0)
+    expect(templates.submit).not.toHaveBeenCalled()
+    expect(prisma.salesCampaign.update).not.toHaveBeenCalled()
+  })
+
+  it('sends again, once a day, a text that never reached Meta', async () => {
+    const failedAt = (hoursAgo: number) => new Date(Date.now() - hoursAgo * 3_600_000).toISOString()
+    const failed = (hoursAgo: number) => ({
+      '6': { name: 'campana_renovacion_v2', id: null, status: 'ERROR', reason: 'x', checkedAt: failedAt(hoursAgo) },
+    })
+
+    const recent = setup({ row: { templates: failed(2) } })
+    await expect(recent.service.syncNewAccounts()).resolves.toBe(0)
+
+    const old = setup({ row: { templates: failed(30) } })
+    await expect(old.service.syncNewAccounts()).resolves.toBe(1)
+    expect(old.templates.submit).toHaveBeenCalledWith(7, expect.anything(), expect.any(String), 2, [office])
   })
 })
 

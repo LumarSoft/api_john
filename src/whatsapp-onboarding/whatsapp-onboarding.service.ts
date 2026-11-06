@@ -27,6 +27,7 @@ import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secre
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 import { describeGraphError } from './graph-errors'
 import { WhatsappPortfolioService } from './whatsapp-portfolio.service'
+import { TemplateSyncService } from '../template-sync/template-sync.service'
 
 interface MetaPhoneNumberStatus {
   id?: string
@@ -74,6 +75,7 @@ export class WhatsappOnboardingService {
     private readonly http: HttpService,
     private readonly scope: ScopeService,
     private readonly portfolio: WhatsappPortfolioService,
+    private readonly templateSync: TemplateSyncService,
   ) {}
 
   private get graphBase(): string {
@@ -216,6 +218,9 @@ export class WhatsappOnboardingService {
     const contactsSyncRequested = dto.isCoexistence
       ? await this.requestAppDataSync(phoneNumberId, 'smb_app_state_sync', accessToken)
       : false
+
+    // The notices' and campaigns' templates, created in the new account in the background.
+    this.templateSync.syncAccountSoon(waba.id)
 
     this.logger.log(
       `WABA ${dto.wabaId} ${existing ? 'reconectada' : 'conectada'} al productor ${producerId} · ` +

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PrismaService } from '../prisma/prisma.service'
 import { campaignOfDbKind } from '../sales-campaigns/campaign-catalog'
+import { latestVersion, NOTICE_TEMPLATES } from './notice-templates'
 import { accountRows, ExpectedTemplate, TemplateRowView } from './templates-overview'
 import { MetaGraphError, MetaPhoneNumber, MetaTemplate, WabaTemplatesService } from './waba-templates.service'
 
@@ -29,12 +30,8 @@ export interface TemplatesOverview {
   organizations: Array<{ id: number; name: string; accounts: TemplatesAccountView[] }>
 }
 
-/** The notices the platform sends with a template, as configured on the server (the same for every organization). */
-const NOTICE_TEMPLATES = [
-  { env: 'PAYMENT_REJECTION_TEMPLATE', use: 'Avisos de rechazos de pago' },
-  { env: 'POLICY_EXPIRY_TEMPLATE', use: 'Avisos de pólizas vencidas' },
-  { env: 'QUOTE_FOLLOWUP_TEMPLATE', use: 'Seguimiento de cotizaciones de la web' },
-] as const
+/** The web quote follow-up: a template named on the server and created by hand (only the default organization's web). */
+const QUOTE_FOLLOWUP = { env: 'QUOTE_FOLLOWUP_TEMPLATE', use: 'Seguimiento de cotizaciones de la web' }
 
 /**
  * The owner's view of the Meta templates: every WhatsApp account that can
@@ -87,6 +84,7 @@ export class TemplatesOverviewService {
               name: `${definition.templateSlug}_v${c.templateVersion}`,
               lang: 'es_AR',
               use: `Campaña: ${definition.label}`,
+              managed: true,
             }
           })
         return this.accountView(account, [...notices, ...current])
@@ -138,12 +136,21 @@ export class TemplatesOverviewService {
     }
   }
 
+  /** The notices that are on: the newest text of each (created in every account by itself), then the web follow-up. */
   private noticeTemplates(): ExpectedTemplate[] {
-    return NOTICE_TEMPLATES.flatMap(notice => {
-      const name = this.config.get<string>(notice.env)
-      if (!name) return []
-      return [{ name, lang: this.config.get<string>(`${notice.env}_LANG`) || 'es_AR', use: notice.use }]
-    })
+    const notices: ExpectedTemplate[] = Object.values(NOTICE_TEMPLATES)
+      .filter(notice => !!this.config.get<string>(notice.env))
+      .map(notice => ({
+        name: latestVersion(notice).name,
+        lang: notice.lang,
+        use: notice.use,
+        managed: true,
+        previous: notice.versions.slice(0, -1).map(v => v.name),
+      }))
+    const quote = this.config.get<string>(QUOTE_FOLLOWUP.env)
+    if (!quote) return notices
+    const lang = this.config.get<string>(`${QUOTE_FOLLOWUP.env}_LANG`) || 'es_AR'
+    return [...notices, { name: quote, lang, use: QUOTE_FOLLOWUP.use, managed: false }]
   }
 }
 

@@ -14,10 +14,19 @@ import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../common/scope/scope.service'
 import { whatsAppIds } from '../common/phone-match'
 import { BotNotifierService } from '../inbox/bot-notifier.service'
-import { describeFailure, pickSender, pickWhatsApp, SEND_GAP_MS, Sender, sleep } from '../notices/notice-delivery'
+import {
+  describeFailure,
+  pickSender,
+  pickWhatsApp,
+  SEND_GAP_MS,
+  Sender,
+  sleep,
+  templateOf,
+} from '../notices/notice-delivery'
 import { NoticeDeliveryService } from '../notices/notice-delivery.service'
 import { CreatePaymentRejectionImportDto, PaymentRejectionRowDto } from './dto/payment-rejection.dto'
-import { channelOf, noticeParams, renderNotice } from './rejection-notice'
+import { channelOf, noticeParams, REJECTION_TEMPLATE, renderNotice } from './rejection-notice'
+import { latestVersion, noticeOrganizationName } from '../notices/notice-templates'
 
 export { pickSender, pickWhatsApp } from '../notices/notice-delivery'
 
@@ -64,15 +73,14 @@ type RejectionRow = Prisma.PaymentRejectionGetPayload<{ select: typeof REJECTION
 /**
  * "Rechazos": the office loads Triunfo's Excel of rejected automatic debits and
  * the bot tells each client on WhatsApp, with the approved template
- * PAYMENT_REJECTION_TEMPLATE. Each notice lands in the client's chat as a
+ * REJECTION_TEMPLATE (on when PAYMENT_REJECTION_TEMPLATE is set). Each notice lands in the client's chat as a
  * message from the office, so the panel shows it and the bot reads the client's
  * answer as a reply to it.
  */
 @Injectable()
 export class RejectionsService implements OnModuleInit {
   private readonly logger = new Logger(RejectionsService.name)
-  private readonly template: string | undefined
-  private readonly templateLang: string
+  private readonly enabled: boolean
 
   constructor(
     private readonly prisma: PrismaService,
@@ -81,8 +89,7 @@ export class RejectionsService implements OnModuleInit {
     private readonly delivery: NoticeDeliveryService,
     config: ConfigService,
   ) {
-    this.template = config.get<string>('PAYMENT_REJECTION_TEMPLATE') || undefined
-    this.templateLang = config.get<string>('PAYMENT_REJECTION_TEMPLATE_LANG') || 'es_AR'
+    this.enabled = !!config.get<string>(REJECTION_TEMPLATE.env)
   }
 
   /**
@@ -122,7 +129,7 @@ export class RejectionsService implements OnModuleInit {
         })
       : []
     return {
-      templateReady: !!this.template,
+      templateReady: this.enabled,
       imports: imports.map(i => ({
         ...i,
         counts: Object.fromEntries(
@@ -212,6 +219,15 @@ export class RejectionsService implements OnModuleInit {
     return this.detail(user, created.id)
   }
 
+  /** How the notices name the user's organization. */
+  private async organizationName(producerId: number): Promise<string> {
+    const producer = await this.prisma.producer.findUnique({
+      where: { id: producerId },
+      select: { name: true, botProfile: true },
+    })
+    return producer ? noticeOrganizationName(producer) : ''
+  }
+
   async detail(user: ScopeUser, importId: number) {
     const found = await this.prisma.paymentRejectionImport.findFirst({
       where: { id: importId, producerId: user.producerId, deletedAt: null },
@@ -231,7 +247,8 @@ export class RejectionsService implements OnModuleInit {
       orderBy: { rowNumber: 'asc' },
       select: REJECTION_SELECT,
     })
-    return { ...found, templateReady: !!this.template, rows: rows.map(toResponse) }
+    const organizationName = await this.organizationName(user.producerId)
+    return { ...found, templateReady: this.enabled, rows: rows.map(row => toResponse(row, organizationName)) }
   }
 
   /**
@@ -239,8 +256,7 @@ export class RejectionsService implements OnModuleInit {
    * polls the import while any row is SENDING.
    */
   async send(user: ScopeUser, importId: number, ids: number[]) {
-    const template = this.template
-    if (!template) {
+    if (!this.enabled) {
       throw new ConflictException(
         'La plantilla de WhatsApp para avisar rechazos todavía no está habilitada. No se envió ningún aviso.',
       )
@@ -250,10 +266,7 @@ export class RejectionsService implements OnModuleInit {
 
     // Only the numbers whose plan includes these notices send them (403 when none does).
     // ...and whose WhatsApp account has the template approved (409 when none has it).
-    const senders = await this.delivery.senders(user.producerId, 'rejection_notices', {
-      name: template,
-      lang: this.templateLang,
-    })
+    const senders = await this.delivery.senders(user.producerId, 'rejection_notices', REJECTION_TEMPLATE)
     if (!senders.length) {
       throw new ConflictException('No hay un número de WhatsApp conectado para enviar los avisos. Revisalo en Números.')
     }
@@ -283,7 +296,7 @@ export class RejectionsService implements OnModuleInit {
     }
     if (!claimed.length) throw new BadRequestException('Ninguno de los avisos elegidos se puede enviar.')
 
-    void this.deliverAll(claimed, { template, senders }).catch(error =>
+    void this.deliverAll(claimed, { senders }).catch(error =>
       this.logger.error(`Se cortó el envío de avisos de rechazo: ${(error as Error).message}`),
     )
     return this.detail(user, importId)
@@ -315,7 +328,7 @@ export class RejectionsService implements OnModuleInit {
 
   // ─── Sending ───────────────────────────────────────────
 
-  private async deliverAll(ids: number[], ctx: { template: string; senders: Sender[] }) {
+  private async deliverAll(ids: number[], ctx: { senders: Sender[] }) {
     for (const [index, id] of ids.entries()) {
       if (index > 0) await sleep(SEND_GAP_MS)
       try {
@@ -330,7 +343,7 @@ export class RejectionsService implements OnModuleInit {
     }
   }
 
-  private async deliverOne(id: number, ctx: { template: string; senders: Sender[] }) {
+  private async deliverOne(id: number, ctx: { senders: Sender[] }) {
     const row = await this.prisma.paymentRejection.findUniqueOrThrow({
       where: { id },
       select: {
@@ -346,29 +359,36 @@ export class RejectionsService implements OnModuleInit {
         producerCodeId: true,
         clientId: true,
         client: { select: { firstName: true } },
+        producer: { select: { name: true, botProfile: true } },
       },
     })
     const waId = row.waId
     if (!waId) throw new InternalServerErrorException('Row has no WhatsApp id')
 
-    const params = noticeParams({
-      holderName: row.holderName,
-      clientFirstName: row.client?.firstName,
-      certificateNumber: row.certificateNumber,
-      installmentNumber: row.installmentNumber,
-      dueDate: row.dueDate,
-      amount: row.amount.toNumber(),
-      reason: row.reason,
-    })
     const existing = await this.delivery.findConversation(waId, row.producerId)
     const phoneNumberId = pickSender(ctx.senders, existing?.phoneNumberId, row.producerCodeId)
+    // The version this number's account has approved.
+    const version = templateOf(ctx.senders, phoneNumberId) ?? latestVersion(REJECTION_TEMPLATE)
+    const params = noticeParams(
+      {
+        organizationName: noticeOrganizationName(row.producer),
+        holderName: row.holderName,
+        clientFirstName: row.client?.firstName,
+        certificateNumber: row.certificateNumber,
+        installmentNumber: row.installmentNumber,
+        dueDate: row.dueDate,
+        amount: row.amount.toNumber(),
+        reason: row.reason,
+      },
+      version,
+    )
 
     try {
       await this.botNotifier.sendTemplate({
         to: waId,
         phoneNumberId,
-        template: ctx.template,
-        lang: this.templateLang,
+        template: version.name,
+        lang: REJECTION_TEMPLATE.lang,
         params,
       })
     } catch (error) {
@@ -384,7 +404,7 @@ export class RejectionsService implements OnModuleInit {
         { ...row, waId },
         existing,
         phoneNumberId,
-        renderNotice(params),
+        renderNotice(params, version),
         { paymentRejectionId: row.id, notice: 'payment_rejection' },
       )
       await this.prisma.paymentRejection.update({
@@ -449,8 +469,10 @@ function installmentKey(certificate: string, installment: number, dueDate: Date)
   return `${certificate}:${installment}:${dueDate.toISOString().slice(0, 10)}`
 }
 
-function toResponse(row: RejectionRow) {
+/** A row with the notice as it would go out now (the current text). */
+function toResponse(row: RejectionRow, organizationName: string) {
   const params = noticeParams({
+    organizationName,
     holderName: row.holderName,
     clientFirstName: row.client?.firstName,
     certificateNumber: row.certificateNumber,

@@ -15,8 +15,8 @@ function meta(overrides: Partial<MetaTemplate> & { name: string }): MetaTemplate
   }
 }
 
-const rejection = { name: 'aviso_rechazo_pago', lang: 'es_AR', use: 'Avisos de rechazos de pago' }
-const expiry = { name: 'aviso_poliza_vencida', lang: 'es_AR', use: 'Avisos de pólizas vencidas' }
+const rejection = { name: 'aviso_rechazo_pago', lang: 'es_AR', use: 'Avisos de rechazos de pago', managed: true }
+const expiry = { name: 'aviso_poliza_vencida', lang: 'es_AR', use: 'Avisos de pólizas vencidas', managed: true }
 
 describe('accountRows', () => {
   it('lists first what the platform needs, marking what the account lacks', () => {
@@ -42,7 +42,7 @@ describe('accountRows', () => {
         meta({ name: 'campana_renovacion_v1', category: 'MARKETING', status: 'REJECTED', rejectedReason: 'SCAM' }),
         meta({ name: 'campana_renovacion_v2', category: 'MARKETING' }),
       ],
-      [{ name: 'campana_renovacion_v2', lang: 'es_AR', use: 'Campaña: Renovaciones' }],
+      [{ name: 'campana_renovacion_v2', lang: 'es_AR', use: 'Campaña: Renovaciones', managed: true }],
     )
 
     expect(rows.map(r => [r.name, r.use, r.inUse])).toEqual([
@@ -51,6 +51,25 @@ describe('accountRows', () => {
       ['promo_navidad', null, false],
     ])
     expect(rows[1].reason).toBe('Posible estafa según Meta.')
+  })
+
+  it('marks the earlier text of a notice the account sends while Meta reviews the new one', () => {
+    const notice = { ...rejection, name: 'aviso_rechazo_pago_v2', previous: ['aviso_rechazo_pago'] }
+
+    const reviewing = accountRows(
+      [meta({ name: 'aviso_rechazo_pago' }), meta({ name: 'aviso_rechazo_pago_v2', status: 'PENDING' })],
+      [notice],
+    )
+    expect(reviewing.map(r => [r.name, r.status, r.use, r.inUse, r.managed])).toEqual([
+      ['aviso_rechazo_pago_v2', 'PENDING', 'Avisos de rechazos de pago', true, true],
+      ['aviso_rechazo_pago', 'APPROVED', 'Avisos de rechazos de pago (texto anterior)', true, false],
+    ])
+
+    const approved = accountRows(
+      [meta({ name: 'aviso_rechazo_pago' }), meta({ name: 'aviso_rechazo_pago_v2' })],
+      [notice],
+    )
+    expect(approved[1]).toEqual(expect.objectContaining({ name: 'aviso_rechazo_pago', inUse: false }))
   })
 })
 
@@ -113,9 +132,11 @@ describe('TemplatesOverviewService.overview', () => {
     expect(office.numbers).toEqual([
       { number: '+54 9 341 000-0001', branchName: '27 de Febrero', quality: 'GREEN', messagingLimit: 'TIER_250' },
     ])
-    expect(office.templates.map(t => [t.name, t.status, t.use])).toEqual([
-      ['aviso_rechazo_pago', 'APPROVED', 'Avisos de rechazos de pago'],
-      ['campana_renovacion_v1', 'APPROVED', 'Campaña: Renovaciones'],
+    // The rejection notice's current text is created by the platform; the first one keeps sending meanwhile.
+    expect(office.templates.map(t => [t.name, t.status, t.use, t.inUse])).toEqual([
+      ['aviso_rechazo_pago_v2', 'MISSING', 'Avisos de rechazos de pago', true],
+      ['campana_renovacion_v1', 'APPROVED', 'Campaña: Renovaciones', true],
+      ['aviso_rechazo_pago', 'APPROVED', 'Avisos de rechazos de pago (texto anterior)', true],
     ])
     // An account Meta did not answer for says so instead of looking empty.
     expect(branch.error).toContain('Error validating access token')

@@ -1,13 +1,16 @@
+import {
+  latestVersion,
+  NOTICE_TEMPLATES,
+  renderTemplate,
+  templateParams,
+  type NoticeTemplateVersion,
+} from '../notices/notice-templates'
+
 /**
- * The Meta template `aviso_poliza_vencida` (Utility, es_AR), kept here word
- * for word: the panel shows the notice as the client got it, and the bot
- * reads it back as the office's last message when they answer. The
- * organization's name is a variable so every organization sends its own.
+ * The Meta template of the expired-policy notice (src/notices/notice-templates.ts).
+ * The organization's name is a variable so every organization sends its own.
  */
-const NOTICE_TEMPLATE =
-  'Hola {{1}}, te escribimos de {{2}}, tu productor de seguros. ' +
-  'Tu póliza {{3}} ({{4}}) venció el {{5}}. ' +
-  'Si querés renovarla o cotizar otra opción, respondé este mensaje y te ayudamos.'
+export const EXPIRY_TEMPLATE = NOTICE_TEMPLATES.policy_expiry
 
 export interface ExpiryNoticeData {
   clientFirstName: string
@@ -18,20 +21,26 @@ export interface ExpiryNoticeData {
   validTo: Date
 }
 
-/** Body variables {{1}}…{{5}} of the template, in order. */
-export function expiryNoticeParams(data: ExpiryNoticeData): string[] {
-  return [
-    titleCase(data.clientFirstName.split(/\s+/)[0] || data.clientFirstName),
-    data.organizationName,
-    data.certificateNumber,
-    data.item,
-    formatDate(data.validTo),
-  ].map(metaSafe)
+/** Body variables of the template version, in order. */
+export function expiryNoticeParams(
+  data: ExpiryNoticeData,
+  version: NoticeTemplateVersion = latestVersion(EXPIRY_TEMPLATE),
+): string[] {
+  return templateParams(version, {
+    firstName: titleCase(data.clientFirstName.split(/\s+/)[0] || data.clientFirstName),
+    organization: data.organizationName,
+    certificate: data.certificateNumber,
+    item: data.item,
+    validTo: formatDate(data.validTo),
+  })
 }
 
 /** The notice as the client reads it. */
-export function renderExpiryNotice(params: string[]): string {
-  return NOTICE_TEMPLATE.replace(/\{\{(\d)\}\}/g, (_, n: string) => params[Number(n) - 1] ?? '')
+export function renderExpiryNotice(
+  params: string[],
+  version: NoticeTemplateVersion = latestVersion(EXPIRY_TEMPLATE),
+): string {
+  return renderTemplate(version, params)
 }
 
 function titleCase(text: string): string {
@@ -47,9 +56,4 @@ function formatDate(date: Date): string {
   const dd = String(date.getUTCDate()).padStart(2, '0')
   const mm = String(date.getUTCMonth() + 1).padStart(2, '0')
   return `${dd}/${mm}/${date.getUTCFullYear()}`
-}
-
-/** Meta rejects template variables with new lines, tabs or runs of spaces. */
-function metaSafe(value: string): string {
-  return value.replace(/\s+/g, ' ').trim()
 }

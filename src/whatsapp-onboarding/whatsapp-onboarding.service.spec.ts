@@ -4,6 +4,8 @@ import { WhatsappOnboardingService } from './whatsapp-onboarding.service'
 
 // Reading the Meta portfolio never stops an onboarding.
 const portfolio = { refreshWith: jest.fn().mockResolvedValue(null) }
+// Creating the templates of a new account runs in the background.
+const templateSync = { syncAccountSoon: jest.fn() }
 
 /** ScopeService stand-in: the codes the caller may use. */
 const scopeOf = (codes: number[]) => ({
@@ -29,6 +31,7 @@ describe('WhatsappOnboardingService', () => {
       http as any,
       scopeOf([]) as any,
       portfolio as any,
+      templateSync as any,
     )
 
     jest.spyOn(service as any, 'exchangeCode').mockResolvedValue({ accessToken: 'token', expiresAt: null })
@@ -88,6 +91,7 @@ describe('WhatsappOnboardingService', () => {
         { get: jest.fn(), post: jest.fn() } as any,
         scopeOf(options.codes ?? [11, 14]) as any,
         portfolio as any,
+        templateSync as any,
       )
 
       const exchange = jest
@@ -253,6 +257,7 @@ describe('WhatsappOnboardingService', () => {
         { get: jest.fn(), post: jest.fn() } as any,
         scopeOf(options.codes ?? [14]) as any,
         portfolio as any,
+        templateSync as any,
       )
       const exchange = jest
         .spyOn(service as any, 'exchangeCode')

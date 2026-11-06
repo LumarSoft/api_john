@@ -1225,7 +1225,7 @@ The "pólizas vencidas" worklist of the Cobranzas screen: policies that ran out 
 
 **Responses**
 
-`200 OK` — `hiddenCount` is how many policies in scope are hidden, whatever `hidden` says. `templateReady` says whether `POLICY_EXPIRY_TEMPLATE` is configured (else notices can only be marked). `notice` is the last WhatsApp notice tried for the policy (`SENDING` | `SENT` | `FAILED` | `MARKED`), or `null`.
+`200 OK` — `hiddenCount` is how many policies in scope are hidden, whatever `hidden` says. `templateReady` says whether `POLICY_EXPIRY_TEMPLATE` is set (it turns the notices on) (else notices can only be marked). `notice` is the last WhatsApp notice tried for the policy (`SENDING` | `SENT` | `FAILED` | `MARKED`), or `null`.
 
 ```json
 {
@@ -1318,7 +1318,7 @@ Brings a hidden policy back to the worklist.
 
 ### POST /admin/cobranzas/vencidas/send
 
-Tells the clients of the chosen policies on WhatsApp that the policy ran out, with the Meta template `POLICY_EXPIRY_TEMPLATE` (Utility, 5 variables: first name, organization name as the bot names it, certificate, plate or product, end date). Same pipeline as Rechazos: one `PolicyExpiryNotice` per policy, claimed as `SENDING` and delivered one by one in the background (poll the list while any `notice.status` is `SENDING`); each notice lands in the client's chat as a message from the office, and the bot treats the client's answer in the next 3 days as a reply to it (handed to the office). The sender is the number the client already talks to, else one serving the policy's code.
+Tells the clients of the chosen policies on WhatsApp that the policy ran out, with the Meta template `aviso_poliza_vencida` (`src/notices/notice-templates.ts`, on when `POLICY_EXPIRY_TEMPLATE` is set; Utility, 5 variables: first name, organization name as the bot names it, certificate, plate or product, end date). Same pipeline as Rechazos: one `PolicyExpiryNotice` per policy, claimed as `SENDING` and delivered one by one in the background (poll the list while any `notice.status` is `SENDING`); each notice lands in the client's chat as a message from the office, and the bot treats the client's answer in the next 3 days as a reply to it (handed to the office). The sender is the number the client already talks to, else one serving the policy's code.
 
 A policy is left out, and reported in `skipped`, when the client has no usable phone (`NO_PHONE`), was told in the last 30 days — sent or marked — (`ALREADY_NOTIFIED`), or has a notice still going out (`SENDING`). Hidden policies and policies outside the user's codes are ignored.
 
@@ -1844,7 +1844,9 @@ The active plans of the catalog, for the landing. Cached 5 minutes.
 
 ### GET /owner/templates
 
-Every WhatsApp Business account that can send (connected, with an active number), grouped by organization: its numbers with the quality and daily limit Meta reports, the templates the platform needs there (the notices configured on the server and each campaign's current text) and every other template Meta has in it. A needed template Meta does not have in that language comes as `MISSING`. Asks Meta on every call.
+Every WhatsApp Business account that can send (connected, with an active number), grouped by organization: its numbers with the quality and daily limit Meta reports, the templates the platform needs there (the current text of each notice turned on on the server, from `src/notices/notice-templates.ts`, and each campaign's current text) and every other template Meta has in it. A needed template Meta does not have in that language comes as `MISSING`. Asks Meta on every call.
+
+Nobody creates these templates by hand: `TemplateSyncService` (every hour and right after a number is connected, on when `META_TEMPLATE_SYNC_ENABLED=true`) creates the current text of each notice in every account that lacks it and sends each campaign's current text to the accounts that do not have it (again, once a day, when it never reached Meta). Meta reviews each copy apart. While it reviews a notice's new text, each number keeps sending the newest earlier text its account has approved.
 
 **Auth required:** Yes — OWNER only.
 
@@ -1875,7 +1877,8 @@ Every WhatsApp Business account that can send (connected, with an active number)
               "reason": null,
               "quality": null,
               "use": "Avisos de rechazos de pago",
-              "inUse": true
+              "inUse": true,
+              "managed": true
             },
             {
               "name": "campana_renovacion_v1",
@@ -1885,7 +1888,8 @@ Every WhatsApp Business account that can send (connected, with an active number)
               "reason": null,
               "quality": "UNKNOWN",
               "use": "Campaña: Renovaciones",
-              "inUse": true
+              "inUse": true,
+              "managed": true
             }
           ]
         }
@@ -1896,7 +1900,8 @@ Every WhatsApp Business account that can send (connected, with an active number)
 ```
 
 - `status`: Meta's (`APPROVED`, `PENDING`, `REJECTED`, `PAUSED`, `DISABLED`, `IN_APPEAL`…) or `MISSING`.
-- `use`: what the platform sends it for; `null` for a template it does not use. An old campaign text says "(texto anterior)" and has `inUse: false`.
+- `use`: what the platform sends it for; `null` for a template it does not use. An old campaign or notice text says "(texto anterior)". An old campaign text has `inUse: false`; an old notice text has `inUse: true` while it is the one the account sends (the current text is not approved there yet).
+- `managed`: the platform creates it by itself in every account (a missing one shows up within the hour). `false` for the web quote follow-up (`QUOTE_FOLLOWUP_TEMPLATE`), created by hand.
 - `error`: set when Meta did not return the account's templates (an expired token…); `templates` is then empty.
 
 `401 Unauthorized` / `403 Forbidden` — not logged in, or not the owner.
@@ -4317,9 +4322,11 @@ Cantidad de propuestas en estado `NEW`.
 
 Sección "Rechazos" del panel: la oficina carga el Excel de Triunfo "Planilla de
 rechazos por débito automático" (uno para CBU y otro para tarjetas) y el bot le
-avisa a cada cliente por WhatsApp con la plantilla aprobada
-`PAYMENT_REJECTION_TEMPLATE` (6 variables: nombre, cuota, póliza, vencimiento,
-importe, motivo). El Excel se lee en el navegador; la API recibe sus filas, las
+avisa a cada cliente por WhatsApp con la plantilla del aviso de rechazo
+(`src/notices/notice-templates.ts`, encendida con `PAYMENT_REJECTION_TEMPLATE`;
+texto vigente `aviso_rechazo_pago_v2`, 7 variables: nombre, organización, cuota,
+póliza, vencimiento, importe, motivo; cada número manda la versión más nueva que
+Meta aprobó en su cuenta, y la primera, `aviso_rechazo_pago`, nombraba a JPMG). El Excel se lee en el navegador; la API recibe sus filas, las
 cruza con la póliza (por certificado) y el cliente, y elige el número de
 WhatsApp: celular, si no el particular, si no el teléfono del cliente en la
 cartera. Cada aviso enviado queda en el chat del cliente como mensaje de la

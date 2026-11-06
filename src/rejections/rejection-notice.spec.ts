@@ -1,4 +1,11 @@
-import { channelOf, greetingName, noticeParams, reasonForClient, renderNotice } from './rejection-notice'
+import {
+  channelOf,
+  greetingName,
+  noticeParams,
+  reasonForClient,
+  REJECTION_TEMPLATE,
+  renderNotice,
+} from './rejection-notice'
 
 describe('reasonForClient', () => {
   it('says the known reasons in plain words', () => {
@@ -34,7 +41,8 @@ describe('greetingName', () => {
 })
 
 describe('noticeParams and renderNotice', () => {
-  const params = noticeParams({
+  const data = {
+    organizationName: 'Seguros del Litoral',
     holderName: 'PEREZ JUAN',
     clientFirstName: 'JUAN',
     certificateNumber: '1234567',
@@ -42,14 +50,33 @@ describe('noticeParams and renderNotice', () => {
     dueDate: new Date('2026-09-28T00:00:00.000Z'),
     amount: 90315,
     reason: 'FALTA DE FONDOS',
-  })
+  }
+  const [first, current] = REJECTION_TEMPLATE.versions
 
-  it('fills the six variables of the template', () => {
-    expect(params).toEqual(['Juan', '2', '1234567', '28/09/2026', '90.315', 'falta de fondos en la cuenta'])
-  })
-
-  it('renders the notice the client gets', () => {
+  it("names the sender's organization in the current text", () => {
+    const params = noticeParams(data)
+    expect(params).toEqual([
+      'Juan',
+      'Seguros del Litoral',
+      '2',
+      '1234567',
+      '28/09/2026',
+      '90.315',
+      'falta de fondos en la cuenta',
+    ])
     expect(renderNotice(params)).toBe(
+      'Hola Juan, te escribimos de Seguros del Litoral, tu productor de seguros. Triunfo Seguros nos informó ' +
+        'que no se pudo cobrar la cuota 2 de tu póliza 1234567 (vencimiento 28/09/2026, importe $90.315) por ' +
+        'falta de fondos en la cuenta. Para que tu cobertura no quede suspendida, respondé este mensaje y te ' +
+        'ayudamos a regularizar el pago.',
+    )
+    expect(current.name).toBe('aviso_rechazo_pago_v2')
+  })
+
+  it('still fills the first text, which only the first organization has', () => {
+    const params = noticeParams(data, first)
+    expect(params).toEqual(['Juan', '2', '1234567', '28/09/2026', '90.315', 'falta de fondos en la cuenta'])
+    expect(renderNotice(params, first)).toBe(
       'Hola Juan, te escribimos de JP Management Group, tu productor de seguros. Triunfo Seguros nos informó ' +
         'que no se pudo cobrar la cuota 2 de tu póliza 1234567 (vencimiento 28/09/2026, importe $90.315) por ' +
         'falta de fondos en la cuenta. Para que tu cobertura no quede suspendida, respondé este mensaje y te ' +
@@ -58,7 +85,8 @@ describe('noticeParams and renderNotice', () => {
   })
 
   it('keeps the cents when there are some', () => {
-    const [, , , , amount] = noticeParams({
+    const [, , , , , amount] = noticeParams({
+      organizationName: 'Seguros del Litoral',
       holderName: 'PEREZ JUAN',
       certificateNumber: '1',
       installmentNumber: 1,

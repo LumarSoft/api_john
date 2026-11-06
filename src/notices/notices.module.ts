@@ -10,6 +10,6 @@ import { WabaTemplatesService } from './waba-templates.service'
   imports: [PlanFeaturesModule],
   controllers: [OwnerTemplatesController],
   providers: [NoticeDeliveryService, WabaTemplatesService, TemplatesOverviewService],
-  exports: [NoticeDeliveryService],
+  exports: [NoticeDeliveryService, WabaTemplatesService],
 })
 export class NoticesModule {}

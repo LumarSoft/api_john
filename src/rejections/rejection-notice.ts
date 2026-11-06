@@ -1,15 +1,18 @@
 import { PaymentRejectionChannel } from 'generated/prisma/client'
+import {
+  latestVersion,
+  NOTICE_TEMPLATES,
+  renderTemplate,
+  templateParams,
+  type NoticeTemplateVersion,
+} from '../notices/notice-templates'
 
 /**
- * The approved Meta template `aviso_rechazo_pago` (Servicio, es_AR). Kept here
- * word for word: the panel shows the notice as the client got it, and the bot
- * reads it back as the office's last message when they answer.
+ * The Meta template of the payment-rejection notice (src/notices/notice-templates.ts).
+ * Its first version named the first organization; the current one takes each
+ * organization's name as a variable.
  */
-const NOTICE_TEMPLATE =
-  'Hola {{1}}, te escribimos de JP Management Group, tu productor de seguros. ' +
-  'Triunfo Seguros nos informó que no se pudo cobrar la cuota {{2}} de tu póliza {{3}} ' +
-  '(vencimiento {{4}}, importe ${{5}}) por {{6}}. Para que tu cobertura no quede suspendida, ' +
-  'respondé este mensaje y te ayudamos a regularizar el pago.'
+export const REJECTION_TEMPLATE = NOTICE_TEMPLATES.payment_rejection
 
 /** Triunfo's reasons, as the client should read them after "por". */
 const REASONS: Record<string, string> = {
@@ -52,6 +55,8 @@ export function greetingName(holderName: string, clientFirstName?: string | null
 }
 
 export interface NoticeData {
+  /** How the notice names the organization (only the current version says it). */
+  organizationName: string
   holderName: string
   clientFirstName?: string | null
   certificateNumber: string
@@ -61,21 +66,28 @@ export interface NoticeData {
   reason: string
 }
 
-/** Body variables {{1}}…{{6}} of the template, in order. */
-export function noticeParams(data: NoticeData): string[] {
-  return [
-    greetingName(data.holderName, data.clientFirstName),
-    String(data.installmentNumber),
-    data.certificateNumber,
-    formatDate(data.dueDate),
-    formatAmount(data.amount),
-    reasonForClient(data.reason),
-  ].map(metaSafe)
+/** Body variables of the template version, in order. */
+export function noticeParams(
+  data: NoticeData,
+  version: NoticeTemplateVersion = latestVersion(REJECTION_TEMPLATE),
+): string[] {
+  return templateParams(version, {
+    firstName: greetingName(data.holderName, data.clientFirstName),
+    organization: data.organizationName,
+    installment: String(data.installmentNumber),
+    certificate: data.certificateNumber,
+    dueDate: formatDate(data.dueDate),
+    amount: formatAmount(data.amount),
+    reason: reasonForClient(data.reason),
+  })
 }
 
 /** The notice as the client reads it. */
-export function renderNotice(params: string[]): string {
-  return NOTICE_TEMPLATE.replace(/\{\{(\d)\}\}/g, (_, n: string) => params[Number(n) - 1] ?? '')
+export function renderNotice(
+  params: string[],
+  version: NoticeTemplateVersion = latestVersion(REJECTION_TEMPLATE),
+): string {
+  return renderTemplate(version, params)
 }
 
 function titleCase(text: string): string {
@@ -100,9 +112,4 @@ function formatAmount(amount: number): string {
     minimumFractionDigits: hasCents ? 2 : 0,
     maximumFractionDigits: 2,
   })
-}
-
-/** Meta rejects template variables with new lines, tabs or runs of spaces. */
-function metaSafe(value: string): string {
-  return value.replace(/\s+/g, ' ').trim()
 }

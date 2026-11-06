@@ -5,7 +5,8 @@ import { ScopeUser } from '../common/scope/scope.service'
 import { PlanFeatureKey } from '../plan-features/plan-features'
 import { PlanFeaturesService } from '../plan-features/plan-features.service'
 import { NoticeKind, Sender } from './notice-delivery'
-import { TemplateRef, WabaTemplatesService } from './waba-templates.service'
+import { type NoticeTemplate } from './notice-templates'
+import { WabaTemplatesService } from './waba-templates.service'
 
 /** The chat a notice lands in, when the client already has one. */
 export interface ExistingChat {
@@ -38,10 +39,11 @@ export class NoticeDeliveryService {
    * Active numbers that can send, the ones on a connected WABA first. With a
    * `feature`, only the numbers whose plan includes it; when there are numbers
    * but none of them has it, it answers 403 with the plan's message. With a
-   * `template`, only the numbers whose WhatsApp account has it approved (Meta
-   * refuses it from any other); when none has it, it answers 409.
+   * `template`, only the numbers whose WhatsApp account has a version of it
+   * approved (Meta refuses it from any other), each with the newest one its
+   * account has; when none has it, it answers 409.
    */
-  async senders(producerId: number, feature?: PlanFeatureKey, template?: TemplateRef): Promise<Sender[]> {
+  async senders(producerId: number, feature?: PlanFeatureKey, template?: NoticeTemplate): Promise<Sender[]> {
     const connected = await this.prisma.phoneNumber.findMany({
       where: {
         producerId,
@@ -73,14 +75,27 @@ export class NoticeDeliveryService {
     return template ? this.keepWithTemplate(senders, template) : senders
   }
 
-  /** The senders whose account has the template approved; a number without an account of its own stays. */
-  private async keepWithTemplate(senders: Sender[], template: TemplateRef): Promise<Sender[]> {
+  /**
+   * The senders whose account has a version of the template approved, each
+   * with the newest one there. A number without an account of its own (the
+   * first one, registered by hand) sends the first version, as it always did;
+   * one whose account Meta did not answer for sends the newest and the send
+   * says what went wrong.
+   */
+  private async keepWithTemplate(senders: Sender[], template: NoticeTemplate): Promise<Sender[]> {
     const accountIds = [...new Set(senders.flatMap(s => (s.wabaAccountId != null ? [s.wabaAccountId] : [])))]
-    const missing = await this.templates.notApprovedIn(accountIds, template)
-    const kept = senders.filter(s => s.wabaAccountId == null || !missing.has(s.wabaAccountId))
+    const approved = await this.templates.approvedVersionsIn(accountIds, template)
+    const newest = template.versions[template.versions.length - 1]
+    const kept = senders.flatMap(s => {
+      if (s.wabaAccountId == null) return [{ ...s, template: template.versions[0] }]
+      if (!approved.has(s.wabaAccountId)) return [{ ...s, template: newest }]
+      const version = approved.get(s.wabaAccountId)
+      return version ? [{ ...s, template: version }] : []
+    })
     if (senders.length && !kept.length) {
       throw new ConflictException(
-        `Meta no tiene aprobada la plantilla ${template.name} en la cuenta de WhatsApp de ninguno de tus números. No se envió ningún aviso.`,
+        `Meta todavía no aprobó la plantilla ${newest.name} en la cuenta de WhatsApp de ninguno de tus números. ` +
+          'Se crea sola en cada cuenta y Meta la revisa (de minutos a un día). No se envió ningún aviso.',
       )
     }
     return kept

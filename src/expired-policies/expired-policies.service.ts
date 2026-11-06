@@ -11,14 +11,22 @@ import { ConfigService } from '@nestjs/config'
 import { PolicyExpiryNoticeStatus, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeUser } from '../common/scope/scope.service'
-import { parseBotProfile } from '../common/bot-profile'
 import { notCancelledPolizaWhere } from '../common/poliza-vigencia'
 import { productNameOf } from '../common/poliza-detail'
 import { BotNotifierService } from '../inbox/bot-notifier.service'
-import { describeFailure, pickSender, pickWhatsApp, SEND_GAP_MS, Sender, sleep } from '../notices/notice-delivery'
+import {
+  describeFailure,
+  pickSender,
+  pickWhatsApp,
+  SEND_GAP_MS,
+  Sender,
+  sleep,
+  templateOf,
+} from '../notices/notice-delivery'
+import { latestVersion, noticeOrganizationName } from '../notices/notice-templates'
 import { NoticeDeliveryService } from '../notices/notice-delivery.service'
 import { ExpiredPolicySort, ListExpiredPoliciesDto } from './dto/list-expired-policies.dto'
-import { expiryNoticeParams, renderExpiryNotice } from './expiry-notice'
+import { EXPIRY_TEMPLATE, expiryNoticeParams, renderExpiryNotice } from './expiry-notice'
 
 const { SENDING, SENT, FAILED, MARKED } = PolicyExpiryNoticeStatus
 
@@ -93,8 +101,8 @@ type PolicyRow = Prisma.PolicyGetPayload<{ select: typeof ROW_SELECT }>
 @Injectable()
 export class ExpiredPoliciesService implements OnModuleInit {
   private readonly logger = new Logger(ExpiredPoliciesService.name)
-  private readonly template: string | undefined
-  private readonly templateLang: string
+  /** Notices are on when the server has POLICY_EXPIRY_TEMPLATE set; the text is EXPIRY_TEMPLATE's. */
+  private readonly enabled: boolean
 
   constructor(
     private readonly prisma: PrismaService,
@@ -102,8 +110,7 @@ export class ExpiredPoliciesService implements OnModuleInit {
     private readonly delivery: NoticeDeliveryService,
     config: ConfigService,
   ) {
-    this.template = config.get<string>('POLICY_EXPIRY_TEMPLATE') || undefined
-    this.templateLang = config.get<string>('POLICY_EXPIRY_TEMPLATE_LANG') || 'es_AR'
+    this.enabled = !!config.get<string>(EXPIRY_TEMPLATE.env)
   }
 
   /** A restart in the middle of a send leaves notices in SENDING forever. */
@@ -151,7 +158,7 @@ export class ExpiredPoliciesService implements OnModuleInit {
       data,
       total,
       hiddenCount,
-      templateReady: !!this.template,
+      templateReady: this.enabled,
       page,
       pageSize,
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
@@ -186,8 +193,7 @@ export class ExpiredPoliciesService implements OnModuleInit {
    * going out is left out and reported as such.
    */
   async send(user: ScopeUser, codeIds: number[], ids: number[], now = new Date()) {
-    const template = this.template
-    if (!template) {
+    if (!this.enabled) {
       throw new ConflictException(
         'La plantilla de WhatsApp para avisar pólizas vencidas todavía no está habilitada. No se envió ningún aviso.',
       )
@@ -195,10 +201,7 @@ export class ExpiredPoliciesService implements OnModuleInit {
     await this.delivery.assertRole(user, 'expiry_notices')
     // Only the numbers whose plan includes these notices send them (403 when none does).
     // ...and whose WhatsApp account has the template approved (409 when none has it).
-    const senders = await this.delivery.senders(user.producerId, 'expiry_notices', {
-      name: template,
-      lang: this.templateLang,
-    })
+    const senders = await this.delivery.senders(user.producerId, 'expiry_notices', EXPIRY_TEMPLATE)
     if (!senders.length) {
       throw new ConflictException('No hay un número de WhatsApp conectado para enviar los avisos. Revisalo en Números.')
     }
@@ -239,7 +242,7 @@ export class ExpiredPoliciesService implements OnModuleInit {
     }
     if (!claimed.length) throw new BadRequestException('Ninguno de los avisos elegidos se puede enviar.')
 
-    void this.deliverAll(claimed, { template, senders }).catch(error =>
+    void this.deliverAll(claimed, { senders }).catch(error =>
       this.logger.error(`Se cortó el envío de avisos de póliza vencida: ${(error as Error).message}`),
     )
     return { sent: claimed.length, skipped }
@@ -297,7 +300,7 @@ export class ExpiredPoliciesService implements OnModuleInit {
     return null
   }
 
-  private async deliverAll(ids: number[], ctx: { template: string; senders: Sender[] }) {
+  private async deliverAll(ids: number[], ctx: { senders: Sender[] }) {
     for (const [index, id] of ids.entries()) {
       if (index > 0) await sleep(SEND_GAP_MS)
       try {
@@ -312,7 +315,7 @@ export class ExpiredPoliciesService implements OnModuleInit {
     }
   }
 
-  private async deliverOne(id: number, ctx: { template: string; senders: Sender[] }) {
+  private async deliverOne(id: number, ctx: { senders: Sender[] }) {
     const notice = await this.prisma.policyExpiryNotice.findUniqueOrThrow({
       where: { id },
       select: {
@@ -338,26 +341,31 @@ export class ExpiredPoliciesService implements OnModuleInit {
     if (!waId) throw new InternalServerErrorException('Notice has no WhatsApp id')
 
     const { policy, producer } = notice
-    const params = expiryNoticeParams({
-      clientFirstName: notice.client.firstName,
-      organizationName: parseBotProfile(producer.botProfile).orgName || producer.name,
-      certificateNumber: policy.certificateNumber,
-      item:
-        policy.vehicle?.licensePlate ||
-        productNameOf(policy.riskType, policy.rawData) ||
-        RISK_LABELS[policy.riskType] ||
-        policy.riskType,
-      validTo: policy.validTo ?? new Date(),
-    })
     const existing = await this.delivery.findConversation(waId, notice.producerId)
     const phoneNumberId = pickSender(ctx.senders, existing?.phoneNumberId, notice.producerCodeId)
+    // The version this number's account has approved.
+    const version = templateOf(ctx.senders, phoneNumberId) ?? latestVersion(EXPIRY_TEMPLATE)
+    const params = expiryNoticeParams(
+      {
+        clientFirstName: notice.client.firstName,
+        organizationName: noticeOrganizationName(producer),
+        certificateNumber: policy.certificateNumber,
+        item:
+          policy.vehicle?.licensePlate ||
+          productNameOf(policy.riskType, policy.rawData) ||
+          RISK_LABELS[policy.riskType] ||
+          policy.riskType,
+        validTo: policy.validTo ?? new Date(),
+      },
+      version,
+    )
 
     try {
       await this.botNotifier.sendTemplate({
         to: waId,
         phoneNumberId,
-        template: ctx.template,
-        lang: this.templateLang,
+        template: version.name,
+        lang: EXPIRY_TEMPLATE.lang,
         params,
       })
     } catch (error) {
@@ -373,7 +381,7 @@ export class ExpiredPoliciesService implements OnModuleInit {
         { waId, producerId: notice.producerId, producerCodeId: notice.producerCodeId, clientId: notice.clientId },
         existing,
         phoneNumberId,
-        renderExpiryNotice(params),
+        renderExpiryNotice(params, version),
         { policyExpiryNoticeId: notice.id, notice: 'policy_expiry' },
       )
       await this.prisma.policyExpiryNotice.update({
