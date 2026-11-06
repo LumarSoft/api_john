@@ -9,7 +9,7 @@ import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import { BotStatusAlertService } from '../users/bot-status-alert.service'
 import { toBranchName } from './branch-name'
-import { assistantSetupData } from './assistant-setup'
+import { ASSISTANT_SETTINGS_SELECT, assistantSetupData, sendsAssistantSetup } from './assistant-setup'
 import { CreatePhoneNumberDto } from './dto/create-phone-number.dto'
 import { UpdatePhoneNumberDto } from './dto/update-phone-number.dto'
 import { UpdateNumberAssistantDto } from './dto/update-number-assistant.dto'
@@ -231,12 +231,13 @@ export class PhoneNumbersService {
 
     // A new account's number starts on the trial plan.
     const planId = await this.usage.initialPlanIdFor(producerId)
+    const assistant = await this.newNumberAssistant(producerId, dto)
     const phone = await this.prisma.phoneNumber.create({
       data: {
         phoneNumberId: dto.phoneNumberId,
         number: dto.number,
         branchName: dto.branchName !== undefined ? toBranchName(dto.branchName) : null,
-        ...assistantSetupData(dto),
+        ...assistant,
         producerId,
         responsibleProducerCodeId: dto.responsibleProducerCodeId ?? null,
         monthlyBudgetUsd: this.budgetFrom(dto, role) ?? null,
@@ -247,6 +248,17 @@ export class PhoneNumbersService {
 
     await this.replaceServedCodes(phone.id, dto.servedCodeIds ?? [])
     return { id: phone.id }
+  }
+
+  /** The assistant typed for a new number: what differs from its organization's (the rest follows the organization). */
+  private async newNumberAssistant(producerId: number, dto: CreatePhoneNumberDto) {
+    if (!sendsAssistantSetup(dto)) return {}
+    const organization = await this.prisma.producer.findUnique({
+      where: { id: producerId },
+      select: { name: true, ...ASSISTANT_SETTINGS_SELECT },
+    })
+    if (!organization) throw new NotFoundException(`Organization ${producerId} not found`)
+    return assistantSetupData(dto, { organization, number: null })
   }
 
   async update(id: number, producerId: number, dto: UpdatePhoneNumberDto, role?: Role) {

@@ -15,7 +15,14 @@ import { ScopeService, type ScopeUser } from '../common/scope/scope.service'
 import { readCommercialPricing } from '../usage/commercial-pricing'
 import { initialPlanId } from '../usage/initial-plan'
 import { toBranchName } from '../phone-numbers/branch-name'
-import { assistantSetupData, type AssistantSetupData } from '../phone-numbers/assistant-setup'
+import {
+  ASSISTANT_SETTINGS_SELECT,
+  assistantSetupData,
+  sendsAssistantSetup,
+  validateAssistantSetup,
+  type AssistantSetupData,
+} from '../phone-numbers/assistant-setup'
+import type { AssistantSettings } from '../common/number-assistant'
 import { decryptSecret, encryptSecret, resolveKey } from '../common/crypto/secret-crypto'
 import { OnboardWhatsappDto } from './dto/onboard.dto'
 import { describeGraphError } from './graph-errors'
@@ -26,6 +33,13 @@ interface MetaPhoneNumberStatus {
   display_phone_number?: string
   is_on_biz_app?: boolean
   platform_type?: string
+}
+
+/** A previous row a connection may revive, with the assistant it already had. */
+type ReconnectCandidate = AssistantSettings & {
+  id: number
+  phoneNumberId: string
+  responsibleProducerCodeId: number | null
 }
 
 const COEXISTENCE_STATUS_ATTEMPTS = 4
@@ -79,7 +93,7 @@ export class WhatsappOnboardingService {
     // 1 — code → business token. The code dies 30s after the popup closes.
     // The assistant typed before connecting (name, presentation, people,
     // hours), validated before the code is spent: it expires in 30 seconds.
-    const assistant = assistantSetupData(dto)
+    validateAssistantSetup(dto)
     const { accessToken, expiresAt } = await this.exchangeCode(dto.code)
 
     // Coexistence's session event is allowed to omit phone_number_id. Resolve it
@@ -156,6 +170,8 @@ export class WhatsappOnboardingService {
     await this.portfolio.refreshWith(waba.id, dto.wabaId, accessToken)
 
     const branchName = dto.branchName !== undefined ? toBranchName(dto.branchName) : null
+    // Against what the number answers with today: a reconnect keeps everything it already had.
+    const assistant = await this.assistantChanges(dto, producerId, existing)
     const phoneNumber = existing
       ? await this.reconnectNumber(existing, {
           phoneNumberId,
@@ -343,16 +359,38 @@ export class WhatsappOnboardingService {
    *
    * A live row with this Meta id owned by another organization is a conflict.
    */
+  /** What the assistant typed before connecting changes on the number, against what it answers with today. */
+  private async assistantChanges(
+    dto: OnboardWhatsappDto,
+    producerId: number,
+    existing: AssistantSettings | null,
+  ): Promise<AssistantSetupData> {
+    if (!sendsAssistantSetup(dto)) return {}
+    const organization = await this.prisma.producer.findUnique({
+      where: { id: producerId },
+      select: { name: true, ...ASSISTANT_SETTINGS_SELECT },
+    })
+    if (!organization) throw new NotFoundException(`Organization ${producerId} not found`)
+    return assistantSetupData(dto, { organization, number: existing })
+  }
+
   private async findNumberToReconnect(
     producerId: number,
     wabaId: string,
     phoneNumberId: string,
     isCoexistence: boolean,
     displayPhoneNumber: string | undefined,
-  ): Promise<{ id: number; phoneNumberId: string; responsibleProducerCodeId: number | null } | null> {
+  ): Promise<ReconnectCandidate | null> {
     const sameId = await this.prisma.phoneNumber.findUnique({
       where: { phoneNumberId },
-      select: { id: true, producerId: true, deletedAt: true, phoneNumberId: true, responsibleProducerCodeId: true },
+      select: {
+        id: true,
+        producerId: true,
+        deletedAt: true,
+        phoneNumberId: true,
+        responsibleProducerCodeId: true,
+        ...ASSISTANT_SETTINGS_SELECT,
+      },
     })
     if (sameId) {
       if (!sameId.deletedAt && sameId.producerId !== producerId) {
@@ -370,6 +408,7 @@ export class WhatsappOnboardingService {
         number: true,
         deletedAt: true,
         responsibleProducerCodeId: true,
+        ...ASSISTANT_SETTINGS_SELECT,
         wabaAccount: { select: { wabaId: true, disconnectedAt: true } },
       },
       orderBy: { id: 'desc' },
@@ -412,7 +451,7 @@ export class WhatsappOnboardingService {
         ...(data.number ? { number: data.number } : {}),
         // A reconnect without a name keeps the one the number already had.
         ...(data.branchName ? { branchName: data.branchName } : {}),
-        // Same for the assistant: only the fields the panel sent.
+        // Same for the assistant: only what the panel changed.
         ...(data.assistant ?? {}),
         // The panel's connect button sends no code: keep the one already set.
         ...(data.responsibleProducerCodeId !== undefined

@@ -134,6 +134,38 @@ describe('WhatsappOnboardingService', () => {
       expect(renamed.prisma.phoneNumber.update.mock.calls[0][0].data).toMatchObject({ branchName: '27 de Febrero' })
     })
 
+    it('keeps the assistant the number had: the prefilled form changes nothing, a new alias keeps its CBU', async () => {
+      const own = {
+        botName: 'Nico',
+        staffNames: 'Vanesa',
+        businessHours: null,
+        botProfile: { transferAlias: 'TRUENO.VUELO.DELTA', transferCbu: '0000003100000000000002', claimsPhone: '0800' },
+      }
+      const form = {
+        ...dto,
+        branchName: 'Roldán',
+        botName: 'Nico',
+        presentationName: 'Seguros Norte SRL',
+        transferAlias: 'TRUENO.VUELO.DELTA',
+        staffNames: ['Vanesa'],
+      }
+
+      const same = setup({ sameId: { ...OLD_ROW, ...own, phoneNumberId: 'NEW-ID' } })
+      same.prisma.producer.findUnique.mockResolvedValue({ name: 'Seguros Norte SRL', createdAt: new Date() })
+      await same.service.onboard(superAdmin(1), form)
+      const kept = same.prisma.phoneNumber.update.mock.calls[0][0].data
+      for (const field of ['botName', 'staffNames', 'businessHours', 'botProfile'])
+        expect(kept).not.toHaveProperty(field)
+
+      const renamed = setup({ sameId: { ...OLD_ROW, ...own, phoneNumberId: 'NEW-ID' } })
+      renamed.prisma.producer.findUnique.mockResolvedValue({ name: 'Seguros Norte SRL', createdAt: new Date() })
+      await renamed.service.onboard(superAdmin(1), { ...form, transferAlias: 'NUEVO.ALIAS' })
+      expect(renamed.prisma.phoneNumber.update.mock.calls[0][0].data.botProfile).toEqual({
+        ...own.botProfile,
+        transferAlias: 'NUEVO.ALIAS',
+      })
+    })
+
     it('refuses a number that is live in another organization', async () => {
       const { service, subscribe } = setup({ sameId: { ...OLD_ROW, phoneNumberId: 'NEW-ID', producerId: 2 } })
 
