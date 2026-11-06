@@ -21,12 +21,18 @@ export function assistantSetupData(dto: AssistantSetupDto): AssistantSetupData {
   if (dto.businessHours !== undefined) {
     data.businessHours = validateSchedule(dto.businessHours) as unknown as Prisma.InputJsonValue
   }
+  const profile: Record<string, string> = {}
   if (dto.presentationName !== undefined) {
     const name = dto.presentationName.trim()
     if (name.length > 120) throw new BadRequestException('presentationName is too long')
-    data.botProfile = name
-      ? ({ orgName: name, orgLegalName: name, orgShortName: name } as Prisma.InputJsonObject)
-      : Prisma.DbNull
+    if (name) Object.assign(profile, { orgName: name, orgLegalName: name, orgShortName: name })
+  }
+  if (dto.transferAlias !== undefined) {
+    const alias = dto.transferAlias.trim()
+    if (alias) profile.transferAlias = alias
+  }
+  if (dto.presentationName !== undefined || dto.transferAlias !== undefined) {
+    data.botProfile = Object.keys(profile).length ? (profile as Prisma.InputJsonObject) : Prisma.DbNull
   }
   return data
 }

@@ -21,6 +21,14 @@ export class AssistantSetupDto {
   @MaxLength(120)
   presentationName?: string
 
+  // The alias customers transfer to. The transfer account is the number's own
+  // as a whole once any of its fields is set: CBU, holder and bank are
+  // completed from the assistant screen.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  transferAlias?: string
+
   // The people of this office a customer may write to by name.
   @IsOptional()
   @IsArray()

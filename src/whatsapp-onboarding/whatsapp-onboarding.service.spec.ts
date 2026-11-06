@@ -266,6 +266,7 @@ describe('WhatsappOnboardingService', () => {
         branchName: 'Roldán',
         botName: 'Nico',
         presentationName: 'Vanesa Aguilar',
+        transferAlias: 'TRUENO.VUELO.DELTA',
         staffNames: ['Vanesa', 'Emilia'],
         businessHours: week,
       })
@@ -274,7 +275,12 @@ describe('WhatsappOnboardingService', () => {
         botName: 'Nico',
         staffNames: 'Vanesa, Emilia',
         businessHours: week,
-        botProfile: { orgName: 'Vanesa Aguilar', orgLegalName: 'Vanesa Aguilar', orgShortName: 'Vanesa Aguilar' },
+        botProfile: {
+          orgName: 'Vanesa Aguilar',
+          orgLegalName: 'Vanesa Aguilar',
+          orgShortName: 'Vanesa Aguilar',
+          transferAlias: 'TRUENO.VUELO.DELTA',
+        },
       })
     })
 

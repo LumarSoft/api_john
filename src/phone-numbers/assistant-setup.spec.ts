@@ -14,6 +14,7 @@ describe('assistantSetupData', () => {
       assistantSetupData({
         botName: ' Nico ',
         presentationName: ' Vanesa Aguilar ',
+        transferAlias: ' TRUENO.VUELO.DELTA ',
         staffNames: ['Vanesa', ' Emilia', 'vanesa', ''],
         businessHours: week,
       }),
@@ -21,12 +22,17 @@ describe('assistantSetupData', () => {
       botName: 'Nico',
       staffNames: 'Vanesa, Emilia',
       businessHours: week,
-      botProfile: { orgName: 'Vanesa Aguilar', orgLegalName: 'Vanesa Aguilar', orgShortName: 'Vanesa Aguilar' },
+      botProfile: {
+        orgName: 'Vanesa Aguilar',
+        orgLegalName: 'Vanesa Aguilar',
+        orgShortName: 'Vanesa Aguilar',
+        transferAlias: 'TRUENO.VUELO.DELTA',
+      },
     })
   })
 
   it('clears a field sent empty on purpose', () => {
-    expect(assistantSetupData({ botName: '  ', staffNames: [], presentationName: '' })).toEqual({
+    expect(assistantSetupData({ botName: '  ', staffNames: [], presentationName: '', transferAlias: ' ' })).toEqual({
       botName: null,
       staffNames: null,
       botProfile: Prisma.DbNull,
