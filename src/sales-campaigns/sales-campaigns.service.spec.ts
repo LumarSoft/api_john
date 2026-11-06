@@ -242,8 +242,57 @@ describe('SalesCampaignsService.candidates', () => {
     const recent = await service.candidates(mili, 'coverage_upgrade', [3], {}, NOW)
     expect(recent.data.map(r => r.id)).toEqual([2, 3, 1])
 
+    expect(recent.sort).toEqual({ by: 'date', order: 'desc' })
+
+    // What the panels sent before the headers could sort.
     const oldest = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'oldest' }, NOW)
     expect(oldest.data.map(r => r.id)).toEqual([1, 3, 2])
+    expect(oldest.sort).toEqual({ by: 'date', order: 'asc' })
+  })
+
+  it('lists renewals by the soonest to end first, the most urgent', async () => {
+    const targets = [
+      target({ id: 1, sortDate: day('2026-12-01') }),
+      target({ id: 2, sortDate: day('2026-11-10') }),
+      target({ id: 3, sortDate: day('2026-11-20') }),
+    ]
+    const { service } = setup({ targets })
+
+    const result = await service.candidates(mili, 'renewal', [3], {}, NOW)
+    expect(result.data.map(r => r.id)).toEqual([2, 3, 1])
+    expect(result.sort).toEqual({ by: 'date', order: 'asc' })
+  })
+
+  it('sorts by the column the office taps, A to Z first, and back', async () => {
+    const targets = [
+      target({ id: 1, name: 'Zoe Ruiz' }),
+      target({ id: 2, name: 'ana Paz' }),
+      target({ id: 3, name: 'Bruno Diaz' }),
+    ]
+    const { service } = setup({ targets })
+
+    const az = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'name' }, NOW)
+    expect(az.data.map(r => r.id)).toEqual([2, 3, 1])
+    expect(az.sort).toEqual({ by: 'name', order: 'asc' })
+
+    const za = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'name', order: 'desc' }, NOW)
+    expect(za.data.map(r => r.id)).toEqual([1, 3, 2])
+  })
+
+  it('sorted by last message, puts the latest contact first and who never got one last', async () => {
+    const targets = [target({ id: 1, clientId: 61 }), target({ id: 2, clientId: 62 }), target({ id: 3, clientId: 63 })]
+    const at = (iso: string) => new Date(iso)
+    const messages = [
+      { status: 'SENT', sentAt: at('2026-11-03T12:00:00Z'), createdAt: NOW, error: null, clientId: 61, policyId: 1 },
+      { status: 'MARKED', sentAt: null, createdAt: at('2026-11-01T12:00:00Z'), error: null, clientId: 63, policyId: 3 },
+    ]
+    const { service } = setup({ targets, messages })
+
+    const latest = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'lastMessage' }, NOW)
+    expect(latest.data.map(r => r.id)).toEqual([1, 3, 2])
+
+    const never = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'lastMessage', order: 'asc' }, NOW)
+    expect(never.data.map(r => r.id)).toEqual([2, 3, 1])
   })
 
   it('keeps who was already written to at the end, however recent', async () => {

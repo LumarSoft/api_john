@@ -3,8 +3,17 @@ import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-va
 import { CobranzasScopeDto } from '../../clients/dto/list-cobranzas.dto'
 import { CANCELLATION_REASONS, type CancellationReason } from '../campaign-catalog'
 
-export const CAMPAIGN_SORTS = ['recent', 'oldest'] as const
+/**
+ * The column the list is sorted by: the campaign's date (Motivo), the client,
+ * the vehicle or the last message. `recent` and `oldest` are the date, newest
+ * or oldest first: what the panels sent before the headers could sort.
+ */
+export const CAMPAIGN_SORTS = ['date', 'name', 'item', 'lastMessage', 'recent', 'oldest'] as const
 export type CampaignSort = (typeof CAMPAIGN_SORTS)[number]
+export type CampaignSortField = Exclude<CampaignSort, 'recent' | 'oldest'>
+
+export const SORT_ORDERS = ['asc', 'desc'] as const
+export type SortOrder = (typeof SORT_ORDERS)[number]
 
 /** Who a campaign finds, in the code or number the user picked, one page at a time. */
 export class ListCampaignCandidatesDto extends CobranzasScopeDto {
@@ -24,10 +33,14 @@ export class ListCampaignCandidatesDto extends CobranzasScopeDto {
   @IsIn(CANCELLATION_REASONS)
   reason?: CancellationReason
 
-  /** `recent` (default): who entered the list last first. */
+  /** Default: `date`, newest first (in Renovaciones, the one that ends soonest). */
   @IsOptional()
   @IsIn(CAMPAIGN_SORTS)
   sort?: CampaignSort
+
+  @IsOptional()
+  @IsIn(SORT_ORDERS)
+  order?: SortOrder
 
   @IsOptional()
   @Type(() => Number)

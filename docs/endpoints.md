@@ -2577,7 +2577,7 @@ Asks Meta again for the review of the campaign's templates, and submits the curr
 
 ### GET /admin/campaigns/:kind/candidates
 
-Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas). Never-contacted first; within each group, who entered the list last first: the policy that started last (`coverage_upgrade`, `cross_sell`), the renewal that ends last (`renewal`), the latest cancellation (`winback`) or quote (`quote_followup`). Query: `search` (name, DNI, vehicle, reason), `sort` (`recent`, default, or `oldest`), `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`, and the campaign's own filters (its `filters` in `GET /admin/campaigns`): `coverage` (a coverage code, `coverage_upgrade` and `cross_sell`; in `cross_sell` any of the client's cars or motorbikes in force counts) and `reason` (`winback`: `falta_pago`, `venta`, `desistimiento`, `costo`, `cambio_compania`, `siniestro`, `rescision`, `otros`).
+Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas). Never-contacted (and not opted out) first, unless sorted by `lastMessage`; within each group, by `sort` and `order`. `sort`: `date` (default; the campaign's date: when the policy started in `coverage_upgrade` and `cross_sell`, when it ends in `renewal`, the cancellation in `winback`, the quote in `quote_followup`), `name`, `item` or `lastMessage` (never contacted counts as the oldest); `recent` and `oldest` still mean `date` desc and asc. `order`: `asc` or `desc`; by default `desc` for `date` and `lastMessage` (newest first), `asc` for `name` and `item`, and `asc` for `date` in `renewal` (the soonest to end first). Query: `search` (name, DNI, vehicle, reason), `sort`, `order`, `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`, and the campaign's own filters (its `filters` in `GET /admin/campaigns`): `coverage` (a coverage code, `coverage_upgrade` and `cross_sell`; in `cross_sell` any of the client's cars or motorbikes in force counts) and `reason` (`winback`: `falta_pago`, `venta`, `desistimiento`, `costo`, `cambio_compania`, `siniestro`, `rescision`, `otros`).
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -2602,6 +2602,7 @@ Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNum
   "page": 1,
   "pageSize": 25,
   "totalPages": 2,
+  "sort": { "by": "date", "order": "desc" },
   "filters": {
     "coverages": [
       { "value": "A", "count": 30 },
@@ -2612,7 +2613,7 @@ Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNum
 }
 ```
 
-`filters` lists the choices of the campaign's filters, from everyone it finds in the scope (whatever the search or the filter picked), with how many each has; `null` when the campaign has no such filter (`coverages` in `coverage_upgrade` and `cross_sell`, `reasons` in `winback`, as `{ value, label, count }`).
+`sort` is the column and direction applied (the default when none was asked). `filters` lists the choices of the campaign's filters, from everyone it finds in the scope (whatever the search or the filter picked), with how many each has; `null` when the campaign has no such filter (`coverages` in `coverage_upgrade` and `cross_sell`, `reasons` in `winback`, as `{ value, label, count }`).
 
 `id` is the policy (the quote for `quote_followup`): what `send`, `mark` and `opt-out` take. `values` are what the message fills in for that person. `lastMessage.status`: `SENDING`, `SENT`, `FAILED`, `MARKED`.
 

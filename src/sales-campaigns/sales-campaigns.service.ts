@@ -34,7 +34,7 @@ import {
 } from './campaign-catalog'
 import { CampaignFinderService, CampaignTarget, formatDay } from './campaign-finder.service'
 import { CampaignTemplatesService, StoredTemplates } from './campaign-templates.service'
-import { ListCampaignCandidatesDto } from './dto/list-campaign-candidates.dto'
+import { CampaignSortField, ListCampaignCandidatesDto, SortOrder } from './dto/list-campaign-candidates.dto'
 import { UpdateSalesCampaignDto } from './dto/update-sales-campaign.dto'
 
 const { SENDING, SENT, FAILED, MARKED } = SalesCampaignMessageStatus
@@ -241,19 +241,21 @@ export class SalesCampaignsService implements OnModuleInit {
             : null,
           optedOut: this.isOptedOut(t, optedOut),
         }
-        return { row, sortDate: t.sortDate?.getTime() ?? 0 }
+        const lastAt = last ? (last.sentAt ?? last.createdAt).getTime() : null
+        return { row, sortDate: t.sortDate?.getTime() ?? 0, lastAt }
       })
 
-    // Who was never written to first; then who entered the list last (the
-    // newest policy, quote or cancellation, the renewal furthest off), or the
-    // other way round when the office asks for the oldest.
-    const newestFirst = (query.sort ?? 'recent') === 'recent'
+    // Who was already written to (or said no) goes after the rest, so the list
+    // works as a to-do, unless the office sorts by the last message itself.
+    const sort = this.sortOf(definition, query)
+    const sign = sort.order === 'asc' ? 1 : -1
     listed.sort((a, b) => {
-      const contacted =
-        Number(a.row.lastMessage !== null || a.row.optedOut) - Number(b.row.lastMessage !== null || b.row.optedOut)
-      if (contacted) return contacted
-      const byDate = newestFirst ? b.sortDate - a.sortDate : a.sortDate - b.sortDate
-      return byDate || b.row.id - a.row.id
+      if (sort.by !== 'lastMessage') {
+        const contacted =
+          Number(a.row.lastMessage !== null || a.row.optedOut) - Number(b.row.lastMessage !== null || b.row.optedOut)
+        if (contacted) return contacted
+      }
+      return sign * compareBy(sort.by, a, b) || b.row.id - a.row.id
     })
     const rows = listed.map(l => l.row)
 
@@ -265,8 +267,26 @@ export class SalesCampaignsService implements OnModuleInit {
       page,
       pageSize,
       totalPages: Math.max(1, Math.ceil(rows.length / pageSize)),
+      sort,
       filters: this.filterOptions(definition, targets),
     }
+  }
+
+  /**
+   * The column and direction the list is sorted by. By default the campaign's
+   * date, newest first (who entered the list last), except in renewals: the
+   * one that ends soonest, the most urgent.
+   */
+  private sortOf(
+    definition: CampaignDefinition,
+    query: ListCampaignCandidatesDto,
+  ): { by: CampaignSortField; order: SortOrder } {
+    if (query.sort === 'recent') return { by: 'date', order: 'desc' }
+    if (query.sort === 'oldest') return { by: 'date', order: 'asc' }
+    const by = query.sort ?? 'date'
+    const natural: SortOrder =
+      by === 'name' || by === 'item' || (by === 'date' && definition.kind === 'renewal') ? 'asc' : 'desc'
+    return { by, order: query.order ?? natural }
   }
 
   /**
@@ -691,4 +711,25 @@ export class SalesCampaignsService implements OnModuleInit {
 /** Meta rejects template variables with new lines, tabs or runs of spaces. */
 function metaSafe(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+interface SortableRow {
+  row: { client: { name: string }; item: string }
+  sortDate: number
+  /** When the campaign last wrote to them; null = never. */
+  lastAt: number | null
+}
+
+/** Ascending order of two rows by one column; never contacted counts as the oldest message. */
+function compareBy(by: CampaignSortField, a: SortableRow, b: SortableRow): number {
+  switch (by) {
+    case 'name':
+      return a.row.client.name.localeCompare(b.row.client.name, 'es', { sensitivity: 'base' })
+    case 'item':
+      return a.row.item.localeCompare(b.row.item, 'es', { sensitivity: 'base', numeric: true })
+    case 'lastMessage':
+      return (a.lastAt ?? -Infinity) - (b.lastAt ?? -Infinity) || 0
+    case 'date':
+      return a.sortDate - b.sortDate
+  }
 }
