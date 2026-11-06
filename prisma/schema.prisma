@@ -84,6 +84,8 @@ model Producer {
   triunfoErrors           TriunfoError[]
   monthlyBalances         MonthlyBalance[]
   activityLogs            ActivityLog[]
+  assistantConversations  AssistantConversation[]
+  assistantActions        AssistantAction[]
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
@@ -637,6 +639,8 @@ model User {
   salesCampaignsUpdated     SalesCampaign[]          @relation("sales_campaigns_updated")
   salesCampaignOptOutsMade  SalesCampaignOptOut[]    @relation("sales_campaign_opt_outs_made")
   activityLogs              ActivityLog[]
+  assistantConversations    AssistantConversation[]
+  assistantActions          AssistantAction[]
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
@@ -1757,4 +1761,86 @@ model MonthlyBalance {
   @@unique([producerId, producerCodeId, period])
   @@index([producerId, period])
   @@index([producerCodeId])
+}
+
+// ─── ASISTENTE DEL PANEL ─────────────────────────────────
+
+/// A panel user's conversation with the AI assistant. Only its author sees it.
+/// Conversations idle for ASSISTANT_RETENTION_DAYS are deleted with their
+/// messages and actions (AssistantRetentionService, see docs/rules/database.md).
+model AssistantConversation {
+  id        Int       @id @default(autoincrement())
+  // From the first question, shortened: what the history list shows.
+  title     String    @db.VarChar(120)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  producerId Int
+  producer   Producer           @relation(fields: [producerId], references: [id])
+  userId     Int
+  user       User               @relation(fields: [userId], references: [id])
+  messages   AssistantMessage[]
+  actions    AssistantAction[]
+
+  @@index([userId, producerId, updatedAt])
+  @@index([updatedAt])
+}
+
+enum AssistantMessageRole {
+  USER
+  ASSISTANT
+}
+
+model AssistantMessage {
+  id        Int                  @id @default(autoincrement())
+  role      AssistantMessageRole
+  content   String               @db.Text
+  // What the panel draws besides the text: the steps it took, a screen to
+  // open, the ids of the actions it proposed.
+  blocks    Json?
+  createdAt DateTime             @default(now())
+  deletedAt DateTime?
+
+  conversationId Int
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
+}
+
+enum AssistantActionStatus {
+  // Proposed, waiting for the person (until expiresAt).
+  PENDING
+  CONFIRMED
+  CANCELLED
+  // Confirmed but the change failed: `error` says why.
+  FAILED
+}
+
+/// A change the assistant prepared and only the person can run, by tapping
+/// "Confirmar" in the panel. `payload` is what gets applied; `preview` is what
+/// the card shows (before → after, who it affects).
+model AssistantAction {
+  id         Int                   @id @default(autoincrement())
+  type       String                @db.VarChar(60)
+  payload    Json
+  preview    Json
+  status     AssistantActionStatus @default(PENDING)
+  result     Json?
+  error      String?               @db.VarChar(500)
+  expiresAt  DateTime
+  executedAt DateTime?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+  deletedAt  DateTime?
+
+  conversationId Int
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id])
+  producerId     Int
+  producer       Producer              @relation(fields: [producerId], references: [id])
+  userId         Int
+  user           User                  @relation(fields: [userId], references: [id])
+
+  @@index([conversationId])
+  @@index([userId, status])
 }

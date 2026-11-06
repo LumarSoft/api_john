@@ -9,5 +9,6 @@ import { AdminPhoneNumbersController } from './admin-phone-numbers.controller'
   imports: [UsageModule, UsersModule, CoverageSettingsModule],
   providers: [PhoneNumbersService],
   controllers: [AdminPhoneNumbersController],
+  exports: [PhoneNumbersService],
 })
 export class PhoneNumbersModule {}

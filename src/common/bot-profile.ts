@@ -82,7 +82,7 @@ export function mergeBotProfile(raw: unknown, changes: Partial<Record<keyof BotP
 }
 
 /** The bank account customers transfer to: one account, never mixed with another's fields. */
-const TRANSFER_FIELDS: ReadonlyArray<keyof BotProfile> = [
+export const TRANSFER_FIELDS: ReadonlyArray<keyof BotProfile> = [
   'transferAlias',
   'transferCbu',
   'transferHolder',

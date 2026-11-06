@@ -9,6 +9,6 @@ import { BotStatusAlertService } from './bot-status-alert.service'
   imports: [AuthModule],
   providers: [UsersService, BotStatusAlertService],
   controllers: [UsersController, AdminConfigController],
-  exports: [BotStatusAlertService],
+  exports: [BotStatusAlertService, UsersService],
 })
 export class UsersModule {}

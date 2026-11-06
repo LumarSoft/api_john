@@ -2411,9 +2411,13 @@ Soft-deletes the task. Only its creator or a SuperAdmin.
 
 ## Admin — Asistente
 
-The panel's AI assistant: the office asks in plain words about the portfolio ("¿Cuál es el estado de la póliza de Juan Pérez?", "¿Qué pólizas vencen esta semana?") and the model answers with read-only tools over the user's own codes (as Asegurados shows them): search clients (name, DNI/CUIT, phone, e-mail, plate, policy number), a client's file (policies with coverage, validity and payment method, unpaid installments, claims), policies ending within N days, unpaid installments and the portfolio in numbers. It cannot send messages or change anything. Same OpenAI account and model as the bot (`OPENAI_API_KEY`, `OPENAI_MODEL`); nothing is stored: the panel sends the conversation each time. Plan function `ai_assistant`.
+The panel's AI assistant (rebuilt 2026-11-06). It knows who is asking (name, role, codes, the numbers they manage and whose bank account each one uses, what the plan includes) and the screen they are on, reads the system with tools built on the panel's own services (portfolio, pending matters, tasks, team, claims, quote requests, numbers and their use, configuration, hours, payment data, integration status, the panel guide) and **prepares changes the person confirms**: payment data (organization or number), the organization's data, hours, a number's bot on/off, holidays and closures, tasks, the state of matters, claims and requests, and improvement proposals. A proposal changes nothing: it is stored as an action (`AssistantAction`) with what the panel's card shows, and only `POST /admin/assistant/actions/:id/confirm` runs it, through the same service as the panel's form and with the confirming user's permissions, at most once and within 30 minutes. A confirmed change of configuration or state keeps the exact values it replaced, so it can be undone (`undoable` on the card; the assistant's `proponer_deshacer` proposes going back, never from its memory of the old values); creating a task, a closure or a proposal is not undone here. Nothing the assistant does reaches a client. OpenAI Responses API, streamed, with reasoning (`OPENAI_API_KEY`, `OPENAI_MODEL`, `ASSISTANT_REASONING_EFFORT`, default `low`). Conversations are saved per person and deleted after `ASSISTANT_RETENTION_DAYS` (default 90) without use. Plan function `ai_assistant`; 60 questions per person per hour.
+
+Answers are Spanish with light markdown (`**negrita**`, `- ` lists) and links the panel turns into buttons: `[Nombre](asegurado:ID)` (a client's file), `[Ir a Sección](pantalla:ID)` or `(pantalla:ID/NUM)` (the exact destination: the panel opens that screen on its tab, lights up the section and, with NUM, opens that number or claim; ids in `src/assistant/panel-guide.ts` `PANEL_SCREENS`) and `[Mostrame en pantalla](recorrido:ID)` (an on-screen tour, `PANEL_TOURS`). A link to an unknown id is turned into plain text or dropped.
 
 ### POST /admin/assistant/ask
+
+The one-shot endpoint of earlier panels, kept while they are replaced: the panel sends the conversation, nothing is saved and no change can be proposed.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -2444,6 +2448,121 @@ The panel's AI assistant: the office asks in plain words about the portfolio ("�
 `429 Too Many Requests` — `"Hiciste muchas preguntas seguidas. Esperá unos minutos."` (60 per person per hour)
 
 `503 Service Unavailable` — `"El asistente todavía no está configurado."` (no `OPENAI_API_KEY`) or `"El asistente no pudo responder. Probá de nuevo en un rato."`
+
+### POST /admin/assistant/messages
+
+A question, in a saved conversation or starting a new one. The answer comes as **server-sent events** (`text/event-stream`), in this order: `conversation` (only when it started a new one), then any number of `step`, `delta` and `action`, and last `done` or `error`. Whatever is wrong before the answer starts (plan, limit, a conversation that is not the person's) is a plain HTTP error instead. Sending the same text again after an answer failed reuses the question instead of repeating it.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field          | Type    | Required | Constraints                                                          |
+| -------------- | ------- | -------- | -------------------------------------------------------------------- |
+| conversationId | integer | No       | A conversation of the person; without it a new one starts            |
+| content        | string  | Yes      | 1–2000 characters, not blank                                         |
+| page.route     | string  | No       | The panel path the person is on (`/admin…`), up to 200 characters    |
+| page.screen    | string  | No       | Its name as the panel shows it ("Configuración"), up to 80           |
+
+```json
+{ "content": "Quiero cambiar los datos bancarios donde transfieren los clientes", "page": { "route": "/admin", "screen": "Inicio" } }
+```
+
+**Responses**
+
+`200 OK` — the stream:
+
+```
+event: conversation
+data: {"id":12,"title":"Quiero cambiar los datos bancarios donde transfieren los clientes","updatedAt":"2026-11-06T20:11:02.915Z"}
+
+event: step
+data: {"id":"call_o5MN","label":"Revisando los datos de pago","state":"running"}
+
+event: step
+data: {"id":"call_o5MN","label":"Revisando los datos de pago","state":"done"}
+
+event: delta
+data: {"text":"La cuenta actual es"}
+
+event: action
+data: {"id":31,"type":"datos_de_pago","status":"pending","preview":{"title":"Cambiar la cuenta para transferencias","target":"Toda la organización","changes":[{"label":"Alias","before":"viejo.alias","after":"jpmg.cobros"}],"notes":["La usa 1 número que no tiene cuenta propia."],"confirmLabel":"Cambiar la cuenta"},"summary":null,"link":null,"error":null,"expiresAt":"2026-11-06T20:41:19.311Z"}
+
+event: done
+data: {"conversationId":12,"message":{"id":40,"role":"assistant","content":"Preparé el cambio…","steps":["Revisando los datos de pago","Preparando el cambio de cuenta"],"actions":[{ "id": 31, "status": "pending" }],"createdAt":"2026-11-06T20:11:19.400Z"}}
+```
+
+`event: error` — `{ "message": "El asistente no pudo responder. Probá de nuevo en un rato." }` (the question stays saved).
+
+`400 Bad Request` — invalid body · `403 Forbidden` — the plan or the role has no assistant · `404 Not Found` — `"No encontré esa conversación."` · `429 Too Many Requests` · `503 Service Unavailable` — `"El asistente todavía no está configurado."`
+
+### GET /admin/assistant/conversations
+
+The person's last 30 conversations, the most recent first.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+[{ "id": 12, "title": "Quiero cambiar los datos bancarios donde transfieren los clientes", "updatedAt": "2026-11-06T20:11:19.400Z" }]
+```
+
+### GET /admin/assistant/conversations/:id
+
+A conversation with its messages, oldest first; each answer carries the steps it took and its action cards as they stand now (`status`: `pending`, `confirmed`, `cancelled`, `failed`, `expired`).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+{
+  "id": 12,
+  "title": "Quiero cambiar los datos bancarios donde transfieren los clientes",
+  "messages": [
+    { "id": 39, "role": "user", "content": "Quiero cambiar los datos bancarios…", "steps": [], "actions": [], "createdAt": "2026-11-06T20:11:02.950Z" },
+    { "id": 40, "role": "assistant", "content": "Preparé el cambio…", "steps": ["Revisando los datos de pago"], "actions": [{ "id": 31, "type": "datos_de_pago", "status": "confirmed", "summary": "Listo: la cuenta de la organización quedó actualizada.", "link": { "route": "/admin/configuracion", "label": "Ver en Configuración" } }], "createdAt": "2026-11-06T20:11:19.400Z" }
+  ]
+}
+```
+
+`404 Not Found` — `"No encontré esa conversación."` (it is someone else's, or deleted)
+
+### DELETE /admin/assistant/conversations/:id
+
+Deletes a conversation from the person's history (soft delete).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK` — `{ "deleted": true }` · `404 Not Found`
+
+### POST /admin/assistant/actions/:id/confirm
+
+Runs a change the assistant proposed to this person, through the same service as the panel's form and with the person's own permissions (an admin still changes only their own numbers). Runs once: the second tap gets 409.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Responses**
+
+`201 Created` — the card as it is now and the panel caches to refresh (`['admin', tag]`). `action.link.route` lands on the exact place of the change (`/admin/configuracion?tab=horarios&seccion=horarios-form`, `/admin/numeros?numero=3&seccion=numero-pagos`). A change the service refused comes back as `status: "failed"` with its message, not as an HTTP error.
+
+```json
+{
+  "action": { "id": 31, "type": "datos_de_pago", "status": "confirmed", "undoable": true, "summary": "Listo: la cuenta de la organización quedó actualizada.", "link": { "route": "/admin/configuracion", "label": "Ver en Configuración" }, "error": null },
+  "refresh": ["config", "phone-numbers"]
+}
+```
+
+`404 Not Found` — `"No encontré esa propuesta."` · `409 Conflict` — `"Esta propuesta ya se aplicó."`, `"…se canceló…"` or `"…venció…"`
+
+### POST /admin/assistant/actions/:id/cancel
+
+Discards a pending proposal; one that already ran, failed or expired is returned as it is.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`201 Created` — the card (`status: "cancelled"`) · `404 Not Found`
 
 ## Admin — Campañas
 

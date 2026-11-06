@@ -27,6 +27,67 @@ export const PANEL_TOURS: ReadonlyArray<{ id: string; what: string }> = [
   { id: 'apariencia', what: 'pasar el panel a modo oscuro o cambiarle los colores' },
   { id: 'bot-en-un-numero', what: 'apagar o prender el bot en un solo número' },
   { id: 'horarios', what: 'cargar los horarios de atención de la oficina' },
+  { id: 'datos-de-pago', what: 'ver o cambiar la cuenta para transferencias y el pago en efectivo de la organización' },
+  { id: 'datos-de-pago-numero', what: 'ver o cambiar la cuenta para transferencias de un solo número' },
+]
+
+/**
+ * Screens the assistant may send the person to with [Ir a …](pantalla:ID): the
+ * panel opens the screen on that tab and lights up that section. Those with
+ * `record` take the record's id: (pantalla:numero-pagos/12). The panels hold
+ * the same ids (src/features/admin/lib/panel-screens.ts in front_John and
+ * Polisend): add a screen there first, then here.
+ */
+export const PANEL_SCREENS: ReadonlyArray<{
+  id: string
+  label: string
+  superAdminOnly?: boolean
+  record?: 'número' | 'siniestro'
+}> = [
+  { id: 'inicio', label: 'Inicio' },
+  { id: 'asuntos', label: 'Asuntos pendientes' },
+  { id: 'whatsapp', label: 'Whatsapp' },
+  { id: 'tareas', label: 'Tareas › Para mí' },
+  { id: 'tareas-asignadas', label: 'Tareas › Las que asigné' },
+  { id: 'asegurados', label: 'Asegurados' },
+  { id: 'solicitudes', label: 'Solicitudes' },
+  { id: 'siniestros', label: 'Siniestros' },
+  { id: 'siniestro', label: 'un siniestro abierto (su id de ver_siniestros)', record: 'siniestro' },
+  { id: 'cobranzas', label: 'Cobranzas › Cuotas' },
+  { id: 'cobranzas-vencidas', label: 'Cobranzas › Pólizas vencidas' },
+  { id: 'rechazos', label: 'Rechazos' },
+  { id: 'balance', label: 'Balance mensual', superAdminOnly: true },
+  { id: 'campanas', label: 'Campañas' },
+  { id: 'campana-mejora-de-coberturas', label: 'Campañas › Mejora de coberturas' },
+  { id: 'campana-cotizaciones-sin-cerrar', label: 'Campañas › Cotizaciones sin cerrar' },
+  { id: 'campana-renovaciones', label: 'Campañas › Renovaciones' },
+  { id: 'campana-bajas-y-anulaciones', label: 'Campañas › Bajas y anulaciones' },
+  { id: 'campana-venta-cruzada', label: 'Campañas › Venta cruzada' },
+  { id: 'numeros', label: 'Números' },
+  { id: 'numero', label: 'el Asistente de un número', record: 'número' },
+  { id: 'numero-datos', label: 'Asistente de un número › nombre del asistente y personas', record: 'número' },
+  { id: 'numero-bot', label: 'Asistente de un número › prender o apagar el bot', record: 'número' },
+  { id: 'numero-horario', label: 'Asistente de un número › Horario de atención', record: 'número' },
+  { id: 'numero-feriados', label: 'Asistente de un número › Feriados y pausas', record: 'número' },
+  { id: 'numero-pagos', label: 'Asistente de un número › Pagos (su cuenta para transferir)', record: 'número' },
+  { id: 'numero-coberturas', label: 'Asistente de un número › Coberturas que ofrece', record: 'número' },
+  { id: 'usuarios', label: 'Usuarios', superAdminOnly: true },
+  { id: 'facturacion', label: 'Facturación' },
+  { id: 'facturacion-planes', label: 'Facturación › Planes', superAdminOnly: true },
+  { id: 'configuracion', label: 'Configuración' },
+  { id: 'config-cuenta', label: 'Configuración › Cuenta (nombre, correo y contraseña propios)' },
+  { id: 'config-asistente', label: 'Configuración › Asistente (nombre del bot y personas de la oficina)' },
+  { id: 'config-datos', label: 'Configuración › Asistente › Datos de la productora › Cómo se presenta' },
+  { id: 'config-asistencia', label: 'Configuración › Asistente › Datos de la productora › Asistencia y denuncias' },
+  { id: 'config-pagos', label: 'Configuración › Asistente › Datos de la productora › Pagos (cuenta y efectivo)' },
+  { id: 'config-cotizaciones', label: 'Configuración › Asistente › Datos de la productora › Cotizaciones' },
+  { id: 'config-logo', label: 'Configuración › Logo' },
+  { id: 'config-horarios', label: 'Configuración › Horarios (de la organización)' },
+  { id: 'config-precios', label: 'Configuración › Precios' },
+  { id: 'config-coberturas', label: 'Configuración › Coberturas' },
+  { id: 'mejoras', label: 'Mejoras' },
+  { id: 'mejoras-propuestas', label: 'Mejoras › Propuestas' },
+  { id: 'status', label: 'Status' },
 ]
 
 const TOURS_SECTION = `
@@ -144,6 +205,8 @@ export const PANEL_GUIDE =
 ## Configuración
 - Todo, salvo la pestaña "Cuenta", vale para toda la organización. Lo pueden cambiar tanto un Administrador como un SuperAdmin, menos "Logo", que solo cambia el SuperAdmin. En "Cuenta" cada uno cambia su nombre (es el que se ve en Tareas), su correo y su contraseña.
 - "Asistente": el nombre con el que se presenta el bot, las "Personas de la oficina" (si un cliente nombra a alguien, se le avisa en Asuntos pendientes) y los "Datos de la productora". Aplica a los números que no tienen configuración propia.
+- "Datos de la productora" tiene cuatro grupos y se guarda con "Guardar cambios": "Cómo se presenta" (Nombre de la productora, Sigla, Razón social), "Asistencia y denuncias" (Grúa / auxilio 24 hs, Línea de denuncias, Correo que recibe cada denuncia nueva), "Pagos" (Dónde se paga en efectivo con el cupón, Alias para transferir, CBU, Titular de la cuenta, Banco) y "Cotizaciones" (Mensaje con el que cierra cada cotización). Los datos de "Pagos" son los que el bot les da a los clientes para pagar: si falta el alias y el CBU, el bot dice que la oficina le pasa los datos.
+- Un número puede tener su propia cuenta para transferir (Números › "Asistente" › Pagos): si tiene aunque sea un dato de cuenta propio, usa solo su cuenta y nunca mezcla con la de la organización. Los campos vacíos del número muestran de gris lo que hereda de la organización.
 - "Logo" acepta PNG, JPG o WebP de hasta 2 MB. "Horarios" carga el horario de lunes a domingo, con hasta dos turnos por día; los feriados y pausas se cargan en cada número.
 - "Precios": los planes de Bolso protegido y Hogar, con "Coberturas del producto" y "Nuevo plan".
 - "Coberturas": las coberturas de auto que ve el cliente. Se ordenan, se muestran u ocultan y se edita su texto. Aparecen solas cuando Triunfo las cotiza y no se ofrecen hasta cargar qué incluyen.

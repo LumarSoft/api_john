@@ -10,5 +10,6 @@ import { BotSolicitudesController } from './bot-solicitudes.controller'
   imports: [NovedadesModule, InboxModule],
   controllers: [SolicitudesController, AdminSolicitudesController, BotSolicitudesController],
   providers: [SolicitudesService],
+  exports: [SolicitudesService],
 })
 export class SolicitudesModule {}

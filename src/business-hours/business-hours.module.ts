@@ -8,5 +8,6 @@ import { HolidaySyncService } from './holiday-sync.service'
 @Module({
   controllers: [AdminBusinessHoursController, PublicHoursController, BotHoursController],
   providers: [BusinessHoursService, HolidaySyncService],
+  exports: [BusinessHoursService],
 })
 export class BusinessHoursModule {}
