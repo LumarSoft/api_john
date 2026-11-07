@@ -24,7 +24,8 @@ export const PLAN_FEATURES = [
     key: 'ai_assistant',
     defaultOn: false,
     label: 'Asistente con IA',
-    description: 'Preguntarle a la IA por clientes, pólizas, cuotas y vencimientos desde el panel.',
+    description:
+      'Un asistente en el panel que consulta la cartera y el trabajo pendiente y prepara cambios de configuración, tareas y estados para confirmar.',
   },
   {
     key: 'campaign_coverage_upgrade',
