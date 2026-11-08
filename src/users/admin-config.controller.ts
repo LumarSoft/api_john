@@ -10,9 +10,9 @@ import { UpdateBotProfileDto } from './dto/update-bot-profile.dto'
 
 /**
  * Producer-level configuration for the admin "Configuración" screen, always
- * scoped to the caller's producer. Everyone reads it; it applies to every number
- * of the organization, so only the SuperAdmin changes it. A branch's own number
- * is configured in admin/phone-numbers/:id/assistant.
+ * scoped to the caller's producer. Everyone reads it, and every admin of the
+ * organization may change it (60ee071), though it applies to all its numbers.
+ * A branch's own number is configured in admin/phone-numbers/:id/assistant.
  */
 @UseGuards(UserAuthGuard, RolesGuard)
 @Controller('admin/config')
@@ -36,7 +36,7 @@ export class AdminConfigController {
     return this.usersService.getBotProfile(req.user.producerId)
   }
 
-  /** Only a SuperAdmin changes what the bot tells customers about payments and assistance. */
+  /** What the bot tells customers about payments and assistance: any admin of the organization changes it. */
   @Patch('profile')
   @Roles(Role.SUPERADMIN, Role.ADMIN)
   updateProfile(@Request() req: AuthenticatedRequest, @Body() dto: UpdateBotProfileDto) {

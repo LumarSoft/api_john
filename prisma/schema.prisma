@@ -1772,6 +1772,11 @@ model AssistantConversation {
   id        Int       @id @default(autoincrement())
   // From the first question, shortened: what the history list shows.
   title     String    @db.VarChar(120)
+  // Who the person was when it started: "SUPERADMIN", or "ADMIN:3,14" with the
+  // codes an admin saw. The answers quote clients of those codes, so once the
+  // person loses one of them or changes role the conversation no longer opens.
+  // Null on conversations from before it was kept: they stay open.
+  scopeKey  String?   @db.VarChar(255)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?

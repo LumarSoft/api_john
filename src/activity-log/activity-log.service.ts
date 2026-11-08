@@ -5,7 +5,7 @@ import type { Request } from 'express'
 import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { pageWindow, toPage, type Page } from '../common/pagination'
-import { fieldNames, isRecordable, LOGIN_PATH, requestPath } from './request-origin'
+import { changedFields, isRecordable, LOGIN_PATH, requestPath } from './request-origin'
 import { ListActivityLogDto } from './dto/list-activity-log.dto'
 
 const DEFAULT_RETENTION_DAYS = 180
@@ -88,7 +88,7 @@ export class ActivityLogService {
         statusCode,
         ip,
         userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 255) : null,
-        fields: fieldNames(body),
+        fields: changedFields(req, body),
         loginEmail,
       },
     })

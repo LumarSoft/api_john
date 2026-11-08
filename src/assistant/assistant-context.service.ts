@@ -62,7 +62,9 @@ export class AssistantContextService {
 
     const codeLines = codes
       .slice(0, MAX_CODES)
-      .map(c => `${c.code}${c.holderName ? ` (${c.holderName})` : ''}${c.isMaster ? ', código principal' : ''}`)
+      .map(
+        c => `${c.code}${c.holderName ? ` (${oneLine(c.holderName)})` : ''}${c.isMaster ? ', código principal' : ''}`,
+      )
     if (codes.length > MAX_CODES) codeLines.push(`y ${codes.length - MAX_CODES} más`)
 
     const numberLines = numbers.slice(0, MAX_NUMBERS).map(n => {
@@ -75,7 +77,7 @@ export class AssistantContextService {
           : 'usa la cuenta de la organización',
         n.businessHours == null ? null : 'horario propio',
       ].filter(Boolean)
-      return `  - id ${n.id}: ${numberLabel(n)} (${traits.join(', ')})`
+      return `  - id ${n.id}: ${oneLine(numberLabel(n))} (${traits.join(', ')})`
     })
     if (numbers.length > MAX_NUMBERS) numberLines.push(`  - y ${numbers.length - MAX_NUMBERS} más (ver_numeros)`)
 
@@ -83,11 +85,11 @@ export class AssistantContextService {
     const missing = PLAN_FEATURES.filter(f => !features[f.key] && !blockedByRole.includes(f.key)).map(f => f.label)
 
     const lines = [
-      `- Nombre: ${userName}${person?.name ? ` (${person.email})` : ''}. Tratala por su nombre de pila si lo tiene.`,
+      `- Nombre: ${oneLine(userName)}${person?.name ? ` (${person.email})` : ''}. Tratala por su nombre de pila si lo tiene.`,
       superAdmin
         ? '- Rol: SuperAdmin. Ve y configura toda la organización: todos los códigos, todos los números y Usuarios.'
         : '- Rol: Administrador. Ve solo los datos de sus códigos de productor y configura solo sus números; Usuarios, Balance y el alta de números son del SuperAdmin. La configuración general de la organización (Configuración) sí la puede cambiar.',
-      `- Organización: ${orgName}.`,
+      `- Organización: ${oneLine(orgName)}.`,
       `- Códigos de productor que ve: ${codeLines.length ? codeLines.join('; ') : 'ninguno'}.`,
       numbers.length
         ? `- Números de WhatsApp que maneja:\n${numberLines.join('\n')}`
@@ -101,4 +103,9 @@ export class AssistantContextService {
 
     return { orgName, userName, superAdmin, text: lines.join('\n') }
   }
+}
+
+/** A value people typed elsewhere (a user's name, a branch) as one line of the instructions, never a new one. */
+function oneLine(text: string): string {
+  return text.replace(/[\r\n\t]+/g, ' ').trim()
 }

@@ -94,7 +94,7 @@ describe('SolicitudesService — bot take-out documents', () => {
       {} as InboxService,
     )
 
-    const detail = (await service.getDetail(1, [1], 'lead', 9)) as unknown as {
+    const detail = (await service.getDetail(1, [1], 'lead', 9, {})) as unknown as {
       payload: { adjuntos: { url: string }[] }
     }
 
@@ -216,7 +216,7 @@ describe('SolicitudesService — the chat behind a solicitud', () => {
       { id: 4, status: 'open', contactName: 'Perfil WA', contactNameManual: 'Juan (manual)' },
     )
 
-    const detail = (await service.getDetail(1, [1], 'lead', 9)) as unknown as { conversation: unknown }
+    const detail = (await service.getDetail(1, [1], 'lead', 9, {})) as unknown as { conversation: unknown }
 
     expect(detail.conversation).toEqual({ id: 4, status: 'open', contactName: 'Juan (manual)' })
   })
@@ -224,19 +224,19 @@ describe('SolicitudesService — the chat behind a solicitud', () => {
   it('has no chat for a web lead or an online quote', async () => {
     const { service, prisma, inbox } = setup({ conversationId: null }, null)
 
-    const detail = (await service.getDetail(1, [1], 'lead', 9)) as unknown as { conversation: unknown }
+    const detail = (await service.getDetail(1, [1], 'lead', 9, {})) as unknown as { conversation: unknown }
     expect(detail.conversation).toBeNull()
     expect(prisma.conversation.findFirst).not.toHaveBeenCalled()
 
-    expect(await service.getMessages(1, [1], 'lead', 9)).toEqual([])
-    expect(await service.getMessages(1, [1], 'cotizacion', 3)).toEqual([])
+    expect(await service.getMessages(1, [1], 'lead', 9, {})).toEqual([])
+    expect(await service.getMessages(1, [1], 'cotizacion', 3, {})).toEqual([])
     expect(inbox.listMessages).not.toHaveBeenCalled()
   })
 
   it('reads the thread without marking the chat as read', async () => {
     const { service, prisma, inbox } = setup({ conversationId: 4 }, { id: 4 })
 
-    const messages = await service.getMessages(1, [1], 'lead', 9)
+    const messages = await service.getMessages(1, [1], 'lead', 9, {})
 
     expect(messages).toHaveLength(1)
     expect(inbox.listMessages).toHaveBeenCalledWith(4)
@@ -249,6 +249,23 @@ describe('SolicitudesService — the chat behind a solicitud', () => {
   it('refuses a lead outside the admin scope', async () => {
     const { service } = setup(null, null)
 
-    await expect(service.getMessages(1, [1], 'lead', 9)).rejects.toThrow('Lead 9 not found')
+    await expect(service.getMessages(1, [1], 'lead', 9, {})).rejects.toThrow('Lead 9 not found')
+  })
+
+  it("looks a lead up within the admin's numbers, as the list does", async () => {
+    const { service, prisma } = setup({ conversationId: null }, null)
+    const ownNumbers = { phoneNumberId: { in: ['meta-7'] } }
+
+    await service.getDetail(1, [1], 'lead', 9, ownNumbers)
+
+    expect(prisma.contactLead.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 9,
+          producerId: 1,
+          AND: [{ OR: [{ producerCodeId: { in: [1] } }, { producerCodeId: null }] }, ownNumbers],
+        }),
+      }),
+    )
   })
 })

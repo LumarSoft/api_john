@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { AssistantMessageRole, Prisma } from 'generated/prisma/client'
+import { AssistantMessageRole, Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { ScopeUser } from '../common/scope/scope.service'
+import { ScopeService, ScopeUser } from '../common/scope/scope.service'
 import { AssistantActionsService } from './assistant-actions.service'
 import { ActionView } from './tools/tool.types'
 
@@ -47,16 +47,22 @@ export class AssistantConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly actions: AssistantActionsService,
+    private readonly scope: ScopeService,
   ) {}
 
   async list(user: ScopeUser): Promise<ConversationSummary[]> {
-    const rows = await this.prisma.assistantConversation.findMany({
-      where: { userId: user.id, producerId: user.producerId, deletedAt: null },
-      orderBy: { updatedAt: 'desc' },
-      take: LIST_LIMIT,
-      select: { id: true, title: true, updatedAt: true },
-    })
-    return rows.map(r => ({ id: r.id, title: r.title, updatedAt: r.updatedAt.toISOString() }))
+    const [rows, current] = await Promise.all([
+      this.prisma.assistantConversation.findMany({
+        where: { userId: user.id, producerId: user.producerId, deletedAt: null },
+        orderBy: { updatedAt: 'desc' },
+        take: LIST_LIMIT,
+        select: { id: true, title: true, updatedAt: true, scopeKey: true },
+      }),
+      this.scopeKeyOf(user),
+    ])
+    return rows
+      .filter(r => fitsScope(r.scopeKey, current))
+      .map(r => ({ id: r.id, title: r.title, updatedAt: r.updatedAt.toISOString() }))
   }
 
   async get(user: ScopeUser, id: number, now = new Date()) {
@@ -78,7 +84,12 @@ export class AssistantConversationsService {
 
   async create(user: ScopeUser, firstQuestion: string): Promise<ConversationSummary> {
     const row = await this.prisma.assistantConversation.create({
-      data: { title: titleOf(firstQuestion), userId: user.id, producerId: user.producerId },
+      data: {
+        title: titleOf(firstQuestion),
+        userId: user.id,
+        producerId: user.producerId,
+        scopeKey: await this.scopeKeyOf(user),
+      },
       select: { id: true, title: true, updatedAt: true },
     })
     return { id: row.id, title: row.title, updatedAt: row.updatedAt.toISOString() }
@@ -93,10 +104,20 @@ export class AssistantConversationsService {
   async findOwn(user: ScopeUser, id: number) {
     const conversation = await this.prisma.assistantConversation.findFirst({
       where: { id, userId: user.id, producerId: user.producerId, deletedAt: null },
-      select: { id: true, title: true },
+      select: { id: true, title: true, scopeKey: true },
     })
-    if (!conversation) throw new NotFoundException('No encontré esa conversación.')
-    return conversation
+    if (!conversation || !fitsScope(conversation.scopeKey, await this.scopeKeyOf(user))) {
+      throw new NotFoundException('No encontré esa conversación.')
+    }
+    return { id: conversation.id, title: conversation.title }
+  }
+
+  /** The person's role and, for an admin, the codes they see now (see AssistantConversation.scopeKey). */
+  private async scopeKeyOf(user: ScopeUser): Promise<string> {
+    const role = user.role ?? Role.ADMIN
+    if (role !== Role.ADMIN) return role
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(user)
+    return `${Role.ADMIN}:${[...codeIds].sort((a, b) => a - b).join(',')}`
   }
 
   /**
@@ -209,4 +230,21 @@ function toMessageView(
 export function titleOf(question: string): string {
   const line = question.replace(/\s+/g, ' ').trim()
   return line.length > TITLE_MAX ? `${line.slice(0, TITLE_MAX - 1).trimEnd()}…` : line
+}
+
+/**
+ * Whether a conversation started as `stored` may be read by the person as
+ * they are now (`current`): same role and, for an admin, still every code
+ * they had then. Gaining codes keeps it; losing one closes it.
+ */
+export function fitsScope(stored: string | null, current: string): boolean {
+  if (stored == null) return true
+  const [storedRole, storedCodes = ''] = stored.split(':')
+  const [currentRole, currentCodes = ''] = current.split(':')
+  if (storedRole !== currentRole) return false
+  const now = new Set(currentCodes.split(',').filter(Boolean))
+  return storedCodes
+    .split(',')
+    .filter(Boolean)
+    .every(code => now.has(code))
 }

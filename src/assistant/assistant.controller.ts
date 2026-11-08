@@ -19,9 +19,11 @@ import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
 import { ScopeService } from '../common/scope/scope.service'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
+import { describeChanges } from '../activity-log/request-origin'
 import { AssistantService } from './assistant.service'
 import { AssistantConversationsService } from './assistant-conversations.service'
 import { AssistantActionsService } from './assistant-actions.service'
+import { AssistantEnabledGuard } from './assistant-enabled.guard'
 import { AskAssistantDto } from './dto/ask-assistant.dto'
 import { SendAssistantMessageDto } from './dto/send-assistant-message.dto'
 
@@ -50,16 +52,19 @@ export class AssistantController {
   }
 
   @Get('conversations')
+  @UseGuards(AssistantEnabledGuard)
   list(@Request() req: AuthenticatedRequest) {
     return this.conversations.list(req.user)
   }
 
   @Get('conversations/:id')
+  @UseGuards(AssistantEnabledGuard)
   get(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
     return this.conversations.get(req.user, id)
   }
 
   @Delete('conversations/:id')
+  @UseGuards(AssistantEnabledGuard)
   remove(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
     return this.conversations.remove(req.user, id)
   }
@@ -120,11 +125,20 @@ export class AssistantController {
 
   /** Runs a change the assistant proposed, with the confirming user's own permissions. */
   @Post('actions/:id/confirm')
-  confirm(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
-    return this.actions.confirm(req.user, id)
+  @UseGuards(AssistantEnabledGuard)
+  async confirm(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
+    const result = await this.actions.confirm(req.user, id)
+    // The activity log names what the confirm changed, as it does for the panel's own forms.
+    const { type, status, preview } = result.action
+    describeChanges(
+      req,
+      `${type} #${id} ${status} · ${preview.target}: ${preview.changes.map(c => c.label).join(', ')}`,
+    )
+    return result
   }
 
   @Post('actions/:id/cancel')
+  @UseGuards(AssistantEnabledGuard)
   cancel(@Param('id', ParseIntPipe) id: number, @Request() req: AuthenticatedRequest) {
     return this.actions.cancel(req.user, id)
   }

@@ -141,3 +141,25 @@ export function shown(value: string | null | undefined): string | null {
 export function todayIso(now: Date): string {
   return now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
 }
+
+/** Two stored values say the same: null, undefined and "" are all empty; spaces around don't count. */
+export function sameValue(a: unknown, b: unknown): boolean {
+  const text = (v: unknown) => (v == null ? '' : typeof v === 'string' ? v.trim() : JSON.stringify(v))
+  return text(a) === text(b)
+}
+
+/**
+ * Whether the person wrote `value` themselves in the chat. Where the customers'
+ * money or their claims go (the account to transfer to, the claims e-mail and
+ * phones) can only change to what the person typed: a value that came in a
+ * tool's data (a client's name, a note, a chat) may be someone outside the
+ * office steering the assistant. Digits are compared without spaces or dashes,
+ * a phone by its last 8 digits (the model may add the area or country code).
+ */
+export function saidByPerson(ownWords: string, value: string, kind: 'text' | 'digits' | 'phone'): boolean {
+  if (kind === 'text') return ownWords.toLowerCase().includes(value.trim().toLowerCase())
+  const typed = ownWords.replace(/(?<=\d)[\s.\-/()]+(?=\d)/g, '')
+  const digits = value.replace(/\D/g, '')
+  if (!digits) return false
+  return typed.includes(kind === 'phone' ? digits.slice(-8) : digits)
+}

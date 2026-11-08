@@ -66,6 +66,12 @@ export interface ToolContext {
   now: Date
   /** Actions proposed during this turn, for the panel to draw as cards. */
   proposed: ActionView[]
+  /**
+   * What the person typed in this conversation, their messages only. A new
+   * account or contact the bot gives customers has to come from here, never
+   * from data a tool read (a client's name, a note, a chat): see saidByPerson.
+   */
+  ownWords: string
 }
 
 export interface AssistantTool {
@@ -75,7 +81,7 @@ export interface AssistantTool {
   parameters: Record<string, unknown>
   /** What the panel shows while it runs: "Revisando los datos de pago". */
   status: string
-  /** Only for these roles (the OWNER has no assistant). Default: every office role. */
+  /** Only for these roles. Default: every role that reaches the assistant (OWNER, SUPERADMIN, ADMIN). */
   roles?: Role[]
   /** Only when the organization's plan includes it. */
   feature?: PlanFeatureKey
@@ -88,6 +94,12 @@ export interface AssistantTool {
 export interface ActionExecutor {
   type: string
   execute(user: ScopeUser, codeIds: number[], payload: Record<string, unknown>): Promise<ActionOutcome>
+  /**
+   * Whether what `payload` set is still there, read with the user's own scope.
+   * Undo needs it: going back is only safe while nobody changed it since (and
+   * it was not undone already). A type without it can't be undone.
+   */
+  stillApplied?(user: ScopeUser, codeIds: number[], payload: Record<string, unknown>): Promise<boolean>
 }
 
 /** A domain's tools and the actions they may propose. */

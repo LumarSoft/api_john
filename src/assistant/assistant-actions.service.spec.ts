@@ -49,6 +49,7 @@ function setup(found: ReturnType<typeof row> | null = row()) {
   const executor: ActionExecutor = {
     type: 'datos_de_pago',
     execute: jest.fn().mockResolvedValue({ summary: 'Listo.', refresh: ['config'] }),
+    stillApplied: jest.fn().mockResolvedValue(true),
   }
   const service = new AssistantActionsService(prisma as unknown as PrismaService, scope as unknown as ScopeService)
   service.register([executor])
@@ -58,7 +59,7 @@ function setup(found: ReturnType<typeof row> | null = row()) {
 describe('AssistantActionsService', () => {
   it('stores a proposal for the conversation and adds its card to the turn', async () => {
     const { service, prisma } = setup()
-    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: 4, now, proposed: [] }
+    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: 4, now, proposed: [], ownWords: '' }
     const view = await service.propose(ctx, 'datos_de_pago', { scope: 'organization' }, preview)
 
     expect(prisma.assistantAction.create).toHaveBeenCalledWith(
@@ -72,7 +73,7 @@ describe('AssistantActionsService', () => {
 
   it('cannot propose outside a saved conversation', async () => {
     const { service } = setup()
-    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: null, now, proposed: [] }
+    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: null, now, proposed: [], ownWords: '' }
     await expect(service.propose(ctx, 'datos_de_pago', {}, preview)).rejects.toBeInstanceOf(ConflictException)
   })
 
@@ -135,7 +136,7 @@ describe('AssistantActionsService', () => {
         preview: { ...preview, changes: [{ label: 'Alias', before: 'viejo', after: 'a' }] },
       }),
     )
-    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: 4, now, proposed: [] }
+    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: 4, now, proposed: [], ownWords: '' }
     await service.proposeUndo(ctx, 5)
 
     const data = (prisma.assistantAction.create.mock.calls[0] as [{ data: Record<string, any> }])[0].data
@@ -148,8 +149,21 @@ describe('AssistantActionsService', () => {
     expect(data.preview.title).toBe('Deshacer: cambiar la cuenta')
   })
 
+  it('does not undo a change that is no longer there: someone changed it since, or it was undone already', async () => {
+    const { service, prisma, executor } = setup(row({ status: AssistantActionStatus.CONFIRMED }))
+    ;(executor.stillApplied as jest.Mock).mockResolvedValueOnce(false)
+    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: 4, now, proposed: [], ownWords: '' }
+
+    await expect(service.proposeUndo(ctx, 5)).rejects.toThrow('deshacerlo pisaría lo actual')
+    expect(executor.stillApplied).toHaveBeenCalledWith(mili, [3], {
+      scope: 'organization',
+      changes: { transferAlias: 'a' },
+    })
+    expect(prisma.assistantAction.create).not.toHaveBeenCalled()
+  })
+
   it('only undoes a confirmed change that kept what it replaced', async () => {
-    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: 4, now, proposed: [] }
+    const ctx: ToolContext = { user: mili, codeIds: [3], conversationId: 4, now, proposed: [], ownWords: '' }
     const pending = setup()
     await expect(pending.service.proposeUndo(ctx, 5)).rejects.toThrow('Solo se puede deshacer')
 
@@ -157,15 +171,23 @@ describe('AssistantActionsService', () => {
     await expect(noUndo.service.proposeUndo(ctx, 5)).rejects.toThrow('no se puede deshacer')
   })
 
-  it('cancels a pending one and leaves the others as they are', async () => {
+  it('cancels only while it is still pending, so a confirm that won the race stays confirmed', async () => {
     const { service, prisma } = setup()
     await service.cancel(mili, 5, now)
-    expect(prisma.assistantAction.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: AssistantActionStatus.CANCELLED } }),
-    )
+    expect(prisma.assistantAction.updateMany).toHaveBeenCalledWith({
+      where: { id: 5, status: AssistantActionStatus.PENDING, expiresAt: { gt: now } },
+      data: { status: AssistantActionStatus.CANCELLED },
+    })
 
     const done = setup(row({ status: AssistantActionStatus.CONFIRMED }))
+    done.prisma.assistantAction.updateMany.mockResolvedValueOnce({ count: 0 })
     await expect(done.service.cancel(mili, 5, now)).resolves.toEqual(expect.objectContaining({ status: 'confirmed' }))
     expect(done.prisma.assistantAction.update).not.toHaveBeenCalled()
+  })
+
+  it('cannot cancel what belongs to someone else', async () => {
+    const { service, prisma } = setup(null)
+    await expect(service.cancel(mili, 5, now)).rejects.toBeInstanceOf(NotFoundException)
+    expect(prisma.assistantAction.updateMany).not.toHaveBeenCalled()
   })
 })

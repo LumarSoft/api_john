@@ -301,19 +301,16 @@ export class NovedadesService {
     const page = dto.page && dto.page > 0 ? dto.page : 1
     const pageSize = dto.pageSize && dto.pageSize > 0 ? dto.pageSize : DEFAULT_PAGE_SIZE
     const search = dto.search?.trim()
+    // The scope and the search each bring their own AND/OR: they go side by side
+    // in one AND, never spread into the same object, where the search would
+    // replace an admin's scope and show them the whole organization.
     const where: Prisma.NotificationWhereInput = {
       producerId,
       deletedAt: null,
-      ...this.matterScope(producerId, scope),
-      ...(dto.category ? { category: dto.category } : {}),
-      ...(dto.status ? { status: dto.status } : dto.actionable ? { status: { not: MatterStatus.RESOLVED } } : {}),
-      ...(dto.since ? { createdAt: { gt: new Date(dto.since) } } : {}),
-      ...(dto.type ? { type: dto.type } : {}),
-      ...(dto.unread ? { readAt: null } : {}),
-      ...(dto.clientId ? { clientId: dto.clientId } : {}),
-      ...(search
-        ? {
-            AND: [
+      AND: [
+        this.matterScope(producerId, scope),
+        ...(search
+          ? [
               {
                 OR: [
                   { title: { contains: search } },
@@ -329,9 +326,15 @@ export class NovedadesService {
                   },
                 ],
               },
-            ],
-          }
-        : {}),
+            ]
+          : []),
+      ],
+      ...(dto.category ? { category: dto.category } : {}),
+      ...(dto.status ? { status: dto.status } : dto.actionable ? { status: { not: MatterStatus.RESOLVED } } : {}),
+      ...(dto.since ? { createdAt: { gt: new Date(dto.since) } } : {}),
+      ...(dto.type ? { type: dto.type } : {}),
+      ...(dto.unread ? { readAt: null } : {}),
+      ...(dto.clientId ? { clientId: dto.clientId } : {}),
     }
 
     const [total, data] = await this.prisma.$transaction([
@@ -455,6 +458,14 @@ export class NovedadesService {
       const visitedAt = new Date()
       await tx.user.update({ where: { id: userId }, data: { lastNotificationsVisitAt: visitedAt } })
       return { previousVisitAt: user.lastNotificationsVisitAt, visitedAt }
+    })
+  }
+
+  /** One matter as the user sees it in the list (same scope), or null when it is not theirs to see. */
+  findMatterForAdmin(id: number, producerId: number, scope: ChatScope) {
+    return this.prisma.notification.findFirst({
+      where: { id, producerId, deletedAt: null, ...this.matterScope(producerId, scope) },
+      select: { title: true, status: true, category: true },
     })
   }
 

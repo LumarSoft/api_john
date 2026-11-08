@@ -228,6 +228,7 @@ describe("a number's own assistant", () => {
         create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 31, source: null, ...data })),
         update: jest.fn().mockResolvedValue({}),
       },
+      $transaction: jest.fn((ops: Array<Promise<unknown>>) => Promise.all(ops)),
     }
     const service = new PhoneNumbersService(
       prisma as unknown as PrismaService,
@@ -290,6 +291,24 @@ describe("a number's own assistant", () => {
     await expect(
       service.addClosure(8, admin, { startDate: '2026-12-26', endDate: '2026-12-24', reason: 'Al revés' }),
     ).rejects.toThrow('posterior')
+  })
+
+  it('closes several numbers only when every one is the admin’s: one foreign number closes none', async () => {
+    const { service, prisma } = setup({}, [11])
+    prisma.phoneNumber.findFirst.mockResolvedValueOnce({ id: 8, responsibleProducerCodeId: 11 })
+    prisma.phoneNumber.findFirst.mockResolvedValueOnce({ id: 9, responsibleProducerCodeId: 99 })
+
+    await expect(
+      service.addClosures([8, 9], admin, { startDate: '2026-12-24', endDate: '2026-12-24', reason: 'Navidad' }),
+    ).rejects.toThrow('not found')
+    expect(prisma.businessClosure.create).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+
+    prisma.phoneNumber.findFirst.mockResolvedValue({ id: 8, responsibleProducerCodeId: 11 })
+    await expect(
+      service.addClosures([8, 8], admin, { startDate: '2026-12-24', endDate: '2026-12-24', reason: 'Navidad' }),
+    ).resolves.toHaveLength(2)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
   })
 
   it("refuses the holidays of a number outside an admin's codes", async () => {

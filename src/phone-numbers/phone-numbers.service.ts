@@ -481,19 +481,34 @@ export class PhoneNumbersService {
    * closes the others. Same scope as the assistant.
    */
   async addClosure(id: number, user: PanelUser, dto: CreateClosureDto) {
-    const phone = await this.findConfigurable(id, user)
+    const [closure] = await this.addClosures([id], user, dto)
+    return closure
+  }
+
+  /**
+   * The same closure on several numbers (the assistant's "cerrá todas las
+   * sucursales"): every number has to be one the user manages, or none is
+   * closed, and they are stored together.
+   */
+  async addClosures(ids: number[], user: PanelUser, dto: CreateClosureDto) {
+    const phones: Array<{ id: number }> = []
+    for (const id of ids) phones.push(await this.findConfigurable(id, user))
     if (dto.startDate > dto.endDate) throw new BadRequestException('La fecha de inicio es posterior a la de fin')
-    const created = await this.prisma.businessClosure.create({
-      data: {
-        producerId: user.producerId,
-        phoneNumberId: phone.id,
-        startDate: new Date(`${dto.startDate}T00:00:00Z`),
-        endDate: new Date(`${dto.endDate}T00:00:00Z`),
-        reason: dto.reason.trim(),
-      },
-      select: CLOSURE_SELECT,
-    })
-    return toClosureView(created)
+    const created = await this.prisma.$transaction(
+      phones.map(phone =>
+        this.prisma.businessClosure.create({
+          data: {
+            producerId: user.producerId,
+            phoneNumberId: phone.id,
+            startDate: new Date(`${dto.startDate}T00:00:00Z`),
+            endDate: new Date(`${dto.endDate}T00:00:00Z`),
+            reason: dto.reason.trim(),
+          },
+          select: CLOSURE_SELECT,
+        }),
+      ),
+    )
+    return created.map(toClosureView)
   }
 
   /** Reopens a number on a closed day; a national holiday removed here stays removed for this number only. */

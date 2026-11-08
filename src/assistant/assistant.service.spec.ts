@@ -1,4 +1,4 @@
-import { ForbiddenException, HttpException, ServiceUnavailableException } from '@nestjs/common'
+import { ConflictException, ForbiddenException, HttpException, ServiceUnavailableException } from '@nestjs/common'
 import { Role } from 'generated/prisma/client'
 import { allFeatures } from '../plan-features/plan-features'
 import type { PlanFeaturesService } from '../plan-features/plan-features.service'
@@ -213,6 +213,63 @@ describe('AssistantService conversations', () => {
     })
     await service.respond(await service.start(mili, [3], { content: 'Cambiá la cuenta' }), sink)
     expect(conversations.addAnswer.mock.calls[0][1]).toContain('Confirmar')
+  })
+
+  it('answers one question at a time per person, and frees them when the answer ends', async () => {
+    const { service, sink } = setup({ rounds: [round('Uno.'), round('Dos.')] })
+    const first = await service.start(mili, [3], { content: 'Primera' })
+    await expect(service.start(mili, [3], { content: 'Segunda' })).rejects.toBeInstanceOf(ConflictException)
+
+    await service.respond(first, sink)
+    await expect(service.start(mili, [3], { content: 'Segunda' })).resolves.toBeDefined()
+  })
+
+  it('lets only one of two questions sent together through, and a question that fails to start frees the person', async () => {
+    const { service, conversations } = setup()
+    const results = await Promise.allSettled([
+      service.start(mili, [3], { content: 'Una' }),
+      service.start(mili, [3], { content: 'Otra' }),
+    ])
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter(r => r.status === 'rejected')).toHaveLength(1)
+
+    const other = { ...mili, id: 3 }
+    conversations.findOwn.mockRejectedValueOnce(new Error('No encontré esa conversación.'))
+    await expect(service.start(other, [3], { conversationId: 99, content: 'Hola' })).rejects.toThrow()
+    await expect(service.start(other, [3], { content: 'Hola' })).resolves.toBeDefined()
+  })
+
+  it('runs at most 8 tools in one step and leaves at most 5 cards in one answer', async () => {
+    const { service, sink, searchTool, proposeTool } = setup({
+      rounds: [
+        round(
+          '',
+          Array.from({ length: 10 }, () => ({ name: 'buscar_asegurados' })),
+        ),
+        round(
+          '',
+          Array.from({ length: 7 }, () => ({ name: 'proponer_cambio_datos_de_pago' })),
+        ),
+        round('Listo.'),
+      ],
+    })
+    await service.respond(await service.start(mili, [3], { content: 'Hacé todo' }), sink)
+    expect(searchTool.run).toHaveBeenCalledTimes(8)
+    expect(proposeTool.run).toHaveBeenCalledTimes(5)
+  })
+
+  it('hands the tools what the person typed, and only that, to check new accounts against', async () => {
+    const { service, sink, conversations, proposeTool } = setup({
+      rounds: [round('', [{ name: 'proponer_cambio_datos_de_pago' }]), round('Listo.')],
+    })
+    conversations.historyForModel.mockResolvedValueOnce([
+      { role: 'user', content: 'El alias nuevo es mi.alias' },
+      { role: 'assistant', content: 'Un cliente dijo que el alias es robo.alias' },
+      { role: 'user', content: 'Dale' },
+    ])
+    await service.respond(await service.start(mili, [3], { content: 'Dale' }), sink)
+    const ctx = (proposeTool.run as jest.Mock).mock.calls[0][0] as ToolContext
+    expect(ctx.ownWords).toBe('El alias nuevo es mi.alias\nDale')
   })
 
   it('makes the last round answer without tools', async () => {

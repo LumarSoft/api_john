@@ -20,6 +20,7 @@ import {
   optionalText,
   requiredInt,
   requiredText,
+  sameValue,
   shown,
   todayIso,
 } from './tool-helpers'
@@ -57,7 +58,7 @@ const WAITING = 'Esperando que la persona toque Confirmar en la tarjeta.'
 
 /** The office's day-to-day: pending matters, tasks, claims, quote requests and improvement proposals. */
 export function workTools(deps: WorkToolDeps): ToolSet {
-  const { prisma, scope, novedades, tasks, siniestros, solicitudes, proposals, actions } = deps
+  const { scope, novedades, tasks, siniestros, solicitudes, proposals, actions } = deps
 
   /** A service's 404 inside a tool is the model's mistake (a wrong id or one outside the user's codes). */
   async function found<T>(promise: Promise<T>, what: string): Promise<T> {
@@ -237,11 +238,10 @@ export function workTools(deps: WorkToolDeps): ToolSet {
             ...(optionalText(args, 'categoria') ? { category: optionalText(args, 'categoria') } : {}),
           })
           if (!dto.status && !dto.category) throw new ToolError('Falta el estado o la categoría nueva.')
-          const matter = await prisma.notification.findFirst({
-            where: { id, producerId: ctx.user.producerId, deletedAt: null },
-            select: { title: true, status: true, category: true },
-          })
-          if (!matter) throw new ToolError('No encontré ese asunto.')
+          // Only a matter this person sees in Asuntos pendientes: its title names a client.
+          const chats = await scope.resolveChatScope(ctx.user, ctx.codeIds)
+          const matter = await novedades.findMatterForAdmin(id, ctx.user.producerId, chats)
+          if (!matter) throw new ToolError('No encontré ese asunto entre los que ve esta persona.')
           const rows: ActionChange[] = []
           if (dto.status) {
             rows.push({
@@ -429,8 +429,9 @@ export function workTools(deps: WorkToolDeps): ToolSet {
             ...(typeof args.notas === 'string' ? { notes: args.notas.trim() } : {}),
           })
           if (dto.status === undefined && dto.notes === undefined) throw new ToolError('Falta el estado o las notas.')
+          const chats = await scope.resolveChatScope(ctx.user, ctx.codeIds)
           const detail = (await found(
-            solicitudes.getDetail(ctx.user.producerId, ctx.codeIds, kind, id),
+            solicitudes.getDetail(ctx.user.producerId, ctx.codeIds, kind, id, numberWhere(chats)),
             'esa solicitud',
           )) as { status: string; notes?: string | null; contactName?: string | null }
           const rows: ActionChange[] = []
@@ -524,6 +525,16 @@ export function workTools(deps: WorkToolDeps): ToolSet {
       },
       {
         type: 'asunto',
+        async stillApplied(user, codeIds, payload) {
+          const dto = payload.dto as UpdateMatterDto
+          const chats = await scope.resolveChatScope(user, codeIds)
+          const matter = await novedades.findMatterForAdmin(Number(payload.id), user.producerId, chats)
+          return (
+            matter != null &&
+            (dto.status === undefined || sameValue(matter.status, dto.status)) &&
+            (dto.category === undefined || sameValue(matter.category, dto.category))
+          )
+        },
         async execute(user, codeIds, payload) {
           const chats = await scope.resolveChatScope(user, codeIds)
           await novedades.updateMatter(Number(payload.id), user.producerId, chats, payload.dto as UpdateMatterDto)
@@ -536,6 +547,15 @@ export function workTools(deps: WorkToolDeps): ToolSet {
       },
       {
         type: 'siniestro',
+        async stillApplied(user, codeIds, payload) {
+          const dto = payload.dto as UpdateSiniestroDto
+          const claim = await siniestros.findOneForAdmin(Number(payload.id), user.producerId, codeIds).catch(() => null)
+          return (
+            claim != null &&
+            (dto.status === undefined || sameValue(claim.status, dto.status)) &&
+            (dto.insurerClaimNumber === undefined || sameValue(claim.insurerClaimNumber, dto.insurerClaimNumber))
+          )
+        },
         async execute(user, codeIds, payload) {
           await siniestros.updateForAdmin(
             Number(payload.id),
@@ -552,13 +572,27 @@ export function workTools(deps: WorkToolDeps): ToolSet {
       },
       {
         type: 'solicitud',
+        async stillApplied(user, codeIds, payload) {
+          const dto = payload.dto as UpdateSolicitudDto
+          const chats = await scope.resolveChatScope(user, codeIds)
+          const detail = (await solicitudes
+            .getDetail(user.producerId, codeIds, payload.kind as LeadKind, Number(payload.id), numberWhere(chats))
+            .catch(() => null)) as { status: string; notes?: string | null } | null
+          return (
+            detail != null &&
+            (dto.status === undefined || sameValue(detail.status, dto.status)) &&
+            (dto.notes === undefined || sameValue(detail.notes, dto.notes))
+          )
+        },
         async execute(user, codeIds, payload) {
+          const chats = await scope.resolveChatScope(user, codeIds)
           await solicitudes.updateStatus(
             user.producerId,
             codeIds,
             payload.kind as LeadKind,
             Number(payload.id),
             payload.dto as UpdateSolicitudDto,
+            numberWhere(chats),
           )
           return {
             summary: 'Listo: la solicitud quedó actualizada.',

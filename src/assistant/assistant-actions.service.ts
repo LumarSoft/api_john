@@ -110,8 +110,16 @@ export class AssistantActionsService {
       throw new ToolError('Solo se puede deshacer un cambio que se confirmó y se aplicó.')
     }
     const { undo, ...original } = (row.payload ?? {}) as Record<string, unknown>
-    if (!undo || typeof undo !== 'object') {
+    const executor = this.executors.get(row.type)
+    if (!undo || typeof undo !== 'object' || !executor?.stillApplied) {
       throw new ToolError('Ese cambio no se puede deshacer desde acá: explicá cómo se revierte en el panel.')
+    }
+    // Putting back the old values over a later change (someone else's, or this
+    // very undo already confirmed) would silently lose it.
+    if (!(await executor.stillApplied(ctx.user, ctx.codeIds, original))) {
+      throw new ToolError(
+        `Eso cambió después de la propuesta #${id} (lo modificó alguien o ya se deshizo): hoy no está como lo dejó ese cambio, así que deshacerlo pisaría lo actual. Consultá cómo está ahora y, si hace falta, prepará un cambio nuevo.`,
+      )
     }
     const preview = row.preview as unknown as ActionPreview
     return this.propose(
@@ -168,14 +176,13 @@ export class AssistantActionsService {
   }
 
   async cancel(user: ScopeUser, id: number, now = new Date()): Promise<ActionView> {
-    const row = await this.findOwn(user, id)
-    if (toActionView(row, now).status !== 'pending') return toActionView(row, now)
-    const updated = await this.prisma.assistantAction.update({
-      where: { id },
+    await this.findOwn(user, id)
+    // Only while it is still pending: a confirm that won the race stays confirmed.
+    await this.prisma.assistantAction.updateMany({
+      where: { id, status: AssistantActionStatus.PENDING, expiresAt: { gt: now } },
       data: { status: AssistantActionStatus.CANCELLED },
-      select: VIEW_SELECT,
     })
-    return toActionView(updated, now)
+    return toActionView(await this.findOwn(user, id), now)
   }
 
   /** The cards of a conversation, by id, as they stand now. */

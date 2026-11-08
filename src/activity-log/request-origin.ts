@@ -37,6 +37,23 @@ export function isRecordable(path: string, userType: string | undefined): boolea
 }
 
 /** The names of the fields sent ("name,password"), never their values. */
+const CHANGED_FIELDS = Symbol('changedFields')
+
+/**
+ * What a request changed when its body doesn't say it: the assistant's confirm
+ * has no body, the proposal it runs does ("datos_de_pago #12 · Toda la
+ * organización: Alias, CBU / CVU"). Names of what changed, never the values.
+ */
+export function describeChanges(req: object, description: string): void {
+  ;(req as Record<symbol, string>)[CHANGED_FIELDS] = description
+}
+
+/** The fields to log for a request: its own description if it set one, otherwise the names in its body. */
+export function changedFields(req: object, body: unknown): string | null {
+  const described = (req as Record<symbol, string | undefined>)[CHANGED_FIELDS]
+  return described ? described.slice(0, 255) : fieldNames(body)
+}
+
 export function fieldNames(body: unknown): string | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null
   const names = Object.keys(body).join(',')

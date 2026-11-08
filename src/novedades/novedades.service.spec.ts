@@ -129,12 +129,36 @@ describe('NovedadesService', () => {
           where: expect.objectContaining({
             producerId: 5,
             AND: [
-              { OR: [{ producerCodeId: { in: [4] } }, { producerCodeId: null }] },
-              { phoneNumberId: { in: ['BRANCH'] } },
+              {
+                AND: [
+                  { OR: [{ producerCodeId: { in: [4] } }, { producerCodeId: null }] },
+                  { phoneNumberId: { in: ['BRANCH'] } },
+                ],
+              },
             ],
           }),
         }),
       )
+    })
+
+    it("keeps an admin's scope when they search: the search goes beside it, never over it", async () => {
+      prisma.$transaction.mockResolvedValue([0, []])
+
+      await service.listForAdmin(
+        5,
+        { codeIds: [4], ownNumbers: ['BRANCH'], defaultNumber: 'OFFICE' },
+        { search: 'Pérez' },
+      )
+
+      const where = prisma.notification.findMany.mock.calls[0][0].where
+      expect(where.AND).toHaveLength(2)
+      expect(where.AND[0]).toEqual({
+        AND: [
+          { OR: [{ producerCodeId: { in: [4] } }, { producerCodeId: null }] },
+          { phoneNumberId: { in: ['BRANCH'] } },
+        ],
+      })
+      expect(where.AND[1].OR).toEqual(expect.arrayContaining([{ title: { contains: 'Pérez' } }]))
     })
 
     it("counts what came through no number as the office's, the default number", async () => {
@@ -150,8 +174,12 @@ describe('NovedadesService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             AND: [
-              { OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] },
-              { OR: [{ phoneNumberId: { in: ['OFFICE'] } }, { phoneNumberId: null }] },
+              {
+                AND: [
+                  { OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] },
+                  { OR: [{ phoneNumberId: { in: ['OFFICE'] } }, { phoneNumberId: null }] },
+                ],
+              },
             ],
           }),
         }),
@@ -169,7 +197,7 @@ describe('NovedadesService', () => {
           where: {
             producerId: 5,
             deletedAt: null,
-            OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
+            AND: [{ OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] }],
           },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           skip: 0,
@@ -189,7 +217,7 @@ describe('NovedadesService', () => {
         where: {
           producerId: 5,
           deletedAt: null,
-          OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
+          AND: [{ OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] }],
           type: 'handoff',
           readAt: null,
         },
@@ -206,9 +234,9 @@ describe('NovedadesService', () => {
         where: {
           producerId: 5,
           deletedAt: null,
-          OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
           clientId: 3,
           AND: [
+            { OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] },
             {
               OR: [
                 { title: { contains: '30123' } },
@@ -267,11 +295,11 @@ describe('NovedadesService', () => {
         producerId: 5,
         category: 'baja',
         status: { not: 'resolved' },
-        OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }],
         createdAt: { gt: new Date('2026-09-30T20:00:00Z') },
       })
       expect(where).not.toHaveProperty('readAt')
-      expect(where.AND).toHaveLength(1)
+      expect(where.AND).toHaveLength(2)
+      expect(where.AND[0]).toEqual({ OR: [{ producerCodeId: { in: [10] } }, { producerCodeId: null }] })
     })
 
     it('rejects changes outside the tenant/scope', async () => {

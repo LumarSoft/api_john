@@ -352,11 +352,11 @@ export class SolicitudesService {
     }))
   }
 
-  async getDetail(producerId: number, codeIds: number[], kind: LeadKind, id: number) {
-    const codeOr = [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }]
+  async getDetail(producerId: number, codeIds: number[], kind: LeadKind, id: number, numbers: NumberWhere) {
+    const visible = visibleTo(codeIds, numbers)
     if (kind === 'lead') {
       const lead = await this.prisma.contactLead.findFirst({
-        where: { id, producerId, deletedAt: null, OR: codeOr },
+        where: { id, producerId, deletedAt: null, ...visible },
         select: {
           id: true,
           productType: true,
@@ -387,7 +387,7 @@ export class SolicitudesService {
 
     // Card data is intentionally excluded from the detail response.
     const solicitud = await this.prisma.quoteRequest.findFirst({
-      where: { id, deletedAt: null, quote: { producerId, OR: codeOr } },
+      where: { id, deletedAt: null, quote: { producerId, ...visible } },
       select: {
         id: true,
         status: true,
@@ -448,10 +448,10 @@ export class SolicitudesService {
    * chat), not the inbox scoping by producer code, and nothing is marked as read.
    * Empty for solicitudes without a chat (web form, online quote).
    */
-  async getMessages(producerId: number, codeIds: number[], kind: LeadKind, id: number) {
+  async getMessages(producerId: number, codeIds: number[], kind: LeadKind, id: number, numbers: NumberWhere) {
     if (kind !== 'lead') return []
     const lead = await this.prisma.contactLead.findFirst({
-      where: { id, producerId, deletedAt: null, OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] },
+      where: { id, producerId, deletedAt: null, ...visibleTo(codeIds, numbers) },
       select: { conversationId: true },
     })
     if (!lead) throw new NotFoundException(`Lead ${id} not found`)
@@ -463,11 +463,18 @@ export class SolicitudesService {
     return conversation ? this.inbox.listMessages(conversation.id) : []
   }
 
-  async updateStatus(producerId: number, codeIds: number[], kind: LeadKind, id: number, dto: UpdateSolicitudDto) {
+  async updateStatus(
+    producerId: number,
+    codeIds: number[],
+    kind: LeadKind,
+    id: number,
+    dto: UpdateSolicitudDto,
+    numbers: NumberWhere,
+  ) {
     if (dto.status === undefined && dto.notes === undefined) {
       throw new BadRequestException('Nothing to update')
     }
-    const codeOr = [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }]
+    const visible = visibleTo(codeIds, numbers)
     const data = {
       ...(dto.status !== undefined ? { status: dto.status } : {}),
       ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
@@ -475,7 +482,7 @@ export class SolicitudesService {
 
     if (kind === 'lead') {
       const lead = await this.prisma.contactLead.findFirst({
-        where: { id, producerId, deletedAt: null, OR: codeOr },
+        where: { id, producerId, deletedAt: null, ...visible },
         select: { id: true },
       })
       if (!lead) throw new NotFoundException(`Lead ${id} not found`)
@@ -487,7 +494,7 @@ export class SolicitudesService {
     }
 
     const solicitud = await this.prisma.quoteRequest.findFirst({
-      where: { id, deletedAt: null, quote: { producerId, OR: codeOr } },
+      where: { id, deletedAt: null, quote: { producerId, ...visible } },
       select: { id: true },
     })
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} not found`)
@@ -519,4 +526,13 @@ export class SolicitudesService {
     if (!producer) throw new InternalServerErrorException(`Default producer "${slug}" not found`)
     return producer.id
   }
+}
+
+/**
+ * One request as the user sees it in the list: by code (a web lead not yet
+ * attributed to a code too) and by the number it came through, so an admin
+ * cannot open or change another branch's request by its id.
+ */
+function visibleTo(codeIds: number[], numbers: NumberWhere) {
+  return { AND: [{ OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }, numbers] }
 }

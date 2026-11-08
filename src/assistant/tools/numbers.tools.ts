@@ -2,7 +2,7 @@ import { CreateClosureDto } from '../../business-hours/dto/create-closure.dto'
 import { currentPeriod } from '../../usage/usage.service'
 import { PhoneNumbersService } from '../../phone-numbers/phone-numbers.service'
 import { AssistantActionsService } from '../assistant-actions.service'
-import { ConfigToolDeps, numberLabel, ownNumber } from './config.tools'
+import { ConfigToolDeps, numberLabel, ownNumber, visibleNumbers } from './config.tools'
 import { assertValidDto, optionalBool, requiredInt, requiredText, todayIso } from './tool-helpers'
 import { numberLink } from './panel-links'
 import { ToolError, ToolSet } from './tool.types'
@@ -29,6 +29,9 @@ interface NumberRow {
     planPaused?: boolean
   } | null
 }
+
+/** Numbers one closure may go on in a single proposal. */
+const MAX_CLOSURE_NUMBERS = 20
 
 /** The organization's WhatsApp numbers: state, plan and use; turning the bot on or off; holidays and closures. */
 export function numbersTools(deps: NumbersToolDeps): ToolSet {
@@ -132,6 +135,9 @@ export function numbersTools(deps: NumbersToolDeps): ToolSet {
             ? [...new Set(args.numero_ids.map(Number).filter(Number.isInteger))]
             : []
           if (!ids.length) throw new ToolError('Falta en qué números (numero_ids).')
+          if (ids.length > MAX_CLOSURE_NUMBERS) {
+            throw new ToolError(`Un cierre va en hasta ${MAX_CLOSURE_NUMBERS} números a la vez.`)
+          }
           const closure = await assertValidDto(CreateClosureDto, {
             startDate: requiredText(args, 'desde', 'la fecha de inicio'),
             endDate: requiredText(args, 'hasta', 'la fecha de fin'),
@@ -139,7 +145,13 @@ export function numbersTools(deps: NumbersToolDeps): ToolSet {
           })
           if (closure.startDate > closure.endDate) throw new ToolError('La fecha de inicio es posterior a la de fin.')
           if (closure.endDate < todayIso(ctx.now)) throw new ToolError('Ese período ya pasó.')
-          const numbers = await Promise.all(ids.map(id => ownNumber(deps, ctx, id)))
+          const mine = await visibleNumbers(deps, ctx.user)
+          const numbers = ids.map(id => {
+            const number = mine.find(n => n.id === id)
+            if (!number)
+              throw new ToolError(`No hay un número con id ${id} entre los que maneja esta persona. Usá ver_numeros.`)
+            return number
+          })
           const period =
             closure.startDate === closure.endDate
               ? formatDay(closure.startDate)
@@ -166,6 +178,10 @@ export function numbersTools(deps: NumbersToolDeps): ToolSet {
     executors: [
       {
         type: 'bot_numero',
+        async stillApplied(user, _codeIds, payload) {
+          const number = (await visibleNumbers(deps, user)).find(n => n.id === Number(payload.numberId))
+          return number != null && number.botEnabled === Boolean(payload.enable)
+        },
         async execute(user, _codeIds, payload) {
           await phoneNumbers.setBotEnabled(Number(payload.numberId), user, Boolean(payload.enable))
           return {
@@ -182,7 +198,7 @@ export function numbersTools(deps: NumbersToolDeps): ToolSet {
         async execute(user, _codeIds, payload) {
           const ids = payload.numberIds as number[]
           const closure = payload.closure as CreateClosureDto
-          for (const id of ids) await phoneNumbers.addClosure(id, user, closure)
+          await phoneNumbers.addClosures(ids, user, closure)
           return {
             summary:
               ids.length === 1

@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -16,7 +17,7 @@ import { AssistantConversationsService, ConversationSummary, MessageView } from 
 import { cleanLinks, looksLikeCode, OFF_TOPIC_REPLY, systemPrompt } from './assistant-prompt'
 import { AskAssistantDto } from './dto/ask-assistant.dto'
 import { SendAssistantMessageDto } from './dto/send-assistant-message.dto'
-import { ActionView, ToolContext } from './tools/tool.types'
+import { ActionView, AssistantTool, ToolContext } from './tools/tool.types'
 
 export { OFF_TOPIC_REPLY, cleanLinks, looksLikeCode }
 
@@ -24,6 +25,12 @@ export { OFF_TOPIC_REPLY, cleanLinks, looksLikeCode }
 const MAX_ROUNDS = 6
 /** Questions per person per hour: a person asking, not a script. */
 const MAX_QUESTIONS_PER_HOUR = 60
+/** Tools the model may call in one round; the rest get an error back instead of running. */
+const MAX_CALLS_PER_ROUND = 8
+/** Cards one answer may leave for the person to confirm. */
+const MAX_PROPOSALS_PER_TURN = 5
+/** One answer at a time per person; a turn that never ended stops counting after this. */
+const TURN_LOCK_MS = 3 * 60_000
 /** Messages of the old endpoint the model reads. */
 const LEGACY_HISTORY = 20
 const ACTION_ONLY_REPLY = 'Te dejé la propuesta abajo: revisala y tocá «Confirmar» si está todo bien.'
@@ -80,6 +87,8 @@ export class AssistantService {
   private readonly logger = new Logger(AssistantService.name)
   /** userId → when they asked, within the last hour. */
   private readonly asked = new Map<number, number[]>()
+  /** userId → when the answer being written for them started. */
+  private readonly answering = new Map<number, number>()
 
   constructor(
     private readonly model: AssistantModelClient,
@@ -114,43 +123,68 @@ export class AssistantService {
     dto: SendAssistantMessageDto,
     now = new Date(),
   ): Promise<AssistantTurn> {
-    const plans = await this.admit(user, now)
-    let created: ConversationSummary | null = null
-    let conversationId = dto.conversationId
-    if (conversationId) {
-      await this.conversations.findOwn(user, conversationId)
-    } else {
-      created = await this.conversations.create(user, dto.content)
-      conversationId = created.id
+    // Taken before anything is awaited, so two questions sent together can't both get past it.
+    const since = this.answering.get(user.id)
+    if (since != null && now.getTime() - since < TURN_LOCK_MS) {
+      throw new ConflictException('Todavía estoy respondiendo tu pregunta anterior: esperá a que termine.')
     }
-    await this.conversations.addQuestion(conversationId, dto.content)
-    return {
-      user,
-      codeIds,
-      features: plans.features,
-      blockedByRole: plans.blockedByRole,
-      conversationId,
-      created,
-      page: dto.page,
-      now,
+    this.answering.set(user.id, now.getTime())
+    try {
+      const plans = await this.admit(user, now)
+      let created: ConversationSummary | null = null
+      let conversationId = dto.conversationId
+      if (conversationId) {
+        await this.conversations.findOwn(user, conversationId)
+      } else {
+        created = await this.conversations.create(user, dto.content)
+        conversationId = created.id
+      }
+      await this.conversations.addQuestion(conversationId, dto.content)
+      return {
+        user,
+        codeIds,
+        features: plans.features,
+        blockedByRole: plans.blockedByRole,
+        conversationId,
+        created,
+        page: dto.page,
+        now,
+      }
+    } catch (error) {
+      this.answering.delete(user.id)
+      throw error
     }
   }
 
   /** Answers a saved question, streaming through `sink`, and saves the answer. */
   async respond(turn: AssistantTurn, sink: AssistantSink, signal?: AbortSignal): Promise<MessageView> {
-    const history = await this.conversations.historyForModel(turn.conversationId, turn.now)
-    const answer = await this.answer({ ...turn, history }, sink, signal)
-    return this.conversations.addAnswer(turn.conversationId, answer.reply, {
-      steps: answer.steps,
-      actions: answer.actionIds,
-    })
+    try {
+      const history = await this.conversations.historyForModel(turn.conversationId, turn.now)
+      const answer = await this.answer({ ...turn, history }, sink, signal)
+      return await this.conversations.addAnswer(turn.conversationId, answer.reply, {
+        steps: answer.steps,
+        actions: answer.actionIds,
+      })
+    } finally {
+      this.answering.delete(turn.user.id)
+    }
+  }
+
+  /**
+   * The person's plan functions, or 403 when their plan or their role leaves
+   * the assistant out. Confirming a proposal checks it again: the owner may
+   * have taken the assistant off the plan or the role after it was proposed.
+   */
+  async assertEnabled(user: ScopeUser) {
+    const plans = await this.planFeatures.forUser(user)
+    if (plans.blockedByRole.includes('ai_assistant')) throw new ForbiddenException(FEATURE_NOT_FOR_ROLE)
+    if (!plans.features.ai_assistant) throw new ForbiddenException(FEATURE_NOT_IN_PLAN.ai_assistant)
+    return plans
   }
 
   private async admit(user: ScopeUser, now: Date) {
     if (!this.model.configured) throw new ServiceUnavailableException('El asistente todavía no está configurado.')
-    const plans = await this.planFeatures.forUser(user)
-    if (plans.blockedByRole.includes('ai_assistant')) throw new ForbiddenException(FEATURE_NOT_FOR_ROLE)
-    if (!plans.features.ai_assistant) throw new ForbiddenException(FEATURE_NOT_IN_PLAN.ai_assistant)
+    const plans = await this.assertEnabled(user)
     this.countQuestion(user.id, now)
     return plans
   }
@@ -172,7 +206,11 @@ export class AssistantService {
       superAdmin: context.superAdmin,
     })
     const items: ModelItem[] = input.history.map(m => ({ role: m.role, content: m.content }))
-    const toolCtx: ToolContext = { user, codeIds, conversationId, now, proposed: [] }
+    const ownWords = input.history
+      .filter(m => m.role === 'user')
+      .map(m => m.content)
+      .join('\n')
+    const toolCtx: ToolContext = { user, codeIds, conversationId, now, proposed: [], ownWords }
     const steps: string[] = []
     const actionIds: number[] = []
     let text = ''
@@ -200,7 +238,12 @@ export class AssistantService {
       if (!result.calls.length || lastRound) break
 
       items.push(...result.output)
-      for (const call of result.calls) {
+      for (const [index, call] of result.calls.entries()) {
+        const refusal = this.refusal(available, call.name, index, actionIds.length)
+        if (refusal) {
+          items.push({ type: 'function_call_output', call_id: call.callId, output: JSON.stringify({ error: refusal }) })
+          continue
+        }
         const label = this.tools.statusOf(call.name)
         sink.step({ id: call.callId, label, state: 'running' })
         const output = await this.tools.run(available, toolCtx, call.name, call.arguments)
@@ -225,6 +268,17 @@ export class AssistantService {
       reply = ACTION_ONLY_REPLY
     }
     return { reply, steps, actionIds }
+  }
+
+  /** Why a call doesn't run, when it goes past what one answer may do. */
+  private refusal(available: AssistantTool[], name: string, index: number, proposed: number): string | null {
+    if (index >= MAX_CALLS_PER_ROUND) {
+      return 'Demasiadas herramientas en un mismo paso: respondé con lo que ya tenés o seguí de a poco.'
+    }
+    if (proposed >= MAX_PROPOSALS_PER_TURN && available.find(tool => tool.name === name)?.proposes) {
+      return `Ya hay ${proposed} propuestas en esta respuesta: pedile a la persona que las revise antes de preparar más.`
+    }
+    return null
   }
 
   private countQuestion(userId: number, now: Date) {

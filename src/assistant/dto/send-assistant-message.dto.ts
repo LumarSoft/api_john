@@ -6,12 +6,14 @@ export class PanelPageDto {
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  @Matches(/^\/admin(\/|$)/, { message: 'route must be a panel path' })
+  // A path and nothing else: it goes into the assistant's instructions.
+  @Matches(/^\/admin(\/[\w.~%-]+)*\/?$/, { message: 'route must be a panel path' })
   route?: string
 
   @IsOptional()
   @IsString()
   @MaxLength(80)
+  @Matches(/^[^\r\n\t]*$/, { message: 'screen must be one line' })
   screen?: string
 }
 

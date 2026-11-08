@@ -2194,7 +2194,7 @@ Paginated list of novedades, unread first then newest.
 | -------- | ------- | -------- | --------------------------------------- |
 | type     | string  | No       | `siniestro` or `handoff`                |
 | unread   | boolean | No       | `true` returns only unread novedades    |
-| search   | string  | No       | Matches the linked client's name or DNI |
+| search   | string  | No       | Matches the title, the text, or the linked client's name or DNI, within the person's scope (an admin still sees only their codes and numbers) |
 | clientId | number  | No       | Restrict to a single client's novedades |
 | page     | number  | No       | Default 1                               |
 | pageSize | number  | No       | Default 20, max 100                     |
@@ -2413,6 +2413,15 @@ Soft-deletes the task. Only its creator or a SuperAdmin.
 
 The panel's AI assistant (rebuilt 2026-11-06). It knows who is asking (name, role, codes, the numbers they manage and whose bank account each one uses, what the plan includes) and the screen they are on, reads the system with tools built on the panel's own services (portfolio, pending matters, tasks, team, claims, quote requests, numbers and their use, configuration, hours, payment data, integration status, the panel guide) and **prepares changes the person confirms**: payment data (organization or number), the organization's data, hours, a number's bot on/off, holidays and closures, tasks, the state of matters, claims and requests, and improvement proposals. A proposal changes nothing: it is stored as an action (`AssistantAction`) with what the panel's card shows, and only `POST /admin/assistant/actions/:id/confirm` runs it, through the same service as the panel's form and with the confirming user's permissions, at most once and within 30 minutes. A confirmed change of configuration or state keeps the exact values it replaced, so it can be undone (`undoable` on the card; the assistant's `proponer_deshacer` proposes going back, never from its memory of the old values); creating a task, a closure or a proposal is not undone here. Nothing the assistant does reaches a client. OpenAI Responses API, streamed, with reasoning (`OPENAI_API_KEY`, `OPENAI_MODEL`, `ASSISTANT_REASONING_EFFORT`, default `low`). Conversations are saved per person and deleted after `ASSISTANT_RETENTION_DAYS` (default 90) without use. Plan function `ai_assistant`; 60 questions per person per hour.
 
+What keeps it within bounds (2026-11-07):
+- Every route checks the plan function and the role switch, not only asking: a proposal whose plan or role lost the assistant can no longer be confirmed (`403`), and the history can't be read.
+- Nothing crosses organizations or, for an admin, their own codes and numbers: tools read through the panel's scoped services, and a confirm runs with the confirming user's scope, whatever the stored proposal says (a proposal on someone else's number or record ends `failed`).
+- The account for transfers (alias, CBU) and the claims e-mail and phones only change to values the person typed in the conversation, never to one that came in data a tool read (a client's name, a note, a chat).
+- Undo only goes back while the change is still in place: if someone changed it since, or it was already undone, it is refused instead of overwriting the current value.
+- One answer at a time per person (`409`), at most 8 tools per step and 5 cards per answer.
+- A conversation keeps the role and, for an admin, the codes the person had when it started: after losing one of them (or changing role) it no longer lists or opens.
+- The activity log names what each confirm changed (`fields`: `datos_de_pago #31 confirmed · Toda la organización: Alias, CBU / CVU`), never the values.
+
 Answers are Spanish with light markdown (`**negrita**`, `- ` lists) and links the panel turns into buttons: `[Nombre](asegurado:ID)` (a client's file), `[Ir a Sección](pantalla:ID)` or `(pantalla:ID/NUM)` (the exact destination: the panel opens that screen on its tab, lights up the section and, with NUM, opens that number or claim; ids in `src/assistant/panel-guide.ts` `PANEL_SCREENS`) and `[Mostrame en pantalla](recorrido:ID)` (an on-screen tour, `PANEL_TOURS`). A link to an unknown id is turned into plain text or dropped.
 
 ### POST /admin/assistant/ask
@@ -2461,8 +2470,8 @@ A question, in a saved conversation or starting a new one. The answer comes as *
 | -------------- | ------- | -------- | -------------------------------------------------------------------- |
 | conversationId | integer | No       | A conversation of the person; without it a new one starts            |
 | content        | string  | Yes      | 1–2000 characters, not blank                                         |
-| page.route     | string  | No       | The panel path the person is on (`/admin…`), up to 200 characters    |
-| page.screen    | string  | No       | Its name as the panel shows it ("Configuración"), up to 80           |
+| page.route     | string  | No       | The panel path the person is on (`/admin/…`: path segments only), up to 200 characters |
+| page.screen    | string  | No       | Its name as the panel shows it ("Configuración"), one line, up to 80 |
 
 ```json
 { "content": "Quiero cambiar los datos bancarios donde transfieren los clientes", "page": { "route": "/admin", "screen": "Inicio" } }
@@ -2494,11 +2503,11 @@ data: {"conversationId":12,"message":{"id":40,"role":"assistant","content":"Prep
 
 `event: error` — `{ "message": "El asistente no pudo responder. Probá de nuevo en un rato." }` (the question stays saved).
 
-`400 Bad Request` — invalid body · `403 Forbidden` — the plan or the role has no assistant · `404 Not Found` — `"No encontré esa conversación."` · `429 Too Many Requests` · `503 Service Unavailable` — `"El asistente todavía no está configurado."`
+`400 Bad Request` — invalid body · `403 Forbidden` — the plan or the role has no assistant · `404 Not Found` — `"No encontré esa conversación."` (someone else's, or from codes the person no longer has) · `409 Conflict` — `"Todavía estoy respondiendo tu pregunta anterior: esperá a que termine."` · `429 Too Many Requests` · `503 Service Unavailable` — `"El asistente todavía no está configurado."`
 
 ### GET /admin/assistant/conversations
 
-The person's last 30 conversations, the most recent first.
+The person's last 30 conversations, the most recent first, leaving out the ones started with codes or a role the person no longer has.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -2527,7 +2536,7 @@ A conversation with its messages, oldest first; each answer carries the steps it
 }
 ```
 
-`404 Not Found` — `"No encontré esa conversación."` (it is someone else's, or deleted)
+`403 Forbidden` — the plan or the role has no assistant · `404 Not Found` — `"No encontré esa conversación."` (it is someone else's, deleted, or from codes the person no longer has)
 
 ### DELETE /admin/assistant/conversations/:id
 
@@ -2535,7 +2544,7 @@ Deletes a conversation from the person's history (soft delete).
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
-`200 OK` — `{ "deleted": true }` · `404 Not Found`
+`200 OK` — `{ "deleted": true }` · `403 Forbidden` · `404 Not Found`
 
 ### POST /admin/assistant/actions/:id/confirm
 
@@ -2554,15 +2563,15 @@ Runs a change the assistant proposed to this person, through the same service as
 }
 ```
 
-`404 Not Found` — `"No encontré esa propuesta."` · `409 Conflict` — `"Esta propuesta ya se aplicó."`, `"…se canceló…"` or `"…venció…"`
+`403 Forbidden` — the plan or the role no longer has the assistant · `404 Not Found` — `"No encontré esa propuesta."` (someone else's) · `409 Conflict` — `"Esta propuesta ya se aplicó."`, `"…se canceló…"` or `"…venció…"`
 
 ### POST /admin/assistant/actions/:id/cancel
 
-Discards a pending proposal; one that already ran, failed or expired is returned as it is.
+Discards a pending proposal; one that already ran, failed or expired is returned as it is (a confirm that wins the race stays confirmed).
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
-`201 Created` — the card (`status: "cancelled"`) · `404 Not Found`
+`201 Created` — the card (`status: "cancelled"`) · `403 Forbidden` · `404 Not Found`
 
 ## Admin — Campañas
 
@@ -3828,12 +3837,12 @@ auto/moto (`QuoteRequest`) en un mismo stream. `UserAuthGuard`, scope al product
 
 ### GET /admin/solicitudes/:kind/:id
 
-Detalle de una solicitud. `kind` = `lead` | `cotizacion`.
+Detalle de una solicitud. `kind` = `lead` | `cotizacion`. Mismo alcance que la lista: por código (también las web sin código) y, para un administrador, solo las que llegaron por sus números; otra da 404. Lo mismo para `GET /admin/solicitudes/:kind/:id/messages` y el `PATCH` (desde 2026-11-07; antes alcanzaba con el código).
 
 **Auth required:** Yes (Bearer, type `user`)
 
 `200 OK` — campos completos según `kind` (los datos de tarjeta nunca se devuelven)
-`404 Not Found`
+`404 Not Found` — no existe o no está en el alcance de la persona
 
 ### PATCH /admin/solicitudes/:kind/:id
 
@@ -3850,6 +3859,7 @@ Actualiza el seguimiento de una solicitud.
 
 `200 OK` → `{ "ok": true }`
 `400 Bad Request` — nada para actualizar
+`404 Not Found` — no existe o no está en el alcance de la persona
 
 ## Admin — Planes de precio fijo
 

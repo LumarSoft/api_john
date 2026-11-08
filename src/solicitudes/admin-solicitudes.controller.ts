@@ -26,13 +26,15 @@ export class AdminSolicitudesController {
   @Get(':kind/:id')
   async findOne(@Param() params: SolicitudParamsDto, @Request() req: AuthenticatedRequest) {
     const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.solicitudesService.getDetail(req.user.producerId, codeIds, params.kind, params.id)
+    const chats = await this.scope.resolveChatScope(req.user, codeIds)
+    return this.solicitudesService.getDetail(req.user.producerId, codeIds, params.kind, params.id, numberWhere(chats))
   }
 
   @Get(':kind/:id/messages')
   async findMessages(@Param() params: SolicitudParamsDto, @Request() req: AuthenticatedRequest) {
     const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.solicitudesService.getMessages(req.user.producerId, codeIds, params.kind, params.id)
+    const chats = await this.scope.resolveChatScope(req.user, codeIds)
+    return this.solicitudesService.getMessages(req.user.producerId, codeIds, params.kind, params.id, numberWhere(chats))
   }
 
   @Patch(':kind/:id')
@@ -42,6 +44,14 @@ export class AdminSolicitudesController {
     @Request() req: AuthenticatedRequest,
   ) {
     const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
-    return this.solicitudesService.updateStatus(req.user.producerId, codeIds, params.kind, params.id, dto)
+    const chats = await this.scope.resolveChatScope(req.user, codeIds)
+    return this.solicitudesService.updateStatus(
+      req.user.producerId,
+      codeIds,
+      params.kind,
+      params.id,
+      dto,
+      numberWhere(chats),
+    )
   }
 }
