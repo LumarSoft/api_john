@@ -4,10 +4,31 @@ import { Cron, CronExpression } from '@nestjs/schedule'
 import { PrismaService } from '../prisma/prisma.service'
 import { type ActiveClosure, computeStatus, parseSchedule } from '../business-hours/schedule'
 import { InboxService } from './inbox.service'
+import { NovedadesService } from '../novedades/novedades.service'
+import { NovedadType } from '../novedades/dto/list-novedades.dto'
 
 const DEFAULT_OPERATOR_IDLE_MINUTES = 30
 const DEFAULT_QUIET_MINUTES = 120
 const DEFAULT_MAX_MINUTES = 120
+const DEFAULT_UNANSWERED_ALERT_MINUTES = 30
+
+/** The customer's last line, as the office reads it in the alert. */
+const UNANSWERED_CLIP = 120
+
+type PausedConversation = {
+  id: number
+  waId: string
+  phoneNumberId: string | null
+  handedOverAt: Date | null
+  producerId: number
+  producerCodeId: number | null
+  clientId: number | null
+  contactName: string | null
+  client: { firstName: string; lastName: string } | null
+  producer: { businessHours: unknown } | null
+}
+
+type CustomerMessage = { createdAt: Date; content: string }
 
 /**
  * Gives a conversation back to the bot once the human who took it over is
@@ -29,6 +50,13 @@ const DEFAULT_MAX_MINUTES = 120
  *
  * Human activity = the takeover itself, an inbox reply (role "agent") or an
  * app reply (source "app_echo").
+ *
+ * While the chat is the office's, nobody watches it for them: a customer of
+ * Roldán wrote at 14:30, the bot stayed out (the person had written at 12:48)
+ * and the person saw it the next afternoon (conv 216, 5/11). So the same sweep
+ * raises a matter in "Asuntos pendientes" once a customer's message has gone
+ * BOT_UNANSWERED_ALERT_MINUTES (default 30) without a reply from anyone. The
+ * office answering resolves it, like any other matter of the chat.
  */
 @Injectable()
 export class BotTakeoverTimeoutService {
@@ -36,16 +64,19 @@ export class BotTakeoverTimeoutService {
   private readonly operatorIdleMs: number
   private readonly quietMs: number
   private readonly maxMs: number
+  private readonly unansweredMs: number
   private running = false
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly inbox: InboxService,
+    private readonly novedades: NovedadesService,
     config: ConfigService,
   ) {
     this.operatorIdleMs = minutes(config.get<string>('BOT_TAKEOVER_TIMEOUT_MINUTES'), DEFAULT_OPERATOR_IDLE_MINUTES)
     this.quietMs = minutes(config.get<string>('BOT_TAKEOVER_QUIET_MINUTES'), DEFAULT_QUIET_MINUTES)
     this.maxMs = minutes(config.get<string>('BOT_TAKEOVER_MAX_MINUTES'), DEFAULT_MAX_MINUTES)
+    this.unansweredMs = minutes(config.get<string>('BOT_UNANSWERED_ALERT_MINUTES'), DEFAULT_UNANSWERED_ALERT_MINUTES)
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -53,13 +84,18 @@ export class BotTakeoverTimeoutService {
     if (this.running) return 0
     this.running = true
     try {
-      const paused = await this.prisma.conversation.findMany({
+      const paused: PausedConversation[] = await this.prisma.conversation.findMany({
         where: { botPaused: true, deletedAt: null },
         select: {
           id: true,
           waId: true,
           phoneNumberId: true,
           handedOverAt: true,
+          producerId: true,
+          producerCodeId: true,
+          clientId: true,
+          contactName: true,
+          client: { select: { firstName: true, lastName: true } },
           producer: { select: { businessHours: true } },
         },
       })
@@ -80,8 +116,11 @@ export class BotTakeoverTimeoutService {
         const hours =
           (conversation.phoneNumberId && numberHours.get(conversation.phoneNumberId)) ??
           conversation.producer?.businessHours
-        const reason = this.releaseReason(lastHuman, lastCustomer, hours, now, closures)
-        if (!reason) continue
+        const reason = this.releaseReason(lastHuman, lastCustomer?.createdAt ?? null, hours, now, closures)
+        if (!reason) {
+          await this.alertUnanswered(conversation, lastHuman, lastCustomer, now)
+          continue
+        }
         if (await this.inbox.autoReleaseToBot(conversation)) {
           released++
           this.logger.log(`Conversation ${conversation.id} returned to the bot (${reason})`)
@@ -169,13 +208,66 @@ export class BotTakeoverTimeoutService {
     return times.length ? new Date(Math.max(...times.map(d => d.getTime()))) : null
   }
 
-  private async lastCustomerMessage(conversationId: number): Promise<Date | null> {
+  private async lastCustomerMessage(conversationId: number): Promise<CustomerMessage | null> {
     const last = await this.prisma.message.findFirst({
       where: { conversationId, deletedAt: null, role: 'user' },
       orderBy: { createdAt: 'desc' },
-      select: { createdAt: true },
+      select: { createdAt: true, content: true },
     })
-    return last?.createdAt ?? null
+    return last ? { createdAt: last.createdAt, content: last.content ?? '' } : null
+  }
+
+  /**
+   * The customer wrote after the person's last line and nobody has answered
+   * for BOT_UNANSWERED_ALERT_MINUTES: a matter for the office, once per
+   * customer message (any matter of the chat raised since it counts). Never
+   * throws: the sweep goes on with the next chat.
+   */
+  private async alertUnanswered(
+    conversation: PausedConversation,
+    lastHuman: Date | null,
+    lastCustomer: CustomerMessage | null,
+    now: Date,
+  ): Promise<void> {
+    if (!lastCustomer) return
+    if (lastHuman && lastCustomer.createdAt <= lastHuman) return
+    if (now.getTime() - lastCustomer.createdAt.getTime() < this.unansweredMs) return
+    try {
+      const raised = await this.prisma.notification.findFirst({
+        where: {
+          refId: conversation.id,
+          type: NovedadType.HANDOFF,
+          deletedAt: null,
+          createdAt: { gte: lastCustomer.createdAt },
+        },
+        select: { id: true },
+      })
+      if (raised) return
+      const name = conversation.client
+        ? `${conversation.client.firstName} ${conversation.client.lastName}`.trim()
+        : (conversation.contactName ?? conversation.waId)
+      const at = lastCustomer.createdAt.toLocaleTimeString('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'America/Argentina/Buenos_Aires',
+      })
+      const line = lastCustomer.content.replace(/\s+/g, ' ').trim()
+      const quoted = line.length > UNANSWERED_CLIP ? `${line.slice(0, UNANSWERED_CLIP - 1)}…` : line
+      await this.novedades.recordHandoff(conversation.producerId, {
+        conversationId: conversation.id,
+        clientId: conversation.clientId,
+        clienteNombre: name,
+        producerCodeId: conversation.producerCodeId,
+        phoneNumberId: conversation.phoneNumberId,
+        reason: `Sin respuesta desde las ${at} en un chat que atiende la oficina: "${quoted}"`,
+      })
+      this.logger.log(`Conversation ${conversation.id}: customer unanswered since ${at}, office alerted`)
+    } catch (error) {
+      this.logger.error(
+        `Could not alert the unanswered customer of conversation ${conversation.id}: ${(error as Error).message}`,
+      )
+    }
   }
 }
 
