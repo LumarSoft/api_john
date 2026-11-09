@@ -5,9 +5,13 @@ import { RolesGuard } from '../auth/roles.guard'
 import { Roles } from '../auth/roles.decorator'
 import { ScopeService } from '../common/scope/scope.service'
 import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
+import { AssignOpportunitiesDto } from './dto/assign-opportunities.dto'
 import { CampaignIdsDto } from './dto/campaign-ids.dto'
 import { CampaignKindParamDto } from './dto/campaign-kind-param.dto'
+import { CampaignResultsDto } from './dto/campaign-results.dto'
 import { ListCampaignCandidatesDto } from './dto/list-campaign-candidates.dto'
+import { OpportunityTargetParamDto } from './dto/opportunity-target-param.dto'
+import { UpdateOpportunityDto } from './dto/update-opportunity.dto'
 import { UpdateSalesCampaignDto } from './dto/update-sales-campaign.dto'
 import { SalesCampaignsService } from './sales-campaigns.service'
 
@@ -24,6 +28,16 @@ export class AdminSalesCampaignsController {
   @Get()
   async list(@Request() req: AuthenticatedRequest) {
     return this.campaigns.list(req.user, await this.scope.resolveAccessibleProducerCodeIds(req.user))
+  }
+
+  /** Before `:kind`: "results" is not a campaign. */
+  @Get('results')
+  async results(@Query() query: CampaignResultsDto, @Request() req: AuthenticatedRequest) {
+    const codeIds = await this.scope.resolveScopedCodeIdsFor(req.user, {
+      producerCodeId: query.producerCodeId,
+      phoneNumberId: query.phoneNumberId,
+    })
+    return this.campaigns.results(req.user, codeIds, query)
   }
 
   @Patch(':kind')
@@ -59,7 +73,29 @@ export class AdminSalesCampaignsController {
       producerCodeId: query.producerCodeId,
       phoneNumberId: query.phoneNumberId,
     })
-    return this.campaigns.candidates(req.user, params.kind, codeIds, query)
+    // "Mis oportunidades": the ones the user follows.
+    const filters = query.mine === 'true' ? { ...query, assignedToId: req.user.id } : query
+    return this.campaigns.candidates(req.user, params.kind, codeIds, filters)
+  }
+
+  @Post(':kind/assign')
+  async assign(
+    @Param() params: CampaignKindParamDto,
+    @Body() body: AssignOpportunitiesDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.campaigns.assign(req.user, params.kind, codeIds, body)
+  }
+
+  @Patch(':kind/opportunities/:targetId')
+  async updateOpportunity(
+    @Param() params: OpportunityTargetParamDto,
+    @Body() body: UpdateOpportunityDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const codeIds = await this.scope.resolveAccessibleProducerCodeIds(req.user)
+    return this.campaigns.updateOpportunity(req.user, params.kind, codeIds, params.targetId, body)
   }
 
   @Post(':kind/send')

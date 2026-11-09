@@ -79,6 +79,7 @@ model Producer {
   salesCampaigns          SalesCampaign[]
   salesCampaignMessages   SalesCampaignMessage[]
   salesCampaignOptOuts    SalesCampaignOptOut[]
+  salesOpportunities      SalesOpportunity[]
   triunfoCredential       TriunfoCredential?
   triunfoAuthStatus       TriunfoAuthStatus?
   triunfoErrors           TriunfoError[]
@@ -301,6 +302,7 @@ model ProducerCode {
   // Phone numbers whose billing is attributed to this code.
   responsibleForPhones  PhoneNumber[]             @relation("phone_responsible_code")
   salesCampaignMessages SalesCampaignMessage[]
+  salesOpportunities    SalesOpportunity[]
   // Phone numbers this code is served by (many-to-many, e.g. shared office line).
   servedByPhones        PhoneNumberProducerCode[]
   usageMonthly          UsageMonthly[]
@@ -620,27 +622,29 @@ model User {
   updatedAt                DateTime  @updatedAt
   deletedAt                DateTime?
 
-  producerId                Int
-  producer                  Producer                 @relation(fields: [producerId], references: [id])
+  producerId                 Int
+  producer                   Producer                 @relation(fields: [producerId], references: [id])
   // Producer codes this admin may access (ignored for SUPERADMIN = all codes).
-  producerCodes             UserProducerCode[]
-  quotes                    Quote[]
-  assignedConversations     Conversation[]           @relation("assigned_conversations")
-  botStatusChanges          BotStatusChange[]
-  proposals                 ImprovementProposal[]
-  tasksCreated              Task[]                   @relation("tasks_created")
-  tasksAssigned             Task[]                   @relation("tasks_assigned")
-  taskComments              TaskComment[]
-  paymentRejectionImports   PaymentRejectionImport[]
-  policiesHidden            Policy[]                 @relation("policies_hidden")
-  paymentRejectionsSent     PaymentRejection[]
-  policyExpiryNoticesSent   PolicyExpiryNotice[]     @relation("policy_expiry_notices_sent")
-  salesCampaignMessagesSent SalesCampaignMessage[]   @relation("sales_campaign_messages_sent")
-  salesCampaignsUpdated     SalesCampaign[]          @relation("sales_campaigns_updated")
-  salesCampaignOptOutsMade  SalesCampaignOptOut[]    @relation("sales_campaign_opt_outs_made")
-  activityLogs              ActivityLog[]
-  assistantConversations    AssistantConversation[]
-  assistantActions          AssistantAction[]
+  producerCodes              UserProducerCode[]
+  quotes                     Quote[]
+  assignedConversations      Conversation[]           @relation("assigned_conversations")
+  botStatusChanges           BotStatusChange[]
+  proposals                  ImprovementProposal[]
+  tasksCreated               Task[]                   @relation("tasks_created")
+  tasksAssigned              Task[]                   @relation("tasks_assigned")
+  taskComments               TaskComment[]
+  paymentRejectionImports    PaymentRejectionImport[]
+  policiesHidden             Policy[]                 @relation("policies_hidden")
+  paymentRejectionsSent      PaymentRejection[]
+  policyExpiryNoticesSent    PolicyExpiryNotice[]     @relation("policy_expiry_notices_sent")
+  salesCampaignMessagesSent  SalesCampaignMessage[]   @relation("sales_campaign_messages_sent")
+  salesCampaignsUpdated      SalesCampaign[]          @relation("sales_campaigns_updated")
+  salesCampaignOptOutsMade   SalesCampaignOptOut[]    @relation("sales_campaign_opt_outs_made")
+  salesOpportunitiesAssigned SalesOpportunity[]       @relation("sales_opportunities_assigned")
+  salesOpportunitiesUpdated  SalesOpportunity[]       @relation("sales_opportunities_updated")
+  activityLogs               ActivityLog[]
+  assistantConversations     AssistantConversation[]
+  assistantActions           AssistantAction[]
 }
 
 // ─── CLIENTES ASEGURADOS ─────────────────────────────────
@@ -674,6 +678,7 @@ model Client {
   paymentRejections     PaymentRejection[]
   policyExpiryNotices   PolicyExpiryNotice[]
   salesCampaignMessages SalesCampaignMessage[]
+  salesOpportunities    SalesOpportunity[]
 
   @@unique([email, producerId])
   @@unique([dni, producerId])
@@ -732,6 +737,8 @@ model Policy {
   paymentRejections     PaymentRejection[]
   expiryNotices         PolicyExpiryNotice[]
   salesCampaignMessages SalesCampaignMessage[]
+  salesOpportunities    SalesOpportunity[]     @relation("sales_opportunities_policy")
+  salesOpportunitiesWon SalesOpportunity[]     @relation("sales_opportunities_won_policy")
 
   @@unique([certificateNumber, producerId])
   @@index([producerCodeId])
@@ -924,6 +931,8 @@ model Quote {
   // The vehicle as the bot named it to the client ("FORD KA 1.5 SE"), for the follow-up.
   vehicleLabel          String?                @db.VarChar(160)
   salesCampaignMessages SalesCampaignMessage[]
+  salesOpportunities    SalesOpportunity[]     @relation("sales_opportunities_quote")
+  salesOpportunitiesWon SalesOpportunity[]     @relation("sales_opportunities_won_quote")
 
   @@index([producerCodeId])
   @@index([producerId, phoneNumberId])
@@ -1655,7 +1664,8 @@ model SalesCampaign {
   updatedById Int?
   updatedBy   User?    @relation("sales_campaigns_updated", fields: [updatedById], references: [id])
 
-  messages SalesCampaignMessage[]
+  messages      SalesCampaignMessage[]
+  opportunities SalesOpportunity[]
 
   @@unique([producerId, kind])
 }
@@ -1848,4 +1858,80 @@ model AssistantAction {
 
   @@index([conversationId])
   @@index([userId, status])
+}
+
+// ─── OPORTUNIDADES DE VENTA ───────────────────────────────
+/// Where a campaign's opportunity stands (Nico's proposal: each opportunity is
+/// assigned and followed to its result). The system moves it forward on its own
+/// when it can tell (the customer answered, a quote, a new policy); the office
+/// closes it as lost, or as won when the sale was made elsewhere.
+enum SalesOpportunityStatus {
+  NEW // listed, assigned, nothing sent yet
+  CONTACTED // the campaign message went out, or the office marked it contacted
+  REPLIED // the customer answered in the chat
+  QUOTED // a quote followed the contact
+  WON // a policy followed the contact (or the office said so)
+  LOST // the office closed it without a sale
+}
+
+enum SalesOpportunityLostReason {
+  PRICE
+  OTHER_INSURER
+  NO_ANSWER
+  SOLD_ASSET
+  OTHER
+}
+
+/// One client's opportunity in one campaign: the target the office follows (a
+/// policy, or a quote in QUOTE_FOLLOWUP), who it is assigned to, where it stands
+/// and what came of it. One per campaign and target.
+model SalesOpportunity {
+  id        Int                    @id @default(autoincrement())
+  /// "policy:<id>" or "quote:<id>" (SalesOpportunitiesService.targetKeyOf).
+  targetKey String                 @db.VarChar(40)
+  status    SalesOpportunityStatus @default(NEW)
+
+  contactedAt DateTime?
+  repliedAt   DateTime?
+  quotedAt    DateTime?
+  wonAt       DateTime?
+  lostAt      DateTime?
+  lostReason  SalesOpportunityLostReason?
+  /// The office's note: what the client said, why it was lost…
+  note        String?                     @db.Text
+  /// The premium of the policy that closed it, when known (Policy.premium), for the results.
+  wonPremium  Decimal?                    @db.Decimal(12, 2)
+  assignedAt  DateTime?
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+  deletedAt   DateTime?
+
+  campaignId     Int
+  campaign       SalesCampaign @relation(fields: [campaignId], references: [id])
+  producerId     Int
+  producer       Producer      @relation(fields: [producerId], references: [id])
+  producerCodeId Int?
+  producerCode   ProducerCode? @relation(fields: [producerCodeId], references: [id])
+  clientId       Int?
+  client         Client?       @relation(fields: [clientId], references: [id])
+  /// The target: the policy the campaign listed…
+  policyId       Int?
+  policy         Policy?       @relation("sales_opportunities_policy", fields: [policyId], references: [id])
+  /// …or the quote (QUOTE_FOLLOWUP).
+  quoteId        Int?
+  quote          Quote?        @relation("sales_opportunities_quote", fields: [quoteId], references: [id])
+  /// What came of it: the quote that followed the contact, the policy that closed it.
+  wonQuoteId     Int?
+  wonQuote       Quote?        @relation("sales_opportunities_won_quote", fields: [wonQuoteId], references: [id])
+  wonPolicyId    Int?
+  wonPolicy      Policy?       @relation("sales_opportunities_won_policy", fields: [wonPolicyId], references: [id])
+  assignedToId   Int?
+  assignedTo     User?         @relation("sales_opportunities_assigned", fields: [assignedToId], references: [id])
+  updatedById    Int?
+  updatedBy      User?         @relation("sales_opportunities_updated", fields: [updatedById], references: [id])
+
+  @@unique([campaignId, targetKey])
+  @@index([producerId, status])
+  @@index([assignedToId])
+  @@index([clientId])
 }

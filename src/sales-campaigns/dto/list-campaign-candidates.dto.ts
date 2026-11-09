@@ -1,7 +1,12 @@
 import { Type } from 'class-transformer'
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
+import { SalesOpportunityStatus } from 'generated/prisma/client'
 import { CobranzasScopeDto } from '../../clients/dto/list-cobranzas.dto'
 import { CANCELLATION_REASONS, type CancellationReason } from '../campaign-catalog'
+
+/** Where the opportunity stands, or `none`: nobody contacted or assigned yet. */
+export const OPPORTUNITY_FILTERS = ['none', ...Object.values(SalesOpportunityStatus)] as const
+export type OpportunityFilter = (typeof OPPORTUNITY_FILTERS)[number]
 
 /**
  * The column the list is sorted by: the campaign's date (Motivo), the client,
@@ -32,6 +37,23 @@ export class ListCampaignCandidatesDto extends CobranzasScopeDto {
   @IsOptional()
   @IsIn(CANCELLATION_REASONS)
   reason?: CancellationReason
+
+  /** Where the opportunity stands (CONTACTED, WON…), or `none` for those nobody touched. */
+  @IsOptional()
+  @IsIn(OPPORTUNITY_FILTERS)
+  status?: OpportunityFilter
+
+  /** Only the opportunities this person follows. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  assignedToId?: number
+
+  /** `true`: only the opportunities the user follows (the controller resolves who). */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  mine?: 'true' | 'false'
 
   /** Default: `date`, newest first (in Renovaciones, the one that ends soonest). */
   @IsOptional()

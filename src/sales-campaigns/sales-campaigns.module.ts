@@ -6,12 +6,13 @@ import { AdminSalesCampaignsController } from './admin-sales-campaigns.controlle
 import { CampaignFinderService } from './campaign-finder.service'
 import { CampaignTemplatesService } from './campaign-templates.service'
 import { SalesCampaignsService } from './sales-campaigns.service'
+import { SalesOpportunitiesService } from './sales-opportunities.service'
 
-/** Nico's sales campaigns: who to offer something to, and the Meta templates that write to them. */
+/** Nico's sales campaigns: who to offer something to, the Meta templates that write to them, and what came of each. */
 @Module({
   imports: [InboxModule, NoticesModule, PlanFeaturesModule],
   controllers: [AdminSalesCampaignsController],
-  providers: [SalesCampaignsService, CampaignFinderService, CampaignTemplatesService],
+  providers: [SalesCampaignsService, SalesOpportunitiesService, CampaignFinderService, CampaignTemplatesService],
   exports: [SalesCampaignsService],
 })
 export class SalesCampaignsModule {}

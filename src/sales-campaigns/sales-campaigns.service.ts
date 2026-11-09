@@ -5,6 +5,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
   OnModuleInit,
 } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
@@ -33,6 +34,10 @@ import {
   withSettings,
 } from './campaign-catalog'
 import { CampaignFinderService, CampaignTarget, formatDay } from './campaign-finder.service'
+import { opportunityView, SalesOpportunitiesService, targetKeyOf } from './sales-opportunities.service'
+import type { AssignOpportunitiesDto } from './dto/assign-opportunities.dto'
+import type { CampaignResultsDto } from './dto/campaign-results.dto'
+import type { UpdateOpportunityDto } from './dto/update-opportunity.dto'
 import { CampaignTemplatesService, StoredTemplates } from './campaign-templates.service'
 import { CampaignSortField, ListCampaignCandidatesDto, SortOrder } from './dto/list-campaign-candidates.dto'
 import { UpdateSalesCampaignDto } from './dto/update-sales-campaign.dto'
@@ -85,6 +90,7 @@ export class SalesCampaignsService implements OnModuleInit {
     private readonly planFeatures: PlanFeaturesService,
     private readonly delivery: NoticeDeliveryService,
     private readonly botNotifier: BotNotifierService,
+    private readonly opportunities: SalesOpportunitiesService,
   ) {}
 
   /** A restart in the middle of a send leaves messages in SENDING forever. */
@@ -232,19 +238,35 @@ export class SalesCampaignsService implements OnModuleInit {
     const row = await this.findRow(user.producerId, definition)
     const settings = settingsOf(definition, row?.settings)
     const targets = await this.finder.find(definition, settings, user.producerId, codeIds, now)
-    const [messages, optedOut] = await Promise.all([
+    const [messages, optedOut, opportunities, customerReasons] = await Promise.all([
       row ? this.recentMessages(row.id, now) : Promise.resolve([]),
       this.optedOutWaIds(user.producerId),
+      row ? this.opportunities.forCampaign(row.id) : Promise.resolve(new Map()),
+      // Bajas y anulaciones: what the client told the bot when asking to cancel.
+      definition.kind === 'winback'
+        ? this.opportunities.customerReasons(
+            user.producerId,
+            targets.flatMap(t => (t.clientId != null ? [t.clientId] : [])),
+          )
+        : Promise.resolve(new Map<number, string>()),
     ])
 
     const search = (query.search ?? '').trim().toLowerCase()
     const coverage = query.coverage?.trim().toUpperCase()
+    const opportunityOf = (t: CampaignTarget) => opportunities.get(targetKeyOf(definition, t.id)) ?? null
     const listed = targets
       .filter(t => !search || [t.name, t.dni, t.item, t.detail].some(v => v?.toLowerCase().includes(search)))
       .filter(t => !coverage || t.coverages.some(c => c.toUpperCase() === coverage))
       .filter(t => !query.reason || t.reason === query.reason)
+      .filter(t => {
+        if (!query.status) return true
+        const status = opportunityOf(t)?.status ?? 'NEW'
+        return query.status === 'none' ? status === 'NEW' : status === query.status
+      })
+      .filter(t => !query.assignedToId || opportunityOf(t)?.assignedTo?.id === query.assignedToId)
       .map(t => {
         const last = this.lastMessageFor(t, definition, messages)
+        const opportunity = opportunityOf(t)
         const row = {
           id: t.id,
           client: { id: t.clientId, name: t.name, dni: t.dni, phone: t.phone ?? (t.waId ? `+${t.waId}` : null) },
@@ -263,6 +285,10 @@ export class SalesCampaignsService implements OnModuleInit {
               }
             : null,
           optedOut: this.isOptedOut(t, optedOut),
+          // Who follows it and where it stands; null until somebody contacts or assigns it.
+          opportunity: opportunity ? opportunityView(opportunity) : null,
+          // Bajas y anulaciones: the reason the client gave the bot, besides Triunfo's.
+          customerReason: t.clientId != null ? (customerReasons.get(t.clientId) ?? null) : null,
         }
         const lastAt = last ? (last.sentAt ?? last.createdAt).getTime() : null
         return { row, sortDate: t.sortDate?.getTime() ?? 0, lastAt }
@@ -381,6 +407,7 @@ export class SalesCampaignsService implements OnModuleInit {
     const cooldownFrom = new Date(now.getTime() - numberSetting(settings, 'cooldownDays') * DAY_MS)
 
     const claimed: number[] = []
+    const contacted: CampaignTarget[] = []
     const skipped: Array<{ id: number; reason: CampaignSkip }> = []
     for (const target of targets) {
       const last = this.lastMessageFor(target, definition, messages)
@@ -416,8 +443,11 @@ export class SalesCampaignsService implements OnModuleInit {
         select: { id: true },
       })
       claimed.push(message.id)
+      contacted.push(target)
     }
     if (!claimed.length) throw new BadRequestException('A ninguno de los elegidos se le puede escribir ahora.')
+    // Each one written to is an opportunity of whoever sent it, from now on.
+    await this.opportunities.contacted(row.id, user.producerId, definition, contacted, user.id, now)
 
     const values = new Map(targets.map(t => [t.id, t]))
     void this.deliverAll(claimed, { definition, row, senders, approved, values }).catch(error =>
@@ -458,7 +488,55 @@ export class SalesCampaignsService implements OnModuleInit {
         })),
       })
     }
+    if (marked.length) await this.opportunities.contacted(row.id, user.producerId, definition, marked, user.id, now)
     return { marked: marked.length }
+  }
+
+  // ─── Following each one ────────────────────────────────
+
+  /** "Asignar a…": the ticked clients' opportunities go to one person of the office (or to nobody). */
+  async assign(user: ScopeUser, kind: string, codeIds: number[], dto: AssignOpportunitiesDto, now = new Date()) {
+    const definition = campaignOf(kind)
+    await this.planFeatures.assertRole(user, definition.feature)
+    const row = await this.ensureRow(user, definition)
+    const targets = await this.finder.find(
+      definition,
+      settingsOf(definition, row.settings),
+      user.producerId,
+      codeIds,
+      now,
+      dto.ids,
+    )
+    return this.opportunities.assign(user, row.id, definition, targets, dto.assignedToId ?? null, now)
+  }
+
+  /** What the office says about one client's opportunity: won, lost (why), reopened, a note, who follows it. */
+  async updateOpportunity(
+    user: ScopeUser,
+    kind: string,
+    codeIds: number[],
+    targetId: number,
+    dto: UpdateOpportunityDto,
+    now = new Date(),
+  ) {
+    const definition = campaignOf(kind)
+    await this.planFeatures.assertRole(user, definition.feature)
+    const row = await this.ensureRow(user, definition)
+    const [target] = await this.finder.find(
+      definition,
+      settingsOf(definition, row.settings),
+      user.producerId,
+      codeIds,
+      now,
+      [targetId],
+    )
+    if (!target) throw new NotFoundException('Ese cliente ya no está en la campaña.')
+    return this.opportunities.update(user, row.id, definition, target, dto, now)
+  }
+
+  /** How the campaigns did: sent, answered, quoted, won, lost and the premium, by campaign and by person. */
+  results(user: ScopeUser, codeIds: number[], query: CampaignResultsDto) {
+    return this.opportunities.results(user, codeIds, query)
   }
 
   /** These people asked not to get campaign messages: no campaign of the organization offers them again. */

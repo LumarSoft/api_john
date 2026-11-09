@@ -2761,6 +2761,83 @@ These people asked not to get campaign messages: no campaign of the organization
 { "optedOut": 2 }
 ```
 
+### Opportunities (following each client)
+
+Each client a campaign writes to (`send`) or marks contacted (`mark`) becomes an **opportunity**: assigned to whoever did it unless somebody already follows it, and moved forward by the platform when it can tell what happened — `REPLIED` when the customer answers in the chat the message went to, `QUOTED` when a quote is asked there after the contact, `WON` when the cartera sync brings a policy of the client that answers the campaign (Renovaciones: the same vehicle starting within 45 days of the old end; Mejora de coberturas: the same vehicle with a coverage outside the campaign's basic ones, or the same policy upgraded; Bajas y anulaciones: a policy for the same vehicle or risk; Venta cruzada: a home policy; Cotizaciones sin cerrar: any policy of the client). Checked every 10 minutes and before the results. The office closes it as `LOST` (with a reason) or `WON` by hand, reopens it, writes a note and reassigns it. `GET /admin/campaigns/:kind/candidates` carries each row's `opportunity` (`null` until contacted or assigned) and, in `winback`, `customerReason`: what the client told the bot when asking to cancel; it takes `status` (`none`, `NEW`, `CONTACTED`, `REPLIED`, `QUOTED`, `WON`, `LOST`), `assignedToId` and `mine=true`.
+
+```json
+"opportunity": {
+  "id": 12, "status": "QUOTED", "statusLabel": "Cotizado",
+  "assignedTo": { "id": 4, "name": "Vanesa" }, "assignedAt": "2026-11-07T19:46:00.000Z",
+  "contactedAt": "2026-11-07T19:46:00.000Z", "repliedAt": "2026-11-08T12:00:00.000Z", "quotedAt": "2026-11-08T13:00:00.000Z",
+  "wonAt": null, "lostAt": null, "lostReason": null, "lostReasonLabel": null, "note": null, "wonPremium": null
+}
+```
+
+### POST /admin/campaigns/:kind/assign
+
+"Asignar a…": the ticked clients' opportunities (opened as `NEW` when needed) go to one person of the office, or to nobody.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER; the role must have the campaign on)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| ids | number[] | Yes | 1–500 ids of the list |
+| assignedToId | number \| null | Yes | A user of the organization (not the OWNER); `null` takes the assignee off |
+
+`201 Created`
+
+```json
+{ "assigned": 3 }
+```
+
+`400 Bad Request` — `"Esa persona no es de esta oficina."`
+
+### PATCH /admin/campaigns/:kind/opportunities/:targetId
+
+What the office says about one client's opportunity (`targetId` is the row's `id`: a policy, or a quote in `quote_followup`). Every field is optional.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER; the role must have the campaign on)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| status | string | No | `WON`, `LOST` or `CONTACTED` (reopened: back to what the facts say) |
+| lostReason | string | No | `PRICE`, `OTHER_INSURER`, `NO_ANSWER`, `SOLD_ASSET`, `OTHER`; required to set `LOST` |
+| wonPremium | number \| null | No | The premium of the sale, when known |
+| note | string \| null | No | Up to 2000 characters |
+| assignedToId | number \| null | No | Who follows it; closing it by hand assigns it to the user when nobody did |
+
+`200 OK` — the `opportunity` object above.
+
+`400 Bad Request` — `"Decí por qué se perdió la oportunidad."` · `404 Not Found` — `"Ese cliente ya no está en la campaña."`
+
+### GET /admin/campaigns/results
+
+How the campaigns did in a period, in the user's scope (`producerCodeId` / `phoneNumberId` as the other lists): what went out, how many answered, got a quote, bought or were lost, and the premium of what was sold; by campaign and by person. An opportunity belongs to the period it was contacted in. Query: `kind` (one campaign; default all), `from`, `to` (ISO day or instant; a day covers the whole day in Argentina; default the last 90 days), `assignedToId`.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+{
+  "from": "2026-08-11T15:00:00.000Z",
+  "to": "2026-11-09T15:00:00.000Z",
+  "campaigns": [
+    { "kind": "renewal", "label": "Renovaciones", "sent": 40, "marked": 3, "contacted": 43, "replied": 18, "quoted": 9, "won": 6, "lost": 4, "open": 33, "premium": 512000 }
+  ],
+  "totals": { "sent": 40, "marked": 3, "contacted": 43, "replied": 18, "quoted": 9, "won": 6, "lost": 4, "open": 33, "premium": 512000 },
+  "byAssignee": [
+    { "user": { "id": 4, "name": "Vanesa" }, "contacted": 20, "replied": 9, "quoted": 5, "won": 4, "lost": 2, "open": 14, "premium": 380000 },
+    { "user": null, "contacted": 3, "replied": 0, "quoted": 0, "won": 0, "lost": 0, "open": 3, "premium": 0 }
+  ]
+}
+```
+
 ## Bot (WhatsApp)
 
 All `/bot/*` endpoints require the header `x-bot-secret` matching the `BOT_SECRET` env variable. They are consumed exclusively by `whatsapp-bot-seguros` — the bot never accesses the database directly.

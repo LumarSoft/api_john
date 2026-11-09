@@ -9,6 +9,7 @@ import type { CampaignFinderService, CampaignTarget } from './campaign-finder.se
 import type { CampaignTemplatesService } from './campaign-templates.service'
 import { CampaignTemplatesService as RealTemplates } from './campaign-templates.service'
 import { SalesCampaignsService } from './sales-campaigns.service'
+import type { SalesOpportunitiesService } from './sales-opportunities.service'
 
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
 const NOW = new Date('2026-11-04T15:00:00Z')
@@ -109,6 +110,14 @@ function setup({ row = {}, targets = [target()], messages = [] as unknown[], opt
     recordInChat: jest.fn().mockResolvedValue(40),
   }
   const botNotifier = { sendTemplate: jest.fn().mockResolvedValue(undefined) }
+  const opportunities = {
+    forCampaign: jest.fn().mockResolvedValue(new Map()),
+    customerReasons: jest.fn().mockResolvedValue(new Map()),
+    contacted: jest.fn().mockResolvedValue(undefined),
+    assign: jest.fn().mockResolvedValue({ assigned: 1 }),
+    update: jest.fn(),
+    results: jest.fn(),
+  }
   const service = new SalesCampaignsService(
     prisma as unknown as PrismaService,
     finder as unknown as CampaignFinderService,
@@ -116,8 +125,9 @@ function setup({ row = {}, targets = [target()], messages = [] as unknown[], opt
     planFeatures as unknown as PlanFeaturesService,
     delivery as unknown as NoticeDeliveryService,
     botNotifier as unknown as BotNotifierService,
+    opportunities as unknown as SalesOpportunitiesService,
   )
-  return { service, prisma, finder, templates, planFeatures, delivery, botNotifier }
+  return { service, prisma, finder, templates, planFeatures, delivery, botNotifier, opportunities }
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
