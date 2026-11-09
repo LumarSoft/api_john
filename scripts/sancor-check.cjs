@@ -17,6 +17,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 const get = key => (process.env[key] ?? env[key] ?? '').trim()
+const print = line => process.stdout.write(`${line}\n`)
 
 const baseUrl = get('SANCOR_BASE_URL') || 'https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog'
 const clientId = get('SANCOR_CLIENT_ID')
@@ -38,7 +39,6 @@ if (missing.length) {
 
 const headers = { 'Content-Type': 'application/json', gss_apiclient_id: clientId, 'X-IBM-Client-Id': clientId }
 const brief = text => text.replace(/\s+/g, ' ').slice(0, 300)
-const print = line => process.stdout.write(`${line}\n`)
 
 ;(async () => {
   print(`Ambiente: ${baseUrl}`)
