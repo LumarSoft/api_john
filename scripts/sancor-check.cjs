@@ -56,7 +56,9 @@ const brief = text => text.replace(/\s+/g, ' ').slice(0, 300)
   } catch {
     // Not JSON: an HTML error page of the gateway.
   }
-  if (!response.ok || !data?.access_token) {
+  // The services take the id_token; with the access_token the cartera answers 401.
+  const token = data?.id_token || data?.access_token
+  if (!response.ok || !token) {
     // The error of Sancor, without anything we sent.
     print(`Token: NO (HTTP ${response.status}) — ${brief(data ? JSON.stringify(data) : text)}`)
     process.exit(1)
@@ -68,7 +70,7 @@ const brief = text => text.replace(/\s+/g, ' ').slice(0, 300)
   const url = new URL(`${baseUrl}/policies`)
   url.searchParams.set('identificationNumber', dni)
   const policies = await fetch(url, {
-    headers: { ...headers, Authorization: `Bearer ${data.access_token}` },
+    headers: { ...headers, Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(20_000),
   })
   const body = await policies.text()

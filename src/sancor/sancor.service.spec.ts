@@ -68,6 +68,16 @@ describe('SancorService.getToken', () => {
     )
   })
 
+  it('uses the id_token Sancor returns: the services refuse the access_token', async () => {
+    const post = jest
+      .fn()
+      .mockReturnValue(
+        of({ status: 200, data: { access_token: 'opaque', id_token: 'id.jwt.token', expires_in: 86400 } }),
+      )
+
+    expect(await createService({ post }).getToken()).toBe('id.jwt.token')
+  })
+
   it('reuses the token while it is alive and shares one request between concurrent callers', async () => {
     const post = jest.fn().mockReturnValue(tokenResponse())
     const service = createService({ post })

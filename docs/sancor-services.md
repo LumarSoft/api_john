@@ -110,7 +110,7 @@ gss_apiclient_id: <Clave>
 
 ```json
 200
-{ "access_token": "eyJ…", "id_token": "eyJ…", "scope": "openid", "expires_in": 3600, "token_type": "Bearer" }
+{ "access_token": "…", "id_token": "eyJ…", "scope": "openid profile", "expires_in": 86400, "token_type": "Bearer" }
 ```
 
 - Alcanza con la Clave: el Secreto no hace falta (probado el 20/10/2026). Lo que
@@ -120,9 +120,22 @@ gss_apiclient_id: <Clave>
     `403 {"moreInformation":"Not registered to plan"}`;
   - con la app suscripta y un usuario inexistente:
     `403 {"error":"invalid_grant","error_description":"Usuario o contraseña incorrecta."}`.
-- Los demás servicios piden `Authorization: Bearer <access_token>`. La spec de
-  Localidades lo describe como "Bearer Token". Que sea el `access_token` y no el
-  `id_token` está **a confirmar**.
+- Los demás servicios piden `Authorization: Bearer <id_token>`. **Confirmado el
+  9/11/2026 con las primeras llamadas reales:** con el `access_token` (opaco) la
+  cartera, los siniestros y `token/validate` contestan 401; con el `id_token`
+  responden. Localidades y Módulos aceptan cualquiera de los dos.
+  `SancorService` usa el `id_token` y deja el `access_token` de respaldo.
+- **El usuario del intermediario es el mismo de la web** (Portal de
+  Intermediarios / Ceibo): no hizo falta el SOLHDG. El login devuelve
+  `scope: "openid profile"`, `expires_in: 86400` y un `id_token` con el nombre
+  del productor, `officeId` y `upn` (`<usuario>@ProductorA.ceibo.sancorseguros.com`).
+- Probado ese día en preproducción con el usuario de John: `GET /localities`
+  (200), `GET /modules/automotive|motorcycle|bag|homeProtected` (200, con los
+  módulos reales), `GET /policies?licensePlate=…` (200, "No se encontraron
+  resultados" con una patente inexistente; sin ningún filtro contesta 401),
+  `POST /intermediaries/{producerCode}/claims/list` (422 "Debe informar
+  branchCode" con el cuerpo vacío) y `GET /parameters/claims/vehicles/types/data`
+  (500 "Could not connect to endpoint": caído del lado de Sancor).
 - `app_client` es opcional en la spec (el ejemplo dice `"Ceibo"`). Qué valor
   espera Sancor está **a confirmar**: por ahora va el de `SANCOR_APP_CLIENT`, o
   nada si está vacío.

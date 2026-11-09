@@ -118,8 +118,11 @@ export class SancorService {
       throw new UnauthorizedException(`No se pudo obtener token de Sancor — ${this.describeError(err)}`)
     }
 
-    const token = data?.access_token
-    if (!token) throw new UnauthorizedException('Sancor no devolvió access_token')
+    // The login answers two tokens and the services take the id_token: with
+    // the access_token the cartera, the claims and the token validation answer
+    // 401 (first real calls, 9/11/2026). The access_token stays as a fallback.
+    const token = data?.id_token || data?.access_token
+    if (!token) throw new UnauthorizedException('Sancor no devolvió un token')
 
     const lifeSeconds = Number(data?.expires_in) || SancorService.DEFAULT_TOKEN_LIFE_S
     this.cachedToken = token
