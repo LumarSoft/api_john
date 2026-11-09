@@ -38,11 +38,14 @@ const DEFAULT_SESSION_TIMEOUT_MINUTES = 5
 const WARNING_WINDOW_MS = 10 * 60_000
 // How far back the bot is told that a person from the office wrote to this
 // chat. A session lasts minutes, so a customer who answers that person an hour
-// later starts a fresh session the bot would otherwise greet from zero. Two
-// hours, the time the bot keeps out of a chat answered by hand: with three
-// days, a chat answered from the app at 14:06 got nothing from the bot but
-// "le pasé tu consulta a la oficina" (28/10).
-const HUMAN_REPLY_LOOKBACK_MS = 2 * 60 * 60_000
+// later starts a fresh session the bot would otherwise greet from zero. A day:
+// the bot keeps out of a chat answered by hand for two hours, and for the rest
+// of the day reads what the customer writes with that reply in view, so "¿si
+// lo hacemos ya queda asegurada?" the morning after the office quoted goes to
+// the office instead of opening a quote (9/11). What to do with the reply is
+// the bot's call; with three days, a chat answered from the app at 14:06 got
+// nothing from the bot but "le pasé tu consulta a la oficina" (28/10).
+const HUMAN_REPLY_LOOKBACK_MS = 24 * 60 * 60_000
 // A notice the platform sent on its own (a rechazo, a póliza vencida) is
 // answered days later — "sí, quiero renovar" the next morning — and that
 // answer is for the office, not a fresh conversation with the bot.

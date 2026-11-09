@@ -581,7 +581,7 @@ describe('BotService', () => {
       expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeLessThan(73 * 60 * 60_000)
     })
 
-    it('stops reporting what a person wrote after two hours, but a notice of the platform for three days', async () => {
+    it('stops reporting what a person wrote after a day, but a notice of the platform for three days', async () => {
       const conversation = (old: Date) => ({
         id: 7,
         sessionStartedAt: old,
@@ -590,7 +590,7 @@ describe('BotService', () => {
         client: null,
       })
 
-      const person = new Date(Date.now() - 3 * 60 * 60_000)
+      const person = new Date(Date.now() - 25 * 60 * 60_000)
       prisma.conversation.findFirst.mockResolvedValue(conversation(person))
       prisma.message.findFirst.mockResolvedValueOnce({ content: 'Dale, te aviso', createdAt: person, rawData: null })
       await expect(service.getOrCreateConversation('P1', 'wa1')).resolves.toMatchObject({ lastHumanReply: null })
