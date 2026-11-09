@@ -148,3 +148,34 @@ describe('WabaTemplatesService.createTemplate', () => {
     })
   })
 })
+
+describe('WabaTemplatesService.numbersOf', () => {
+  const account = { id: 6, wabaId: 'office-waba', accessToken: 'a' }
+
+  it('reads the daily limit from the field Meta keeps, and from the old one while that is all it sends', async () => {
+    const { service, fetchMock } = setup({
+      'office-waba': {
+        data: [
+          {
+            id: 'meta-8',
+            quality_rating: 'GREEN',
+            whatsapp_business_manager_messaging_limit: 'TIER_2K',
+            messaging_limit_tier: 'TIER_250',
+          },
+          { id: 'meta-11', quality_rating: 'YELLOW', messaging_limit_tier: 'TIER_250' },
+          { id: 'meta-12' },
+        ],
+      },
+    })
+
+    await expect(service.numbersOf(account)).resolves.toEqual([
+      { id: 'meta-8', quality: 'GREEN', messagingLimit: 'TIER_2K' },
+      { id: 'meta-11', quality: 'YELLOW', messagingLimit: 'TIER_250' },
+      { id: 'meta-12', quality: null, messagingLimit: null },
+    ])
+    const url = new URL(String(fetchMock.mock.calls[0][0]))
+    expect(url.searchParams.get('fields')).toBe(
+      'quality_rating,whatsapp_business_manager_messaging_limit,messaging_limit_tier',
+    )
+  })
+})

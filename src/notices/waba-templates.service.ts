@@ -75,6 +75,9 @@ interface GraphTemplate {
 interface GraphPhoneNumber {
   id?: string
   quality_rating?: string
+  /** The daily limit since Meta moved it to the business portfolio. */
+  whatsapp_business_manager_messaging_limit?: string
+  /** Deprecated by Meta; read only while an account still answers with it alone. */
   messaging_limit_tier?: string
 }
 
@@ -173,10 +176,18 @@ export class WabaTemplatesService {
   /** The account's numbers with their quality and daily limit. Throws MetaGraphError when Meta does not answer. */
   async numbersOf(account: WabaAccountRef): Promise<MetaPhoneNumber[]> {
     const rows = await this.list<GraphPhoneNumber>(account, 'phone_numbers', {
-      fields: 'quality_rating,messaging_limit_tier',
+      fields: 'quality_rating,whatsapp_business_manager_messaging_limit,messaging_limit_tier',
     })
     return rows.flatMap(p =>
-      p.id ? [{ id: p.id, quality: p.quality_rating ?? null, messagingLimit: p.messaging_limit_tier ?? null }] : [],
+      p.id
+        ? [
+            {
+              id: p.id,
+              quality: p.quality_rating ?? null,
+              messagingLimit: p.whatsapp_business_manager_messaging_limit ?? p.messaging_limit_tier ?? null,
+            },
+          ]
+        : [],
     )
   }
 
