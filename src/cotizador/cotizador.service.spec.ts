@@ -7,6 +7,7 @@ import type { NovedadesService } from '../novedades/novedades.service'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { TriunfoService } from '../triunfo/triunfo.service'
+import type { TriunfoErrorsService } from '../triunfo/triunfo-errors.service'
 import type { InfoAutoService } from '../infoauto/infoauto.service'
 import type { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 
@@ -21,6 +22,7 @@ describe('CotizadorService motorcycle availability', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
 
     await expect(
@@ -47,6 +49,7 @@ describe('CotizadorService vehicle code validation', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
     return { service, triunfo }
   }
@@ -89,6 +92,7 @@ describe('CotizadorService vehicle code validation', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
 
     await expect(
@@ -115,6 +119,7 @@ describe('CotizadorService model year guard', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
     await expect(
       service.quoteVehicle(
@@ -166,6 +171,7 @@ describe('CotizadorService motorcycle offers', () => {
       settings as unknown as CoverageSettingsService,
       { getOrThrow: () => 'https://triunfo.test' } as unknown as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
     const result = await service.quoteVehicle(
       VehicleType.MOTO,
@@ -173,9 +179,17 @@ describe('CotizadorService motorcycle offers', () => {
       1,
       null,
     )
-    expect(result.coverages.map(c => c.code)).toEqual(codes.filter(c => ['A', 'B4', 'B1'].includes(c)))
-    expect(settings.apply).toHaveBeenCalledWith(1, expect.any(Array), 2025, ['A', 'B4', 'B1'], VehicleType.MOTO)
+    expect(result.coverages.map(c => c.code)).toEqual(codes.filter(c => ['A', 'B4', 'B1', 'B'].includes(c)))
+    expect(settings.apply).toHaveBeenCalledWith(
+      1,
+      expect.any(Array),
+      2025,
+      ['A', 'B4', 'B1', 'B'],
+      VehicleType.MOTO,
+      null,
+    )
     expect(result.messages.some(message => message.includes('cobertura B4.'))).toBe(!codes.includes('B4'))
+    expect(result.messages.some(message => message.includes('cobertura B.'))).toBe(!codes.includes('B'))
   })
 })
 
@@ -194,6 +208,7 @@ describe('CotizadorService Triunfo timeout', () => {
       {} as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
   }
   const dto = { brand: '12', model: '120236', manufactureYear: 2009, postalCode: 2000 }
@@ -265,6 +280,7 @@ describe('CotizadorService vehicle Triunfo could not value', () => {
       } as unknown as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
     const dto =
       vehicleType === VehicleType.AUTO
@@ -341,6 +357,7 @@ describe('CotizadorService 0 km and GNC', () => {
       } as unknown as CoverageSettingsService,
       {} as ConfigService,
       {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
     return { service, post, validateVehicleYear }
   }
@@ -393,5 +410,51 @@ describe('CotizadorService 0 km and GNC', () => {
     )
     expect(result.messages.join(' ')).toContain('no incluye el equipo de GNC')
     expect(sentAutomotor(post).Accesorios).toEqual([])
+  })
+})
+
+describe('CotizadorService bot quotes per organization', () => {
+  function createService(phone: { producerId: number } | null) {
+    const prisma = { phoneNumber: { findFirst: jest.fn().mockResolvedValue(phone) } }
+    const triunfo = { getAuth: jest.fn().mockRejectedValue(new Error('stop after auth')) }
+    const service = new CotizadorService(
+      {} as HttpService,
+      prisma as unknown as PrismaService,
+      triunfo as unknown as TriunfoService,
+      {
+        isAvailable: () => true,
+        validateVehicleYear: jest.fn().mockResolvedValue(undefined),
+      } as unknown as InfoAutoService,
+      {} as CoverageSettingsService,
+      {} as ConfigService,
+      {} as NovedadesService,
+      { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
+    )
+    return { service, prisma, triunfo }
+  }
+  const dto = { brand: '12', model: '120236', manufactureYear: 2019, postalCode: 2000 }
+
+  it("quotes with the Triunfo account of the number's organization", async () => {
+    const { service, prisma, triunfo } = createService({ producerId: 2 })
+
+    await expect(service.quoteVehicleForNumber('555', VehicleType.AUTO, dto)).rejects.toThrow('stop after auth')
+
+    expect(prisma.phoneNumber.findFirst).toHaveBeenCalledWith({
+      where: { phoneNumberId: '555', isActive: true, deletedAt: null },
+      select: { producerId: true, coverageSettings: true },
+    })
+    expect(triunfo.getAuth).toHaveBeenCalledWith(2)
+  })
+
+  it('refuses a number that is not registered', async () => {
+    const { service, triunfo } = createService(null)
+    await expect(service.quoteVehicleForNumber('999', VehicleType.AUTO, dto)).rejects.toMatchObject({ status: 404 })
+    expect(triunfo.getAuth).not.toHaveBeenCalled()
+  })
+
+  it('keeps an anonymous web quote on the default organization', async () => {
+    const { service, triunfo } = createService(null)
+    await expect(service.quoteVehicle(VehicleType.AUTO, dto, null, null)).rejects.toThrow('stop after auth')
+    expect(triunfo.getAuth).toHaveBeenCalledWith(null)
   })
 })

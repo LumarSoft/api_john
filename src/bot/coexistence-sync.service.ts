@@ -90,7 +90,8 @@ export class CoexistenceSyncService {
         const messages = thread.messages ?? []
         receivedMessages += messages.length
         const rows = messages.flatMap(message => {
-          if (!message.id) {
+          // A reaction is not a message: imported, it would show as the chat's last one.
+          if (!message.id || message.type === 'reaction') {
             skippedMessages += 1
             return []
           }
@@ -198,11 +199,19 @@ function normalizePhone(value: string | undefined): string {
   return value?.replace(/\D/g, '') ?? ''
 }
 
+/** Seconds this large are past the year 5000: the value can only be in milliseconds. */
+const MILLISECONDS_THRESHOLD = 1e11
+
+/**
+ * A Meta timestamp as a date. History messages carry seconds, but address-book
+ * changes carry milliseconds ("1793969865079"): read as seconds that is the
+ * year 58,000, which MySQL cannot store and which failed every contact sync.
+ */
 function unixDate(value: string | undefined): Date | null {
-  const seconds = Number(value)
-  if (!Number.isFinite(seconds) || seconds <= 0) return null
-  const date = new Date(seconds * 1000)
-  return Number.isNaN(date.getTime()) ? null : date
+  const amount = Number(value)
+  if (!Number.isFinite(amount) || amount <= 0) return null
+  const date = new Date(amount >= MILLISECONDS_THRESHOLD ? amount : amount * 1000)
+  return Number.isNaN(date.getTime()) || date.getUTCFullYear() > 9999 ? null : date
 }
 
 function asJson(value: unknown): Prisma.InputJsonValue {

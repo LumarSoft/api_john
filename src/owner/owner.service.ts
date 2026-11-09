@@ -7,7 +7,8 @@ import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 import { UpdateProducerCodeDto } from './dto/update-producer-code.dto'
 import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
 import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
-import { UsageService, currentPeriod } from '../usage/usage.service'
+import { UsageService, acceptedBlocks, currentPeriod, pausedIn } from '../usage/usage.service'
+import { metaPortfolio } from '../whatsapp-onboarding/meta-portfolio'
 
 const round2 = <T extends Record<string, number>>(o: T): T =>
   Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 100) / 100])) as T
@@ -61,6 +62,7 @@ export class OwnerService {
         slug: true,
         masterCode: true,
         botName: true,
+        logoUrl: true,
         isActive: true,
         createdAt: true,
         _count: { select: { producerCodes: true, users: true, phoneNumbers: true, clients: true } },
@@ -72,6 +74,7 @@ export class OwnerService {
       slug: o.slug,
       masterCode: o.masterCode,
       botName: o.botName,
+      logoUrl: o.logoUrl,
       isActive: o.isActive,
       createdAt: o.createdAt,
       counts: {
@@ -87,7 +90,16 @@ export class OwnerService {
   async getOrganization(id: number) {
     const org = await this.prisma.producer.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, name: true, slug: true, masterCode: true, botName: true, isActive: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        masterCode: true,
+        botName: true,
+        logoUrl: true,
+        isActive: true,
+        createdAt: true,
+      },
     })
     if (!org) throw new NotFoundException(`Organization ${id} not found`)
 
@@ -115,15 +127,16 @@ export class OwnerService {
     // Merge the per-code metrics onto the code rows so the panel has one object.
     const codesWithMetrics = codes.map(c => ({ ...c, ...(codeMetrics.get(c.id) ?? EMPTY_CODE_METRICS) }))
 
+    // OpenAI is prepaid: the profit is what we bill minus what Meta charges.
     const billing = numbers.reduce(
       (acc, n) => {
-        acc.costUsd += n.usage.totalCostUsd
+        acc.metaCostUsd += n.usage.metaCostUsd
+        acc.openaiCostUsd += n.usage.openaiCostUsd
         acc.billedUsd += n.usage.billedUsd
-        acc.accruedUsd += n.usage.accruedUsd
         acc.marginUsd += n.usage.marginUsd
         return acc
       },
-      { costUsd: 0, billedUsd: 0, accruedUsd: 0, marginUsd: 0 },
+      { metaCostUsd: 0, openaiCostUsd: 0, billedUsd: 0, marginUsd: 0 },
     )
 
     return {
@@ -133,7 +146,7 @@ export class OwnerService {
       numbers,
       billing: {
         period: currentPeriod(),
-        elapsedFraction: this.usage.elapsedFractionOf(currentPeriod()),
+        blockMessages: this.usage.commercialPricing.blockMessages,
         activeNumbers: numbers.filter(n => n.isActive).length,
         ...round2(billing),
       },
@@ -141,8 +154,8 @@ export class OwnerService {
   }
 
   /**
-   * Per-number breakdown for the running month: what it costs us, what the
-   * organization is invoiced, and how much of that has accrued so far.
+   * Per-number breakdown for the running month: its messages and plan, what the
+   * organization is invoiced for it, and what Meta and OpenAI cost us.
    */
   private async phoneNumberDetail(producerId: number) {
     const period = currentPeriod()
@@ -154,17 +167,33 @@ export class OwnerService {
         id: true,
         phoneNumberId: true,
         number: true,
+        branchName: true,
         isActive: true,
         monthlyBudgetUsd: true,
         budgetExceededAt: true,
+        planId: true,
+        planPausedAt: true,
+        extraBlocks: true,
+        extraBlocksPeriod: true,
         responsibleProducerCode: { select: { id: true, code: true, holderName: true } },
         servedCodes: { select: { producerCode: { select: { id: true, code: true } } } },
+        wabaAccount: {
+          select: {
+            wabaName: true,
+            businessId: true,
+            businessName: true,
+            businessVerification: true,
+            portfolioCheckedAt: true,
+          },
+        },
         usageMonthly: {
           where: { period },
           select: {
             openaiCalls: true,
             metaMessages: true,
             metaBillableMessages: true,
+            metaTemplateMessages: true,
+            templateExtraMessages: true,
             openaiInputTokens: true,
             openaiOutputTokens: true,
             openaiCostUsd: true,
@@ -176,18 +205,33 @@ export class OwnerService {
       },
     })
 
+    const [starts, catalog] = await Promise.all([this.usage.serviceStarts(phones.map(p => p.id)), this.usage.catalog()])
     return phones.map(p => {
       const u = p.usageMonthly[0]
       const cost = Number(u?.totalCostUsd ?? 0)
-      const billed = this.usage.priceFor(p, u, period)
+      const metaCost = Number(u?.metaCostUsd ?? 0)
+      const bill = this.usage.billFor(
+        {
+          isActive: p.isActive,
+          serviceStartedAt: starts.get(p.id) ?? null,
+          planId: p.planId,
+          extraBlocks: acceptedBlocks(p, period),
+        },
+        u,
+        catalog,
+        period,
+      )
 
       return {
         id: p.id,
         phoneNumberId: p.phoneNumberId,
         number: p.number,
+        branchName: p.branchName,
         isActive: p.isActive,
         responsibleCode: p.responsibleProducerCode,
         servedCodes: p.servedCodes.map(s => s.producerCode),
+        // The Meta business portfolio that owns the number's WhatsApp account.
+        portfolio: metaPortfolio(p.wabaAccount),
         budget: {
           monthlyBudgetUsd: p.monthlyBudgetUsd != null ? Number(p.monthlyBudgetUsd) : null,
           exceededAt: p.budgetExceededAt,
@@ -197,15 +241,21 @@ export class OwnerService {
           openaiCalls: u?.openaiCalls ?? 0,
           metaMessages: u?.metaMessages ?? 0,
           metaBillableMessages: u?.metaBillableMessages ?? 0,
+          metaTemplateMessages: u?.metaTemplateMessages ?? 0,
           openaiInputTokens: u?.openaiInputTokens ?? 0,
           openaiOutputTokens: u?.openaiOutputTokens ?? 0,
           openaiCostUsd: Number(u?.openaiCostUsd ?? 0),
           metaConversations: u?.metaConversations ?? 0,
           metaCostUsd: Number(u?.metaCostUsd ?? 0),
           totalCostUsd: cost,
-          billedUsd: billed,
-          accruedUsd: billed,
-          marginUsd: Math.round((billed - cost) * 100) / 100,
+          messages: bill.messages,
+          assignedPlan: bill.assignedPlan,
+          plan: bill.plan,
+          upgraded: bill.upgraded,
+          planPaused: pausedIn(p.planPausedAt, period),
+          // What the platform invoices the organization, and what is left after Meta (OpenAI is prepaid).
+          billedUsd: bill.billedUsd,
+          marginUsd: Math.round((bill.billedUsd - metaCost) * 100) / 100,
         },
       }
     })
@@ -453,7 +503,7 @@ export class OwnerService {
   private async uniqueSlug(base: string): Promise<string> {
     let candidate = base
     let n = 1
-    // eslint-disable-next-line no-constant-condition
+
     while (true) {
       const taken = await this.prisma.producer.findUnique({ where: { slug: candidate }, select: { id: true } })
       if (!taken) return candidate

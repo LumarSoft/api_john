@@ -12,6 +12,7 @@ import { SancorModule } from './sancor/sancor.module'
 import { CotizadorModule } from './cotizador/cotizador.module'
 import { CoverageSettingsModule } from './coverage-settings/coverage-settings.module'
 import { InfoAutoModule } from './infoauto/infoauto.module'
+import { IntegrationStatusModule } from './integration-status/integration-status.module'
 import { ClientsModule } from './clients/clients.module'
 import { CarteraSyncModule } from './cartera-sync/cartera-sync.module'
 import { SiniestrosModule } from './siniestros/siniestros.module'
@@ -31,12 +32,24 @@ import { OwnerModule } from './owner/owner.module'
 import { WhatsappOnboardingModule } from './whatsapp-onboarding/whatsapp-onboarding.module'
 import { ImprovementsModule } from './improvements/improvements.module'
 import { TasksModule } from './tasks/tasks.module'
+import { RejectionsModule } from './rejections/rejections.module'
+import { ExpiredPoliciesModule } from './expired-policies/expired-policies.module'
+import { BillingModule } from './billing/billing.module'
+import { MonthlyCloseModule } from './monthly-close/monthly-close.module'
+import { SettlementModule } from './settlement/settlement.module'
+import { PlanFeaturesModule } from './plan-features/plan-features.module'
+import { SalesCampaignsModule } from './sales-campaigns/sales-campaigns.module'
+import { AssistantModule } from './assistant/assistant.module'
+import { OrganizationLogoModule } from './organization-logo/organization-logo.module'
+import { BalanceModule } from './balance/balance.module'
+import { ActivityLogModule } from './activity-log/activity-log.module'
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    ActivityLogModule,
     ScopeModule,
     AuthModule,
     UsersModule,
@@ -45,6 +58,7 @@ import { TasksModule } from './tasks/tasks.module'
     CotizadorModule,
     CoverageSettingsModule,
     InfoAutoModule,
+    IntegrationStatusModule,
     ClientsModule,
     CarteraSyncModule,
     MailModule,
@@ -64,6 +78,16 @@ import { TasksModule } from './tasks/tasks.module'
     WhatsappOnboardingModule,
     ImprovementsModule,
     TasksModule,
+    RejectionsModule,
+    ExpiredPoliciesModule,
+    BillingModule,
+    MonthlyCloseModule,
+    SettlementModule,
+    PlanFeaturesModule,
+    SalesCampaignsModule,
+    AssistantModule,
+    OrganizationLogoModule,
+    BalanceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

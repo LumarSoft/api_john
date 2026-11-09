@@ -6,51 +6,6 @@ Base URL: `http://localhost:3000`
 
 ## Auth
 
-### POST /auth/register
-
-Registers a new user.
-
-**Auth required:** No
-
-**Request body**
-
-| Field    | Type   | Required | Constraints          |
-|----------|--------|----------|----------------------|
-| email    | string | Yes      | Valid email format   |
-| password | string | Yes      | Minimum 6 characters |
-
-```json
-{
-  "email": "user@example.com",
-  "password": "secret123"
-}
-```
-
-**Responses**
-
-`201 Created`
-```json
-{
-  "id": 1,
-  "email": "user@example.com",
-  "createdAt": "2026-05-08T00:00:00.000Z",
-  "updatedAt": "2026-05-08T00:00:00.000Z"
-}
-```
-
-`409 Conflict` — Email already in use
-```json
-{
-  "statusCode": 409,
-  "message": "Email already in use",
-  "error": "Conflict"
-}
-```
-
-`400 Bad Request` — Validation error (missing or invalid fields)
-
----
-
 ### POST /auth/login
 
 Authenticates a user and returns a JWT access token.
@@ -60,7 +15,7 @@ Authenticates a user and returns a JWT access token.
 **Request body**
 
 | Field    | Type   | Required | Constraints        |
-|----------|--------|----------|--------------------|
+| -------- | ------ | -------- | ------------------ |
 | email    | string | Yes      | Valid email format |
 | password | string | Yes      | Non-empty string   |
 
@@ -74,6 +29,7 @@ Authenticates a user and returns a JWT access token.
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "access_token": "<jwt>"
@@ -81,6 +37,7 @@ Authenticates a user and returns a JWT access token.
 ```
 
 `401 Unauthorized` — Invalid credentials
+
 ```json
 {
   "statusCode": 401,
@@ -103,8 +60,8 @@ Requests a vehicle insurance quote from the Triunfo API. `vehicleType` is the pa
 
 **Path params**
 
-| Param       | Type   | Constraints     |
-|-------------|--------|-----------------|
+| Param       | Type   | Constraints      |
+| ----------- | ------ | ---------------- |
 | vehicleType | string | `auto` or `moto` |
 
 The raw Triunfo response is persisted as `Quote` (with `vehicleType`); the endpoint returns a normalized result with one entry per coverage that is meant to be shown.
@@ -112,21 +69,21 @@ The raw Triunfo response is persisted as `Quote` (with `vehicleType`); the endpo
 Two rules are applied on top of what Triunfo returns:
 
 - **Payment methods** — only `Débito Automático` (`1`) and `Plan de Pago` (`9`) are exposed. `Contado` (`6`) is quoted by Triunfo but never shown; see `src/common/payment-methods.ts`.
-- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see *Admin — Coberturas*). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes always return A, B4 and B1 with fixed moto wording.
+- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see _Admin — Coberturas_). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes always return A, B4 and B1 with fixed moto wording.
 
 `Valor` is sent as `"0"` so Triunfo resolves the market value itself and returns it in `vehicleValue`; the InfoAuto valuation endpoints are not part of the current subscription.
 
 **Request body**
 
-| Field           | Type   | Required | Constraints                              |
-|-----------------|--------|----------|------------------------------------------|
-| brand           | string | Yes      | InfoAuto brand id                        |
-| model           | string | Yes      | InfoAuto CODIA                           |
-| manufactureYear | number | Yes      | Integer between 1900 and current year +1 |
-| postalCode      | number | Yes      | Integer between 1000 and 9499 (Argentine postal code) |
-| coverage        | string | No       | Triunfo coverage code — empty quotes all |
-| zeroKm          | boolean | No      | Brand new, not registered: sent as `CeroKM` 1. Only for the current or previous model year |
-| hasGnc          | boolean | No      | Cars: the vehicle has GNC. Not priced yet (the accessory code is unknown): `messages` says the price leaves the equipment out |
+| Field           | Type    | Required | Constraints                                                                                                                   |
+| --------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| brand           | string  | Yes      | InfoAuto brand id                                                                                                             |
+| model           | string  | Yes      | InfoAuto CODIA                                                                                                                |
+| manufactureYear | number  | Yes      | Integer between 1900 and current year +1                                                                                      |
+| postalCode      | number  | Yes      | Integer between 1000 and 9499 (Argentine postal code)                                                                         |
+| coverage        | string  | No       | Triunfo coverage code — empty quotes all                                                                                      |
+| zeroKm          | boolean | No       | Brand new, not registered: sent as `CeroKM` 1. Only for the current or previous model year                                    |
+| hasGnc          | boolean | No       | Cars: the vehicle has GNC. Not priced yet (the accessory code is unknown): `messages` says the price leaves the equipment out |
 
 ```json
 {
@@ -140,6 +97,7 @@ Two rules are applied on top of what Triunfo returns:
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "quoteNumber": "15464992",
@@ -187,20 +145,20 @@ Records the coverage request (lead) for an existing quote: the coverage the visi
 
 **Request body**
 
-| Field      | Type   | Required | Constraints                                          |
-|------------|--------|----------|------------------------------------------------------|
-| coverage   | string | Yes      | Triunfo coverage code chosen by the visitor (≤ 10)   |
-| startDate  | string | Yes      | ISO date `YYYY-MM-DD`, today or later                |
-| personType | string | Yes      | `FISICA` or `JURIDICA`                               |
-| firstName  | string | Yes      | ≤ 80 — razón social when `personType` is `JURIDICA`  |
-| lastName   | string | No       | ≤ 80                                                 |
-| email      | string | Yes      | Valid email                                          |
-| phone      | string | Yes      | ≤ 25                                                 |
-| birthDate  | string | No       | ISO date `YYYY-MM-DD`                                |
-| docType    | string | Yes      | `DNI`, `CUIL`, `CUIT` or `PASAPORTE`                 |
-| docNumber  | string | Yes      | ≤ 15                                                 |
-| address    | string | Yes      | ≤ 160                                                |
-| paymentMethod | string | Yes   | `CREDIT`, `DEBIT` or `OTHER` — preferred method only |
+| Field         | Type   | Required | Constraints                                          |
+| ------------- | ------ | -------- | ---------------------------------------------------- |
+| coverage      | string | Yes      | Triunfo coverage code chosen by the visitor (≤ 10)   |
+| startDate     | string | Yes      | ISO date `YYYY-MM-DD`, today or later                |
+| personType    | string | Yes      | `FISICA` or `JURIDICA`                               |
+| firstName     | string | Yes      | ≤ 80 — razón social when `personType` is `JURIDICA`  |
+| lastName      | string | No       | ≤ 80                                                 |
+| email         | string | Yes      | Valid email                                          |
+| phone         | string | Yes      | ≤ 25                                                 |
+| birthDate     | string | No       | ISO date `YYYY-MM-DD`                                |
+| docType       | string | Yes      | `DNI`, `CUIL`, `CUIT` or `PASAPORTE`                 |
+| docNumber     | string | Yes      | ≤ 15                                                 |
+| address       | string | Yes      | ≤ 160                                                |
+| paymentMethod | string | Yes      | `CREDIT`, `DEBIT` or `OTHER` — preferred method only |
 
 Card data is never taken or stored: an agent contacts the applicant to finish the payment when issuing the policy. Card fields are rejected as unknown properties.
 
@@ -224,6 +182,7 @@ Card data is never taken or stored: an agent contacts the applicant to finish th
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "quoteNumber": "15465802",
@@ -253,20 +212,21 @@ Returns a paginated list of vehicle brands for the brand selector.
 **Path params**
 
 | Param       | Type   | Constraints      |
-|-------------|--------|------------------|
+| ----------- | ------ | ---------------- |
 | vehicleType | string | `auto` or `moto` |
 
 **Query params**
 
-| Param        | Type   | Required | Constraints       |
-|--------------|--------|----------|-------------------|
-| query_string | string | No       | Max 100 chars     |
-| page         | number | No       | Integer ≥ 1       |
-| page_size    | number | No       | Integer 1–100     |
+| Param        | Type   | Required | Constraints   |
+| ------------ | ------ | -------- | ------------- |
+| query_string | string | No       | Max 100 chars |
+| page         | number | No       | Integer ≥ 1   |
+| page_size    | number | No       | Integer 1–100 |
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -289,7 +249,7 @@ Returns the groups (model families, e.g. "Corolla", "Hilux") for a given brand.
 **Path params**
 
 | Param       | Type    | Required | Constraints      |
-|-------------|---------|----------|------------------|
+| ----------- | ------- | -------- | ---------------- |
 | vehicleType | string  | Yes      | `auto` or `moto` |
 | brandId     | integer | Yes      |                  |
 
@@ -298,11 +258,10 @@ Returns the groups (model families, e.g. "Corolla", "Hilux") for a given brand.
 **Responses**
 
 `200 OK`
+
 ```json
 {
-  "data": [
-    { "id": 101, "name": "Corolla", "prices": true, "prices_from": 2015, "prices_to": 2024 }
-  ],
+  "data": [{ "id": 101, "name": "Corolla", "prices": true, "prices_from": 2015, "prices_to": 2024 }],
   "pagination": { "total": 8, "page": 1, "page_size": 10, "total_pages": 1, "next_page": null }
 }
 ```
@@ -325,7 +284,7 @@ names such as `NAVI 110` without knowing technical classifications such as
 **Path params**
 
 | Param       | Type    | Required | Constraints      |
-|-------------|---------|----------|------------------|
+| ----------- | ------- | -------- | ---------------- |
 | vehicleType | string  | Yes      | `auto` or `moto` |
 | brandId     | integer | Yes      |                  |
 
@@ -345,7 +304,7 @@ The `codia` is the identifier used in `POST /cotizador/:vehicleType` as the `mod
 **Path params**
 
 | Param       | Type    | Required | Constraints      |
-|-------------|---------|----------|------------------|
+| ----------- | ------- | -------- | ---------------- |
 | vehicleType | string  | Yes      | `auto` or `moto` |
 | brandId     | integer | Yes      |                  |
 | groupId     | integer | Yes      |                  |
@@ -355,6 +314,7 @@ The `codia` is the identifier used in `POST /cotizador/:vehicleType` as the `mod
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -390,9 +350,12 @@ Returns the authenticated user's profile.
 
 **Auth required:** Yes
 
+`organization.defaultPhoneNumber` (`{ id, number } | null`, absent on older APIs) is the office line: the active number billed to the organization's master code. The panel opens the SuperAdmin's sections (Whatsapp, Asuntos pendientes, Solicitudes, …) filtered by it; whatever came through no number (web, panel) is shown as its.
+
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "id": 2,
@@ -400,9 +363,17 @@ Returns the authenticated user's profile.
   "role": "admin",
   "producerId": 1,
   "createdAt": "2026-06-08T00:00:00.000Z",
-  "updatedAt": "2026-06-08T00:00:00.000Z"
+  "updatedAt": "2026-06-08T00:00:00.000Z",
+  "organization": {
+    "slug": "john",
+    "name": "John",
+    "displayName": "John Pellegrini Management Group",
+    "shortName": "JPMG"
+  }
 }
 ```
+
+`organization` is the user's organization, so the panel shows its name: `displayName` is the bot profile's `orgName`, or `name` when it has none.
 
 `401 Unauthorized` — Missing or invalid token
 
@@ -416,10 +387,10 @@ Updates the authenticated user's own email and/or password (settings screen).
 
 **Request body**
 
-| Field    | Type   | Required | Constraints          |
-|----------|--------|----------|----------------------|
-| email    | string | No       | Valid email format   |
-| password | string | No       | Minimum 6 characters |
+| Field    | Type   | Required | Constraints                                                                         |
+| -------- | ------ | -------- | ----------------------------------------------------------------------------------- |
+| email    | string | No       | Valid email format                                                                  |
+| password | string | No       | Minimum 6 characters                                                                |
 | name     | string | No       | Max 80 characters; how the office calls the person ("Mili"). Empty string clears it |
 
 ```json
@@ -432,6 +403,7 @@ Updates the authenticated user's own email and/or password (settings screen).
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "id": 2,
@@ -446,9 +418,45 @@ Updates the authenticated user's own email and/or password (settings screen).
 `401 Unauthorized` — Missing or invalid token
 
 `409 Conflict` — Email already in use
+
 ```json
 { "statusCode": 409, "message": "Email already in use", "error": "Conflict" }
 ```
+
+---
+
+### GET /users/producer-codes
+
+The organization's producer codes (branches), masters first, to grant them to admins and bill numbers to them.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+`200 OK`
+```json
+[{ "id": 1, "code": "11425", "holderName": "JOHN PELLEGRINI MANAGEMENT GROUP SRL", "isMaster": true, "isActive": true }]
+```
+
+---
+
+### POST /users/producer-codes
+
+Creates a branch's producer code (never a master one: that is the owner's), the first step of the new-branch onboarding in the panel (Usuarios → Nuevo usuario → Sucursal nueva: code, its admin, its WhatsApp number, its assistant, its token plan). A code that was retired comes back instead of clashing with it.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field      | Type   | Required | Constraints                          |
+|------------|--------|----------|--------------------------------------|
+| code       | string | Yes      | 1–20 characters, letters, digits and hyphens |
+| holderName | string | No       | Max 120                              |
+
+`201 Created`
+```json
+{ "id": 27, "code": "14831", "holderName": "Sucursal Pueblo Esther", "isMaster": false, "isActive": true }
+```
+
+`409 Conflict` — The code already exists in the organization
 
 ---
 
@@ -461,6 +469,7 @@ Lists all (non-deleted) administrators of the authenticated user's producer.
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -486,10 +495,10 @@ Creates a new administrator (sub-admin) under the authenticated user's producer.
 
 **Request body**
 
-| Field    | Type   | Required | Constraints          |
-|----------|--------|----------|----------------------|
-| email    | string | Yes      | Valid email format   |
-| password | string | Yes      | Minimum 6 characters |
+| Field    | Type   | Required | Constraints                                                 |
+| -------- | ------ | -------- | ----------------------------------------------------------- |
+| email    | string | Yes      | Valid email format                                          |
+| password | string | Yes      | Minimum 6 characters                                        |
 | name     | string | No       | Max 80 characters; how the office calls the person ("Mili") |
 
 ```json
@@ -502,6 +511,7 @@ Creates a new administrator (sub-admin) under the authenticated user's producer.
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "id": 3,
@@ -516,6 +526,7 @@ Creates a new administrator (sub-admin) under the authenticated user's producer.
 `401 Unauthorized` — Missing or invalid token
 
 `409 Conflict` — Email already in use
+
 ```json
 { "statusCode": 409, "message": "Email already in use", "error": "Conflict" }
 ```
@@ -530,15 +541,16 @@ Updates an administrator's email and/or password.
 
 **Request body**
 
-| Field    | Type   | Required | Constraints          |
-|----------|--------|----------|----------------------|
-| email    | string | No       | Valid email format   |
-| password | string | No       | Minimum 6 characters |
+| Field    | Type   | Required | Constraints                                                                         |
+| -------- | ------ | -------- | ----------------------------------------------------------------------------------- |
+| email    | string | No       | Valid email format                                                                  |
+| password | string | No       | Minimum 6 characters                                                                |
 | name     | string | No       | Max 80 characters; how the office calls the person ("Mili"). Empty string clears it |
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "id": 3,
@@ -553,6 +565,7 @@ Updates an administrator's email and/or password.
 `401 Unauthorized` — Missing or invalid token
 
 `404 Not Found` — User does not exist within the producer
+
 ```json
 { "statusCode": 404, "message": "User with id 3 not found", "error": "Not Found" }
 ```
@@ -570,6 +583,7 @@ Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own
 **Responses**
 
 `200 OK`
+
 ```json
 { "id": 3 }
 ```
@@ -577,6 +591,7 @@ Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own
 `401 Unauthorized` — Missing or invalid token
 
 `403 Forbidden` — Attempting to delete your own account
+
 ```json
 { "statusCode": 403, "message": "You cannot delete your own account", "error": "Forbidden" }
 ```
@@ -589,40 +604,35 @@ Soft-deletes an administrator (sets `deletedAt`). A user cannot delete their own
 
 ### GET /admin/config
 
-Configuración del bot de la organización del usuario autenticado, incluido quién fue el último en encender o apagar el bot y cuándo.
+Configuración del bot de la organización del usuario autenticado. El bot se enciende y apaga por número (`PATCH /admin/phone-numbers/:id/bot-status`); no hay un interruptor de toda la organización desde el 29/10/2026.
 
 **Auth required:** Yes (admin)
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "botName": "Nico",
-  "botEnabled": false,
-  "staffNames": ["Mili", "Milagros"],
-  "lastBotStatusChange": {
-    "botEnabled": false,
-    "at": "2026-10-06T11:12:00.000Z",
-    "by": "mili@jpmg.com"
-  }
+  "staffNames": ["Mili", "Milagros"]
 }
 ```
 
-`lastBotStatusChange` es `null` cuando el switch nunca se usó desde que existe la auditoría. `staffNames` son los nombres de las personas de la oficina a las que los clientes les escriben por nombre (lista vacía si no hay).
+`staffNames` son los nombres de las personas de la oficina a las que los clientes les escriben por nombre (lista vacía si no hay).
 
 ### PATCH /admin/config
 
-Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot le deja un aviso a la oficina y sigue atendiendo al cliente.
+Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot le deja un aviso a la oficina y sigue atendiendo al cliente. Vale para todos los números de la organización que no tengan los suyos (ver `PATCH /admin/phone-numbers/:id/assistant`).
 
-**Auth required:** Yes (admin)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| botName | string | No | máx. 60 caracteres |
-| staffNames | string[] | No | hasta 10 nombres de máx. 30 caracteres; se descartan vacíos y repetidos |
+| Field      | Type     | Required | Constraints                                                             |
+| ---------- | -------- | -------- | ----------------------------------------------------------------------- |
+| botName    | string   | No       | máx. 60 caracteres                                                      |
+| staffNames | string[] | No       | hasta 10 nombres de máx. 30 caracteres; se descartan vacíos y repetidos |
 
 ```json
 { "botName": "Nico", "staffNames": ["Mili", "Milagros"] }
@@ -631,42 +641,150 @@ Actualiza el nombre con el que se presenta el bot y los nombres de las personas 
 **Responses**
 
 `200 OK`
+
 ```json
 { "botName": "Nico", "botEnabled": true, "staffNames": ["Mili", "Milagros"] }
 ```
 
-### PATCH /admin/config/bot-status
+`403 Forbidden` — the caller is not a SuperAdmin
 
-Switch global: enciende o apaga todas las respuestas automáticas del bot de la organización. Los mensajes entrantes se siguen guardando en la bandeja. Cada cambio real queda registrado en `BotStatusChange` (quién, cuándo) y se anuncia al dueño por los canales configurados (`BOT_STATUS_ALERT_EMAIL`, `BOT_STATUS_ALERT_PHONE` + `BOT_STATUS_ALERT_TEMPLATE`); sin configuración el aviso solo se loguea. Repetir el estado actual no genera registro ni aviso.
+### GET /admin/config/profile
 
-**Auth required:** Yes (SuperAdmin)
+What the bot says that is particular to the organization: how it names it, the grúa and claims lines, the transfer account and where to pay cash with the coupon, plus the e-mail that gets each new claim. A field never configured is `null`.
 
-**Request body**
-
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| botEnabled | boolean | Yes | — |
-
-```json
-{ "botEnabled": false }
-```
+**Auth required:** Yes (admin)
 
 **Responses**
 
 `200 OK`
+
 ```json
-{ "botName": "Nico", "botEnabled": false }
+{
+  "orgName": "John Pellegrini Management Group",
+  "orgShortName": "JPMG",
+  "orgLegalName": "John Pellegrini Management Group SRL",
+  "towTruckPhone": "3415690470",
+  "claimsPhone": "0810-666-0302",
+  "cashPaymentPlaces": "Rapipago, Pago Fácil o Santa Fe Servicios",
+  "transferAlias": "TRUENO.VUELO.DELTA",
+  "transferCbu": "0070081820000004432793",
+  "transferHolder": "Triunfo Coop. de Seguros Ltda. (CUIT 30-50006577-6)",
+  "transferBank": "Banco Galicia",
+  "claimsEmail": null,
+  "quoteClosingNote": "Un asesor seguro te va a poder mejorar el precio con una bonificación"
+}
+```
+
+`quoteClosingNote` is the line the bot adds at the end of every quote it gives; `null` leaves the quote as the model wrote it.
+
+`404 Not Found`
+
+```json
+{ "statusCode": 404, "message": "Producer not found", "error": "Not Found" }
+```
+
+### PATCH /admin/config/profile
+
+Changes the fields sent; an empty string clears one. The bot reads it on its next message. Without `claimsEmail`, the default organization's claims keep going to `ADVISOR_EMAIL` and any other organization's are not e-mailed.
+
+**Auth required:** Yes (SuperAdmin or Admin)
+
+**Request body** (every field optional)
+
+| Field             | Type   | Required | Constraints                                         |
+| ----------------- | ------ | -------- | --------------------------------------------------- |
+| orgName           | string | No       | ≤ 120                                               |
+| orgShortName      | string | No       | ≤ 30                                                |
+| orgLegalName      | string | No       | ≤ 160                                               |
+| towTruckPhone     | string | No       | ≤ 40                                                |
+| claimsPhone       | string | No       | ≤ 40; empty → the bot gives Triunfo's line          |
+| cashPaymentPlaces | string | No       | ≤ 200; empty → "Rapipago o Pago Fácil"              |
+| transferAlias     | string | No       | ≤ 60                                                |
+| transferCbu       | string | No       | ≤ 30                                                |
+| transferHolder    | string | No       | ≤ 160                                               |
+| transferBank      | string | No       | ≤ 80                                                |
+| claimsEmail       | string | No       | e-mail or empty                                     |
+| quoteClosingNote  | string | No       | ≤ 300; empty → the quote ends without an extra line |
+
+```json
+{
+  "towTruckPhone": "0800-555-1234",
+  "transferAlias": "",
+  "quoteClosingNote": "Un asesor seguro te va a poder mejorar el precio con una bonificación"
+}
+```
+
+**Responses**
+
+`200 OK` — the whole profile, as in `GET /admin/config/profile`
+
+`400 Bad Request`
+
+```json
+{ "statusCode": 400, "message": ["claimsEmail must be an email"], "error": "Bad Request" }
 ```
 
 `403 Forbidden`
+
 ```json
 { "statusCode": 403, "message": "Forbidden resource", "error": "Forbidden" }
 ```
 
-`404 Not Found`
+## Organización — Logo
+
+The organization's logo shows in the Polisend panel after login and on the printable policy card (`organization.logoUrl` in `GET /users/me`; null = the organization's initials). An upload (PNG, JPG or WebP, up to 2 MB; SVG is refused) is stored as a 256×256 WebP under `/uploads/logos`, served publicly, and the previous file is removed.
+
+### POST /admin/config/logo
+
+Sets the logo of the user's organization. Multipart form with one file field `file`.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+**Responses**
+
+`201 Created`
 ```json
-{ "statusCode": 404, "message": "Producer not found", "error": "Not Found" }
+{ "logoUrl": "/uploads/logos/org-1-1793336940678.webp" }
 ```
+
+`400 Bad Request` — "El logo tiene que ser PNG, JPG o WebP." / "No se pudo leer la imagen del logo." / "Falta la imagen del logo."
+`403 Forbidden` — ADMIN
+
+---
+
+### DELETE /admin/config/logo
+
+Removes the organization's logo: the panel goes back to its initials.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+`200 OK`
+```json
+{ "logoUrl": null }
+```
+
+---
+
+### POST /owner/organizations/:id/logo
+
+The owner sets any organization's logo. Same body and responses as `POST /admin/config/logo`; `404 Not Found` when the organization does not exist.
+
+**Auth required:** Yes (OWNER)
+
+---
+
+### DELETE /owner/organizations/:id/logo
+
+The owner removes an organization's logo.
+
+**Auth required:** Yes (OWNER)
+
+`200 OK`
+```json
+{ "logoUrl": null }
+```
+
+---
 
 ## Admin — Asegurados
 
@@ -680,18 +798,19 @@ Returns a paginated, searchable and filterable list of insured clients (asegurad
 
 **Query parameters**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| `search` | string | No | Max 120 chars. Matches first name, last name, email, DNI, phone or vehicle plate (`dominio`). |
-| `riskType` | enum | No | One of `auto`, `home`, `life`, `commercial`, `other`. Filters clients with at least one policy of that risk. |
-| `status` | enum | No | One of `vigente` (has an in-force policy), `por_vencer` (a policy expiring within 30 days), `vencida` (has policies but none in force), `sin_polizas` (no policies). |
-| `sort` | enum | No | One of `nombre_asc` (default), `nombre_desc`, `reciente`. |
-| `page` | int | No | `>= 1`. Defaults to 1. |
-| `pageSize` | int | No | `1..100`. Defaults to 20. |
+| Field      | Type   | Required | Constraints                                                                                                                                                          |
+| ---------- | ------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search`   | string | No       | Max 120 chars. Matches first name, last name, email, DNI, phone or vehicle plate (`dominio`).                                                                        |
+| `riskType` | enum   | No       | One of `auto`, `home`, `life`, `commercial`, `other`. Filters clients with at least one policy of that risk.                                                         |
+| `status`   | enum   | No       | One of `vigente` (has an in-force policy), `por_vencer` (a policy expiring within 30 days), `vencida` (has policies but none in force), `sin_polizas` (no policies). |
+| `sort`     | enum   | No       | One of `nombre_asc` (default), `nombre_desc`, `reciente`.                                                                                                            |
+| `page`     | int    | No       | `>= 1`. Defaults to 1.                                                                                                                                               |
+| `pageSize` | int    | No       | `1..100`. Defaults to 20.                                                                                                                                            |
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -713,7 +832,16 @@ Returns a paginated, searchable and filterable list of insured clients (asegurad
           "validFrom": "2026-01-01T00:00:00.000Z",
           "validTo": "2027-01-01T00:00:00.000Z",
           "premium": "150000.00",
-          "vehicle": { "id": 5, "licensePlate": "AB123CD", "brand": "Toyota", "model": "Corolla", "version": null, "year": 2022, "coverage": "C", "sumInsured": "12000000.00" }
+          "vehicle": {
+            "id": 5,
+            "licensePlate": "AB123CD",
+            "brand": "Toyota",
+            "model": "Corolla",
+            "version": null,
+            "year": 2022,
+            "coverage": "C",
+            "sumInsured": "12000000.00"
+          }
         }
       ]
     }
@@ -736,6 +864,7 @@ Returns aggregate portfolio metrics for the dashboard/stat bar.
 **Responses**
 
 `200 OK`
+
 ```json
 { "totalClients": 134, "inForce": 210, "expiringSoon": 12, "expired": 8, "overdueInstallments": 5 }
 ```
@@ -746,6 +875,8 @@ Returns aggregate portfolio metrics for the dashboard/stat bar.
 
 Returns the full detail of a single insured client, including every policy with its vehicle and instalments (`installments`).
 
+The client and each policy carry their Triunfo producer code as `producerCode: { id, code, holderName }` (or `null`): the client keeps the code it first came in under, while each policy follows the code Triunfo lists it under, so one client's policies can belong to several producers.
+
 **Auth required:** Yes
 
 **Responses**
@@ -755,6 +886,7 @@ Returns the full detail of a single insured client, including every policy with 
 `401 Unauthorized` — Missing or invalid token
 
 `404 Not Found` — Client does not exist within the producer
+
 ```json
 { "statusCode": 404, "message": "Client 99 not found", "error": "Not Found" }
 ```
@@ -768,9 +900,14 @@ Documents Triunfo has for one policy of the client, fetched live (`RESTDocumento
 **Responses**
 
 `200 OK`
+
 ```json
 [
-  { "code": "1050", "name": "Tarjeta verde (Mercosur)", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..." },
+  {
+    "code": "1050",
+    "name": "Tarjeta verde (Mercosur)",
+    "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..."
+  },
   { "code": "1020", "name": "Póliza", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/hpolizap?..." }
 ]
 ```
@@ -811,6 +948,7 @@ siniestros. All metrics are scoped to the authenticated user's producer.
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "kpis": {
@@ -842,6 +980,116 @@ siniestros. All metrics are scoped to the authenticated user's producer.
 
 ---
 
+## Admin — Balance mensual
+
+The organization's numbers at the close of each month, to see where it grows and where it weakens. A row per producer code and month (`MonthlyBalance`) is written on the 1st at 00:30 (Argentina) for the month that just closed; when the API starts (and on the 1st) any of the last `MONTHLY_BALANCE_BACKFILL_MONTHS` months (default 6) without rows is rebuilt from dated records. A month is never rewritten unless the owner forces it. Turn both off with `MONTHLY_BALANCE_ENABLED=false`.
+
+Every record is credited to one of the organization's codes: its own code; else the code billed for the number it came through; else the master code. Quotes go by the number they came through first (their code is a default). So the section filter works as everywhere: the user's codes, narrowed by `producerCodeId` or by `phoneNumberId` (the codes that number serves).
+
+**Metrics.** Policy dates are Triunfo's calendar days; everything else is the month in Argentina.
+
+| Metric                                                                    | Meaning                                                                                       |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| policiesInForce                                                           | Policies not cancelled that started by the last day of the month and run past it              |
+| policiesNew                                                               | Policies whose first term starts in the month (a renewal keeps its start)                     |
+| policiesLost                                                              | Policies not cancelled whose term ended in the month without a renewal                        |
+| premiumInForce \*                                                         | Premium of the policies in force                                                              |
+| debtAmount \*, installmentsOverdue \*, installmentsRejected \*            | Pending + overdue + rejected cuotas (credits left out), as in the dashboard; overdue/rejected |
+| claimsFiled / claimsOpen \*                                               | Claims filed in the month / pending or in progress at the close                               |
+| claimsBlockedNoPolicy, claimsBlockedRejectedPayment, claimsBlockedOverdue | Claims the bot refused to file ("denuncias frenadas"), by reason                              |
+| quotesBot / quotesWeb                                                     | Triunfo quotes through a WhatsApp number / through the web or the panel                       |
+| quoteRequests / contactLeads                                              | Coverage requests on a quote / advisor-contact leads made in the month                        |
+| requestsClosed \*                                                         | Of those requests and leads, the ones closed at the close                                     |
+| handoffs                                                                  | Requests for a person (cleared or deleted matters count too: the request happened)            |
+| conversationsNew                                                          | WhatsApp chats that started in the month                                                      |
+| messagesSent                                                              | Messages the platform sent on the organization's numbers                                      |
+| rejectionNoticesSent / expiryNoticesSent                                  | Rejected-payment / expired-policy notices sent by WhatsApp                                    |
+| quotes, claimsBlocked                                                     | Totals of the two quote channels and of the three stopped-claim reasons (response only)       |
+
+\* Month-end state: only a balance taken within 3 days of the close reads it. A rebuilt month (`backfilled: true`) has it as `null`, shown as "sin dato" — never 0. Months before the organization existed have no balance.
+
+### GET /admin/balance
+
+The last closed months, oldest first, each metric with its change against the month before. SuperAdmin only: an ADMIN gets 403 (the OWNER passes the role check like on every SuperAdmin route, but the panel never shows it the page).
+
+**Auth required:** Yes (user JWT, SuperAdmin)
+
+**Query params**
+
+| Param          | Type   | Required | Constraints                                                    |
+| -------------- | ------ | -------- | -------------------------------------------------------------- |
+| months         | number | No       | 1–24, default 12. The last one is the month before the current |
+| producerCodeId | number | No       | One of the user's codes; another returns no data               |
+| phoneNumberId  | number | No       | A PhoneNumber id: the codes that number serves                 |
+
+**Responses**
+
+`200 OK` — `recorded: false` = no balance that month (every value `null`). `value: null` = not recorded. `changePct` is `null` without a previous value or when it was 0. Amounts are pesos with 2 decimals.
+
+```json
+{
+  "months": [
+    {
+      "period": "2026-10",
+      "recorded": true,
+      "backfilled": false,
+      "snapshotAt": "2026-11-01T03:30:00.000Z",
+      "metrics": {
+        "policiesInForce": { "value": 2140, "previous": 2101, "change": 39, "changePct": 1.9 },
+        "debtAmount": { "value": 1823400.5, "previous": null, "change": null, "changePct": null },
+        "claimsBlocked": { "value": 6, "previous": 4, "change": 2, "changePct": 50 }
+      }
+    }
+  ]
+}
+```
+
+(Every metric of the table above comes in `metrics`; three are shown.)
+
+`400 Bad Request` — `months` out of range or a non-numeric filter
+
+`401 Unauthorized` — Missing or invalid JWT
+
+`403 Forbidden` — Token is not an employee/admin token, or the user is not a SuperAdmin
+
+### POST /owner/balance/snapshots
+
+Closes a month's balance by hand: every active organization, or one. A month that already has a balance is left as it is unless `force` is true. Run within 3 days of the close it reads the month-end state; later it is rebuilt (`backfilled`).
+
+**Auth required:** Yes (user JWT, role OWNER)
+
+**Request body**
+
+| Field      | Type    | Required | Constraints                            |
+| ---------- | ------- | -------- | -------------------------------------- |
+| period     | string  | Yes      | `YYYY-MM`, a month that has ended      |
+| force      | boolean | No       | Rewrites a month already closed        |
+| producerId | number  | No       | Only this organization (active or not) |
+
+```json
+{ "period": "2026-10", "force": true, "producerId": 1 }
+```
+
+**Responses**
+
+`201 Created` — `skipped` says why an organization got no rows: `already_closed`, `not_created_yet` or `no_codes`.
+
+```json
+{
+  "period": "2026-10",
+  "monthEnd": false,
+  "organizations": [{ "producerId": 1, "rows": 25 }]
+}
+```
+
+`400 Bad Request` — `period` malformed or the month has not ended
+
+`403 Forbidden` — Not the OWNER
+
+`409 Conflict` — A balance is already being written
+
+---
+
 ## Health
 
 ### GET /
@@ -853,10 +1101,10 @@ Returns a health-check string. Not intended for production use.
 **Responses**
 
 `200 OK`
+
 ```
 Hello World!
 ```
-
 
 ---
 
@@ -866,20 +1114,28 @@ Hello World!
 
 Returns a paginated worklist of clients that owe money, enriched with debt stats and total debt per client. Results are filtered to debtors and ordered by urgency (oldest overdue installment first, then largest debt). Used by the admin Cobranzas page. `oldestOverdueDate` is the ISO date of the client's oldest overdue installment, or `null` when the client has no overdue installments.
 
+**What counts as debt.** Only cuotas of policies Triunfo has not cancelled (`lastMovement` not starting with `ANUL`/`RESCISION`): a cancelled policy keeps its unpaid cuotas, and they are not owed. Cuotas Triunfo reports as `ANULADA` are soft deleted by the cartera sync, and one `EN PRELIQUIDACIÓN` (the debit was sent to the bank) stays `pending`, never `overdue`, until the next novedad says paid or rejected. A `pending` cuota whose due date went by is marked `overdue` every night at 00:15 (Argentina), so a policy with no recent novedad still shows its debt. The same rules apply to `/admin/cobranzas/stats`, the asegurados KPIs and the dashboard.
+
 **Auth required:** Yes (JWT user token)
 
 **Query parameters**
 
-| Parameter | Type   | Required | Description                                                       |
-|-----------|--------|----------|-------------------------------------------------------------------|
-| search    | string | No       | Filter by first name, last name, email, DNI, phone, or plate      |
-| status    | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`) |
-| page      | number | No       | Page number (default: 1)                                          |
-| pageSize  | number | No       | Results per page (default: 20, max: 100)                          |
+| Parameter      | Type   | Required | Description                                                                                                                                                        |
+| -------------- | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| search         | string | No       | Filter by first name, last name, email, DNI, phone, or plate                                                                                                       |
+| status         | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`)                                                                                            |
+| producerCodeId | number | No       | Only the debt of this producer code's policies (must be accessible to the user)                                                                                    |
+| phoneNumberId  | number | No       | Only the codes this number serves (SuperAdmin section filter)                                                                                                      |
+| paymentMethod  | string | No       | Only policies with this medio de pago, as Triunfo names it (`Plan De Pago`, `Convenio`, `Débito Tarjeta`…); the values in scope come from `/admin/cobranzas/stats` |
+| page           | number | No       | Page number (default: 1)                                                                                                                                           |
+| pageSize       | number | No       | Results per page (default: 20, max: 100)                                                                                                                           |
+
+A client is listed when it is visible to the user (attributed to an accessible code, or holding a policy under one), but its counts and `totalDebt` only add up the cuotas of the policies that match the scope — the selected code(s) and medio de pago — so filtering by a code shows that code's debt, not the client's whole cartera. `paymentMethods` lists the medios de pago of those policies.
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -891,6 +1147,7 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
       "email": "maria@example.com",
       "phone": "+54 11 1234-5678",
       "riskTypes": ["auto", "home"],
+      "paymentMethods": ["Plan De Pago"],
       "licensePlate": "AB123CD",
       "pendingCount": 2,
       "overdueCount": 1,
@@ -913,13 +1170,22 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 
 ### GET /admin/cobranzas/stats
 
-Returns aggregate debt stats across all clients for the authenticated producer. Includes both per-client counts (used by the segmented filter badges) and per-installment counts.
+Returns aggregate debt stats for the authenticated producer. Includes both per-client counts (used by the segmented filter badges) and per-installment counts. Takes the same scope filters as the list (`producerCodeId`, `phoneNumberId`, `paymentMethod`) so the KPIs follow it. `paymentMethods` lists the medios de pago found on the policies in scope (ignoring `paymentMethod` itself), for the panel's filter.
 
 **Auth required:** Yes (JWT user token)
+
+**Query parameters**
+
+| Parameter      | Type   | Required | Description                                              |
+| -------------- | ------ | -------- | -------------------------------------------------------- |
+| producerCodeId | number | No       | Only this producer code (must be accessible to the user) |
+| phoneNumberId  | number | No       | Only the codes this number serves                        |
+| paymentMethod  | string | No       | Only policies with this medio de pago                    |
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "clientsWithDebt": 12,
@@ -929,11 +1195,716 @@ Returns aggregate debt stats across all clients for the authenticated producer. 
   "overdueInstallments": 18,
   "rejectedInstallments": 3,
   "pendingInstallments": 47,
-  "totalDebt": "284500.00"
+  "totalDebt": "284500.00",
+  "paymentMethods": ["Convenio", "Débito Tarjeta", "Plan De Pago"]
 }
 ```
 
 `401 Unauthorized` — Missing or invalid JWT
+
+---
+
+### GET /admin/cobranzas/vencidas
+
+The "pólizas vencidas" worklist of the Cobranzas screen: policies that ran out in the last 365 days, were not cancelled by Triunfo and were **not renewed** — a renewal gets a new certificate and leaves the old row behind, so a policy is taken as renewed when the same client has a policy still running (`validTo` in the future, not cancelled) on the same plate, or on the same `riskType` when there is no plate. The office hides the ones it knows will not come back; hidden policies are listed with `hidden=true`.
+
+**Auth required:** Yes (JWT user token)
+
+**Query parameters**
+
+| Parameter      | Type    | Required | Description                                                          |
+| -------------- | ------- | -------- | -------------------------------------------------------------------- |
+| search         | string  | No       | Client name or DNI, certificate number or plate                      |
+| producerCodeId | number  | No       | Only this producer code (must be accessible to the user)             |
+| phoneNumberId  | number  | No       | Only the codes this number serves                                    |
+| paymentMethod  | string  | No       | Only policies with this medio de pago                                |
+| hidden         | boolean | No       | `true` lists the hidden policies instead (default: the visible ones) |
+| sort           | string  | No       | `oldest` (longest expired first, default) \| `recent`                |
+| page           | number  | No       | Page number (default: 1)                                             |
+| pageSize       | number  | No       | Results per page (default: 25, max: 100)                             |
+
+**Responses**
+
+`200 OK` — `hiddenCount` is how many policies in scope are hidden, whatever `hidden` says. `templateReady` says whether `POLICY_EXPIRY_TEMPLATE` is set (it turns the notices on) (else notices can only be marked). `notice` is the last WhatsApp notice tried for the policy (`SENDING` | `SENT` | `FAILED` | `MARKED`), or `null`.
+
+```json
+{
+  "data": [
+    {
+      "id": 812,
+      "certificateNumber": "1763551",
+      "riskType": "auto",
+      "product": null,
+      "licensePlate": "AB123CD",
+      "vehicle": "FIAT PALIO 2024",
+      "validTo": "2026-08-14T00:00:00.000Z",
+      "daysExpired": 75,
+      "paymentMethod": "Plan De Pago",
+      "producerCode": { "id": 7, "code": "14831" },
+      "client": {
+        "id": 1,
+        "firstName": "María",
+        "lastName": "García",
+        "dni": "12345678",
+        "phone": "+54 9 341 555-1234",
+        "email": null
+      },
+      "unpaidInstallments": 1,
+      "hiddenAt": null,
+      "hiddenReason": null,
+      "notice": {
+        "id": 31,
+        "status": "SENT",
+        "sentAt": "2026-10-28T18:40:12.000Z",
+        "createdAt": "2026-10-28T18:40:10.000Z",
+        "error": null
+      }
+    }
+  ],
+  "total": 195,
+  "hiddenCount": 12,
+  "templateReady": true,
+  "page": 1,
+  "pageSize": 25,
+  "totalPages": 8
+}
+```
+
+`401 Unauthorized` — Missing or invalid JWT
+
+---
+
+### PATCH /admin/cobranzas/vencidas/:id/hide
+
+Takes a policy out of the worklist for good (it will not be renewed). The cartera sync never touches this, so it survives later novedades of the same certificate.
+
+**Auth required:** Yes (JWT user token; the policy must belong to a code accessible to the user)
+
+**Request body**
+
+| Field  | Type   | Required | Constraints                               |
+| ------ | ------ | -------- | ----------------------------------------- |
+| reason | string | No       | Max 120 characters, e.g. "Vendió el auto" |
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "id": 812, "hiddenAt": "2026-10-28T18:02:11.000Z", "hiddenReason": "Vendió el auto" }
+```
+
+`404 Not Found` — No such policy in the user's scope
+
+---
+
+### PATCH /admin/cobranzas/vencidas/:id/unhide
+
+Brings a hidden policy back to the worklist.
+
+**Auth required:** Yes (JWT user token)
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "id": 812, "hiddenAt": null, "hiddenReason": null }
+```
+
+`404 Not Found` — No such policy in the user's scope
+
+---
+
+### POST /admin/cobranzas/vencidas/send
+
+Tells the clients of the chosen policies on WhatsApp that the policy ran out, with the Meta template `aviso_poliza_vencida` (`src/notices/notice-templates.ts`, on when `POLICY_EXPIRY_TEMPLATE` is set; Utility, 5 variables: first name, organization name as the bot names it, certificate, plate or product, end date). Same pipeline as Rechazos: one `PolicyExpiryNotice` per policy, claimed as `SENDING` and delivered one by one in the background (poll the list while any `notice.status` is `SENDING`); each notice lands in the client's chat as a message from the office, and the bot treats the client's answer in the next 3 days as a reply to it (handed to the office). The sender is the number the client already talks to, else one serving the policy's code.
+
+A policy is left out, and reported in `skipped`, when the client has no usable phone (`NO_PHONE`), was told in the last 30 days — sent or marked — (`ALREADY_NOTIFIED`), or has a notice still going out (`SENDING`). Hidden policies and policies outside the user's codes are ignored.
+
+**Auth required:** Yes (JWT user token)
+
+**Request body**
+
+| Field | Type     | Required | Constraints                    |
+| ----- | -------- | -------- | ------------------------------ |
+| ids   | number[] | Yes      | 1–500 policy ids from the list |
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "sent": 3, "skipped": [{ "policyId": 815, "reason": "NO_PHONE" }] }
+```
+
+Only the numbers whose plan includes the function `expiry_notices` send (see `GET /admin/billing/features`).
+
+`400 Bad Request` — None of the chosen policies can be sent
+`403 Forbidden` — No connected number is on a plan with `expiry_notices`: "El plan de tus números no incluye el envío de avisos de pólizas vencidas. Se puede cambiar en Facturación."
+`409 Conflict` — `POLICY_EXPIRY_TEMPLATE` is not configured, or no WhatsApp number is connected
+
+---
+
+### POST /admin/cobranzas/vencidas/mark
+
+The office told these clients by other means (a call, in person): a `MARKED` notice is recorded so the list shows it and they are not sent a WhatsApp for 30 days. A policy with a notice still going out is skipped.
+
+**Auth required:** Yes (JWT user token)
+
+**Request body**
+
+| Field | Type     | Required | Constraints                    |
+| ----- | -------- | -------- | ------------------------------ |
+| ids   | number[] | Yes      | 1–500 policy ids from the list |
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "marked": 2 }
+```
+
+## Facturación (planes de mensajes)
+
+Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends, notices); only a **campaign** message (Meta pricing category `marketing`) delivered from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on (default 2026-12-01) consumes **2**. Every other message consumes 1: replies (`service`, `referral_conversion`), `utility` templates (rejection and expiry notices, quote follow-ups) and `authentication`. Every figure the organization sees (`messages`, `messagesUsed`, the bar, the limit) is that consumed count; the weight, the raw counts and the categories are the OWNER's only. The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). A number never moves up on its own: when its consumed messages reach its plan, its assistant **pauses**; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and an e-mail, and chooses to continue on the next plan (`POST /admin/billing/numbers/:id/limit`) or to wait for next month. Past the largest plan, continuing adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message. The billing cycle is the calendar month (from the 1st to the last day) and it is always charged whole: an active number pays its whole plan, also in the month it went live, whatever day that was. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost; the profit is billed − Meta (OpenAI is prepaid). Rules and examples: `docs/message-plans-october-2026.md`.
+
+### GET /admin/billing
+
+The month of every number in scope: its assigned plan, the plan the month is billed on, how far into it the number is (the consumption bar) and the plan it moves to next. ADMIN sees the numbers billed to its codes; SUPERADMIN (and OWNER) every number of the organization plus the month's total.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Query parameters**
+
+| Parameter | Type   | Required | Description                                               |
+|-----------|--------|----------|-----------------------------------------------------------|
+| period    | string | No       | `YYYY-MM`, not after the current month (default: current) |
+
+**Responses**
+
+`200 OK` — `upgraded` is true when the month's messages passed the assigned plan or the number already moved up on its own this month (`movedUpAt`). `plan.id` is null past the largest plan (`extraBlocks` > 0). `totalBilledUsd` comes only for SUPERADMIN and OWNER.
+```json
+{
+  "period": "2026-10",
+  "blockMessages": 1000,
+  "plans": [
+    { "id": 1, "name": "Prueba", "messages": 100, "priceUsd": 0, "isTrial": true },
+    { "id": 2, "name": "Inicial", "messages": 500, "priceUsd": 25, "isTrial": false },
+    { "id": 3, "name": "Profesional", "messages": 1000, "priceUsd": 50, "isTrial": false }
+  ],
+  "numbers": [
+    {
+      "id": 1,
+      "number": "+54 9 11 0000-0000",
+      "branchName": "Centro",
+      "isActive": true,
+      "responsibleCode": { "id": 1, "code": "11425", "holderName": "JOHN PELLEGRINI MANAGEMENT GROUP SRL" },
+      "assignedPlan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
+      "plan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
+      "upgraded": true,
+      "movedUpAt": "2026-10-30T04:57:17.519Z",
+      "messagesUsed": 502,
+      "includedMessages": 1000,
+      "remainingMessages": 498,
+      "percentUsed": 50.2,
+      "nextPlan": { "name": "Profesional + 1.000", "messages": 2000, "priceUsd": 100 },
+      "billedUsd": 50,
+      "updatedAt": "2026-10-30T04:57:17.600Z"
+    }
+  ],
+  "totalBilledUsd": 50
+}
+```
+
+`400 Bad Request` — Invalid month
+
+---
+
+### POST /admin/billing/numbers/:id/limit
+
+La respuesta de la oficina cuando un número llegó al límite de su plan y su asistente está en pausa. Un Admin solo
+puede responder por los números de sus códigos.
+
+**Auth required:** Yes (SuperAdmin o Admin)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| choice | string | Yes | `continue` (pasa al plan con más mensajes que los enviados, o suma bloques pasado el más grande, y el asistente vuelve a responder) o `pause` (queda en pausa hasta el 1 del mes siguiente) |
+
+```json
+{ "choice": "continue" }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{ "ok": true, "paused": false }
+```
+
+`404 Not Found` — el número no existe o no es de los códigos del Admin.
+
+`409 Conflict`
+```json
+{ "statusCode": 409, "message": "El número no está en pausa por su plan." }
+```
+
+En `GET /admin/billing` cada número trae `limit`: `reached` (sus mensajes llegaron al plan), `paused` (su asistente
+está en pausa este mes), `confirmed` (alguien eligió dejarlo en pausa), `pausedAt` y `resumesOn` (`YYYY-MM-01`).
+`nextPlan` es lo que da "continuar". `billedUsd` es el plan completo para todos los roles: el mes se cobra completo, también el mes en que el número salió.
+
+### GET /admin/billing/features
+
+Which panel functions the user may use, for the panel to show or lock them. A function counts when the plan of one of the organization's active numbers includes it (the assigned plan; the trial only in the number's first month; else the smallest paid plan) **and** the user's role has it on (`/owner/plan-features/roles`). An organization without numbers gets the plan its first number will start on. The OWNER gets every function. `availableIn` names the cheapest active paid plan that includes each function (null if none does), for "disponible en el plan X"; `blockedByRole` lists the functions the plans include but the user's role has off.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+```json
+{
+  "features": { "rejection_notices": true, "expiry_notices": true, "ai_assistant": false, "campaign_renewal": false },
+  "availableIn": { "rejection_notices": "Inicial", "expiry_notices": "Inicial", "ai_assistant": "Empresa", "campaign_renewal": null },
+  "blockedByRole": ["ai_assistant"]
+}
+```
+
+### GET /owner/plan-features/roles
+
+Who may use each function besides the plan. A function nobody set is on for both roles.
+
+**Auth required:** Yes (OWNER)
+
+`200 OK`
+```json
+{ "roles": { "ai_assistant": { "ADMIN": false, "SUPERADMIN": true }, "rejection_notices": { "ADMIN": true, "SUPERADMIN": true } } }
+```
+
+### PATCH /owner/plan-features/roles/:key
+
+Turns a function on or off for administrators and/or SuperAdmins (`key` = a function of `features` in `GET /owner/plans`). What is left out stays. A role with a function off gets 403 `"Tu usuario no tiene habilitada esta función. Lo define el soporte de la plataforma."` from its endpoints (assistant, campaign sends, notice sends).
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field      | Type    | Required | Constraints |
+| ---------- | ------- | -------- | ----------- |
+| ADMIN      | boolean | No       |             |
+| SUPERADMIN | boolean | No       |             |
+
+`200 OK`
+```json
+{ "ADMIN": false, "SUPERADMIN": true }
+```
+
+---
+
+### PATCH /admin/billing/numbers/:id/plan
+
+Puts a number of the organization on a paid plan of the catalog. Clears the number's automatic upgrade mark.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field  | Type   | Required | Constraints                                |
+|--------|--------|----------|--------------------------------------------|
+| planId | number | Yes      | an active paid plan of the catalog         |
+
+**Responses**
+
+`200 OK`
+```json
+{ "ok": true }
+```
+
+`400 Bad Request` — "El plan de prueba lo recibe solo un número nuevo de una cuenta nueva."
+`403 Forbidden` — ADMIN
+`404 Not Found` — no such number in the organization, or no such active plan
+
+---
+
+### GET /owner/billing
+
+The platform's month: what each organization and number is billed, what Meta really charged, OpenAI apart, and the profit (billed − Meta). A **closed** month (see `POST /owner/billing/close`) is read as it was frozen: plan, messages, billed and costs of that day, never recomputed with today's plans; `assignedPlan` is `null` and `paused` `false` there. Only a month not closed yet (the running one, or a past one before its close) is computed with each number's current plan. `messages` is the plan messages consumed (a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on); `sentMessages` counts each message once and `templateMessages` the templates among them (every template, campaigns, notices and authentication alike).
+
+**Auth required:** Yes (OWNER)
+
+**Query parameters**: `period` (`YYYY-MM`, default current).
+
+`200 OK`
+```json
+{
+  "period": "2026-10",
+  "closed": true,
+  "closedAt": "2026-11-01T03:00:00.000Z",
+  "backfilled": false,
+  "organizations": [
+    {
+      "id": 1,
+      "name": "John",
+      "isActive": true,
+      "numbers": [
+        {
+          "id": 1,
+          "number": "+54 9 11 0000-0000",
+          "isActive": true,
+          "responsibleCode": { "code": "11425", "holderName": "JOHN PELLEGRINI MANAGEMENT GROUP SRL" },
+          "plan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
+          "assignedPlan": { "id": 3, "name": "Profesional", "includedMessages": 1000, "priceUsd": 50, "trial": false, "extraBlocks": 0 },
+          "upgraded": true,
+          "paused": false,
+          "messages": 502,
+          "sentMessages": 502,
+          "templateMessages": 2,
+          "metaBillableMessages": 2,
+          "billedUsd": 50,
+          "metaCostUsd": 0.05,
+          "openaiCostUsd": 1.4,
+          "profitUsd": 49.95
+        }
+      ],
+      "totals": { "messages": 502, "sentMessages": 502, "templateMessages": 2, "metaBillableMessages": 2, "billedUsd": 50, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
+    }
+  ],
+  "totals": {
+    "organizations": 1,
+    "activeNumbers": 1,
+    "upgradedNumbers": 1,
+    "pausedNumbers": 0,
+    "messages": 502,
+    "sentMessages": 502,
+    "templateMessages": 2,
+    "metaBillableMessages": 2,
+    "billedUsd": 50,
+    "metaCostUsd": 0.05,
+    "openaiCostUsd": 1.4,
+    "profitUsd": 49.95
+  }
+}
+```
+
+`400 Bad Request` — Invalid month. `403 Forbidden` — not the OWNER.
+
+---
+
+### POST /owner/billing/close
+
+Freezes a month that already ended, number by number (`MonthlyClose`): the plan it was billed on, its messages (sent, templates, consumed), what it was billed (the Tablero's figure), what Meta and OpenAI cost, Lumarsoft's per-message cost and the partner settlement, with that day's rates (`PARTNER_COST_PER_MESSAGE_USD`, `PARTNER_PROFIT_SHARE`; while they are not configured the month still closes, with the settlement columns `null`). Every number in service that month, or that sent or cost something, gets a row; all in one transaction.
+
+The API closes the previous month by itself on the 1st at 00:00 (Argentina), and on boot if it is still open (`MONTHLY_CLOSE_ENABLED`, on by default). This endpoint backfills the months before the close existed and redoes one with `force`. A close made after the 1st of the next month uses the plans of that day and is marked `backfilled`. A closed month is never written again without `force`.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field  | Type    | Required | Constraints                                                     |
+|--------|---------|----------|-----------------------------------------------------------------|
+| period | string  | Yes      | `YYYY-MM`, a month that already ended                           |
+| force  | boolean | No       | recompute a month already closed, with today's plans (default false) |
+
+```json
+{ "period": "2026-10" }
+```
+
+**Responses**
+
+`200 OK`
+```json
+{ "period": "2026-10", "alreadyClosed": false, "closedNumbers": 3, "backfilled": true, "closedAt": "2026-11-05T15:00:00.000Z" }
+```
+
+`400 Bad Request` — the running month, a future one or a malformed one ("Solo se cierra un mes que ya terminó.").
+`409 Conflict` — already closed without `force` ("Ese mes ya está cerrado. Para recalcularlo con los planes de hoy, usá force."), or another close running ("Ya hay un cierre de mes en curso.").
+`403 Forbidden` — not the OWNER.
+
+---
+
+### GET /owner/plans
+
+The whole catalog, plans switched off included, with the panel functions a plan can include (`features`, from `src/plan-features/plan-features.ts`) and which of them each plan includes. A function a plan never set takes its default: the rejection and expiry notices (older than plan functions) start on; everything added since 2026-11-04 (assistant, campaigns, any new one) starts off until the owner turns it on.
+
+**Auth required:** Yes (OWNER)
+
+`200 OK`
+```json
+{
+  "blockMessages": 1000,
+  "features": [
+    { "key": "rejection_notices", "label": "Avisos de rechazos de pago", "description": "Enviar por WhatsApp los avisos del Excel de rechazos de débito." },
+    { "key": "expiry_notices", "label": "Avisos de pólizas vencidas", "description": "Enviar por WhatsApp el aviso a los asegurados con la póliza vencida." },
+    { "key": "campaign_renewal", "label": "Campaña: renovaciones", "description": "Escribir antes de que venza la póliza." }
+  ],
+  "plans": [
+    {
+      "id": 1, "name": "Prueba", "messages": 100, "priceUsd": 0, "isTrial": true, "isActive": true, "sortOrder": 0,
+      "features": { "rejection_notices": true, "expiry_notices": true, "campaign_renewal": true }
+    },
+    {
+      "id": 2, "name": "Inicial", "messages": 500, "priceUsd": 25, "isTrial": false, "isActive": true, "sortOrder": 1,
+      "features": { "rejection_notices": false, "expiry_notices": false, "campaign_renewal": false }
+    }
+  ]
+}
+```
+
+---
+
+### POST /owner/plans
+
+Adds a plan to the catalog.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field     | Type    | Required | Constraints                                                  |
+|-----------|---------|----------|--------------------------------------------------------------|
+| name      | string  | Yes      | 1–60 characters                                              |
+| messages  | number  | Yes      | integer, 1–1,000,000                                         |
+| priceUsd  | number  | Yes      | 0–100,000, 2 decimals (0 allowed)                            |
+| isTrial   | boolean | No       | the trial plan; must be free, only one active (default false) |
+| sortOrder | number  | No       | integer ≥ 0 (default: last)                                  |
+| features  | object  | No       | `{ "<key>": true \| false }` with keys of `features` in `GET /owner/plans` (default: all included) |
+
+`201 Created` — the plan as `GET /owner/plans` lists it.
+`400 Bad Request` — "El plan de prueba es gratis: su precio tiene que ser 0."
+`409 Conflict` — "Ya hay un plan de prueba activo (Prueba)."
+
+---
+
+### PATCH /owner/plans/:id
+
+Renames, resizes, reprices, reorders or switches a plan on or off. A plan switched off keeps its numbers but no number moves to it. The last active paid plan cannot be switched off.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**: `name`, `messages`, `priceUsd`, `isTrial`, `isActive`, `sortOrder`, `features`, all optional (same constraints as POST). `features` changes only the functions it lists: `{ "campaign_renewal": false }` turns the internal chat off and leaves the rest as they were.
+
+`200 OK` — the plan. `400 Bad Request` — a paid trial, the last active paid plan switched off, a function that does not exist ("La función reports no existe.") or a value that is not true/false. `404 Not Found` — no such plan. `409 Conflict` — a second active trial.
+
+---
+
+### DELETE /owner/plans/:id
+
+Retires a plan (soft delete); its numbers go back to the smallest paid plan. The last active paid plan cannot be retired.
+
+**Auth required:** Yes (OWNER)
+
+`200 OK`
+```json
+{ "ok": true }
+```
+
+---
+
+## Owner — Liquidación (socio comercial)
+
+How each month's billing splits between Lumarsoft and its commercial partner. Per number: Lumarsoft's service cost = consumed messages × `PARTNER_COST_PER_MESSAGE_USD` (a campaign message, which counts twice, costs twice); remainder = billed − that cost; the partner gets `PARTNER_PROFIT_SHARE` (0–1) of the remainder and Lumarsoft the rest. A trial bills 0, so its cost makes the remainder negative and comes out of the split. `billedUsd` is the Tablero's "Facturado": the whole plan, also in a number's first month (a month closed before 2026-11-04 keeps the prorated first month it was frozen with). **What Meta and OpenAI cost is never part of it nor returned here.** A closed month is read as frozen, with the rates of its close (`terms`); the running month (or one not closed yet, or closed before the rates were set) is computed now with today's rates.
+
+The two rates have **no default** and live only in the server's `.env` (the repository is public). While either is missing, both endpoints answer `503 Service Unavailable` and the monthly close still freezes everything else, with the settlement columns `null`. The examples below use illustrative rates (0.03 per message, 0.4 to the partner), not the real ones.
+
+### GET /owner/settlement
+
+One month: totals, per organization (only those with numbers in the settlement) and per number. A number counts when it was in service that month, consumed messages or billed something.
+
+**Auth required:** Yes (OWNER)
+
+**Query parameters**: `period` (`YYYY-MM`, default current).
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "period": "2026-10",
+  "live": false,
+  "closed": true,
+  "closedAt": "2026-11-01T03:00:00.000Z",
+  "backfilled": false,
+  "terms": { "costPerMessageUsd": 0.03, "partnerShare": 0.4 },
+  "totals": {
+    "organizations": 1,
+    "numbers": 2,
+    "trialNumbers": 1,
+    "consumedMessages": 380,
+    "billedUsd": 25,
+    "serviceCostUsd": 11.4,
+    "remainderUsd": 13.6,
+    "partnerShareUsd": 5.44,
+    "ownerShareUsd": 8.16,
+    "ownerTotalUsd": 19.56
+  },
+  "organizations": [
+    {
+      "id": 1,
+      "name": "Organización",
+      "isActive": true,
+      "totals": { "consumedMessages": 380, "billedUsd": 25, "serviceCostUsd": 11.4, "remainderUsd": 13.6, "partnerShareUsd": 5.44, "ownerShareUsd": 8.16, "ownerTotalUsd": 19.56 },
+      "numbers": [
+        {
+          "id": 8,
+          "number": "+54 9 341 000-0000",
+          "isActive": true,
+          "responsibleCode": { "code": "11425", "holderName": null },
+          "plan": { "name": "Inicial", "includedMessages": 500, "priceUsd": 25 },
+          "trial": false,
+          "firstMonth": false,
+          "sentMessages": 250,
+          "templateMessages": 50,
+          "consumedMessages": 300,
+          "billedUsd": 25,
+          "serviceCostUsd": 9,
+          "remainderUsd": 16,
+          "partnerShareUsd": 6.4,
+          "ownerShareUsd": 9.6,
+          "ownerTotalUsd": 18.6
+        }
+      ]
+    }
+  ]
+}
+```
+
+`400 Bad Request` — invalid or future month. `403 Forbidden` — not the OWNER.
+
+`503 Service Unavailable` — the settlement rates are not configured on the server.
+```json
+{ "statusCode": 503, "message": "La liquidación no está configurada en el servidor.", "error": "Service Unavailable" }
+```
+
+---
+
+### GET /owner/settlement/series
+
+The months ending at `to`: the money of each, active numbers (in service that month), new numbers (their first month of service) and numbers that stopped (in service the month before, not this one). `terms` are today's rates; each closed month was settled with its own.
+
+**Auth required:** Yes (OWNER)
+
+**Query parameters**: `to` (`YYYY-MM`, default current), `months` (1–24, default 12).
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "to": "2026-11",
+  "terms": { "costPerMessageUsd": 0.03, "partnerShare": 0.4 },
+  "months": [
+    {
+      "period": "2026-10",
+      "live": false,
+      "closed": true,
+      "backfilled": true,
+      "consumedMessages": 1730,
+      "billedUsd": 125,
+      "serviceCostUsd": 51.9,
+      "remainderUsd": 73.1,
+      "partnerShareUsd": 29.24,
+      "ownerShareUsd": 43.86,
+      "ownerTotalUsd": 95.76,
+      "activeNumbers": 2,
+      "newNumbers": 0,
+      "stoppedNumbers": 0
+    }
+  ]
+}
+```
+
+`400 Bad Request` — invalid or future `to`, or `months` out of range. `403 Forbidden` — not the OWNER. `503 Service Unavailable` — the settlement rates are not configured on the server (same body as `GET /owner/settlement`).
+
+---
+
+### GET /public/plans
+
+The active plans of the catalog, for the landing. Cached 5 minutes.
+
+**Auth required:** No
+
+`200 OK` — `blockPriceUsd` is the price of each block of `blockMessages` past the largest plan.
+```json
+{
+  "blockMessages": 1000,
+  "blockPriceUsd": 50,
+  "plans": [
+    { "name": "Prueba", "messages": 100, "priceUsd": 0, "isTrial": true },
+    { "name": "Inicial", "messages": 500, "priceUsd": 25, "isTrial": false },
+    { "name": "Profesional", "messages": 1000, "priceUsd": 50, "isTrial": false }
+  ]
+}
+```
+
+---
+
+## Owner — Plantillas de WhatsApp
+
+### GET /owner/templates
+
+Every WhatsApp Business account that can send (connected, with an active number), grouped by organization: its numbers with the quality and daily limit Meta reports, the templates the platform needs there (the current text of each notice turned on on the server, from `src/notices/notice-templates.ts`, and each campaign's current text) and every other template Meta has in it. A needed template Meta does not have in that language comes as `MISSING`. Asks Meta on every call.
+
+Nobody creates these templates by hand: `TemplateSyncService` (every hour and right after a number is connected, on when `META_TEMPLATE_SYNC_ENABLED=true`) creates the current text of each notice in every account that lacks it and sends each campaign's current text to the accounts that do not have it (again, once a day, when it never reached Meta). Meta reviews each copy apart. While it reviews a notice's new text, each number keeps sending the newest earlier text its account has approved.
+
+**Auth required:** Yes — OWNER only.
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "checkedAt": "2026-11-05T13:10:00.000Z",
+  "organizations": [
+    {
+      "id": 1,
+      "name": "John Pellegrini Management Group",
+      "accounts": [
+        {
+          "id": 8,
+          "wabaName": "John Pellegrini management group",
+          "numbers": [
+            { "number": "+54 9 341 000-0002", "branchName": "Pueblo Esther", "quality": "GREEN", "messagingLimit": "TIER_250" }
+          ],
+          "error": null,
+          "templates": [
+            {
+              "name": "aviso_rechazo_pago",
+              "language": "es_AR",
+              "category": "UTILITY",
+              "status": "PENDING",
+              "reason": null,
+              "quality": null,
+              "use": "Avisos de rechazos de pago",
+              "inUse": true,
+              "managed": true
+            },
+            {
+              "name": "campana_renovacion_v1",
+              "language": "es_AR",
+              "category": "MARKETING",
+              "status": "APPROVED",
+              "reason": null,
+              "quality": "UNKNOWN",
+              "use": "Campaña: Renovaciones",
+              "inUse": true,
+              "managed": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `status`: Meta's (`APPROVED`, `PENDING`, `REJECTED`, `PAUSED`, `DISABLED`, `IN_APPEAL`…) or `MISSING`.
+- `use`: what the platform sends it for; `null` for a template it does not use. An old campaign or notice text says "(texto anterior)". An old campaign text has `inUse: false`; an old notice text has `inUse: true` while it is the one the account sends (the current text is not approved there yet).
+- `managed`: the platform creates it by itself in every account (a missing one shows up within the hour). `false` for the web quote follow-up (`QUOTE_FOLLOWUP_TEMPLATE`), created by hand.
+- `error`: set when Meta did not return the account's templates (an expired token…); `templates` is then empty.
+
+`401 Unauthorized` / `403 Forbidden` — not logged in, or not the owner.
 
 ## Admin — Siniestros
 
@@ -950,7 +1921,7 @@ Paginated list of the producer's claims, newest first.
 **Query params**
 
 | Param    | Type   | Required | Constraints                                              |
-|----------|--------|----------|----------------------------------------------------------|
+| -------- | ------ | -------- | -------------------------------------------------------- |
 | status   | string | No       | `pending`, `in_progress` or `resolved`                   |
 | search   | string | No       | Matches client name, DNI, certificado or official number |
 | page     | number | No       | Default 1                                                |
@@ -959,6 +1930,7 @@ Paginated list of the producer's claims, newest first.
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
@@ -972,7 +1944,14 @@ Paginated list of the producer's claims, newest first.
       "attachments": null,
       "createdAt": "2026-06-12T13:05:00.000Z",
       "updatedAt": "2026-06-12T13:05:00.000Z",
-      "client": { "id": 3, "firstName": "EVELYN", "lastName": "BENITEZ", "dni": "30123456", "email": "evelyn@example.com", "phone": "5491155556666" },
+      "client": {
+        "id": 3,
+        "firstName": "EVELYN",
+        "lastName": "BENITEZ",
+        "dni": "30123456",
+        "email": "evelyn@example.com",
+        "phone": "5491155556666"
+      },
       "policy": {
         "id": 12,
         "certificateNumber": "334455",
@@ -1002,6 +1981,7 @@ Claim counters for the admin dashboard. `withoutInsurerNumber` counts claims not
 **Responses**
 
 `200 OK`
+
 ```json
 { "pending": 3, "inProgress": 1, "resolved": 14, "withoutInsurerNumber": 4 }
 ```
@@ -1026,12 +2006,12 @@ Progresses the claim and/or records the official Triunfo number after filing it 
 
 **Request body**
 
-| Field                | Type   | Required | Constraints                              |
-|----------------------|--------|----------|------------------------------------------|
-| status               | string | No*      | `pending`, `in_progress` or `resolved`   |
-| insurerClaimNumber   | string | No*      | Max 50 chars                             |
+| Field              | Type   | Required | Constraints                            |
+| ------------------ | ------ | -------- | -------------------------------------- |
+| status             | string | No\*     | `pending`, `in_progress` or `resolved` |
+| insurerClaimNumber | string | No\*     | Max 50 chars                           |
 
-*At least one field is required.
+\*At least one field is required.
 
 ```json
 { "status": "in_progress", "insurerClaimNumber": "SIN-884213" }
@@ -1047,6 +2027,8 @@ Progresses the claim and/or records the official Triunfo number after filing it 
 
 ## Admin — Bandeja (Inbox)
 
+**Who sees which chat.** The SuperAdmin (and the OWNER) sees every chat of the organization's codes plus those not attributed to a code yet; the section filter narrows them by code or by number. An admin sees **only the chats that came through their own numbers** (the numbers billed to one of their codes, as listed in `GET /admin/phone-numbers`), whatever code the chat is attributed to; with no number of their own they see no chat. Chats are one per person and organization, so a chat follows the number the person last wrote to. Every inbox endpoint applies the rule: a chat outside it answers `404` (list, messages, contact, takeover, release, reply, media, delete).
+
 ### GET /admin/inbox
 
 Active conversations for the producer (defaults to `open` + `pending`), pending ones first.
@@ -1055,14 +2037,15 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
 
 **Query params**
 
-| Param  | Type   | Required | Constraints                                                  |
-|--------|--------|----------|--------------------------------------------------------------|
-| status | string | No       | `open`, `pending` or `closed`                                |
+| Param  | Type   | Required | Constraints                                                            |
+| ------ | ------ | -------- | ---------------------------------------------------------------------- |
+| status | string | No       | `open`, `pending` or `closed`                                          |
 | search | string | No       | Matches client name, DNI, contact name or the WhatsApp number (`waId`) |
 
 **Responses**
 
-`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat.
+`200 OK` — Array of conversation summaries. `contactName` is who writes from this number (name saved in the WhatsApp Business address book, else their WhatsApp profile name). `client` is the last insured they identified with (null if none) and `clientIsContact` says whether that client's stored phone is this WhatsApp number — when it is `false` the writer asked on someone else's behalf. `lastMessage` is the latest message of any role for the list preview (`content` collapsed to one line and cut at 120 characters; `mediaType` is `image`, `audio`, `file` or `null`), or `null` for an empty chat. `globalBotDisabled` is the organization's bot switch and `numberBotDisabled` the switch of the number the chat came through (`PATCH /admin/phone-numbers/:id/bot-status`): with either on, the office answers the chat without taking it over. `blockedClaim` is set while the chat's open advisor request is a claim the bot refused to file ("denuncia frenada"): `NO_POLICY` (no policy in force), `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS`; `null` otherwise.
+
 ```json
 [
   {
@@ -1070,6 +2053,8 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
     "waId": "5493411234567",
     "status": "pending",
     "botPaused": false,
+    "globalBotDisabled": false,
+    "numberBotDisabled": false,
     "assignedToUserId": null,
     "assignedTo": null,
     "handedOverAt": null,
@@ -1084,7 +2069,8 @@ Active conversations for the producer (defaults to `open` + `pending`), pending 
       "content": "Hola Evelyn, ¿en qué te puedo ayudar?",
       "mediaType": null,
       "createdAt": "2026-06-22T19:39:00.000Z"
-    }
+    },
+    "blockedClaim": null
   }
 ]
 ```
@@ -1101,10 +2087,10 @@ Manual fix of who a chat belongs to. `contactName` sets the name shown for whoev
 
 **Request body**
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| contactName | string \| null | No | ≤ 191 chars; empty or `null` = automatic name |
-| unlinkClient | boolean | No | `true` removes the linked client |
+| Field        | Type           | Required | Constraints                                   |
+| ------------ | -------------- | -------- | --------------------------------------------- |
+| contactName  | string \| null | No       | ≤ 191 chars; empty or `null` = automatic name |
+| unlinkClient | boolean        | No       | `true` removes the linked client              |
 
 ```json
 { "contactName": "John Pellegrini", "unlinkClient": true }
@@ -1125,10 +2111,17 @@ Full stored history of a conversation in chronological order — not limited to 
 **Responses**
 
 `200 OK`
+
 ```json
 [
   { "id": 41, "role": "user", "content": "Hola", "createdAt": "2026-06-12T13:00:00.000Z", "media": null },
-  { "id": 42, "role": "assistant", "content": "¡Hola! ¿Sos cliente?", "createdAt": "2026-06-12T13:00:02.000Z", "media": null }
+  {
+    "id": 42,
+    "role": "assistant",
+    "content": "¡Hola! ¿Sos cliente?",
+    "createdAt": "2026-06-12T13:00:02.000Z",
+    "media": null
+  }
 ]
 ```
 
@@ -1142,14 +2135,15 @@ Sends a photo or a PDF to the customer from the Whatsapp section, with an option
 
 **Request body** (`multipart/form-data`)
 
-| Field   | Type   | Required | Constraints |
-|---------|--------|----------|-------------|
+| Field   | Type   | Required | Constraints                                                                                            |
+| ------- | ------ | -------- | ------------------------------------------------------------------------------------------------------ |
 | file    | file   | Yes      | `image/jpeg` or `image/png` up to 5 MB (WhatsApp's limit for photos), or `application/pdf` up to 16 MB |
-| caption | string | No       | Max 1024 characters |
+| caption | string | No       | Max 1024 characters                                                                                    |
 
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "id": 87,
@@ -1186,6 +2180,8 @@ A notifications feed for the panel. A novedad is created automatically when a ne
 
 All endpoints require an employee/admin JWT (`type: "user"`). A client token returns `403`.
 
+Novedades are visible by code: those of the user's codes plus those not attributed to a code. For an admin, a handoff follows its chat instead, like the inbox: only those of chats that came through their own numbers. List, stats, read, read-all, matter changes and clearing all apply it.
+
 ### GET /admin/novedades
 
 Paginated list of novedades, unread first then newest.
@@ -1194,18 +2190,21 @@ Paginated list of novedades, unread first then newest.
 
 **Query params**
 
-| Param    | Type    | Required | Constraints                          |
-|----------|---------|----------|--------------------------------------|
-| type     | string  | No       | `siniestro` or `handoff`               |
-| unread   | boolean | No       | `true` returns only unread novedades   |
-| search   | string  | No       | Matches the linked client's name or DNI |
+| Param    | Type    | Required | Constraints                             |
+| -------- | ------- | -------- | --------------------------------------- |
+| type     | string  | No       | `siniestro` or `handoff`                |
+| unread   | boolean | No       | `true` returns only unread novedades    |
+| search   | string  | No       | Matches the title, the text, or the linked client's name or DNI, within the person's scope (an admin still sees only their codes and numbers) |
 | clientId | number  | No       | Restrict to a single client's novedades |
-| page     | number  | No       | Default 1                              |
-| pageSize | number  | No       | Default 20, max 100                    |
+| page     | number  | No       | Default 1                               |
+| pageSize | number  | No       | Default 20, max 100                     |
+
+**Who sees what.** An admin sees only the matters that came through their own numbers (`Notification.phoneNumberId`, the Meta id of the number the chat came through); when one of their numbers is the organization's default number (the office line, billed to the master code) they also see what came through no number (web, panel, rows older than this column). The SuperAdmin sees everything; `phoneNumberId` (a PhoneNumber id) narrows to that number, the default number also bringing what came through none; a number that is not the organization's returns nothing. `producerCodeId` narrows by code as before.
 
 **Responses**
 
-`200 OK` — `client` is the linked insured (null for an unidentified handoff).
+`200 OK` — `client` is the linked insured (null for an unidentified handoff). `blockedClaimReason` marks a handoff that is a claim the bot refused to file ("denuncia frenada"): `NO_POLICY`, `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS`; `null` for any other matter.
+
 ```json
 {
   "data": [
@@ -1224,9 +2223,10 @@ Paginated list of novedades, unread first then newest.
       "type": "handoff",
       "refId": 1,
       "title": "Pedido de asesor · Ana Gómez",
-      "body": null,
+      "body": "Denuncia de siniestro no registrada: la póliza 9001 figura con un cobro rechazado.",
       "readAt": "2026-06-22T18:10:00.000Z",
       "createdAt": "2026-06-22T18:02:00.000Z",
+      "blockedClaimReason": "REJECTED_PAYMENT",
       "client": { "id": 5, "firstName": "Ana", "lastName": "Gómez", "dni": "27888999" }
     }
   ],
@@ -1250,6 +2250,7 @@ Unread counters for the sidebar badge and category filters.
 **Responses**
 
 `200 OK`
+
 ```json
 { "unreadTotal": 3, "unreadClaims": 2, "unreadHandoff": 1 }
 ```
@@ -1263,12 +2264,13 @@ Marks every unread novedad as read. Restrict to one category with `?type=`.
 **Query params**
 
 | Param | Type   | Required | Constraints              |
-|-------|--------|----------|--------------------------|
+| ----- | ------ | -------- | ------------------------ |
 | type  | string | No       | `siniestro` or `handoff` |
 
 **Responses**
 
 `200 OK`
+
 ```json
 { "updated": 3 }
 ```
@@ -1290,6 +2292,7 @@ Marks a single novedad as read (idempotent — re-marking a read novedad is a no
 Internal tasks the office leaves each other, outside the bot ("Tareas" in the panel): a call to return, a document to send. Someone creates a task for a person of the same organization, who works it, moves it between `PENDING`, `IN_PROGRESS` and `DONE`, and can reply in its comments. A task is visible to whoever created it, whoever has it assigned and any SuperAdmin of the organization; tasks are not scoped by producer code. All endpoints require a user JWT.
 
 A task in every response:
+
 ```json
 {
   "id": 12,
@@ -1306,26 +2309,33 @@ A task in every response:
   "createdBy": { "id": 1, "name": "John", "email": "john@example.com" },
   "assignedTo": { "id": 2, "name": "Mili", "email": "mili@example.com" },
   "comments": [
-    { "id": 4, "body": "Le dejé mensaje", "createdAt": "2026-10-13T15:00:00.000Z", "user": { "id": 2, "name": "Mili", "email": "mili@example.com" } }
+    {
+      "id": 4,
+      "body": "Le dejé mensaje",
+      "createdAt": "2026-10-13T15:00:00.000Z",
+      "user": { "id": 2, "name": "Mili", "email": "mili@example.com" }
+    }
   ]
 }
 ```
+
 `seenAt` is null while the assignee has not seen the task, or when someone else replied after they last looked.
 
 ### GET /admin/tasks
 
 **Auth required:** Yes (user JWT)
 
-| Query  | Values | Default | Meaning |
-|--------|--------|---------|---------|
-| view   | `mine`, `created`, `all` | `mine` | Assigned to me, created by me, or the whole office (`all` returns everything only to a SuperAdmin; anyone else gets the tasks they created or have assigned) |
-| status | `open`, `done` | `open` | Pending + in progress (soonest due date first), or the latest 100 finished |
+| Query  | Values                   | Default | Meaning                                                                                                                                                      |
+| ------ | ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| view   | `mine`, `created`, `all` | `mine`  | Assigned to me, created by me, or the whole office (`all` returns everything only to a SuperAdmin; anyone else gets the tasks they created or have assigned) |
+| status | `open`, `done`           | `open`  | Pending + in progress (soonest due date first), or the latest 100 finished                                                                                   |
 
 `200 OK` — Array of tasks.
 
 ### GET /admin/tasks/stats
 
 `200 OK` — Open tasks assigned to the user and how many of them are unseen, for the menu badge.
+
 ```json
 { "open": 3, "unseen": 1 }
 ```
@@ -1335,6 +2345,7 @@ A task in every response:
 People a task can be assigned to: the organization's users (the platform OWNER excluded).
 
 `200 OK`
+
 ```json
 [{ "id": 2, "name": "Mili", "email": "mili@example.com", "role": "ADMIN" }]
 ```
@@ -1344,6 +2355,7 @@ People a task can be assigned to: the organization's users (the platform OWNER e
 Marks every task assigned to the user as seen (the panel calls it when the user opens their tasks).
 
 `201 Created`
+
 ```json
 { "seen": 2 }
 ```
@@ -1352,14 +2364,14 @@ Marks every task assigned to the user as seen (the panel calls it when the user 
 
 **Request body**
 
-| Field            | Type   | Required | Constraints |
-|------------------|--------|----------|-------------|
-| title            | string | Yes      | 1–200 characters |
-| description      | string | No       | Max 5000 characters |
+| Field            | Type   | Required | Constraints                                     |
+| ---------------- | ------ | -------- | ----------------------------------------------- |
+| title            | string | Yes      | 1–200 characters                                |
+| description      | string | No       | Max 5000 characters                             |
 | assignedToUserId | number | Yes      | A user of the same organization (not the OWNER) |
-| dueDate          | string | No       | `YYYY-MM-DD` |
-| contactName      | string | No       | Max 120 characters |
-| contactPhone     | string | No       | Max 40 characters |
+| dueDate          | string | No       | `YYYY-MM-DD`                                    |
+| contactName      | string | No       | Max 120 characters                              |
+| contactPhone     | string | No       | Max 40 characters                               |
 
 `201 Created` — The task. A task someone assigns to themselves is created as seen.
 
@@ -1378,6 +2390,7 @@ Any field of `POST /admin/tasks`, plus `status` (`PENDING`, `IN_PROGRESS`, `DONE
 Soft-deletes the task. Only its creator or a SuperAdmin.
 
 `200 OK`
+
 ```json
 { "ok": true }
 ```
@@ -1388,13 +2401,442 @@ Soft-deletes the task. Only its creator or a SuperAdmin.
 
 **Request body**
 
-| Field | Type   | Required | Constraints |
-|-------|--------|----------|-------------|
+| Field | Type   | Required | Constraints       |
+| ----- | ------ | -------- | ----------------- |
 | body  | string | Yes      | 1–2000 characters |
 
 `201 Created` — The task with its comments. A reply from anyone but the assignee marks the task as unseen for the assignee.
 
 `403 Forbidden` — The task does not involve the user · `404 Not Found` — No such task
+
+## Admin — Asistente
+
+The panel's AI assistant (rebuilt 2026-11-06). It knows who is asking (name, role, codes, the numbers they manage and whose bank account each one uses, what the plan includes) and the screen they are on, reads the system with tools built on the panel's own services (portfolio, pending matters, tasks, team, claims, quote requests, numbers and their use, configuration, hours, payment data, integration status, the panel guide) and **prepares changes the person confirms**: payment data (organization or number), the organization's data, hours, a number's bot on/off, holidays and closures, tasks, the state of matters, claims and requests, and improvement proposals. A proposal changes nothing: it is stored as an action (`AssistantAction`) with what the panel's card shows, and only `POST /admin/assistant/actions/:id/confirm` runs it, through the same service as the panel's form and with the confirming user's permissions, at most once and within 30 minutes. A confirmed change of configuration or state keeps the exact values it replaced, so it can be undone (`undoable` on the card; the assistant's `proponer_deshacer` proposes going back, never from its memory of the old values); creating a task, a closure or a proposal is not undone here. Nothing the assistant does reaches a client. OpenAI Responses API, streamed, with reasoning (`OPENAI_API_KEY`, `OPENAI_MODEL`, `ASSISTANT_REASONING_EFFORT`, default `low`). Conversations are saved per person and deleted after `ASSISTANT_RETENTION_DAYS` (default 90) without use. Plan function `ai_assistant`; 60 questions per person per hour.
+
+What keeps it within bounds (2026-11-07):
+- Every route checks the plan function and the role switch, not only asking: a proposal whose plan or role lost the assistant can no longer be confirmed (`403`), and the history can't be read.
+- Nothing crosses organizations or, for an admin, their own codes and numbers: tools read through the panel's scoped services, and a confirm runs with the confirming user's scope, whatever the stored proposal says (a proposal on someone else's number or record ends `failed`).
+- The account for transfers (alias, CBU) and the claims e-mail and phones only change to values the person typed in the conversation, never to one that came in data a tool read (a client's name, a note, a chat).
+- Undo only goes back while the change is still in place: if someone changed it since, or it was already undone, it is refused instead of overwriting the current value.
+- One answer at a time per person (`409`), at most 8 tools per step and 5 cards per answer.
+- A conversation keeps the role and, for an admin, the codes the person had when it started: after losing one of them (or changing role) it no longer lists or opens.
+- The activity log names what each confirm changed (`fields`: `datos_de_pago #31 confirmed · Toda la organización: Alias, CBU / CVU`), never the values.
+
+Answers are Spanish with light markdown (`**negrita**`, `- ` lists) and links the panel turns into buttons: `[Nombre](asegurado:ID)` (a client's file), `[Ir a Sección](pantalla:ID)` or `(pantalla:ID/NUM)` (the exact destination: the panel opens that screen on its tab, lights up the section and, with NUM, opens that number or claim; ids in `src/assistant/panel-guide.ts` `PANEL_SCREENS`) and `[Mostrame en pantalla](recorrido:ID)` (an on-screen tour, `PANEL_TOURS`). A link to an unknown id is turned into plain text or dropped.
+
+### POST /admin/assistant/ask
+
+The one-shot endpoint of earlier panels, kept while they are replaced: the panel sends the conversation, nothing is saved and no change can be proposed.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field              | Type   | Required | Constraints                                                        |
+| ------------------ | ------ | -------- | ------------------------------------------------------------------ |
+| messages           | array  | Yes      | 1–20, oldest first; the last one is the question                   |
+| messages[].role    | string | Yes      | `user` or `assistant`                                              |
+| messages[].content | string | Yes      | 1–4000 characters; the last (the question) at most 2000           |
+
+```json
+{ "messages": [{ "role": "user", "content": "¿Cuál es el estado de la póliza de Juan Pérez?" }] }
+```
+
+**Responses**
+
+`201 Created` — Spanish with light markdown (`**negrita**`, `- ` lists) and links to client files as `[Nombre](asegurado:ID)`; a link without a real id is turned into plain text.
+
+```json
+{ "reply": "La póliza de [Juan Pérez](asegurado:60) está **vigente**: Ford Ka 2015 · AB123CD, vence el 20/11/2026. Tiene 1 cuota vencida de $ 90.315." }
+```
+
+`400 Bad Request` — `"La última parte de la conversación tiene que ser una pregunta de hasta 2000 caracteres."`
+
+`403 Forbidden` — `"El plan de tus números no incluye el asistente con IA. Se puede cambiar en Facturación."`
+
+`429 Too Many Requests` — `"Hiciste muchas preguntas seguidas. Esperá unos minutos."` (60 per person per hour)
+
+`503 Service Unavailable` — `"El asistente todavía no está configurado."` (no `OPENAI_API_KEY`) or `"El asistente no pudo responder. Probá de nuevo en un rato."`
+
+### POST /admin/assistant/messages
+
+A question, in a saved conversation or starting a new one. The answer comes as **server-sent events** (`text/event-stream`), in this order: `conversation` (only when it started a new one), then any number of `step`, `delta` and `action`, and last `done` or `error`. Whatever is wrong before the answer starts (plan, limit, a conversation that is not the person's) is a plain HTTP error instead. Sending the same text again after an answer failed reuses the question instead of repeating it.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field          | Type    | Required | Constraints                                                          |
+| -------------- | ------- | -------- | -------------------------------------------------------------------- |
+| conversationId | integer | No       | A conversation of the person; without it a new one starts            |
+| content        | string  | Yes      | 1–2000 characters, not blank                                         |
+| page.route     | string  | No       | The panel path the person is on (`/admin/…`: path segments only), up to 200 characters |
+| page.screen    | string  | No       | Its name as the panel shows it ("Configuración"), one line, up to 80 |
+
+```json
+{ "content": "Quiero cambiar los datos bancarios donde transfieren los clientes", "page": { "route": "/admin", "screen": "Inicio" } }
+```
+
+**Responses**
+
+`200 OK` — the stream:
+
+```
+event: conversation
+data: {"id":12,"title":"Quiero cambiar los datos bancarios donde transfieren los clientes","updatedAt":"2026-11-06T20:11:02.915Z"}
+
+event: step
+data: {"id":"call_o5MN","label":"Revisando los datos de pago","state":"running"}
+
+event: step
+data: {"id":"call_o5MN","label":"Revisando los datos de pago","state":"done"}
+
+event: delta
+data: {"text":"La cuenta actual es"}
+
+event: action
+data: {"id":31,"type":"datos_de_pago","status":"pending","preview":{"title":"Cambiar la cuenta para transferencias","target":"Toda la organización","changes":[{"label":"Alias","before":"viejo.alias","after":"jpmg.cobros"}],"notes":["La usa 1 número que no tiene cuenta propia."],"confirmLabel":"Cambiar la cuenta"},"summary":null,"link":null,"error":null,"expiresAt":"2026-11-06T20:41:19.311Z"}
+
+event: done
+data: {"conversationId":12,"message":{"id":40,"role":"assistant","content":"Preparé el cambio…","steps":["Revisando los datos de pago","Preparando el cambio de cuenta"],"actions":[{ "id": 31, "status": "pending" }],"createdAt":"2026-11-06T20:11:19.400Z"}}
+```
+
+`event: error` — `{ "message": "El asistente no pudo responder. Probá de nuevo en un rato." }` (the question stays saved).
+
+`400 Bad Request` — invalid body · `403 Forbidden` — the plan or the role has no assistant · `404 Not Found` — `"No encontré esa conversación."` (someone else's, or from codes the person no longer has) · `409 Conflict` — `"Todavía estoy respondiendo tu pregunta anterior: esperá a que termine."` · `429 Too Many Requests` · `503 Service Unavailable` — `"El asistente todavía no está configurado."`
+
+### GET /admin/assistant/conversations
+
+The person's last 30 conversations, the most recent first, leaving out the ones started with codes or a role the person no longer has.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+[{ "id": 12, "title": "Quiero cambiar los datos bancarios donde transfieren los clientes", "updatedAt": "2026-11-06T20:11:19.400Z" }]
+```
+
+### GET /admin/assistant/conversations/:id
+
+A conversation with its messages, oldest first; each answer carries the steps it took and its action cards as they stand now (`status`: `pending`, `confirmed`, `cancelled`, `failed`, `expired`).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+{
+  "id": 12,
+  "title": "Quiero cambiar los datos bancarios donde transfieren los clientes",
+  "messages": [
+    { "id": 39, "role": "user", "content": "Quiero cambiar los datos bancarios…", "steps": [], "actions": [], "createdAt": "2026-11-06T20:11:02.950Z" },
+    { "id": 40, "role": "assistant", "content": "Preparé el cambio…", "steps": ["Revisando los datos de pago"], "actions": [{ "id": 31, "type": "datos_de_pago", "status": "confirmed", "summary": "Listo: la cuenta de la organización quedó actualizada.", "link": { "route": "/admin/configuracion", "label": "Ver en Configuración" } }], "createdAt": "2026-11-06T20:11:19.400Z" }
+  ]
+}
+```
+
+`403 Forbidden` — the plan or the role has no assistant · `404 Not Found` — `"No encontré esa conversación."` (it is someone else's, deleted, or from codes the person no longer has)
+
+### DELETE /admin/assistant/conversations/:id
+
+Deletes a conversation from the person's history (soft delete).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK` — `{ "deleted": true }` · `403 Forbidden` · `404 Not Found`
+
+### POST /admin/assistant/actions/:id/confirm
+
+Runs a change the assistant proposed to this person, through the same service as the panel's form and with the person's own permissions (an admin still changes only their own numbers). Runs once: the second tap gets 409.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Responses**
+
+`201 Created` — the card as it is now and the panel caches to refresh (`['admin', tag]`). `action.link.route` lands on the exact place of the change (`/admin/configuracion?tab=horarios&seccion=horarios-form`, `/admin/numeros?numero=3&seccion=numero-pagos`). A change the service refused comes back as `status: "failed"` with its message, not as an HTTP error.
+
+```json
+{
+  "action": { "id": 31, "type": "datos_de_pago", "status": "confirmed", "undoable": true, "summary": "Listo: la cuenta de la organización quedó actualizada.", "link": { "route": "/admin/configuracion", "label": "Ver en Configuración" }, "error": null },
+  "refresh": ["config", "phone-numbers"]
+}
+```
+
+`403 Forbidden` — the plan or the role no longer has the assistant · `404 Not Found` — `"No encontré esa propuesta."` (someone else's) · `409 Conflict` — `"Esta propuesta ya se aplicó."`, `"…se canceló…"` or `"…venció…"`
+
+### POST /admin/assistant/actions/:id/cancel
+
+Discards a pending proposal; one that already ran, failed or expired is returned as it is (a confirm that wins the race stays confirmed).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`201 Created` — the card (`status: "cancelled"`) · `403 Forbidden` · `404 Not Found`
+
+## Admin — Campañas
+
+Nico's sales campaigns (2026-11-03). Each organization turns a campaign on, writes its message and its discount; the panel lists who the campaign finds in the portfolio (or, for `quote_followup`, in the bot's quotes) and the office ticks who to write to. Nothing goes out on its own.
+
+| `kind`             | Who it finds                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| `coverage_upgrade` | cars and motorbikes in force on a basic coverage (setting `basicCoverages`, default A, B, B1)       |
+| `quote_followup`   | bot quotes between `afterDays` and `withinDays` old, without a request, whose chat got no policy after them; one per chat |
+| `renewal`          | policies in force ending within `daysBefore` days without the next policy issued                  |
+| `winback`          | policies cancelled within `withinDays` (not replaced, not by mistake) with nothing running on the same vehicle or risk |
+| `cross_sell`       | clients with a car or motorbike in force and no home policy in force; one per client             |
+
+Every campaign has `cooldownDays`: someone written to (or marked) is not offered again until then. People who asked not to get these (`opt-out`) are left out of every campaign.
+
+**Messages and Meta.** A business can only start a WhatsApp chat with an approved template, and a template lives in one WhatsApp Business account. So every text of a campaign is submitted (category MARKETING, `es_AR`) to each account of the organization with an active number, as `campana_<slug>_v<n>`: a new text is a new version and goes back to review; the discount is a variable and changing it needs no review. A campaign sends only from numbers whose plan includes it (`campaign_<kind>` of the plan functions) and whose account has the current version APPROVED. The office writes placeholders between braces: `{nombre}` (first name), `{bien}` (vehicle as a person says it, or the product), `{vencimiento}` (renewal only) and `{porcentaje}`. Each message lands in the client's chat as the office's (`rawData.notice = "sales_campaign"`), so the bot hands their answer to the office like a reply to a rechazo. Template reviews still pending are asked again every 30 minutes and when the panel opens.
+
+### GET /admin/campaigns
+
+The five campaigns of the organization, configured or not (an unconfigured one is off with the default text and 15%).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+{
+  "campaigns": [
+    {
+      "kind": "renewal",
+      "label": "Renovaciones",
+      "description": "Pólizas vigentes que vencen pronto y todavía no tienen la renovación emitida.",
+      "enabled": true,
+      "discountPercent": 15,
+      "body": "¡Hola, {nombre}! El seguro de tu {bien} vence el {vencimiento}. …",
+      "placeholders": [{ "key": "nombre", "label": "Nombre", "example": "Juan" }],
+      "settings": { "daysBefore": 30, "cooldownDays": 60 },
+      "settingFields": [{ "key": "daysBefore", "label": "Avisar desde (días antes del vencimiento)", "type": "number", "min": 1, "max": 90, "help": "…" }],
+      "filters": [],
+      "templates": [{ "wabaName": "Oficina", "numbers": ["+54 9 341 000-0001"], "status": "APPROVED", "reason": null }],
+      "ready": true,
+      "plan": { "included": true, "availableIn": "Inicial" },
+      "candidates": 42,
+      "preview": "¡Hola, Juan! El seguro de tu Ford Ka vence el 30/11/2026. …",
+      "updatedAt": "2026-11-04T15:00:00.000Z"
+    }
+  ]
+}
+```
+
+`filters`: what the candidates list can be narrowed by besides the scope and the search: `coverage` (`coverage_upgrade`, `cross_sell`) or `reason` (`winback`).
+
+`templates[].status`: `PENDING` (in Meta's review), `APPROVED`, `REJECTED` (with Meta's reason), `NOT_SUBMITTED` (an account connected after the last text: `POST …/templates/refresh` submits it) or `ERROR` (Meta could not be reached or refused the request).
+
+---
+
+### PATCH /admin/campaigns/:kind
+
+Turns a campaign on or off and changes its discount, text or settings; what is left out stays. A new `body`, or turning it on for the first time, submits the text to Meta as a new version.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field           | Type    | Required | Constraints                                                                 |
+| --------------- | ------- | -------- | --------------------------------------------------------------------------- |
+| enabled         | boolean | No       | turning it on needs a plan that includes the campaign                        |
+| discountPercent | number  | No       | integer 0–100                                                               |
+| body            | string  | No       | max 1024; only the campaign's placeholders; not starting or ending with one; no two in a row; at most one blank line in a row |
+| settings        | object  | No       | the keys of `settingFields`: numbers within `min`–`max`, codes as a list of 1–20 strings |
+
+`200 OK` — the campaign as `GET /admin/campaigns` lists it.
+
+`400 Bad Request` — e.g. `"El mensaje no puede empezar ni terminar con un dato variable: Meta lo rechaza."`, `"{vencimiento} no es un dato que esta campaña conozca. Podés usar {nombre}, {bien}, {porcentaje}."`, `"No repetir antes de (días): tiene que estar entre 7 y 365."`
+
+`403 Forbidden` — `"El plan de tus números no incluye esta campaña. Se puede cambiar en Facturación."`
+
+---
+
+### POST /admin/campaigns/:kind/templates/refresh
+
+Asks Meta again for the review of the campaign's templates, and submits the current text to any account that does not have it yet.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`201 Created` — the campaign as `GET /admin/campaigns` lists it.
+
+---
+
+### GET /admin/campaigns/:kind/candidates
+
+Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas). Never-contacted (and not opted out) first, unless sorted by `lastMessage`; within each group, by `sort` and `order`. `sort`: `date` (default; the campaign's date: when the policy started in `coverage_upgrade` and `cross_sell`, when it ends in `renewal`, the cancellation in `winback`, the quote in `quote_followup`), `name`, `item` or `lastMessage` (never contacted counts as the oldest); `recent` and `oldest` still mean `date` desc and asc. `order`: `asc` or `desc`; by default `desc` for `date` and `lastMessage` (newest first), `asc` for `name` and `item`, and `asc` for `date` in `renewal` (the soonest to end first). Query: `search` (name, DNI, vehicle, reason), `sort`, `order`, `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`, and the campaign's own filters (its `filters` in `GET /admin/campaigns`): `coverage` (a coverage code, `coverage_upgrade` and `cross_sell`; in `cross_sell` any of the client's cars or motorbikes in force counts) and `reason` (`winback`: `falta_pago`, `venta`, `desistimiento`, `costo`, `cambio_compania`, `siniestro`, `rescision`, `otros`).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+{
+  "data": [
+    {
+      "id": 815,
+      "client": { "id": 60, "name": "Juan Perez", "dni": "20999001", "phone": "341159990001" },
+      "item": "Ford Ka 2015 · AB123CD",
+      "detail": "Vence el 20/11/2026",
+      "date": "2026-11-20T03:00:00.000Z",
+      "producerCode": { "id": 3, "code": "11425" },
+      "values": { "nombre": "Juan", "bien": "Ford Ka", "vencimiento": "20/11/2026" },
+      "lastMessage": null,
+      "optedOut": false
+    }
+  ],
+  "total": 42,
+  "page": 1,
+  "pageSize": 25,
+  "totalPages": 2,
+  "sort": { "by": "date", "order": "desc" },
+  "filters": {
+    "coverages": [
+      { "value": "A", "count": 30 },
+      { "value": "B1", "count": 12 }
+    ],
+    "reasons": null
+  }
+}
+```
+
+`sort` is the column and direction applied (the default when none was asked). `filters` lists the choices of the campaign's filters, from everyone it finds in the scope (whatever the search or the filter picked), with how many each has; `null` when the campaign has no such filter (`coverages` in `coverage_upgrade` and `cross_sell`, `reasons` in `winback`, as `{ value, label, count }`).
+
+`id` is the policy (the quote for `quote_followup`): what `send`, `mark` and `opt-out` take. `values` are what the message fills in for that person. `lastMessage.status`: `SENDING`, `SENT`, `FAILED`, `MARKED`.
+
+---
+
+### POST /admin/campaigns/:kind/send
+
+Writes to the chosen people one by one in the background (1.5 s apart); poll the candidates while any `lastMessage.status` is `SENDING`. Someone still going out (`SENDING`), written to or marked within `cooldownDays` (`ALREADY_SENT`), who asked not to get these (`OPTED_OUT`) or without a usable WhatsApp (`NO_PHONE`) is left out and reported.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field | Type     | Required | Constraints                        |
+| ----- | -------- | -------- | ---------------------------------- |
+| ids   | number[] | Yes      | 1–500 ids from the candidates list |
+
+`201 Created`
+
+```json
+{ "sent": 3, "skipped": [{ "id": 816, "reason": "ALREADY_SENT" }] }
+```
+
+`400 Bad Request` — `"A ninguno de los elegidos se le puede escribir ahora."`
+
+`403 Forbidden` — no connected number is on a plan with the campaign
+
+`409 Conflict` — `"La campaña está apagada. Prendela para enviar."`, `"Meta todavía no aprobó el mensaje de esta campaña en las cuentas de WhatsApp que pueden enviarla."` or no connected number
+
+---
+
+### POST /admin/campaigns/:kind/mark
+
+The office reached these people by other means: a `MARKED` message is recorded and they are not offered again for `cooldownDays`. Someone still going out is skipped.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body:** as `send`.
+
+`201 Created`
+
+```json
+{ "marked": 2 }
+```
+
+---
+
+### POST /admin/campaigns/:kind/opt-out
+
+These people asked not to get campaign messages: no campaign of the organization offers them again (by WhatsApp id, every reading of an ambiguous mobile).
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body:** as `send`.
+
+`201 Created`
+
+```json
+{ "optedOut": 2 }
+```
+
+### Opportunities (following each client)
+
+Each client a campaign writes to (`send`) or marks contacted (`mark`) becomes an **opportunity**: assigned to whoever did it unless somebody already follows it, and moved forward by the platform when it can tell what happened — `REPLIED` when the customer answers in the chat the message went to, `QUOTED` when a quote is asked there after the contact, `WON` when the cartera sync brings a policy of the client that answers the campaign (Renovaciones: the same vehicle starting within 45 days of the old end; Mejora de coberturas: the same vehicle with a coverage outside the campaign's basic ones, or the same policy upgraded; Bajas y anulaciones: a policy for the same vehicle or risk; Venta cruzada: a home policy; Cotizaciones sin cerrar: any policy of the client). Checked every 10 minutes and before the results. The office closes it as `LOST` (with a reason) or `WON` by hand, reopens it, writes a note and reassigns it. `GET /admin/campaigns/:kind/candidates` carries each row's `opportunity` (`null` until contacted or assigned) and, in `winback`, `customerReason`: what the client told the bot when asking to cancel; it takes `status` (`none`, `NEW`, `CONTACTED`, `REPLIED`, `QUOTED`, `WON`, `LOST`), `assignedToId` and `mine=true`.
+
+```json
+"opportunity": {
+  "id": 12, "status": "QUOTED", "statusLabel": "Cotizado",
+  "assignedTo": { "id": 4, "name": "Vanesa" }, "assignedAt": "2026-11-07T19:46:00.000Z",
+  "contactedAt": "2026-11-07T19:46:00.000Z", "repliedAt": "2026-11-08T12:00:00.000Z", "quotedAt": "2026-11-08T13:00:00.000Z",
+  "wonAt": null, "lostAt": null, "lostReason": null, "lostReasonLabel": null, "note": null, "wonPremium": null
+}
+```
+
+### POST /admin/campaigns/:kind/assign
+
+"Asignar a…": the ticked clients' opportunities (opened as `NEW` when needed) go to one person of the office, or to nobody.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER; the role must have the campaign on)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| ids | number[] | Yes | 1–500 ids of the list |
+| assignedToId | number \| null | Yes | A user of the organization (not the OWNER); `null` takes the assignee off |
+
+`201 Created`
+
+```json
+{ "assigned": 3 }
+```
+
+`400 Bad Request` — `"Esa persona no es de esta oficina."`
+
+### PATCH /admin/campaigns/:kind/opportunities/:targetId
+
+What the office says about one client's opportunity (`targetId` is the row's `id`: a policy, or a quote in `quote_followup`). Every field is optional.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER; the role must have the campaign on)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| status | string | No | `WON`, `LOST` or `CONTACTED` (reopened: back to what the facts say) |
+| lostReason | string | No | `PRICE`, `OTHER_INSURER`, `NO_ANSWER`, `SOLD_ASSET`, `OTHER`; required to set `LOST` |
+| wonPremium | number \| null | No | The premium of the sale, when known |
+| note | string \| null | No | Up to 2000 characters |
+| assignedToId | number \| null | No | Who follows it; closing it by hand assigns it to the user when nobody did |
+
+`200 OK` — the `opportunity` object above.
+
+`400 Bad Request` — `"Decí por qué se perdió la oportunidad."` · `404 Not Found` — `"Ese cliente ya no está en la campaña."`
+
+### GET /admin/campaigns/results
+
+How the campaigns did in a period, in the user's scope (`producerCodeId` / `phoneNumberId` as the other lists): what went out, how many answered, got a quote, bought or were lost, and the premium of what was sold; by campaign and by person. An opportunity belongs to the period it was contacted in. Query: `kind` (one campaign; default all), `from`, `to` (ISO day or instant; a day covers the whole day in Argentina; default the last 90 days), `assignedToId`.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+`200 OK`
+
+```json
+{
+  "from": "2026-08-11T15:00:00.000Z",
+  "to": "2026-11-09T15:00:00.000Z",
+  "campaigns": [
+    { "kind": "renewal", "label": "Renovaciones", "sent": 40, "marked": 3, "contacted": 43, "replied": 18, "quoted": 9, "won": 6, "lost": 4, "open": 33, "premium": 512000 }
+  ],
+  "totals": { "sent": 40, "marked": 3, "contacted": 43, "replied": 18, "quoted": 9, "won": 6, "lost": 4, "open": 33, "premium": 512000 },
+  "byAssignee": [
+    { "user": { "id": 4, "name": "Vanesa" }, "contacted": 20, "replied": 9, "quoted": 5, "won": 4, "lost": 2, "open": 14, "premium": 380000 },
+    { "user": null, "contacted": 3, "replied": 0, "quoted": 0, "won": 0, "lost": 0, "open": 3, "premium": 0 }
+  ]
+}
+```
 
 ## Bot (WhatsApp)
 
@@ -1404,13 +2846,14 @@ All `/bot/*` endpoints require the header `x-bot-secret` matching the `BOT_SECRE
 
 ### GET /bot/context/:phoneNumberId
 
-Resolves the producer (tenant) behind a Meta phone number ID, including its system prompt.
+Resolves the producer (tenant) behind a Meta phone number ID, including its system prompt. `botName`, `staffNames`, the hours line and `profile` are the number's own where it has them (`PATCH /admin/phone-numbers/:id/assistant`) and the organization's for the rest. `botEnabled` is `false` when the organization's switch or the number's own (`PATCH /admin/phone-numbers/:id/bot-status`) is off.
 
 **Auth required:** Yes (`x-bot-secret`)
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "producerId": 1,
@@ -1421,11 +2864,82 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
   "staffNames": ["Mili", "Milagros"],
   "attentionHours": "Lunes a viernes de 8 a 16 hs",
   "systemPrompt": "Sos el asistente virtual de...",
-  "llmEnabled": true
+  "llmEnabled": true,
+  "internalWaIds": ["543412757294", "543417028217"],
+  "profile": {
+    "orgName": "John Pellegrini Management Group",
+    "orgShortName": "JPMG",
+    "orgLegalName": "John Pellegrini Management Group SRL",
+    "towTruckPhone": "3415690470",
+    "claimsPhone": "0810-666-0302",
+    "cashPaymentPlaces": "Rapipago, Pago Fácil o Santa Fe Servicios",
+    "transfer": {
+      "alias": "TRUENO.VUELO.DELTA",
+      "cbu": "0070081820000004432793",
+      "holder": "Triunfo Coop. de Seguros Ltda. (CUIT 30-50006577-6)",
+      "bank": "Banco Galicia"
+    },
+    "quoteClosingNote": null
+  }
 }
 ```
 
+`profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU, `quoteClosingNote` is the line the bot appends to every quote (`null` = none). It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
+
+`internalWaIds` are the organization's active WhatsApp lines (this number included) as digits, `54` + area + number without WhatsApp's mobile `9`. A message from one of them (a branch writing to the office from its bot number) is kept for the inbox and never answered by the bot, and the inactivity goodbye is not sent to it either.
+
 `404 Not Found` — Phone number not registered or producer inactive
+
+### GET /bot/numbers/:phoneNumberId/hours
+
+Live hours (formatted week, open now, today's closure) of the number: its own weekly hours if it has them, the organization's otherwise, with the organization's closures — the same shape as `GET /public/hours`, which only knows the default organization.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK` — as `GET /public/hours`
+
+`404 Not Found`
+
+```json
+{ "statusCode": 404, "message": "Phone number 123 is not registered", "error": "Not Found" }
+```
+
+### POST /bot/numbers/:phoneNumberId/cotizador/:vehicleType
+
+A quote the bot asks for on a number: same body and response as `POST /cotizador/:vehicleType`, but the quote belongs to the number's organization, goes out with that organization's Triunfo account and offers, recommends and orders the car coverages as the number configured them (`coverageSettings` of `PATCH /admin/phone-numbers/:id/assistant`), with the organization's wording.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body** — the fields of `POST /cotizador/:vehicleType`, plus:
+
+| Field          | Type   | Required | Constraints                                                                 |
+| -------------- | ------ | -------- | --------------------------------------------------------------------------- |
+| conversationId | number | No       | the chat the quote is for; kept only if it belongs to the number's organization |
+| vehicleLabel   | string | No       | max 160, the vehicle as the bot named it ("CHEVROLET ONIX 1.0T PREMIER")     |
+
+Both are kept on the quote so the office can follow up a quote that did not end in a policy (campaign `quote_followup` of `GET /admin/campaigns`). The public endpoint rejects them (400).
+
+**Responses**
+
+`201 Created` — as `POST /cotizador/:vehicleType`
+
+`404 Not Found`
+
+```json
+{ "statusCode": 404, "message": "Phone number 123 is not registered", "error": "Not Found" }
+```
+
+`503 Service Unavailable` — the organization has no Triunfo credentials
+
+```json
+{
+  "statusCode": 503,
+  "message": "La organización 2 no tiene configurada la integración con Triunfo",
+  "error": "Service Unavailable"
+}
+```
 
 ### GET /bot/conversation/:phoneNumberId/:waId
 
@@ -1433,9 +2947,11 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 
 **Inactivity timeout (lazy):** if more than `SESSION_TIMEOUT_MINUTES` (env, default 5) elapsed since the last message, a new session is started — older messages are excluded from the response (they remain in the DB until the retention job) and `newSession` is `true` so the bot can greet the user again. There is no background job: the boundary is evaluated on each inbound message.
 
-**Earlier human replies:** `lastHumanReply` is the last message a person from the office wrote in this chat (inbox reply or WhatsApp Business app) within the last 72 hours, whatever the session, or `null`. It is `null` as well once the bot has replied after that person, since the customer is then talking to the bot. `previousActivityAt` is when the chat had activity before this request, also across sessions (`null` for a brand-new chat or after a reset). The bot uses them to stay out of a conversation a person was having and to skip its full introduction for someone it talked to a few hours ago.
+**Earlier human replies:** `lastHumanReply` is the last message a person from the office wrote in this chat (inbox reply or WhatsApp Business app) within the last 2 hours, whatever the session, or `null`. It carries `kind`: `"person"` for a reply someone typed, or `"notice"` for a message the platform sent on its own (a rechazo or póliza vencida notice), which is reported for 3 days instead, since the client answers those the next morning. It is `null` as well once the bot has replied after that person, since the customer is then talking to the bot. `previousActivityAt` is when the chat had activity before this request, also across sessions (`null` for a brand-new chat or after a reset). The bot uses them to stay out of a conversation a person was having and to skip its full introduction for someone it talked to a few hours ago.
 
 **Linked client:** `client` is returned only while the link applies to whoever is writing: always when the client's stored phone is this `waId`, otherwise only within the session in which they identified. Someone who identified with another person's DNI is treated as unidentified on their next session, so the bot asks again instead of greeting them as that person. The client-scoped endpoints below apply the same rule.
+
+**Numbers of a branch:** a number serves the producer codes it is billed to and attends (`responsibleProducerCode` + served codes; a number with no code serves every code). The chat is one per person and organization, so it may move between numbers: a linked client counts only if the number now written to serves them (one of their policies, or the client, is under one of its codes), and when the chat's code is not one of the new number's, the chat goes back to no code until the person identifies there. `phoneMatch` only looks among the clients the number serves.
 
 **Phone match:** when there is no linked client and exactly one client of the organization has this `waId` as their cartera phone, `phoneMatch` carries that client's first name (`{ "firstName": "JUAN" }`) so the bot can ask "¿hablo con Juan?" instead of the DNI; otherwise `null`. Nothing is linked until the bot calls `identify-by-phone`.
 
@@ -1444,6 +2960,7 @@ Finds or creates the conversation for a WhatsApp user (`waId`) under the produce
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "conversationId": 7,
@@ -1472,6 +2989,7 @@ Resets the conversation session (used by the secret `/reset` dev command in the 
 **Responses**
 
 `201 Created`
+
 ```json
 { "ok": true }
 ```
@@ -1486,8 +3004,8 @@ Persists the bot's deterministic flow state for a conversation (the serialized `
 
 **Request body**
 
-| Field       | Type           | Required | Constraints                          |
-|-------------|----------------|----------|--------------------------------------|
+| Field       | Type           | Required | Constraints                              |
+| ----------- | -------------- | -------- | ---------------------------------------- |
 | `flowState` | string \| null | Yes      | string ≤ 20000 chars, or `null` to clear |
 
 ```json
@@ -1497,6 +3015,7 @@ Persists the bot's deterministic flow state for a conversation (the serialized `
 **Responses**
 
 `201 Created`
+
 ```json
 { "ok": true }
 ```
@@ -1514,10 +3033,9 @@ Every claimed chat is finalized, but a conversation is only **returned** (so the
 **Responses**
 
 `201 Created`
+
 ```json
-[
-  { "conversationId": 7, "waId": "5491155556666", "phoneNumberId": "123456789012345" }
-]
+[{ "conversationId": 7, "waId": "5491155556666", "phoneNumberId": "123456789012345" }]
 ```
 
 ### POST /bot/conversation/:conversationId/message
@@ -1528,13 +3046,13 @@ Persists a message in the conversation.
 
 **Request body**
 
-| Field   | Type   | Required | Constraints              |
-|---------|--------|----------|--------------------------|
-| role    | string | Yes      | `user` or `assistant`    |
-| content | string | Yes      | Non-empty, max 10000 chars |
-| media   | object | No       | Upload metadata (`url`, `originalName`, `mimeType`, `size`, `tipo?`) |
-| contactName | string | No   | Sender's WhatsApp profile name (inbound only), max 191 chars; stored on the conversation |
-| keepActivity | boolean | No | `true` stores the message for the transcript without counting it as activity (no `lastMessageAt`/`warnedAt`/unread change). Used for the inactivity goodbye. |
+| Field        | Type    | Required | Constraints                                                                                                                                                  |
+| ------------ | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| role         | string  | Yes      | `user` or `assistant`                                                                                                                                        |
+| content      | string  | Yes      | Non-empty, max 10000 chars                                                                                                                                   |
+| media        | object  | No       | Upload metadata (`url`, `originalName`, `mimeType`, `size`, `tipo?`)                                                                                         |
+| contactName  | string  | No       | Sender's WhatsApp profile name (inbound only), max 191 chars; stored on the conversation                                                                     |
+| keepActivity | boolean | No       | `true` stores the message for the transcript without counting it as activity (no `lastMessageAt`/`warnedAt`/unread change). Used for the inactivity goodbye. |
 
 ```json
 { "role": "user", "content": "Quiero cotizar mi auto" }
@@ -1543,6 +3061,7 @@ Persists a message in the conversation.
 **Responses**
 
 `201 Created`
+
 ```json
 { "id": 43, "role": "user", "content": "Quiero cotizar mi auto", "createdAt": "2026-06-12T13:01:00.000Z" }
 ```
@@ -1553,14 +3072,16 @@ Persists a message in the conversation.
 
 Links the conversation to a `Client` found by DNI or license plate within the producer's tenant. Required before calling the client-scoped endpoints below.
 
+Only the clients the conversation's number serves are found: on a branch's number, a DNI or plate of another office's client answers `404` like an unknown one. The chat is filed under the client's code, or under the code of their policy that the number serves when the client belongs to another. From then on `polizas`, `estado-cuenta`, `documentos`, `siniestros`, new claims, photos and `request-policy-cancellation` only reach the policies and claims of the number's codes; a link the number does not serve answers `403` as if there were no identified client. `identify-by-phone` follows the same rule.
+
 **Auth required:** Yes (`x-bot-secret`)
 
 **Request body**
 
-| Field | Type   | Required | Constraints   |
-|-------|--------|----------|---------------|
-| dni   | string | One of   | 6–11 chars    |
-| plate | string | One of   | 5–10 chars    |
+| Field | Type   | Required | Constraints |
+| ----- | ------ | -------- | ----------- |
+| dni   | string | One of   | 6–11 chars  |
+| plate | string | One of   | 5–10 chars  |
 
 ```json
 { "dni": "30123456" }
@@ -1569,6 +3090,7 @@ Links the conversation to a `Client` found by DNI or license plate within the pr
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "client": {
@@ -1588,6 +3110,96 @@ Links the conversation to a `Client` found by DNI or license plate within the pr
 
 `404 Not Found` — No client matches the given dni/plate
 
+### POST /bot/conversation/:conversationId/holder
+
+Says whose a DNI (or CUIT/CUIL) or a plate is, seen from the client the conversation identified: `self` (theirs), `other` (another client of the organization) or `none` (nobody among the clients the number serves). It never says who the other client is: the bot uses it to tell a customer who asks about a relative's policy that it is in someone else's name and that its holder has to ask for it from their own WhatsApp, instead of answering as if the policy did not exist. A plate on policies of two clients (a sold car) is `self` when one of them is the identified client. Without an identified client, a match is `other`.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body** — same as `identify`
+
+| Field | Type   | Required | Constraints |
+| ----- | ------ | -------- | ----------- |
+| dni   | string | One of   | 6–11 chars  |
+| plate | string | One of   | 5–10 chars  |
+
+```json
+{ "plate": "LOS659" }
+```
+
+**Responses**
+
+`201 Created`
+
+```json
+{ "holder": "other" }
+```
+
+`400 Bad Request` — Neither `dni` nor `plate` provided
+
+`404 Not Found` — Conversation not found
+
+### POST /bot/conversation/:conversationId/request-policy-cancellation
+
+Leaves a `baja_poliza` notification for the office with the policy, the client's DNI and, when the bot collected it, the reason the client gave (sale, cost, no longer needed, change of insurer or free text). The policy is never cancelled here; the conversation is flagged `pending` for the office.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field    | Type   | Required | Constraints               |
+| -------- | ------ | -------- | ------------------------- |
+| policyId | number | Yes      | Integer ≥ 1, the client's |
+| reason   | string | No       | ≤ 300 chars               |
+
+```json
+{ "policyId": 833, "reason": "Vendí el vehículo" }
+```
+
+**Responses**
+
+`201 Created`
+
+```json
+{ "id": 17 }
+```
+
+`400 Bad Request` — The conversation has no identified client
+
+`404 Not Found` — The policy is not the identified client's
+
+### POST /bot/conversation/:conversationId/request-handoff
+
+The customer needs a person: the conversation goes to `pending` and the office gets a `handoff` matter in Asuntos pendientes (an exact repeat, or a follow-up of an open request of the same kind within 24 h, joins the open one). When the bot refused to file a claim it sends `blockedClaimReason`; the matter is marked "denuncia frenada", filed under siniestros and counted in the monthly balance. No claim is created. A bot that only sends `reason` still gets the mark when the reason starts with "Denuncia de siniestro no registrada:".
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field              | Type   | Required | Constraints                                               |
+| ------------------ | ------ | -------- | --------------------------------------------------------- |
+| reason             | string | No       | ≤ 2000 chars, shown to the office                         |
+| blockedClaimReason | string | No       | `NO_POLICY`, `REJECTED_PAYMENT` or `OVERDUE_INSTALLMENTS` |
+
+```json
+{
+  "reason": "Denuncia de siniestro no registrada: la póliza 9001 figura con un cobro rechazado.",
+  "blockedClaimReason": "REJECTED_PAYMENT"
+}
+```
+
+**Responses**
+
+`201 Created`
+
+```json
+{ "ok": true }
+```
+
+`400 Bad Request` — `blockedClaimReason` is not one of the values above
+
+`404 Not Found` — Unknown conversation
+
 ### POST /bot/conversation/:conversationId/identify-by-phone
 
 Links the conversation to the one client of the producer whose cartera phone is the number writing (the `phoneMatch` of the conversation), after the person confirmed in the chat that it is them. Same response as `identify`.
@@ -1597,6 +3209,7 @@ Links the conversation to the one client of the producer whose cartera phone is 
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "client": {
@@ -1623,6 +3236,7 @@ Policies of the identified client **in force today**, with vehicle summary.
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -1650,6 +3264,7 @@ Account status per policy: unpaid installments (pending / overdue / rejected), p
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -1683,10 +3298,19 @@ Codes: `1050` Tarjeta verde (Mercosur), `1000` Certificado de cobertura, `1040` 
 **Responses**
 
 `200 OK`
+
 ```json
 [
-  { "code": "1050", "name": "Tarjeta verde (Mercosur)", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..." },
-  { "code": "1000", "name": "Certificado de cobertura", "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/hcertificadoau?..." }
+  {
+    "code": "1050",
+    "name": "Tarjeta verde (Mercosur)",
+    "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/htarjetaverdec?..."
+  },
+  {
+    "code": "1000",
+    "name": "Certificado de cobertura",
+    "url": "https://www.triunfonet.com.ar/gauswebtriunfo/servlet/hcertificadoau?..."
+  }
 ]
 ```
 
@@ -1719,6 +3343,7 @@ Claims filed by the identified client, newest first, with their internal trackin
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -1744,12 +3369,12 @@ Files a new claim for one of the identified client's policies and notifies the a
 
 **Request body**
 
-| Field       | Type   | Required | Constraints            |
-|-------------|--------|----------|------------------------|
-| policyId    | number | Yes      | Policy of the client   |
-| type        | string | Yes      | Max 50 chars           |
-| occurredAt  | string | Yes      | ISO date (incident)    |
-| description | string | Yes      | Max 5000 chars         |
+| Field       | Type   | Required | Constraints          |
+| ----------- | ------ | -------- | -------------------- |
+| policyId    | number | Yes      | Policy of the client |
+| type        | string | Yes      | Max 50 chars         |
+| occurredAt  | string | Yes      | ISO date (incident)  |
+| description | string | Yes      | Max 5000 chars       |
 
 ```json
 { "policyId": 12, "type": "auto", "occurredAt": "2026-06-11", "description": "Granizo, daños en capot y techo" }
@@ -1758,6 +3383,7 @@ Files a new claim for one of the identified client's policies and notifies the a
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "id": 6,
@@ -1791,12 +3417,13 @@ is capped at 5 attachments, keeping the most recent. Sent as `multipart/form-dat
 **Request body** (`multipart/form-data`)
 
 | Field    | Type   | Required | Constraints                                        |
-|----------|--------|----------|----------------------------------------------------|
+| -------- | ------ | -------- | -------------------------------------------------- |
 | adjuntos | file[] | Yes      | 1–5 files, ≤5 MB each, jpeg/png/webp/heic/pdf only |
 
 **Responses**
 
 `201 Created`
+
 ```json
 { "claimId": 6, "attachmentCount": 2 }
 ```
@@ -1815,11 +3442,11 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 
 **Request body**
 
-| Field       | Type   | Required | Constraints |
-|-------------|--------|----------|-------------|
+| Field       | Type   | Required | Constraints                                                              |
+| ----------- | ------ | -------- | ------------------------------------------------------------------------ |
 | event       | string | No       | Meta's event, ≤ 64 chars. Missing = `PARTNER_REMOVED` (older bot builds) |
-| reason      | string | No       | `disconnection_info.reason`, e.g. `BUSINESS_DOWNGRADE`, ≤ 64 chars |
-| initiatedBy | string | No       | `USER` or `SYSTEM`, ≤ 32 chars |
+| reason      | string | No       | `disconnection_info.reason`, e.g. `BUSINESS_DOWNGRADE`, ≤ 64 chars       |
+| initiatedBy | string | No       | `USER` or `SYSTEM`, ≤ 32 chars                                           |
 
 ```json
 { "event": "PARTNER_REMOVED", "reason": "BUSINESS_DOWNGRADE", "initiatedBy": "USER" }
@@ -1828,6 +3455,7 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 **Responses**
 
 `201 Created`
+
 ```json
 { "known": false, "checked": 1, "disconnected": 1 }
 ```
@@ -1836,7 +3464,224 @@ The bot forwards an `account_update` webhook that may mean the number left Cloud
 
 ### Reconnecting a number (`POST /admin/whatsapp/onboard`)
 
+**Who may connect a number.** `POST /admin/whatsapp/onboard`, `GET /admin/whatsapp/embedded-signup-config`, `GET /admin/whatsapp/:phoneNumberId/status` and `POST /admin/whatsapp/:phoneNumberId/sync` accept SUPERADMIN, ADMIN and OWNER. The SuperAdmin may bill a number to any code of the organization (`responsibleProducerCodeId` and `servedCodeIds` must belong to it). An admin connects numbers for their own codes only: the number is billed to `responsibleProducerCodeId`, which must be one of theirs and may be omitted when they have a single code; `servedCodeIds` must be theirs too; reconnecting is allowed only for a number already billed to one of their codes. `status` and `sync` answer only for numbers the caller sees (the OWNER, any number).
+
+`400 Bad Request` — an admin with several codes sent no `responsibleProducerCodeId`
+
+`403 Forbidden` — a code that is not the caller's, or an admin reconnecting a number billed to another code (checked before anything is saved; codes are checked before Meta's `code` is exchanged)
+
+`404 Not Found` — `status`/`sync` for a number the caller does not see
+
 Running Embedded Signup again for a number that Meta dropped reuses its `PhoneNumber` row, so the month's usage, the budget and the producer codes stay with it: the row with the same Meta id is revived (even if it is still listed, instead of answering `409`); on Coexistence, if Meta hands out a new `phone_number_id`, the latest deleted or disconnected row of the same WABA (or with the same display number) is re-pointed and its chats move with it. The response adds `"reconnected": true`. `409 Conflict` is only returned when the number is live in another organization. `GET /admin/phone-numbers` now includes `disconnectedAt`, `disconnectReason` and `disconnectReasonLabel` for each number.
+
+**Branch name.** `branchName` (string, optional, ≤ 60 chars, trimmed; empty = none) is what the office calls the number's branch (`"Pueblo Esther"`). The panel always asks for it before opening Embedded Signup and sends it with the `code`. A new number is created with it; a reconnect without it keeps the name the number already had.
+
+```json
+{ "code": "AQB…", "wabaId": "1018755496", "isCoexistence": true, "branchName": "Pueblo Esther" }
+```
+
+### Meta portfolio of each number
+
+`GET /admin/phone-numbers` (every role that sees the number) and `GET /owner/organizations/:id` include `portfolio` for
+each number: the Meta business portfolio that owns its WhatsApp account, read from Graph
+(`GET /{waba-id}?fields=name,owner_business_info,business_verification_status`) at onboarding, once a day and at boot
+for accounts never read. `null` until Meta was read.
+
+```json
+{
+  "portfolio": {
+    "wabaName": "John Pellegrini Management Group",
+    "businessId": "1754170539213714",
+    "businessName": "JPMG - Oficina rosario",
+    "verification": "not_verified",
+    "checkedAt": "2026-10-30T14:20:00.000Z"
+  }
+}
+```
+
+### What each role gets from `GET /admin/phone-numbers`
+
+Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role; every role sees the plan's price, only the OWNER sees what Meta and OpenAI cost:
+
+| Role       | `usage` fields                                                                                                                       | Number fields                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| ADMIN      | `period`, `messages` (plan messages consumed this month: a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on), `assignedPlan`, `plan` (the plan the month is billed on; its price, never its cost), `upgraded`, `billedUsd` (the plan's full price: the month is always charged whole), `planPaused` | no budget fields |
+| SUPERADMIN | plus `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
+| OWNER      | plus `metaMessages` (sent, one each) and `metaTemplateMessages` (of those, templates), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta) | `monthlyBudgetUsd`, `budgetExceededAt` |
+
+`monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
+
+Every number also carries `branchName` (the branch it belongs to, as the office calls it: `"27 de Febrero"`, or `null`; set when the number is connected, `branchName` in `POST /admin/whatsapp/onboard`, or registered by hand, `branchName` in `POST /admin/phone-numbers` (≤ 60 chars, trimmed); changed with `PATCH /admin/phone-numbers/:id` or `PATCH /admin/phone-numbers/:id/assistant`, where an empty string clears it; the panel shows it next to the number), `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization), `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own) and `botEnabled` (the number's own bot switch, see `PATCH /admin/phone-numbers/:id/bot-status`).
+
+Both `POST /admin/whatsapp/onboard` and `POST /admin/phone-numbers` also take the assistant the number starts with, which the panel asks for together with the branch name so a new branch never greets as another office: `botName` (≤ 60 chars), `presentationName` (≤ 120 chars: whose assistant the bot says it is, stored as the number's own `orgName`, `orgLegalName` and `orgShortName`), `transferAlias` (≤ 60 chars: the alias customers transfer to, stored as the number's own `transferAlias`; since the transfer account is the number's own as a whole once any field is set, CBU, holder and bank are completed with `PATCH /admin/phone-numbers/:id/assistant`), `staffNames` (up to 10 names of ≤ 30 chars) and `businessHours` (a weekly schedule as in `PATCH /admin/phone-numbers/:id/assistant`; invalid hours answer `400` before Meta's code is used). All optional for the API: a field not sent is left as it was. Only what changes is written: a field equal to what the number already uses (its own value, or the organization's when it has none) is left alone, so a reconnect that sends back the prefilled form keeps the number's assistant as it was and a value equal to the organization's keeps following the organization. `presentationName` and `transferAlias` are merged into the number's own profile, never replacing the rest (CBU, holder, bank, lines, closing note); typing the organization's alias (case-insensitive) drops the number's own account so it uses the organization's whole account. A field sent empty clears the number's own value, so the organization's applies again.
+
+### GET /admin/phone-numbers/:id/assistant
+
+A number's own assistant next to its organization's. Whatever the number leaves empty (`null`, empty list, `null` field of `botProfile`) is the organization's: that is what the bot uses on this number (`GET /bot/context`, `GET /bot/numbers/:phoneNumberId/hours`, the inactivity notice, the takeover sweep and the claims e-mail). Holidays and closures are each number's own (`own.closures`, upcoming and under way, national holidays included with `holiday: true`): there are no organization-wide ones. The transfer account goes as a whole: a number with any `transfer*` field of its own uses only its own account fields, never the organization's alias with its own CBU or the other way around.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Responses**
+
+`200 OK`
+
+```json
+{
+  "id": 8,
+  "number": "+54 9 341 000-0000",
+  "branchName": "Centro",
+  "canEdit": true,
+  "own": {
+    "botName": "Sofi",
+    "staffNames": ["Caro"],
+    "businessHours": null,
+    "botProfile": {
+      "orgName": "Seguros Norte Rafaela",
+      "orgShortName": null,
+      "transferAlias": "NORTE.RAFAELA",
+      "claimsEmail": null,
+      "...": null
+    },
+    "botEnabled": true,
+    "coverageSettings": { "C1": { "isActive": null, "highlighted": true, "sortOrder": 0 } }
+  },
+  "organization": {
+    "name": "Seguros Norte SRL",
+    "botName": "Nico",
+    "staffNames": ["Mili", "Milagros"],
+    "businessHours": { "mon": [{ "from": "08:00", "to": "16:00" }], "...": [] },
+    "botProfile": { "orgName": "Seguros Norte", "towTruckPhone": "0800-111-2222", "...": null },
+    "botEnabled": true,
+    "coverages": [
+      {
+        "id": 1,
+        "code": "A",
+        "name": "Responsabilidad civil",
+        "isActive": true,
+        "highlighted": false,
+        "sortOrder": 100,
+        "needsReview": false
+      },
+      {
+        "id": 3,
+        "code": "C1",
+        "name": "Terceros completo",
+        "isActive": true,
+        "highlighted": true,
+        "sortOrder": 300,
+        "needsReview": false
+      }
+    ]
+  },
+  "lastBotStatusChange": { "botEnabled": true, "at": "2026-10-28T15:00:00.000Z", "by": "sucursal@norte.test" }
+}
+```
+
+`canEdit` is `true`: whoever sees a number may configure it. `branchName` is the number's branch (`null` = none): it is the number's alone, never the organization's.
+
+The same `branchName` comes with each number of `GET /admin/billing`, `GET /admin/status` (`whatsapp` rows) and the owner's organization detail.
+
+`own.coverageSettings` is how this number offers the organization's coverages, keyed by Triunfo code and holding only the fields it changes (`isActive`: whether it offers it, `highlighted`: whether it recommends it, `sortOrder`: its place in the list); each `null` field is the organization's. `organization.coverages` are the coverages as the organization offers them (`GET /admin/coberturas` reduced), which the number's own settings start from. The wording, the year windows and the "nothing says what it includes" rule stay the organization's; moto quotes keep Triunfo's fixed catalog. `own.botEnabled` and `lastBotStatusChange` are the number's own bot switch and who last flipped it.
+
+`404 Not Found` — the number is not of the caller's organization, or an admin asked for a number not billed to one of their codes
+
+### PATCH /admin/phone-numbers/:id/assistant
+
+Changes a number's own assistant. Only the fields sent change; clearing one gives the number the organization's value back.
+
+**Auth required:** Yes (SUPERADMIN on any number; ADMIN on the numbers billed to one of their codes)
+
+**Request body**
+
+| Field            | Type           | Required | Constraints                                                                                                                                                                                                                                                   |
+| ---------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| branchName       | string         | No       | max 60; the branch the number belongs to ("27 de Febrero"); empty = none                                                                                                                                                                                      |
+| botName          | string         | No       | max 60; empty = the organization's                                                                                                                                                                                                                            |
+| staffNames       | string[]       | No       | up to 10 names of max 30; empty and repeated dropped; empty list = the organization's                                                                                                                                                                         |
+| businessHours    | object \| null | No       | same shape and rules as `PATCH /admin/business-hours/schedule`; `null` = the organization's                                                                                                                                                                   |
+| botProfile       | object         | No       | same fields and limits as `PATCH /admin/config/profile`; an empty string = the organization's                                                                                                                                                                 |
+| coverageSettings | object \| null | No       | `{ "<code>": { "isActive"?: boolean \| null, "highlighted"?: boolean \| null, "sortOrder"?: 0–999 \| null } }` for codes of `organization.coverages`; a `null` field (or a code left out) = the organization's; `null` = every coverage as the organization's |
+
+```json
+{
+  "branchName": "Centro",
+  "botName": "Sofi",
+  "staffNames": ["Caro"],
+  "businessHours": null,
+  "botProfile": { "transferAlias": "NORTE.RAFAELA" },
+  "coverageSettings": { "C1": { "highlighted": true, "sortOrder": 0 }, "D2": { "isActive": false } }
+}
+```
+
+**Responses**
+
+`200 OK` — same body as `GET /admin/phone-numbers/:id/assistant`
+
+`400 Bad Request` — invalid hours or profile field, a coverage code the organization does not have, or a coverage field that is not a boolean / an order out of range
+
+`404 Not Found` — the number is not of the caller's organization, or an admin on a number that is not billed to one of their codes
+
+### PATCH /admin/phone-numbers/:id/bot-status
+
+The number's own bot switch. Off, the bot stops answering on this number only (messages keep arriving to the inbox, where the chat reads as attended by a person and the office can answer without taking it); the organization's other numbers go on. There is no organization-wide switch: each number is turned on and off here. Same scope as the assistant: the SuperAdmin on any number, an admin on the numbers billed to one of their codes. A real flip writes a `BotStatusChange` row with `phoneNumberId` and is announced to the owner (the number in the name); setting the current state again does nothing.
+
+**Auth required:** Yes (SUPERADMIN on any number; ADMIN on the numbers billed to one of their codes)
+
+**Request body**
+
+| Field      | Type    | Required | Constraints |
+| ---------- | ------- | -------- | ----------- |
+| botEnabled | boolean | Yes      | —           |
+
+```json
+{ "botEnabled": false }
+```
+
+**Responses**
+
+`200 OK`
+
+```json
+{
+  "id": 8,
+  "botEnabled": false,
+  "lastBotStatusChange": { "botEnabled": false, "at": "2026-10-28T15:00:00.000Z", "by": "sucursal@norte.test" }
+}
+```
+
+`404 Not Found` — the number is not of the caller's organization, or an admin on a number that is not billed to one of their codes
+
+### POST /admin/phone-numbers/:id/closures
+
+Closes one number for a day or a range (a holiday, vacations): its bot tells customers so and promises the next opening, and the takeover sweep treats the day as closed. Only this number: a branch's closure never closes the others. Same scope as the assistant.
+
+**Auth required:** Yes (SUPERADMIN on any number; ADMIN on the numbers billed to one of their codes)
+
+**Request body**
+
+| Field     | Type   | Required | Constraints             |
+| --------- | ------ | -------- | ----------------------- |
+| startDate | string | Yes      | YYYY-MM-DD              |
+| endDate   | string | Yes      | YYYY-MM-DD, ≥ startDate |
+| reason    | string | Yes      | 1–160 chars             |
+
+`201 Created`
+
+```json
+{ "id": 31, "startDate": "2026-12-24", "endDate": "2026-12-26", "reason": "Vacaciones de la sucursal", "holiday": false }
+```
+
+`400 Bad Request` — `startDate` after `endDate`
+`404 Not Found` — the number is not in the caller's scope
+
+### DELETE /admin/phone-numbers/:id/closures/:closureId
+
+Reopens the number on a closed day (soft delete). A national holiday removed here stays removed for this number only: the sync does not bring it back, and the other numbers keep it.
+
+**Auth required:** Yes (same scope as above)
+
+`200 OK` → `{ "ok": true }`
+`404 Not Found` — no such closure on that number
 
 ## Cotización — Leads (productos sin cotización online)
 
@@ -1853,7 +3698,7 @@ Crea un lead desde el cotizador web público (productor por defecto).
 **Request body**
 
 | Field          | Type   | Required | Constraints                                            |
-|----------------|--------|----------|--------------------------------------------------------|
+| -------------- | ------ | -------- | ------------------------------------------------------ |
 | productType    | string | Yes      | bici, comercio, praxis, personas, bolso, hogar         |
 | contactName    | string | Yes      | 1–120 chars                                            |
 | phone          | string | Yes      | 1–30 chars                                             |
@@ -1864,6 +3709,7 @@ Crea un lead desde el cotizador web público (productor por defecto).
 **Responses**
 
 `201 Created`
+
 ```json
 { "id": 12 }
 ```
@@ -1878,13 +3724,14 @@ Stores a WhatsApp voice note so the inbox can play it next to its transcription.
 
 **Request body** (`multipart/form-data`)
 
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| audio | file | Yes | `audio/ogg`, `audio/mpeg`, `audio/mp4`, `audio/aac`, `audio/amr` or `audio/webm`; max 16 MB |
+| Field | Type | Required | Constraints                                                                                 |
+| ----- | ---- | -------- | ------------------------------------------------------------------------------------------- |
+| audio | file | Yes      | `audio/ogg`, `audio/mpeg`, `audio/mp4`, `audio/aac`, `audio/amr` or `audio/webm`; max 16 MB |
 
 **Responses**
 
 `201 Created`
+
 ```json
 {
   "filename": "1791230000000-123.ogg",
@@ -1920,6 +3767,37 @@ hace en el chat después de una cotización online (cobertura elegida en `payloa
 `201 Created` → `{ "id": 12 }`
 `404 Not Found` — Conversation no encontrada
 
+### PATCH /bot/conversation/:conversationId/leads/:leadId/cobertura
+
+El cliente eligió una cobertura, el bot le pidió las fotos y cambió de idea
+("mejor una responsabilidad civil"): el bot pasa el mismo lead a la cobertura
+nueva en vez de abrir otro. Reemplaza `payload.cobertura` y `payload.precio`
+(se borra si no viene), guarda la anterior en `payload.coberturaAnterior` cuando
+cambia y conserva `payload.adjuntos`.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field     | Type   | Required | Constraints |
+| --------- | ------ | -------- | ----------- |
+| cobertura | string | Yes      | ≤160 chars  |
+| precio    | string | No       | ≤80 chars   |
+
+```json
+{ "cobertura": "A — Responsabilidad Civil", "precio": "$ 67.825 por mes" }
+```
+
+**Responses**
+
+`200 OK`
+
+```json
+{ "leadId": 15, "cobertura": "A — Responsabilidad Civil", "coberturaAnterior": "D3 — Todo Riesgo con Franquicia del 10%" }
+```
+
+`404 Not Found` — Lead no encontrado en esa conversación
+
 ### POST /bot/conversation/:conversationId/leads/:leadId/adjuntos
 
 Adjunta las fotos que el cliente manda por WhatsApp para contratar una cotización
@@ -1932,7 +3810,7 @@ Adjunta las fotos que el cliente manda por WhatsApp para contratar una cotizaci�
 **Request body** (`multipart/form-data`)
 
 | Field    | Type   | Required | Constraints                                        |
-|----------|--------|----------|----------------------------------------------------|
+| -------- | ------ | -------- | -------------------------------------------------- |
 | adjuntos | file[] | Yes      | 1–5 files, ≤5 MB each, jpeg/png/webp/heic/pdf only |
 
 **Query:** `tipo` (opcional) — `dni_frente` \| `dni_dorso` \| `tarjeta_azul`
@@ -1940,6 +3818,7 @@ Adjunta las fotos que el cliente manda por WhatsApp para contratar una cotizaci�
 **Responses**
 
 `201 Created`
+
 ```json
 { "leadId": 12, "attachmentCount": 3 }
 ```
@@ -1960,6 +3839,7 @@ el cotizador web público.
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -1994,40 +3874,52 @@ auto/moto (`QuoteRequest`) en un mismo stream. `UserAuthGuard`, scope al product
 
 **Query params**
 
-| Field       | Type   | Required | Constraints                                        |
-|-------------|--------|----------|----------------------------------------------------|
-| status      | string | No       | NEW, CONTACTED, CLOSED                              |
+| Field       | Type   | Required | Constraints                                                |
+| ----------- | ------ | -------- | ---------------------------------------------------------- |
+| status      | string | No       | NEW, CONTACTED, CLOSED                                     |
 | productType | string | No       | auto, moto, bici, comercio, praxis, personas, bolso, hogar |
-| kind        | string | No       | lead, cotizacion                                   |
-| search      | string | No       | nombre, teléfono o email (≤120)                    |
-| page        | number | No       | ≥1                                                 |
-| pageSize    | number | No       | 1–100 (default 20)                                 |
+| kind        | string | No       | lead, cotizacion                                           |
+| search      | string | No       | nombre, teléfono o email (≤120)                            |
+| page        | number | No       | ≥1                                                         |
+| pageSize    | number | No       | 1–100 (default 20)                                         |
+
+**Who sees what.** Same rule as `GET /admin/novedades`: an admin only the leads and online quote requests that came through their own numbers (`ContactLead.phoneNumberId`, `Quote.phoneNumberId`), plus what came through no number (web, panel) when the office line is theirs; the SuperAdmin everything, or the number of `phoneNumberId` (the default number also brings the web ones). `producerCodeId` narrows by code as before.
 
 **Responses**
 
 `200 OK`
+
 ```json
 {
   "data": [
     {
-      "id": 12, "kind": "lead", "productType": "hogar",
-      "contactName": "María P.", "phone": "3410000000", "email": null,
-      "summary": "Plan Hogar Integral", "channel": "WEB",
-      "status": "NEW", "createdAt": "2026-06-22T20:00:00.000Z"
+      "id": 12,
+      "kind": "lead",
+      "productType": "hogar",
+      "contactName": "María P.",
+      "phone": "3410000000",
+      "email": null,
+      "summary": "Plan Hogar Integral",
+      "channel": "WEB",
+      "status": "NEW",
+      "createdAt": "2026-06-22T20:00:00.000Z"
     }
   ],
-  "total": 1, "page": 1, "pageSize": 20, "totalPages": 1
+  "total": 1,
+  "page": 1,
+  "pageSize": 20,
+  "totalPages": 1
 }
 ```
 
 ### GET /admin/solicitudes/:kind/:id
 
-Detalle de una solicitud. `kind` = `lead` | `cotizacion`.
+Detalle de una solicitud. `kind` = `lead` | `cotizacion`. Mismo alcance que la lista: por código (también las web sin código) y, para un administrador, solo las que llegaron por sus números; otra da 404. Lo mismo para `GET /admin/solicitudes/:kind/:id/messages` y el `PATCH` (desde 2026-11-07; antes alcanzaba con el código).
 
 **Auth required:** Yes (Bearer, type `user`)
 
 `200 OK` — campos completos según `kind` (los datos de tarjeta nunca se devuelven)
-`404 Not Found`
+`404 Not Found` — no existe o no está en el alcance de la persona
 
 ### PATCH /admin/solicitudes/:kind/:id
 
@@ -2037,17 +3929,18 @@ Actualiza el seguimiento de una solicitud.
 
 **Request body**
 
-| Field  | Type   | Required | Constraints              |
-|--------|--------|----------|--------------------------|
-| status | string | No       | NEW, CONTACTED, CLOSED   |
-| notes  | string | No       | ≤2000                    |
+| Field  | Type   | Required | Constraints            |
+| ------ | ------ | -------- | ---------------------- |
+| status | string | No       | NEW, CONTACTED, CLOSED |
+| notes  | string | No       | ≤2000                  |
 
 `200 OK` → `{ "ok": true }`
 `400 Bad Request` — nada para actualizar
+`404 Not Found` — no existe o no está en el alcance de la persona
 
 ## Admin — Planes de precio fijo
 
-CRUD de `ProductPlan` (bolso, hogar). `UserAuthGuard`, scope al productor.
+CRUD de `ProductPlan` (bolso, hogar). `UserAuthGuard`, scope al productor. Todos los roles leen los planes; crearlos, cambiarlos y borrarlos es solo del SuperAdmin (`403 Forbidden` para el resto).
 
 ### GET /admin/pricing
 
@@ -2057,19 +3950,19 @@ Lista todos los planes (activos e inactivos) del productor.
 
 ### POST /admin/pricing
 
-**Auth required:** Yes (Bearer, type `user`)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 
-| Field         | Type     | Required | Constraints                  |
-|---------------|----------|----------|------------------------------|
-| productType   | string   | Yes      | bolso, hogar                 |
-| name          | string   | Yes      | 1–80                         |
-| monthlyPrice  | number   | Yes      | ≥0, 2 decimales              |
-| description   | string   | No       | ≤500                         |
-| coverageItems | string[] | Yes      | ≤20 items, cada uno ≤120     |
-| isActive      | boolean  | No       | default true                 |
-| sortOrder     | number   | No       | ≥0, default 0                |
+| Field         | Type     | Required | Constraints              |
+| ------------- | -------- | -------- | ------------------------ |
+| productType   | string   | Yes      | bolso, hogar             |
+| name          | string   | Yes      | 1–80                     |
+| monthlyPrice  | number   | Yes      | ≥0, 2 decimales          |
+| description   | string   | No       | ≤500                     |
+| coverageItems | string[] | Yes      | ≤20 items, cada uno ≤120 |
+| isActive      | boolean  | No       | default true             |
+| sortOrder     | number   | No       | ≥0, default 0            |
 
 `201 Created` → plan creado
 
@@ -2078,7 +3971,7 @@ Lista todos los planes (activos e inactivos) del productor.
 Igual al body de creación pero todos los campos opcionales (`productType` no es
 modificable).
 
-**Auth required:** Yes (Bearer, type `user`)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 `200 OK` → plan actualizado
 `404 Not Found`
@@ -2087,7 +3980,7 @@ modificable).
 
 Soft delete del plan.
 
-**Auth required:** Yes (Bearer, type `user`)
+**Auth required:** Yes (SuperAdmin or Admin)
 
 `200 OK` → `{ "ok": true }`
 `404 Not Found`
@@ -2107,6 +4000,7 @@ Triunfo (auto/moto) and `ProductPlan` (bolso/hogar).
 **Auth required:** No
 
 `200 OK`
+
 ```json
 [
   {
@@ -2129,6 +4023,7 @@ Public attention window of the default producer (`DEFAULT_PRODUCER_SLUG`, defaul
 **Auth required:** No
 
 `200 OK`
+
 ```json
 { "attentionHours": "Lunes a viernes de 8 a 16 hs" }
 ```
@@ -2137,81 +4032,70 @@ Public attention window of the default producer (`DEFAULT_PRODUCER_SLUG`, defaul
 
 ## Business hours
 
-Weekly schedule (Mon–Sun, split shifts supported) + temporary closures. Single
-source of truth for the bot and the public web. Admin routes are scoped to the
-caller's producer; the public route serves the default producer.
+The organization's weekly schedule (Mon–Sun, split shifts supported): the hours of
+every number without its own. Holidays and closures belong to each number
+(`POST/DELETE /admin/phone-numbers/:id/closures`): a branch's closure never closes
+the others. Admin routes are scoped to the caller's producer; the public route
+serves the default producer's office line.
 
 Schedule JSON shape: `{ mon: [{ "from": "09:00", "to": "12:00" }], ..., sun: [] }`
 (empty array = closed that day).
 
-National holidays are loaded automatically as closures of every active
-organization (`HolidaySyncService`: on boot and every Monday 05:00 ART, from
+National holidays are loaded automatically as closures of every number of every
+active organization (`HolidaySyncService`: on boot and every day 05:00 ART, from
 api.argentinadatos.com, which mirrors argentina.gob.ar/feriados). They carry
-`source: "holiday"` and reason `feriado nacional: <nombre>`. Deleting one from the
-admin screen sticks (the sync does not create it again); an upcoming one that
-disappears from its year's calendar is removed. Env: `HOLIDAY_SYNC_ENABLED`
+`source: "holiday"` and reason `feriado nacional: <nombre>`. Deleting one from a
+number sticks for that number only (the sync does not create it again, and the
+other numbers keep it); an upcoming one that disappears from its year's calendar
+is removed. Env: `HOLIDAY_SYNC_ENABLED`
 (`false` turns it off), `HOLIDAY_TYPES` (default `inamovible,trasladable`; add
 `puente` to also close on días no laborables con fines turísticos).
 
 ### GET /admin/business-hours
 
-Current weekly schedule + active/upcoming closures.
+The organization's weekly schedule.
 
 **Auth required:** Yes (Bearer, type `user`)
 
 `200 OK`
+
 ```json
 {
-  "weekly": { "mon": [{ "from": "09:00", "to": "12:00" }, { "from": "17:00", "to": "19:30" }], "sat": [], "sun": [] },
-  "closures": [{ "id": 3, "startDate": "2026-06-24", "endDate": "2026-06-24", "reason": "Día de la Bandera" }]
+  "weekly": {
+    "mon": [
+      { "from": "09:00", "to": "12:00" },
+      { "from": "17:00", "to": "19:30" }
+    ],
+    "sat": [],
+    "sun": []
+  }
 }
 ```
 
 ### PATCH /admin/business-hours/schedule
 
-**Auth required:** Yes (Bearer, type `user`)
+The organization's hours: they apply to every number that has no hours of its own (`PATCH /admin/phone-numbers/:id/assistant`).
+
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 
-| Field  | Type   | Required | Constraints |
-|--------|--------|----------|-------------|
+| Field  | Type   | Required | Constraints                                                                |
+| ------ | ------ | -------- | -------------------------------------------------------------------------- |
 | weekly | object | Yes      | 7 day keys; each an array of `{from,to}` HH:mm, `from` < `to`, no overlaps |
 
 `200 OK` → `{ "weekly": { ... } }`
 `400 Bad Request` → invalid HH:mm / overlapping ranges
-
-### POST /admin/business-hours/closures
-
-Adds a temporary closure (single day → `startDate == endDate`).
-
-**Auth required:** Yes (Bearer, type `user`)
-
-**Request body**
-
-| Field     | Type   | Required | Constraints |
-|-----------|--------|----------|-------------|
-| startDate | string | Yes      | YYYY-MM-DD |
-| endDate   | string | Yes      | YYYY-MM-DD, ≥ startDate |
-| reason    | string | Yes      | 1–160 chars |
-
-`201 Created` → `{ "id": 3, "startDate": "...", "endDate": "...", "reason": "..." }`
-
-### DELETE /admin/business-hours/closures/:id
-
-Soft-deletes a closure.
-
-**Auth required:** Yes (Bearer, type `user`)
-
-`200 OK` → `{ "ok": true }`
-`404 Not Found`
+`403 Forbidden` → the caller is not a SuperAdmin
 
 ### GET /public/hours
 
-Live hours for the default producer: formatted week, open-now and ready copy.
+Live hours for the default producer's office line (the active number billed to the master code: its own hours or the organization's, and its own closures): formatted week, open-now and ready copy.
 
 **Auth required:** No
 
 `200 OK`
+
 ```json
 {
   "formatted": "Lunes a viernes de 9 a 12 y de 17 a 19:30 hs · Sábado de 9 a 13 hs",
@@ -2243,6 +4127,7 @@ Lists every coverage code ever seen for the authenticated user's producer, order
 **Responses**
 
 `200 OK`
+
 ```json
 [
   {
@@ -2272,23 +4157,23 @@ Lists every coverage code ever seen for the authenticated user's producer, order
 
 Updates one coverage. Any edit sets `isConfigured` to `true`.
 
-**Auth required:** Yes
+**Auth required:** Yes (SuperAdmin or Admin; every role reads `GET /admin/coberturas`)
 
 **Request body**
 
-| Field       | Type     | Required | Constraints                                              |
-|-------------|----------|----------|----------------------------------------------------------|
-| name        | string   | No       | ≤ 80                                                     |
-| tagline     | string   | No       | ≤ 160                                                    |
-| benefits    | string[] | No       | ≤ 12 items, each ≤ 150 chars                             |
-| exclusions  | string[] | No       | What it does not include; ≤ 12 items, each ≤ 150 chars   |
-| isActive    | boolean  | No       | `false` hides the coverage from every quote              |
-| highlighted | boolean  | No       | Renders the "La más elegida" badge                       |
-| sortOrder   | number   | No       | Integer ≥ 0                                              |
-| yearFrom    | number   | No       | Vehicle year 1900–2100, or `null` for no lower bound     |
-| yearTo      | number   | No       | Vehicle year 1900–2100, or `null` for no upper bound     |
-| highlightYearFrom | number | No | First vehicle year the coverage is recommended for (1900–2100), or `null` |
-| highlightYearTo   | number | No | Last vehicle year the coverage is recommended for (1900–2100), or `null` |
+| Field             | Type     | Required | Constraints                                                               |
+| ----------------- | -------- | -------- | ------------------------------------------------------------------------- |
+| name              | string   | No       | ≤ 80                                                                      |
+| tagline           | string   | No       | ≤ 160                                                                     |
+| benefits          | string[] | No       | ≤ 12 items, each ≤ 150 chars                                              |
+| exclusions        | string[] | No       | What it does not include; ≤ 12 items, each ≤ 150 chars                    |
+| isActive          | boolean  | No       | `false` hides the coverage from every quote                               |
+| highlighted       | boolean  | No       | Renders the "La más elegida" badge                                        |
+| sortOrder         | number   | No       | Integer ≥ 0                                                               |
+| yearFrom          | number   | No       | Vehicle year 1900–2100, or `null` for no lower bound                      |
+| yearTo            | number   | No       | Vehicle year 1900–2100, or `null` for no upper bound                      |
+| highlightYearFrom | number   | No       | First vehicle year the coverage is recommended for (1900–2100), or `null` |
+| highlightYearTo   | number   | No       | Last vehicle year the coverage is recommended for (1900–2100), or `null`  |
 
 ```json
 { "name": "Todo Riesgo Premium", "isActive": true, "yearFrom": 2015, "highlighted": true, "highlightYearFrom": 2010 }
@@ -2308,18 +4193,23 @@ Updates one coverage. Any edit sets `isConfigured` to `true`.
 
 Persists a whole ordering in one call, for a drag-and-drop list.
 
-**Auth required:** Yes
+**Auth required:** Yes (SuperAdmin or Admin)
 
 **Request body**
 
-| Field             | Type   | Required | Constraints              |
-|-------------------|--------|----------|--------------------------|
-| items             | array  | Yes      | 1–100 entries            |
-| items[].id        | number | Yes      | Coverage id              |
-| items[].sortOrder | number | Yes      | Integer ≥ 0              |
+| Field             | Type   | Required | Constraints   |
+| ----------------- | ------ | -------- | ------------- |
+| items             | array  | Yes      | 1–100 entries |
+| items[].id        | number | Yes      | Coverage id   |
+| items[].sortOrder | number | Yes      | Integer ≥ 0   |
 
 ```json
-{ "items": [{ "id": 1, "sortOrder": 100 }, { "id": 2, "sortOrder": 200 }] }
+{
+  "items": [
+    { "id": 1, "sortOrder": 100 },
+    { "id": 2, "sortOrder": 200 }
+  ]
+}
 ```
 
 **Responses**
@@ -2331,7 +4221,6 @@ Persists a whole ordering in one call, for a drag-and-drop list.
 `401 Unauthorized` — Missing or invalid token
 
 `404 Not Found` — One of the ids does not belong to this producer
-
 
 ### Eliminar chats de la bandeja
 
@@ -2346,7 +4235,6 @@ Persists a whole ordering in one call, for a drag-and-drop list.
 - El panel exige confirmación y mantiene el modal abierto si la operación falla.
   No borra las conversaciones de la aplicación de WhatsApp del cliente.
 
-
 ### Limpiar novedades
 
 `DELETE /admin/novedades` requiere autenticación de administración. Limpia todas
@@ -2354,7 +4242,6 @@ las novedades accesibles de la organización y códigos del usuario, sin filtros
 por página, estado o categoría. Responde `{ "clearedCount": 15 }`. Aplica borrado
 lógico solo a Notification (novedades): conserva chats, siniestros, solicitudes y sus estados.
 Las nuevas novedades continúan registrándose. El panel exige confirmación.
-
 
 ## Mejoras
 
@@ -2376,14 +4263,15 @@ paneles que todavía no paginan; `area` y `pageSize` se ignoran en ese caso).
 
 **Query params**
 
-| Param    | Type   | Required | Constraints |
-|----------|--------|----------|-------------|
-| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
-| pageSize | int    | No       | `1..50`. Default 10 |
+| Param    | Type   | Required | Constraints                                              |
+| -------- | ------ | -------- | -------------------------------------------------------- |
+| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada                  |
+| pageSize | int    | No       | `1..50`. Default 10                                      |
 | area     | string | No       | `BOT` \| `BANDEJA` \| `COTIZADOR` \| `PANEL` \| `PORTAL` |
 
 `200 OK` (con `page`). `total` y `totalPages` cuentan el área filtrada;
 `areaCounts` cuenta todas las publicadas por área, sin el filtro (para los chips).
+
 ```json
 {
   "data": [
@@ -2441,18 +4329,26 @@ responde una página; sin `page`, el array completo como antes de paginar.
 
 **Query params**
 
-| Param    | Type   | Required | Constraints |
-|----------|--------|----------|-------------|
-| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
-| pageSize | int    | No       | `1..50`. Default 10 |
+| Param    | Type   | Required | Constraints                                |
+| -------- | ------ | -------- | ------------------------------------------ |
+| page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada    |
+| pageSize | int    | No       | `1..50`. Default 10                        |
 | filter   | string | No       | `all` (default) \| `drafts` \| `published` |
 
 `200 OK` (con `page`) → `{ data, total, page, pageSize, totalPages, counts }`.
 Cada elemento de `data` tiene los campos de `GET /admin/improvements` más
 `producerId`, `producer: { id, name } | null`, `createdAt` y `updatedAt`.
 `counts` es el tamaño de cada lista, sin el filtro:
+
 ```json
-{ "data": [], "total": 3, "page": 1, "pageSize": 10, "totalPages": 1, "counts": { "all": 32, "drafts": 3, "published": 29 } }
+{
+  "data": [],
+  "total": 3,
+  "page": 1,
+  "pageSize": 10,
+  "totalPages": 1,
+  "counts": { "all": 32, "drafts": 3, "published": 29 }
+}
 ```
 
 `200 OK` (sin `page`) → array con los mismos objetos que `data`.
@@ -2467,20 +4363,26 @@ Cada elemento de `data` tiene los campos de `GET /admin/improvements` más
 
 **Request body**
 
-| Field      | Type           | Required | Constraints |
-|------------|----------------|----------|-------------|
-| title      | string         | Yes      | 1–140 chars |
-| summary    | string         | Yes      | 1–500 chars |
-| beforeText | string         | No       | ≤ 5000 chars; vacío = sin "antes" |
-| afterText  | string         | No       | ≤ 5000 chars |
-| example    | string         | No       | ≤ 5000 chars; una línea por mensaje |
+| Field      | Type           | Required | Constraints                                              |
+| ---------- | -------------- | -------- | -------------------------------------------------------- |
+| title      | string         | Yes      | 1–140 chars                                              |
+| summary    | string         | Yes      | 1–500 chars                                              |
+| beforeText | string         | No       | ≤ 5000 chars; vacío = sin "antes"                        |
+| afterText  | string         | No       | ≤ 5000 chars                                             |
+| example    | string         | No       | ≤ 5000 chars; una línea por mensaje                      |
 | area       | string         | Yes      | `BOT` \| `BANDEJA` \| `COTIZADOR` \| `PANEL` \| `PORTAL` |
-| releasedOn | string \| null | No       | YYYY-MM-DD |
-| producerId | number \| null | No       | organización existente; null/omitido = todas |
-| published  | boolean        | No       | true = publicar ya; si no, queda en borrador |
+| releasedOn | string \| null | No       | YYYY-MM-DD                                               |
+| producerId | number \| null | No       | organización existente; null/omitido = todas             |
+| published  | boolean        | No       | true = publicar ya; si no, queda en borrador             |
 
 ```json
-{ "title": "Nueva sección Mejoras", "summary": "Acá vamos a ir contando…", "area": "PANEL", "producerId": 1, "published": false }
+{
+  "title": "Nueva sección Mejoras",
+  "summary": "Acá vamos a ir contando…",
+  "area": "PANEL",
+  "producerId": 1,
+  "published": false
+}
 ```
 
 `201 Created` → la mejora (formato de `GET /owner/improvements`)
@@ -2511,7 +4413,6 @@ Borrado lógico.
 
 `404 Not Found` — Improvement not found
 
-
 ## Propuestas de mejora
 
 Ideas que los usuarios de una organización le mandan a Lumar desde "Mejoras ›
@@ -2532,12 +4433,13 @@ antes de paginar.
 
 **Query params**
 
-| Param    | Type | Required | Constraints |
-|----------|------|----------|-------------|
+| Param    | Type | Required | Constraints                             |
+| -------- | ---- | -------- | --------------------------------------- |
 | page     | int  | No       | ≥ 1. Si viene, la respuesta es paginada |
-| pageSize | int  | No       | `1..50`. Default 10 |
+| pageSize | int  | No       | `1..50`. Default 10                     |
 
 `200 OK` (sin `page`; con `page`, estos objetos van en `data`)
+
 ```json
 [
   {
@@ -2561,7 +4463,7 @@ antes de paginar.
 **Request body**
 
 | Field       | Type   | Required | Constraints  |
-|-------------|--------|----------|--------------|
+| ----------- | ------ | -------- | ------------ |
 | title       | string | Yes      | 1–140 chars  |
 | description | string | Yes      | 1–5000 chars |
 
@@ -2579,15 +4481,16 @@ más nuevas primero. Con `page` responde una página de las abiertas (ni `DONE` 
 
 **Query params**
 
-| Param    | Type   | Required | Constraints |
-|----------|--------|----------|-------------|
+| Param    | Type   | Required | Constraints                             |
+| -------- | ------ | -------- | --------------------------------------- |
 | page     | int    | No       | ≥ 1. Si viene, la respuesta es paginada |
-| pageSize | int    | No       | `1..50`. Default 10 |
-| filter   | string | No       | `open` (default) \| `all` |
+| pageSize | int    | No       | `1..50`. Default 10                     |
+| filter   | string | No       | `open` (default) \| `all`               |
 
 `200 OK` (con `page`) → `{ data, total, page, pageSize, totalPages, counts }`;
 cada elemento con el formato de `GET /admin/improvement-proposals` sin `mine`, más
 `producer`. `counts` es el tamaño de cada lista, sin el filtro:
+
 ```json
 { "data": [], "total": 4, "page": 1, "pageSize": 10, "totalPages": 1, "counts": { "open": 4, "all": 11 } }
 ```
@@ -2610,13 +4513,529 @@ Cantidad de propuestas en estado `NEW`.
 
 **Request body**
 
-| Field    | Type   | Required | Constraints |
-|----------|--------|----------|-------------|
+| Field    | Type   | Required | Constraints                                                |
+| -------- | ------ | -------- | ---------------------------------------------------------- |
 | status   | string | No       | `NEW` \| `REVIEWING` \| `PLANNED` \| `DONE` \| `DISCARDED` |
-| response | string | No       | ≤ 5000 chars; vacío = sin respuesta |
+| response | string | No       | ≤ 5000 chars; vacío = sin respuesta                        |
 
 `respondedAt` se actualiza solo cuando cambia la respuesta.
 
 `200 OK` → la propuesta actualizada
 
 `404 Not Found` — Proposal not found
+
+## Admin — Rechazos
+
+Sección "Rechazos" del panel: la oficina carga el Excel de Triunfo "Planilla de
+rechazos por débito automático" (uno para CBU y otro para tarjetas) y el bot le
+avisa a cada cliente por WhatsApp con la plantilla del aviso de rechazo
+(`src/notices/notice-templates.ts`, encendida con `PAYMENT_REJECTION_TEMPLATE`;
+texto vigente `aviso_rechazo_pago_v2`, 7 variables: nombre, organización, cuota,
+póliza, vencimiento, importe, motivo; cada número manda la versión más nueva que
+Meta aprobó en su cuenta, y la primera, `aviso_rechazo_pago`, nombraba a JPMG). El Excel se lee en el navegador; la API recibe sus filas, las
+cruza con la póliza (por certificado) y el cliente, y elige el número de
+WhatsApp: celular, si no el particular, si no el teléfono del cliente en la
+cartera. Cada aviso enviado queda en el chat del cliente como mensaje de la
+oficina (`role: "agent"`), así se ve en Whatsapp y el bot lee la respuesta del
+cliente como respuesta a ese aviso.
+
+Estados de cada fila: `READY` (para enviar), `SKIPPED` (fuera del envío por
+defecto, ver `skipReason`: `NO_PHONE` sin número usable, `ALREADY_PAID` la
+cuota ya no está pendiente, `ALREADY_NOTIFIED` ya se avisó en otra carga),
+`SENDING`, `SENT`, `FAILED` (con `error`) y `MARKED` (avisado a mano). Un admin
+solo ve las filas de sus códigos y las que no tienen código.
+
+### GET /admin/rejections
+
+Últimas 50 cargas de la organización, más nuevas primero, con la cantidad de filas por estado.
+
+**Auth required:** Yes (Bearer, admin)
+
+`200 OK`
+
+```json
+{
+  "templateReady": true,
+  "imports": [
+    {
+      "id": 3,
+      "fileName": "misAlertas-JHONPELL.xls",
+      "periodLabel": "Desde: 05/10/2026 Hasta: 20/10/2026",
+      "createdAt": "2026-10-20T18:30:00.000Z",
+      "createdBy": { "name": "Mili", "email": "mili@example.com" },
+      "counts": { "SENT": 4, "SKIPPED": 4 }
+    }
+  ]
+}
+```
+
+### POST /admin/rejections
+
+Guarda las filas de un Excel y devuelve la carga como `GET /admin/rejections/:id`.
+
+**Auth required:** Yes (Bearer, admin)
+
+**Request body**
+
+| Field        | Type   | Required | Constraints                                   |
+| ------------ | ------ | -------- | --------------------------------------------- |
+| fileName     | string | Yes      | ≤ 255 chars                                   |
+| periodLabel  | string | No       | ≤ 120 chars (título del Excel)                |
+| producerCode | string | No       | dígitos; código de "Intermediario: 10484 - …" |
+| rows         | array  | Yes      | 1 a 1000 filas                                |
+
+Cada fila:
+
+| Field             | Type    | Required | Constraints                                           |
+| ----------------- | ------- | -------- | ----------------------------------------------------- |
+| rowNumber         | number  | Yes      | entero ≥ 1 (fila del Excel)                           |
+| holderName        | string  | Yes      | ≤ 160 chars                                           |
+| branch            | number  | No       | "Art."                                                |
+| certificateNumber | string  | Yes      | dígitos                                               |
+| endorsementNumber | number  | No       |                                                       |
+| installmentNumber | number  | Yes      | entero ≥ 0                                            |
+| dueDate           | string  | Yes      | `YYYY-MM-DD`                                          |
+| amount            | number  | Yes      | ≥ 0                                                   |
+| entity            | string  | Yes      | ≤ 80 chars                                            |
+| accountLast4      | string  | No       | hasta 4 dígitos (nunca el CBU o la tarjeta completos) |
+| reason            | string  | Yes      | ≤ 120 chars                                           |
+| stillPending      | boolean | Yes      | "¿Cuota aún pendiente?" = SI                          |
+| mobilePhone       | string  | No       | ≤ 40 chars                                            |
+| homePhone         | string  | No       | ≤ 40 chars                                            |
+
+```json
+{
+  "fileName": "misAlertas-JHONPELL.xls",
+  "periodLabel": "Desde: 05/10/2026 Hasta: 20/10/2026",
+  "producerCode": "10484",
+  "rows": [
+    {
+      "rowNumber": 5,
+      "holderName": "PEREZ JUAN",
+      "branch": 465,
+      "certificateNumber": "1234567",
+      "endorsementNumber": 0,
+      "installmentNumber": 2,
+      "dueDate": "2026-09-28",
+      "amount": 90315,
+      "entity": "NACION ARGENTINA",
+      "accountLast4": "6025",
+      "reason": "FALTA DE FONDOS",
+      "stillPending": true,
+      "mobilePhone": "341159990001",
+      "homePhone": "341159990001"
+    }
+  ]
+}
+```
+
+`201 Created` → la carga (ver abajo)
+
+`400 Bad Request` — Validation failed
+
+`403 Forbidden` — `No tenés acceso al código 10484 de este Excel.`
+
+### GET /admin/rejections/:id
+
+Una carga con sus filas y el texto exacto que recibe (o recibió) cada cliente.
+
+**Auth required:** Yes (Bearer, admin)
+
+`200 OK`
+
+```json
+{
+  "id": 3,
+  "fileName": "misAlertas-JHONPELL.xls",
+  "periodLabel": "Desde: 05/10/2026 Hasta: 20/10/2026",
+  "createdAt": "2026-10-20T18:30:00.000Z",
+  "createdBy": { "name": "Mili", "email": "mili@example.com" },
+  "templateReady": true,
+  "rows": [
+    {
+      "id": 11,
+      "rowNumber": 5,
+      "holderName": "PEREZ JUAN",
+      "branch": 465,
+      "certificateNumber": "1234567",
+      "endorsementNumber": 0,
+      "installmentNumber": 2,
+      "dueDate": "2026-09-28",
+      "amount": 90315,
+      "entity": "NACION ARGENTINA",
+      "channel": "ACCOUNT",
+      "accountLast4": "6025",
+      "reason": "FALTA DE FONDOS",
+      "stillPending": true,
+      "phone": "341159990001",
+      "waId": "5493419990001",
+      "status": "READY",
+      "skipReason": null,
+      "error": null,
+      "sentAt": null,
+      "conversationId": null,
+      "client": { "id": 60, "firstName": "JUAN", "lastName": "PEREZ" },
+      "sentBy": null,
+      "message": "Hola Juan, te escribimos de JP Management Group, …"
+    }
+  ]
+}
+```
+
+`404 Not Found` — Rejection import not found
+
+### POST /admin/rejections/:id/send
+
+Pone en `SENDING` las filas elegidas que se pueden enviar (`READY`, `SKIPPED`
+con número o `FAILED`) y las manda de a una en segundo plano (1,5 s entre
+avisos). El panel consulta la carga hasta que ninguna quede en `SENDING`.
+
+**Auth required:** Yes (Bearer, admin)
+
+**Request body**
+
+| Field | Type     | Required | Constraints                       |
+| ----- | -------- | -------- | --------------------------------- |
+| ids   | number[] | Yes      | 1 a 1000 ids de filas de la carga |
+
+`201 Created` → la carga, con las filas en `SENDING`
+
+Solo envían los números cuyo plan incluye la función `rejection_notices` (ver `GET /admin/billing/features`).
+
+`400 Bad Request` — `Ninguno de los avisos elegidos se puede enviar.`
+
+`403 Forbidden` — Ningún número conectado tiene un plan con `rejection_notices`: `El plan de tus números no incluye el envío de avisos de rechazos. Se puede cambiar en Facturación.`
+
+`404 Not Found` — Rejection import not found
+
+`409 Conflict` — `La plantilla de WhatsApp para avisar rechazos todavía no está habilitada. No se envió ningún aviso.` o `No hay un número de WhatsApp conectado para enviar los avisos. Revisalo en Números.`
+
+### POST /admin/rejections/:id/mark
+
+Marca las filas elegidas como avisadas a mano (`MARKED`): no se vuelven a
+ofrecer para enviar, tampoco en cargas posteriores del mismo vencimiento.
+
+**Auth required:** Yes (Bearer, admin)
+
+**Request body:** igual que `send`.
+
+`201 Created` → la carga actualizada
+
+`404 Not Found` — Rejection import not found
+
+### DELETE /admin/rejections/:id
+
+Borra (soft delete) la carga y sus filas. Los avisos ya enviados siguen en los chats.
+
+**Auth required:** Yes (Bearer, admin)
+
+`200 OK` → `{ "ok": true }`
+
+`404 Not Found` — Rejection import not found
+
+`409 Conflict` — `Esperá a que terminen de enviarse los avisos antes de borrar la carga.`
+
+## Owner — Integración Triunfo
+
+Each organization quotes, syncs its cartera and downloads documents with its own Triunfo web-service user. The password is stored encrypted with `WABA_TOKEN_ENCRYPTION_KEY` and never returned. The default organization (`DEFAULT_PRODUCER_SLUG`) keeps working on `TRIUNFO_PRODUCTOR` / `TRIUNFO_USUARIO` / `TRIUNFO_PASSWORD` while it has none of its own; any other organization without credentials gets `503` on quotes and documents, and is skipped by the cartera sync.
+
+Every failed call to Triunfo (getTokenRest, RESTNovedadesCartera, RESTDocumentosV2, the PDF download and RESTCotizadorAutV2) is recorded, one row per distinct failure. A new one, or one back after a week, mails every OWNER user and `TRIUNFO_ALERT_EMAIL`. When Triunfo refuses the credentials in use, the organization gets a notice in Asuntos pendientes (type `triunfo`), its SuperAdmins and Lumarsoft get a mail (again once a day while it lasts and when it ends), and nothing asks Triunfo again with them for 15 minutes. Saving credentials Triunfo accepts ends the outage.
+
+### GET /owner/organizations/:id/triunfo
+
+**Auth required:** Yes (OWNER)
+
+**Responses**
+
+`200 OK` — `failingSince` is null while Triunfo accepts the credentials in use (the organization's own or the `TRIUNFO_*` settings)
+
+```json
+{
+  "configured": true,
+  "productor": "20001",
+  "username": "NORTE",
+  "verifiedAt": "2026-10-27T13:00:00.000Z",
+  "usesDefaultSettings": false,
+  "failingSince": "2026-10-30T23:19:30.000Z",
+  "failureMessage": "Error Generando Token - Revisar los datos ingresados"
+}
+```
+
+`404 Not Found`
+
+```json
+{ "statusCode": 404, "message": "Organization 9 not found", "error": "Not Found" }
+```
+
+### PUT /owner/organizations/:id/triunfo
+
+Asks Triunfo for a token with the credentials and saves them only if it accepts them.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field     | Type   | Required | Constraints                   |
+| --------- | ------ | -------- | ----------------------------- |
+| productor | string | Yes      | numeric Triunfo producer code |
+| username  | string | Yes      | ≤ 100                         |
+| password  | string | Yes      | ≤ 200                         |
+
+```json
+{ "productor": "20001", "username": "NORTE", "password": "••••••" }
+```
+
+**Responses**
+
+`200 OK` — as `GET /owner/organizations/:id/triunfo`
+
+`400 Bad Request` — Triunfo refused them
+
+```json
+{
+  "statusCode": 400,
+  "message": "No se pudo obtener token de Triunfo — Usuario o contraseña incorrectos",
+  "error": "Bad Request"
+}
+```
+
+`502 Bad Gateway` — Triunfo could not be reached; nothing was saved
+
+```json
+{
+  "statusCode": 502,
+  "message": "No se pudo contactar a Triunfo para validar las credenciales. Probá de nuevo.",
+  "error": "Bad Gateway"
+}
+```
+
+### DELETE /owner/organizations/:id/triunfo
+
+Removes the organization's own credentials (soft delete).
+
+**Auth required:** Yes (OWNER)
+
+**Responses**
+
+`200 OK` — as `GET /owner/organizations/:id/triunfo`, with `configured: false`
+
+### GET /owner/organizations/:id/triunfo/errors
+
+The organization's failed calls to Triunfo, one row per distinct failure (same operation, kind, status and message with its numbers blanked), the latest 50 by when they last happened. `kind` is one of `CREDENTIALS_REJECTED`, `REJECTED` (Triunfo answered with an error of its own), `UNEXPECTED_RESPONSE`, `HTTP_ERROR`, `TIMEOUT`, `NETWORK`. `sample` is the latest answer behind it, cut to 2000 characters. A download's `message` starts with the document's name ("Constancia de pago: HTTP 404"), so each document is a row of its own.
+
+**Auth required:** Yes (OWNER)
+
+**Responses**
+
+`200 OK`
+
+```json
+[
+  {
+    "id": 12,
+    "operation": "documentDownload",
+    "kind": "HTTP_ERROR",
+    "httpStatus": 403,
+    "message": "Tarjeta verde (Mercosur): HTTP 403",
+    "sample": "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0;url=/\">",
+    "occurrences": 37,
+    "firstSeenAt": "2026-10-29T12:04:11.000Z",
+    "lastSeenAt": "2026-10-30T14:10:52.000Z"
+  }
+]
+```
+
+## Admin — Triunfo
+
+### GET /admin/triunfo/status
+
+Whether Triunfo is accepting the credentials of the user's organization, for the panel's warning banner.
+
+**Auth required:** Yes (any panel user)
+
+**Responses**
+
+`200 OK` — `failingSince` and `failureMessage` are null while Triunfo accepts them
+
+```json
+{
+  "failingSince": "2026-10-30T23:19:30.000Z",
+  "failureMessage": "Error Generando Token - Revisar los datos ingresados"
+}
+```
+
+## Admin — Status
+
+### GET /admin/status
+
+How the external services the platform depends on are answering, for the panel's Status section: each Triunfo web service and InfoAuto catalog (platform-wide), the organization's Triunfo user and its WhatsApp numbers. Every real call reports its outcome; a failure opens an incident and the next call that works ends it. A request refused on its merits (a policy or model that does not exist, "productor no válido" for one code) counts as the service answering.
+
+Each incident is handed once to the AI model (OpenAI, `OPENAI_API_KEY` and `OPENAI_MODEL`, the bot's account), and again only if it starts failing with another kind or status. It says in plain words what is failing and whose fault it is: `explanation.blame` is `PROVIDER` (Triunfo's or InfoAuto's side), `PLATFORM` (the platform's user or subscription) or `UNKNOWN`. `explanation` is null until the model answers, without a key, or when the explanation is of an earlier failure; the section asks again within minutes. Once explained, an incident still open is mailed to `INTEGRATION_ALERT_EMAIL` (comma-separated; at most every 6 hours for the same service failing the same way).
+
+**Auth required:** Yes (any panel user). An admin sees only their own numbers and the SuperAdmin the organization's; the OWNER sees every organization's numbers, the organizations whose Triunfo credentials are refused (`triunfoAccess`) and the raw `sample` of each incident.
+
+**Responses**
+
+`200 OK` — `components` always lists the 13 services in this order: `triunfo.getTokenRest`, `triunfo.RESTCotizadorAutV2`, `triunfo.RESTDocumentosV2`, `triunfo.documentDownload.1050`, `triunfo.documentDownload.1000`, `triunfo.documentDownload.1040`, `triunfo.documentDownload.1060`, `triunfo.documentDownload.1020`, `triunfo.documentDownload.1030`, `triunfo.documentDownload`, `triunfo.RESTNovedadesCartera`, `infoauto.cars`, `infoauto.motorcycles`. Each `triunfo.documentDownload.<code>` is the PDF download of one document, by its RESTDocumentosV2 code (1050 tarjeta verde, 1000 certificado de cobertura, 1040 constancia de pago, 1060 cuponera, 1020 póliza, 1030 cláusulas): each comes from its own TriunfoNet page and fails on its own. `triunfo.documentDownload` is any other code, and holds the incidents from before 5/11/2026, when every PDF was one service. `status` is `operational` (the latest call worked), `failing` (an incident is open) or `unknown` (never called since this was installed). `kind` is one of `CREDENTIALS_REJECTED`, `UNEXPECTED_RESPONSE`, `HTTP_ERROR`, `TIMEOUT`, `NETWORK`; `answer` is the visible text of the error page the service answered, or null. `incidents` holds the latest 20 of the last 30 days, open ones included.
+
+```json
+{
+  "checkedAt": "2026-11-03T16:30:00.000Z",
+  "components": [
+    {
+      "key": "triunfo.RESTDocumentosV2",
+      "status": "failing",
+      "lastSuccessAt": "2026-11-02T22:10:41.000Z",
+      "lastFailureAt": "2026-11-03T16:25:56.000Z",
+      "incident": {
+        "id": 1,
+        "key": "triunfo.RESTDocumentosV2",
+        "kind": "HTTP_ERROR",
+        "httpStatus": 404,
+        "message": "HTTP 404 Not Found",
+        "answer": "ERROR 404 PÁGINA NO ENCONTRADA La página que intenta visitar no existe o ha sido movida.",
+        "failures": 16,
+        "startedAt": "2026-11-03T03:32:28.000Z",
+        "lastFailureAt": "2026-11-03T16:25:56.000Z",
+        "endedAt": null,
+        "explanation": {
+          "text": "Triunfo dio de baja o movió el servicio que entrega la documentación de las pólizas: el bot no puede mandarla. El resto de Triunfo funciona.",
+          "blame": "PROVIDER",
+          "blameReason": "Triunfo: dio de baja o movió esta dirección sin avisar",
+          "at": "2026-11-03T03:32:31.000Z"
+        }
+      }
+    },
+    {
+      "key": "triunfo.RESTCotizadorAutV2",
+      "status": "operational",
+      "lastSuccessAt": "2026-11-03T16:39:12.000Z",
+      "lastFailureAt": null,
+      "incident": null
+    }
+  ],
+  "triunfoAccess": [
+    {
+      "producerId": 1,
+      "producerName": "JOHN PELLEGRINI MANAGEMENT GROUP",
+      "configured": true,
+      "failingSince": null,
+      "failureMessage": null
+    }
+  ],
+  "whatsapp": [
+    {
+      "id": 8,
+      "number": "+54 341 275-7294",
+      "branchName": "27 de Febrero",
+      "producerName": "JOHN PELLEGRINI MANAGEMENT GROUP",
+      "status": "operational",
+      "disconnectedAt": null,
+      "disconnectReason": null,
+      "tokenExpiresAt": null
+    }
+  ],
+  "incidents": [
+    {
+      "id": 1,
+      "key": "triunfo.RESTDocumentosV2",
+      "kind": "HTTP_ERROR",
+      "httpStatus": 404,
+      "message": "HTTP 404 Not Found",
+      "answer": "ERROR 404 PÁGINA NO ENCONTRADA La página que intenta visitar no existe o ha sido movida.",
+      "failures": 16,
+      "startedAt": "2026-11-03T03:32:28.000Z",
+      "lastFailureAt": "2026-11-03T16:25:56.000Z",
+      "endedAt": null,
+      "explanation": null
+    }
+  ]
+}
+```
+
+`401 Unauthorized` — no or expired token
+
+```json
+{ "statusCode": 401, "message": "Unauthorized" }
+```
+
+`403 Forbidden` — a client (portal) token
+
+```json
+{ "statusCode": 403, "message": "User access required", "error": "Forbidden" }
+```
+
+## Owner — Actividad
+
+Every write request (POST/PUT/PATCH/DELETE) of a logged-in panel user and every
+`POST /auth/login` attempt is recorded once its response has gone out: who,
+method, path, status, the browser's IP (nginx `X-Real-IP`), user agent and the
+names of the fields sent — never their values. Reads, the bot, the client
+portal and the `…/visit` markers are not recorded. Rows are deleted after
+`ACTIVITY_LOG_RETENTION_DAYS` (default 180).
+
+### GET /owner/activity
+
+Lists the recorded activity, newest first.
+
+**Auth required:** Yes (role OWNER)
+
+**Query parameters**
+
+| Field      | Type    | Required | Constraints                                   |
+| ---------- | ------- | -------- | --------------------------------------------- |
+| producerId | number  | No       | Organization                                  |
+| userId     | number  | No       | Panel user (also matches login attempts on it) |
+| ip         | string  | No       | Exact IPv4/IPv6 address                       |
+| failed     | boolean | No       | `true` = only status 400 or more              |
+| from       | date    | No       | ISO date/time, inclusive                      |
+| to         | date    | No       | ISO date/time, inclusive                      |
+| page       | number  | No       | ≥ 1, default 1                                |
+| pageSize   | number  | No       | 1–200, default 50                             |
+
+**Responses**
+
+`200 OK`
+
+```json
+{
+  "data": [
+    {
+      "id": 812,
+      "createdAt": "2026-11-06T13:25:09.895Z",
+      "method": "PATCH",
+      "path": "/admin/config",
+      "statusCode": 200,
+      "ip": "190.112.216.238",
+      "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) …",
+      "fields": "staffNames",
+      "loginEmail": null,
+      "user": { "id": 6, "email": "sucursal@example.com", "name": "Roldan", "role": "ADMIN" },
+      "producer": { "id": 1, "name": "John" }
+    },
+    {
+      "id": 811,
+      "createdAt": "2026-11-06T13:38:50.000Z",
+      "method": "POST",
+      "path": "/auth/login",
+      "statusCode": 401,
+      "ip": "181.84.62.228",
+      "userAgent": "Mozilla/5.0 …",
+      "fields": "email,password",
+      "loginEmail": "oficina@example.com",
+      "user": { "id": 2, "email": "oficina@example.com", "name": "Rosario", "role": "SUPERADMIN" },
+      "producer": { "id": 1, "name": "John" }
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "pageSize": 50,
+  "totalPages": 1
+}
+```
+
+`400 Bad Request` — invalid filter (e.g. `ip` is not an address)
+
+`401 Unauthorized` — no or invalid token
+
+`403 Forbidden` — the user is not OWNER

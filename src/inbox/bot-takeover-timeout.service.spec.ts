@@ -1,6 +1,7 @@
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { InboxService } from './inbox.service'
+import type { NovedadesService } from '../novedades/novedades.service'
 import { BotTakeoverTimeoutService } from './bot-takeover-timeout.service'
 
 describe('BotTakeoverTimeoutService', () => {
@@ -15,12 +16,32 @@ describe('BotTakeoverTimeoutService', () => {
     lastReplyAt: Date | null,
     lastCustomerAt: Date | null,
     env: Record<string, string> = {},
+    numberHours: unknown = null,
+    closures: Array<{ startDate: Date; endDate: Date; reason: string }> = [],
   ) {
     const prisma = {
+      phoneNumber: {
+        findMany: jest.fn().mockResolvedValue([{ phoneNumberId: 'P1', businessHours: numberHours }]),
+      },
+      // The holidays of the chat's number (P1).
+      businessClosure: {
+        findMany: jest.fn().mockResolvedValue(closures.map(c => ({ ...c, phoneNumber: { phoneNumberId: 'P1' } }))),
+      },
       conversation: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([{ id: 7, waId: '549341', phoneNumberId: 'P1', producer: {}, ...conversation }]),
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 7,
+            waId: '549341',
+            phoneNumberId: 'P1',
+            producerId: 1,
+            producerCodeId: 8,
+            clientId: 3269,
+            contactName: 'Vane🤍',
+            client: { firstName: 'MARIA', lastName: 'PRUEBA' },
+            producer: {},
+            ...conversation,
+          },
+        ]),
       },
       message: {
         // The sweep asks twice per conversation: operator activity, then customer.
@@ -29,40 +50,130 @@ describe('BotTakeoverTimeoutService', () => {
           .mockImplementation(({ where }: { where: { role?: string } }) =>
             Promise.resolve(
               where.role === 'user'
-                ? lastCustomerAt && { createdAt: lastCustomerAt }
+                ? lastCustomerAt && { createdAt: lastCustomerAt, content: 'Me mandarías una póliza' }
                 : lastReplyAt && { createdAt: lastReplyAt },
             ),
           ),
       },
+      // No matter raised for the chat yet.
+      notification: { findFirst: jest.fn().mockResolvedValue(null) },
     }
     const inbox = { autoReleaseToBot: jest.fn().mockResolvedValue(true) }
+    const novedades = { recordHandoff: jest.fn().mockResolvedValue(undefined) }
     const config = { get: jest.fn((key: string) => env[key]) }
     const service = new BotTakeoverTimeoutService(
       prisma as unknown as PrismaService,
       inbox as unknown as InboxService,
+      novedades as unknown as NovedadesService,
       config as unknown as ConfigService,
     )
-    return { service, prisma, inbox }
+    return { service, prisma, inbox, novedades }
   }
 
-  it('treats a holiday like closed hours: back to the bot after 30 min without the operator', async () => {
+  describe('customer left unanswered while the office has the chat (conv 216, 5/11)', () => {
+    it('raises a matter once the customer has waited 30 minutes after the person wrote', async () => {
+      const { service, novedades, inbox, prisma } = setup(
+        { handedOverAt: minutesBefore(openNow, 120) },
+        minutesBefore(openNow, 100),
+        minutesBefore(openNow, 35),
+      )
+
+      await service.releaseIdleTakeovers(openNow)
+
+      expect(inbox.autoReleaseToBot).not.toHaveBeenCalled()
+      expect(novedades.recordHandoff).toHaveBeenCalledWith(1, {
+        conversationId: 7,
+        clientId: 3269,
+        clienteNombre: 'MARIA PRUEBA',
+        producerCodeId: 8,
+        phoneNumberId: 'P1',
+        reason: expect.stringMatching(
+          /^Sin respuesta desde las \d{2}:\d{2} en un chat que atiende la oficina: "Me mandarías una póliza"$/,
+        ),
+      })
+      // Only matters raised since that message count as "already alerted".
+      expect(prisma.notification.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ refId: 7, createdAt: { gte: minutesBefore(openNow, 35) } }),
+        }),
+      )
+    })
+
+    it('waits while the customer is still within the alert window', async () => {
+      const { service, novedades } = setup(
+        { handedOverAt: minutesBefore(openNow, 120) },
+        minutesBefore(openNow, 100),
+        minutesBefore(openNow, 20),
+      )
+
+      await service.releaseIdleTakeovers(openNow)
+
+      expect(novedades.recordHandoff).not.toHaveBeenCalled()
+    })
+
+    it('does not alert when the person answered after the customer', async () => {
+      const { service, novedades } = setup(
+        { handedOverAt: minutesBefore(openNow, 120) },
+        minutesBefore(openNow, 40),
+        minutesBefore(openNow, 50),
+      )
+
+      await service.releaseIdleTakeovers(openNow)
+
+      expect(novedades.recordHandoff).not.toHaveBeenCalled()
+    })
+
+    it('alerts once per customer message', async () => {
+      const { service, novedades, prisma } = setup(
+        { handedOverAt: minutesBefore(openNow, 120) },
+        minutesBefore(openNow, 100),
+        minutesBefore(openNow, 45),
+      )
+      prisma.notification.findFirst.mockResolvedValue({ id: 99 })
+
+      await service.releaseIdleTakeovers(openNow)
+
+      expect(novedades.recordHandoff).not.toHaveBeenCalled()
+    })
+
+    it('names the contact when the chat has no client, and honours BOT_UNANSWERED_ALERT_MINUTES', async () => {
+      const { service, novedades } = setup(
+        { handedOverAt: minutesBefore(openNow, 120), clientId: null, client: null } as never,
+        minutesBefore(openNow, 100),
+        minutesBefore(openNow, 12),
+        { BOT_UNANSWERED_ALERT_MINUTES: '10' },
+      )
+
+      await service.releaseIdleTakeovers(openNow)
+
+      expect(novedades.recordHandoff).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ clientId: null, clienteNombre: 'Vane🤍' }),
+      )
+    })
+  })
+
+  it("treats a holiday of the chat's number like closed hours: back to the bot after 30 min without the operator", async () => {
     const holiday = {
-      businessClosures: [
-        {
-          startDate: new Date('2026-09-30T00:00:00Z'),
-          endDate: new Date('2026-09-30T00:00:00Z'),
-          reason: 'feriado nacional (Prueba)',
-        },
-      ],
+      startDate: new Date('2026-09-30T00:00:00Z'),
+      endDate: new Date('2026-09-30T00:00:00Z'),
+      reason: 'feriado nacional (Prueba)',
     }
-    const { service, inbox } = setup(
-      { handedOverAt: minutesBefore(openNow, 40), producer: holiday },
+    const { service, inbox, prisma } = setup(
+      { handedOverAt: minutesBefore(openNow, 40) },
       minutesBefore(openNow, 31),
       minutesBefore(openNow, 3),
+      {},
+      null,
+      [holiday],
     )
 
     await expect(service.releaseIdleTakeovers(openNow)).resolves.toBe(1)
     expect(inbox.autoReleaseToBot).toHaveBeenCalled()
+    // Only that number's closures count: another branch's holiday does not close this chat.
+    expect(prisma.businessClosure.findMany.mock.calls[0][0].where).toMatchObject({
+      phoneNumber: { phoneNumberId: { in: ['P1'] } },
+    })
   })
 
   describe('within business hours', () => {
@@ -99,10 +210,10 @@ describe('BotTakeoverTimeoutService', () => {
       expect(inbox.autoReleaseToBot).toHaveBeenCalledWith(expect.objectContaining({ id: 7, phoneNumberId: 'P1' }))
     })
 
-    it('returns the chat after four hours of operator silence even if the customer just wrote', async () => {
+    it('returns the chat after two hours of operator silence even if the customer just wrote', async () => {
       const { service, inbox } = setup(
         { handedOverAt: minutesBefore(openNow, 300) },
-        minutesBefore(openNow, 241),
+        minutesBefore(openNow, 121),
         minutesBefore(openNow, 2),
       )
 
@@ -159,6 +270,21 @@ describe('BotTakeoverTimeoutService', () => {
           producer: { businessHours: { wed: [{ from: '08:00', to: '23:00' }] } },
         },
       ])
+
+      await service.releaseIdleTakeovers(closedNow)
+
+      expect(inbox.autoReleaseToBot).not.toHaveBeenCalled()
+    })
+
+    it("uses the hours of the chat's number when it has its own", async () => {
+      // The branch's number is open until 23:00 although the organization closes at 16.
+      const { service, inbox } = setup(
+        { handedOverAt: minutesBefore(closedNow, 90) },
+        minutesBefore(closedNow, 31),
+        minutesBefore(closedNow, 1),
+        {},
+        { wed: [{ from: '08:00', to: '23:00' }] },
+      )
 
       await service.releaseIdleTakeovers(closedNow)
 

@@ -17,11 +17,12 @@ describe('HolidaySyncService', () => {
 
   function setup(
     env: Record<string, string> = {},
-    existing: { producerId: number; startDate: Date }[] = [],
+    existing: { phoneNumberId: number; startDate: Date }[] = [],
     upcoming: { id: number; startDate: Date; reason: string }[] = [],
   ) {
     const prisma = {
-      producer: { findMany: jest.fn().mockResolvedValue([{ id: 1 }]) },
+      // Every number of every active organization gets its own copy of each holiday.
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([{ id: 8, producerId: 1 }]) },
       businessClosure: {
         // First call: upcoming active automatic closures (moved-holiday check); second: everything already loaded.
         findMany: jest.fn().mockResolvedValueOnce(upcoming).mockResolvedValueOnce(existing),
@@ -59,6 +60,7 @@ describe('HolidaySyncService', () => {
     expect(createdDates(prisma)).toEqual(['2026-10-12', '2026-11-09', '2027-01-01'])
     expect(prisma.businessClosure.createMany.mock.calls[0][0].data[0]).toEqual({
       producerId: 1,
+      phoneNumberId: 8,
       startDate: new Date('2026-10-12T00:00:00Z'),
       endDate: new Date('2026-10-12T00:00:00Z'),
       reason: 'feriado nacional: Día del Respeto a la Diversidad Cultural',
@@ -66,14 +68,39 @@ describe('HolidaySyncService', () => {
     })
   })
 
-  it('does not create again a holiday already loaded or deleted by an admin', async () => {
-    const { service, prisma } = setup({}, [{ producerId: 1, startDate: new Date('2026-11-09T00:00:00Z') }])
+  it('does not create again a holiday already loaded on the number or deleted by its admin', async () => {
+    const { service, prisma } = setup({}, [{ phoneNumberId: 8, startDate: new Date('2026-11-09T00:00:00Z') }])
 
     await service.sync(now)
 
     expect(createdDates(prisma)).toEqual(['2026-10-12', '2027-01-01'])
     // The lookup must not filter out soft-deleted rows.
     expect(prisma.businessClosure.findMany.mock.calls[1][0].where).not.toHaveProperty('deletedAt')
+  })
+
+  it('loads each holiday into every number, so one branch can open on it and another close', async () => {
+    const { service, prisma } = setup({}, [{ phoneNumberId: 8, startDate: new Date('2026-11-09T00:00:00Z') }])
+    prisma.phoneNumber.findMany.mockResolvedValue([
+      { id: 8, producerId: 1 },
+      { id: 11, producerId: 1 },
+    ])
+
+    await service.sync(now)
+
+    const created = prisma.businessClosure.createMany.mock.calls[0][0].data as {
+      phoneNumberId: number
+      startDate: Date
+    }[]
+    // Number 8 opened on 9/11 (its row was deleted); number 11 still closes that day.
+    expect(created.filter(c => c.phoneNumberId === 11).map(c => c.startDate.toISOString().slice(0, 10))).toEqual([
+      '2026-10-12',
+      '2026-11-09',
+      '2027-01-01',
+    ])
+    expect(created.filter(c => c.phoneNumberId === 8).map(c => c.startDate.toISOString().slice(0, 10))).toEqual([
+      '2026-10-12',
+      '2027-01-01',
+    ])
   })
 
   it('includes puentes when HOLIDAY_TYPES asks for them', async () => {

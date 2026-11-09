@@ -1,9 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
-import { Prisma } from 'generated/prisma/client'
+import { type BlockedClaimReason, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { type ChatScope, numberWhere } from '../common/scope/scope.service'
 import { ListNovedadesDto, NovedadType, MatterCategory, MatterStatus, UpdateMatterDto } from './dto/list-novedades.dto'
 
 import { classifyMatter } from './classify-matter'
+import { blockedClaimReasonFromText } from './blocked-claim'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -23,6 +25,7 @@ const NOVEDAD_SELECT = {
   body: true,
   readAt: true,
   createdAt: true,
+  blockedClaimReason: true,
   client: { select: { id: true, firstName: true, lastName: true, dni: true } },
 } as const
 
@@ -42,6 +45,8 @@ export class NovedadesService {
       clienteNombre: string
       descripcion: string
       producerCodeId?: number | null
+      /** Meta id of the number the claim came through; null from the panel. */
+      phoneNumberId?: string | null
     },
   ): Promise<void> {
     await this.safeCreate(producerId, {
@@ -50,6 +55,7 @@ export class NovedadesService {
       refId: input.siniestroId,
       clientId: input.clientId,
       producerCodeId: input.producerCodeId ?? null,
+      phoneNumberId: input.phoneNumberId ?? null,
       title: `Nuevo siniestro · ${input.clienteNombre}`,
       body: input.descripcion,
     })
@@ -59,14 +65,20 @@ export class NovedadesService {
     producerId: number,
     input: {
       reason?: string
+      /** The bot refused to file a claim ("denuncia frenada"); read from the reason when absent. */
+      blockedClaimReason?: BlockedClaimReason | null
       conversationId: number
       clientId: number | null
       clienteNombre: string
       producerCodeId?: number | null
+      /** Meta id of the number the chat came through. */
+      phoneNumberId?: string | null
     },
   ): Promise<void> {
     const body = input.reason?.trim() || null
-    const category = classifyMatter(body ?? undefined)
+    const blockedClaimReason = input.blockedClaimReason ?? blockedClaimReasonFromText(body)
+    // A stopped claim is a claims matter whatever words its reason uses.
+    const category = blockedClaimReason ? MatterCategory.SINIESTRO : classifyMatter(body ?? undefined)
     // Exact repeats share a pending matter; a different request remains separate.
     const existing = await this.prisma.notification
       .findFirst({
@@ -82,16 +94,69 @@ export class NovedadesService {
       })
       .catch(() => null)
     if (existing) return
-    if (await this.joinOpenHandoff(input.conversationId, producerId, body, category)) return
+    if (await this.joinOpenHandoff(input.conversationId, producerId, body, category, blockedClaimReason)) return
     await this.safeCreate(producerId, {
       category,
       type: NovedadType.HANDOFF,
       refId: input.conversationId,
       clientId: input.clientId,
       producerCodeId: input.producerCodeId ?? null,
+      phoneNumberId: input.phoneNumberId ?? null,
       title: `Pedido de asesor · ${input.clienteNombre}`,
       body,
+      blockedClaimReason,
     })
+  }
+
+  /** Matters that live in a chat and are settled by answering it. */
+  private static readonly CHAT_MATTER_TYPES = [NovedadType.HANDOFF, NovedadType.BAJA_POLIZA]
+
+  /**
+   * The office wrote in the chat (from the panel or the WhatsApp Business app):
+   * the matters it was asked for are being handled. The administrator works
+   * from the app and never came back to mark them, so 60 of 64 pending
+   * requests had already been answered (22/10). Never throws.
+   */
+  async markConversationAnswered(conversationId: number, answeredAt = new Date()): Promise<number> {
+    try {
+      const { count } = await this.prisma.notification.updateMany({
+        where: {
+          type: { in: NovedadesService.CHAT_MATTER_TYPES },
+          refId: conversationId,
+          status: MatterStatus.PENDING,
+          createdAt: { lte: answeredAt },
+          deletedAt: null,
+        },
+        data: { status: MatterStatus.IN_PROGRESS },
+      })
+      return count
+    } catch (error) {
+      this.logger.error(`Failed to mark matters of conversation #${conversationId} as answered`, error as Error)
+      return 0
+    }
+  }
+
+  /**
+   * The chat went back to the bot (manually or by the takeover timeout): what
+   * the office was handling there is done. Matters nobody answered stay
+   * pending so they are not lost. Never throws.
+   */
+  async resolveAnsweredMatters(conversationId: number): Promise<number> {
+    try {
+      const { count } = await this.prisma.notification.updateMany({
+        where: {
+          type: { in: NovedadesService.CHAT_MATTER_TYPES },
+          refId: conversationId,
+          status: MatterStatus.IN_PROGRESS,
+          deletedAt: null,
+        },
+        data: { status: MatterStatus.RESOLVED, resolvedAt: new Date() },
+      })
+      return count
+    } catch (error) {
+      this.logger.error(`Failed to resolve matters of conversation #${conversationId}`, error as Error)
+      return 0
+    }
   }
 
   /**
@@ -101,13 +166,15 @@ export class NovedadesService {
    * opening another one: one chat got three alerts for the same papers. Only
    * within HANDOFF_JOIN_WINDOW_MS and the same kind of matter (a generic one
    * takes any), so a payment and a cancellation still stay apart. The joined
-   * matter is marked unread and moved up so the office sees the addition.
+   * matter is marked unread and moved up so the office sees the addition; a
+   * stopped claim joined to it carries its mark over.
    */
   private async joinOpenHandoff(
     conversationId: number,
     producerId: number,
     body: string | null,
     category: MatterCategory,
+    blockedClaimReason: BlockedClaimReason | null,
   ): Promise<boolean> {
     try {
       const open = await this.prisma.notification.findFirst({
@@ -132,6 +199,9 @@ export class NovedadesService {
         data: {
           body: open.body ? `${open.body}\n\n${body}` : body,
           category: openCategory === MatterCategory.OTHER ? category : openCategory,
+          ...(blockedClaimReason ? { blockedClaimReason } : {}),
+          // The customer wrote again: the matter waits for the office once more.
+          status: MatterStatus.PENDING,
           readAt: null,
           createdAt: new Date(),
         },
@@ -153,19 +223,23 @@ export class NovedadesService {
       refId: number
       clientId: number | null
       producerCodeId: number | null
+      phoneNumberId?: string | null
       title: string
       body: string | null
+      blockedClaimReason?: BlockedClaimReason | null
     },
   ): Promise<void> {
     try {
       await this.prisma.notification.create({
         data: {
+          ...(data.blockedClaimReason ? { blockedClaimReason: data.blockedClaimReason } : {}),
           producerId,
           category: data.category ?? MatterCategory.OTHER,
           type: data.type,
           refId: data.refId,
           clientId: data.clientId,
           producerCodeId: data.producerCodeId,
+          phoneNumberId: data.phoneNumberId ?? null,
           title: data.title,
           body: data.body,
         },
@@ -177,29 +251,66 @@ export class NovedadesService {
 
   // ─── Admin panel ───────────────────────────────────────
 
+  /**
+   * The chats among `conversationIds` whose open advisor request is a claim the
+   * bot refused to file, with why (newest first wins). For the inbox badge.
+   */
+  async blockedClaimsByConversation(
+    producerId: number,
+    conversationIds: number[],
+  ): Promise<Map<number, BlockedClaimReason>> {
+    if (!conversationIds.length) return new Map()
+    const rows = await this.prisma.notification.findMany({
+      where: {
+        producerId,
+        type: NovedadType.HANDOFF,
+        refId: { in: conversationIds },
+        blockedClaimReason: { not: null },
+        status: { not: MatterStatus.RESOLVED },
+        deletedAt: null,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { refId: true, blockedClaimReason: true },
+    })
+    const byConversation = new Map<number, BlockedClaimReason>()
+    for (const row of rows) {
+      if (row.blockedClaimReason && !byConversation.has(row.refId))
+        byConversation.set(row.refId, row.blockedClaimReason)
+    }
+    return byConversation
+  }
+
   // Code-level visibility for an admin. Includes novedades not yet attributed to
   // a code (handoffs from unidentified numbers) so they stay visible to the org.
   private codeScope(codeIds: number[]) {
     return { OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }
   }
 
-  async listForAdmin(producerId: number, codeIds: number[], dto: ListNovedadesDto) {
+  /**
+   * The novedades a user sees: by code (codeScope) and by the number they came
+   * through (numberWhere): an admin only their own numbers', the SuperAdmin
+   * everything or the number they filtered by.
+   */
+  private matterScope(_producerId: number, scope: ChatScope): Prisma.NotificationWhereInput {
+    const byCode = this.codeScope(scope.codeIds)
+    const byNumber = numberWhere(scope)
+    return Object.keys(byNumber).length ? { AND: [byCode, byNumber] } : byCode
+  }
+
+  async listForAdmin(producerId: number, scope: ChatScope, dto: ListNovedadesDto) {
     const page = dto.page && dto.page > 0 ? dto.page : 1
     const pageSize = dto.pageSize && dto.pageSize > 0 ? dto.pageSize : DEFAULT_PAGE_SIZE
     const search = dto.search?.trim()
+    // The scope and the search each bring their own AND/OR: they go side by side
+    // in one AND, never spread into the same object, where the search would
+    // replace an admin's scope and show them the whole organization.
     const where: Prisma.NotificationWhereInput = {
       producerId,
       deletedAt: null,
-      ...this.codeScope(codeIds),
-      ...(dto.category ? { category: dto.category } : {}),
-      ...(dto.status ? { status: dto.status } : dto.actionable ? { status: { not: MatterStatus.RESOLVED } } : {}),
-      ...(dto.since ? { createdAt: { gt: new Date(dto.since) } } : {}),
-      ...(dto.type ? { type: dto.type } : {}),
-      ...(dto.unread ? { readAt: null } : {}),
-      ...(dto.clientId ? { clientId: dto.clientId } : {}),
-      ...(search
-        ? {
-            AND: [
+      AND: [
+        this.matterScope(producerId, scope),
+        ...(search
+          ? [
               {
                 OR: [
                   { title: { contains: search } },
@@ -215,9 +326,15 @@ export class NovedadesService {
                   },
                 ],
               },
-            ],
-          }
-        : {}),
+            ]
+          : []),
+      ],
+      ...(dto.category ? { category: dto.category } : {}),
+      ...(dto.status ? { status: dto.status } : dto.actionable ? { status: { not: MatterStatus.RESOLVED } } : {}),
+      ...(dto.since ? { createdAt: { gt: new Date(dto.since) } } : {}),
+      ...(dto.type ? { type: dto.type } : {}),
+      ...(dto.unread ? { readAt: null } : {}),
+      ...(dto.clientId ? { clientId: dto.clientId } : {}),
     }
 
     const [total, data] = await this.prisma.$transaction([
@@ -242,16 +359,17 @@ export class NovedadesService {
   }
 
   /** Clears notifications only, leaving their underlying business records intact. */
-  async clearAll(producerId: number, codeIds: number[]) {
+  async clearAll(producerId: number, scope: ChatScope) {
     const result = await this.prisma.notification.updateMany({
-      where: { producerId, deletedAt: null, ...this.codeScope(codeIds) },
+      where: { producerId, deletedAt: null, ...this.matterScope(producerId, scope) },
       data: { deletedAt: new Date() },
     })
     return { clearedCount: result.count }
   }
 
-  async getStats(producerId: number, codeIds: number[]) {
-    const base = { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds) }
+  async getStats(producerId: number, scope: ChatScope) {
+    const visible = this.matterScope(producerId, scope)
+    const base = { producerId, deletedAt: null, readAt: null, ...visible }
 
     const [unreadTotal, unreadClaims, unreadHandoff, unreadCancellations] = await this.prisma.$transaction([
       this.prisma.notification.count({ where: base }),
@@ -267,7 +385,7 @@ export class NovedadesService {
           where: {
             producerId,
             deletedAt: null,
-            ...this.codeScope(codeIds),
+            ...visible,
             category,
             status: { not: MatterStatus.RESOLVED },
           },
@@ -293,6 +411,8 @@ export class NovedadesService {
       name: string
       summary: string
       producerCodeId?: number | null
+      /** Meta id of the number the request came through; null for the web. */
+      phoneNumberId?: string | null
     },
   ) {
     try {
@@ -320,6 +440,7 @@ export class NovedadesService {
         category: MatterCategory.COTIZACION,
         clientId: null,
         producerCodeId: input.producerCodeId ?? null,
+        phoneNumberId: input.phoneNumberId ?? null,
         title: `Solicitud de cotización · ${input.name}`,
         body: input.summary,
       })
@@ -340,10 +461,19 @@ export class NovedadesService {
     })
   }
 
-  async updateMatter(id: number, producerId: number, codeIds: number[], dto: UpdateMatterDto) {
+  /** One matter as the user sees it in the list (same scope), or null when it is not theirs to see. */
+  findMatterForAdmin(id: number, producerId: number, scope: ChatScope) {
+    return this.prisma.notification.findFirst({
+      where: { id, producerId, deletedAt: null, ...this.matterScope(producerId, scope) },
+      select: { title: true, status: true, category: true },
+    })
+  }
+
+  async updateMatter(id: number, producerId: number, scope: ChatScope, dto: UpdateMatterDto) {
+    const visible = await this.matterScope(producerId, scope)
     return this.prisma.$transaction(async tx => {
       const matter = await tx.notification.findFirst({
-        where: { id, producerId, deletedAt: null, ...this.codeScope(codeIds) },
+        where: { id, producerId, deletedAt: null, ...visible },
         select: { type: true, refId: true },
       })
       if (!matter) throw new NotFoundException(`Novedad ${id} not found`)
@@ -357,12 +487,12 @@ export class NovedadesService {
               : 'NEW'
         if (matter.type === NovedadType.LEAD) {
           await tx.contactLead.updateMany({
-            where: { id: matter.refId, producerId, deletedAt: null, ...this.codeScope(codeIds) },
+            where: { id: matter.refId, producerId, deletedAt: null, ...this.codeScope(scope.codeIds) },
             data: { status },
           })
         } else {
           await tx.quoteRequest.updateMany({
-            where: { id: matter.refId, deletedAt: null, quote: { producerId, ...this.codeScope(codeIds) } },
+            where: { id: matter.refId, deletedAt: null, quote: { producerId, ...this.codeScope(scope.codeIds) } },
             data: { status },
           })
         }
@@ -380,9 +510,9 @@ export class NovedadesService {
     })
   }
 
-  async markRead(id: number, producerId: number, codeIds: number[]) {
+  async markRead(id: number, producerId: number, scope: ChatScope) {
     const novedad = await this.prisma.notification.findFirst({
-      where: { id, producerId, deletedAt: null, ...this.codeScope(codeIds) },
+      where: { id, producerId, deletedAt: null, ...(await this.matterScope(producerId, scope)) },
       select: { id: true, readAt: true },
     })
     if (!novedad) throw new NotFoundException(`Novedad ${id} not found`)
@@ -399,9 +529,15 @@ export class NovedadesService {
     })
   }
 
-  async markAllRead(producerId: number, codeIds: number[], type?: NovedadType) {
+  async markAllRead(producerId: number, scope: ChatScope, type?: NovedadType) {
     const result = await this.prisma.notification.updateMany({
-      where: { producerId, deletedAt: null, readAt: null, ...this.codeScope(codeIds), ...(type ? { type } : {}) },
+      where: {
+        producerId,
+        deletedAt: null,
+        readAt: null,
+        ...(await this.matterScope(producerId, scope)),
+        ...(type ? { type } : {}),
+      },
       data: { readAt: new Date() },
     })
     return { updated: result.count }

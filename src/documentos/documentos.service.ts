@@ -73,10 +73,11 @@ export class DocumentosService {
     const { ref, reference } = await this.resolvePolicy(where)
     // A fresh list: the link is about to be followed and its lifetime is unknown.
     const documento = ref ? (await this.triunfo.getDocumentos(ref, { fresh: true })).find(d => d.Codigo === code) : null
-    if (!documento) throw new NotFoundException(`Document ${code} is not available for this policy`)
+    if (!ref || !documento) throw new NotFoundException(`Document ${code} is not available for this policy`)
 
-    const buffer = await this.triunfo.downloadDocumento(documento.URL)
-    return { filename: documentFilename(documentName(code, documento.Nombre), reference), buffer }
+    const name = documentName(code, documento.Nombre)
+    const buffer = await this.triunfo.downloadDocumento(documento.URL, ref.producerId, { code, name })
+    return { filename: documentFilename(name, reference), buffer }
   }
 
   /**
@@ -87,6 +88,7 @@ export class DocumentosService {
     const policy = await this.prisma.policy.findFirst({
       where,
       select: {
+        producerId: true,
         certificateNumber: true,
         rawData: true,
         producerCode: { select: { code: true } },
@@ -100,6 +102,7 @@ export class DocumentosService {
       data.Articulo == null
         ? null
         : {
+            producerId: policy.producerId,
             productor: policy.producerCode?.code,
             // Every policy of the cartera is T / CC; the default covers the few without them.
             empresa: data.Empresa ?? 'T',

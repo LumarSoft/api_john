@@ -8,17 +8,20 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common'
+import { parseCoverageOverrides, type CoverageOverrides } from '../common/coverage-overrides'
 import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { isAxiosError } from 'axios'
 import { firstValueFrom } from 'rxjs'
-import { Prisma } from 'generated/prisma/client'
+import { Prisma, TriunfoErrorKind } from 'generated/prisma/client'
 import { NovedadesService } from '../novedades/novedades.service'
 import { NovedadType } from '../novedades/dto/list-novedades.dto'
 import { PrismaService } from '../prisma/prisma.service'
 import { TriunfoService } from '../triunfo/triunfo.service'
+import { bodySample, TriunfoErrorsService } from '../triunfo/triunfo-errors.service'
 import { InfoAutoService } from '../infoauto/infoauto.service'
 import { VehicleType } from '../infoauto/infoauto.types'
+import { BotQuoteVehicleDto } from './dto/bot-quote-vehicle.dto'
 import { QuoteVehicleDto } from './dto/quote-vehicle.dto'
 import { CoverageRequestDto } from './dto/coverage-request.dto'
 import { isVisiblePaymentMethod, paymentMethodLabel } from '../common/payment-methods'
@@ -97,6 +100,7 @@ export class CotizadorService {
     private readonly coverageSettings: CoverageSettingsService,
     private readonly configService: ConfigService,
     private readonly novedades: NovedadesService,
+    private readonly triunfoErrors: TriunfoErrorsService,
   ) {}
 
   async quoteVehicle(
@@ -104,6 +108,12 @@ export class CotizadorService {
     dto: QuoteVehicleDto,
     producerId: number | null,
     userId: number | null,
+    // How the number the quote is for offers the organization's coverages (null = as the organization).
+    coverageOverrides: CoverageOverrides | null = null,
+    // Meta id of the WhatsApp number the quote came through (null for the web and the panel).
+    originPhoneNumberId: string | null = null,
+    // The bot's chat and the vehicle as it named it (for the follow-up of an unfinished quote).
+    chatOrigin: { conversationId: number | null; vehicleLabel: string | null } | null = null,
   ): Promise<QuoteAutoResult> {
     const brandNumber = Number(dto.brand)
     const codiaNumber = Number(dto.model)
@@ -124,7 +134,8 @@ export class CotizadorService {
       throw new BadRequestException(`Un 0 km no puede ser del año ${dto.manufactureYear}. Revisá el año o si es usado.`)
     }
     await this.infoAuto.validateVehicleYear(vehicleType, brandNumber, codiaNumber, dto.manufactureYear)
-    const auth = await this.triunfo.getAuth()
+    // Quoted with the organization's own Triunfo account (null = the default org's).
+    const auth = await this.triunfo.getAuth(producerId)
 
     // Vehicle value comes from InfoAuto when valuation is contracted. It is not
     // today (403), so this resolves to null and Valor "0" tells Triunfo to look
@@ -172,6 +183,7 @@ export class CotizadorService {
       result = response.data
     } catch (error) {
       this.logger.error(`Triunfo RESTCotizadorAutV2 request failed: ${(error as Error).message}`)
+      void this.triunfoErrors.recordException('RESTCotizadorAutV2', producerId, error)
       if (isAxiosError(error) && error.code === 'ECONNABORTED') {
         throw new GatewayTimeoutException('El cotizador de Triunfo no respondió a tiempo')
       }
@@ -181,8 +193,16 @@ export class CotizadorService {
     const out = result?.SDTSrvCotizacionOut
     if (!out) {
       this.logger.error(`Triunfo RESTCotizadorAutV2 unexpected response: ${JSON.stringify(result)}`)
+      void this.triunfoErrors.record({
+        operation: 'RESTCotizadorAutV2',
+        producerId,
+        kind: TriunfoErrorKind.UNEXPECTED_RESPONSE,
+        message: 'La respuesta no trae SDTSrvCotizacionOut',
+        sample: bodySample(result),
+      })
       throw new BadGatewayException('Triunfo cotizador error')
     }
+    this.triunfoErrors.answered('RESTCotizadorAutV2')
 
     const quoteNumber = Number.parseInt(out.Presupuesto?.Numero ?? '', 10)
     const resolvedProducerId = await this.resolveProducerId(producerId)
@@ -202,12 +222,29 @@ export class CotizadorService {
           // Anonymous/web quotes are credited to the org master code by default.
           producerCodeId: await this.resolveDefaultProducerCodeId(resolvedProducerId),
           userId,
+          phoneNumberId: originPhoneNumberId,
+          conversationId: chatOrigin?.conversationId ?? null,
+          vehicleLabel: chatOrigin?.vehicleLabel ?? null,
         },
-        update: { result: result as Prisma.InputJsonValue },
+        update: {
+          result: result as Prisma.InputJsonValue,
+          ...(chatOrigin?.conversationId ? { conversationId: chatOrigin.conversationId } : {}),
+          ...(chatOrigin?.vehicleLabel ? { vehicleLabel: chatOrigin.vehicleLabel } : {}),
+        },
       })
     }
 
     const quote = this.normalizeResult(result)
+    // No price at all and Triunfo saying why ("Código de modelo no válido", or a field it starts requiring).
+    if (quote.coverages.length === 0 && quote.messages.length > 0) {
+      void this.triunfoErrors.record({
+        operation: 'RESTCotizadorAutV2',
+        producerId,
+        kind: TriunfoErrorKind.REJECTED,
+        message: quote.messages.join('; '),
+        sample: `${vehicleType} marca ${dto.brand} modelo ${triunfoModel} ${dto.manufactureYear} CP ${dto.postalCode}`,
+      })
+    }
 
     // Register any coverage code we had not seen before, so the admin screen
     // lists real Triunfo codes. Never blocks or breaks a quote.
@@ -218,10 +255,10 @@ export class CotizadorService {
       )
       .catch(err => this.logger.warn(`No se pudieron registrar las coberturas: ${(err as Error).message}`))
 
-    // Motorcycles are offered exactly as Triunfo's own cotizador does: RC (A),
-    // RC + incendio (B4) and RC + incendio + robo (B1). Triunfo also prices B
-    // ("todo total") for motos but does not show it, and neither do we.
-    const requiredCodes = vehicleType === VehicleType.MOTO ? ['A', 'B4', 'B1'] : []
+    // Motorcycles are offered as Triunfo's own cotizador does — RC (A),
+    // RC + incendio (B4) and RC + incendio + robo (B1) — plus B ("todo total"),
+    // which Triunfo prices but hides on its web and the office sells (22/10).
+    const requiredCodes = vehicleType === VehicleType.MOTO ? ['A', 'B4', 'B1', 'B'] : []
     const offered =
       vehicleType === VehicleType.MOTO ? quote.coverages.filter(c => requiredCodes.includes(c.code)) : quote.coverages
     const coverages = await this.coverageSettings.apply(
@@ -230,6 +267,7 @@ export class CotizadorService {
       dto.manufactureYear,
       requiredCodes,
       vehicleType,
+      coverageOverrides,
     )
     const valuationMissing = this.isValuationMissing(result, quote)
     if (valuationMissing) {
@@ -268,10 +306,46 @@ export class CotizadorService {
     return rejected.length > 0 && quote.coverages.every(c => c.code === 'A')
   }
 
+  /**
+   * A quote the WhatsApp bot asks for on a number: it belongs to the number's
+   * organization and goes out with its Triunfo account, instead of falling to
+   * the default organization like an anonymous web quote.
+   */
+  async quoteVehicleForNumber(
+    phoneNumberId: string,
+    vehicleType: VehicleType,
+    dto: BotQuoteVehicleDto,
+  ): Promise<QuoteAutoResult> {
+    const phone = await this.prisma.phoneNumber.findFirst({
+      where: { phoneNumberId, isActive: true, deletedAt: null },
+      select: { producerId: true, coverageSettings: true },
+    })
+    if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
+    // The number's own view of the coverages (which to offer, recommend and first).
+    const overrides = parseCoverageOverrides(phone.coverageSettings)
+    const { conversationId, vehicleLabel, ...vehicle } = dto
+    // Only a chat of the number's own organization is kept on the quote.
+    const chat = conversationId
+      ? await this.prisma.conversation.findFirst({
+          where: { id: conversationId, producerId: phone.producerId },
+          select: { id: true },
+        })
+      : null
+    return this.quoteVehicle(
+      vehicleType,
+      vehicle,
+      phone.producerId,
+      null,
+      Object.keys(overrides).length ? overrides : null,
+      phoneNumberId,
+      { conversationId: chat?.id ?? null, vehicleLabel: vehicleLabel?.replace(/\s+/g, ' ').trim() || null },
+    )
+  }
+
   async requestCoverage(quoteNumber: number, dto: CoverageRequestDto): Promise<CoverageRequestResult> {
     const cotizacion = await this.prisma.quote.findFirst({
       where: { quoteNumber, deletedAt: null },
-      select: { id: true, result: true, producerId: true, producerCodeId: true },
+      select: { id: true, result: true, producerId: true, producerCodeId: true, phoneNumberId: true },
     })
     if (!cotizacion) throw new NotFoundException(`Quote ${quoteNumber} not found`)
 
@@ -321,6 +395,7 @@ export class CotizadorService {
       refId: solicitud.id,
       name: `${dto.firstName} ${dto.lastName ?? ''}`.trim(),
       producerCodeId: cotizacion.producerCodeId,
+      phoneNumberId: cotizacion.phoneNumberId,
       summary: `Eligió cobertura ${dto.coverage}. Contacto: ${dto.phone}. Pendiente de gestionar contratación.`,
     })
 

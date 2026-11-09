@@ -1,7 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
-import { validityStatus, expiringPolizaWhere, inForcePolizaWhere } from '../common/poliza-vigencia'
+import {
+  validityStatus,
+  expiringPolizaWhere,
+  inForcePolizaWhere,
+  notCancelledPolizaWhere,
+} from '../common/poliza-vigencia'
+import { productNameOf } from '../common/poliza-detail'
 import { ClientStatusFilter, ClientSort, ListClientsDto } from './dto/list-clients.dto'
 import { CollectionStatusFilter, ListCobranzasDto } from './dto/list-cobranzas.dto'
 
@@ -18,6 +24,15 @@ export interface InsuredItemCoverage {
 export interface InsuredItem {
   description: string | null
   coverages: InsuredItemCoverage[]
+}
+
+/**
+ * What the panel and the portal call a non-vehicle policy ("Acc. personales",
+ * "Sepelio", "Bicicleta"…), the same name the bot uses. Null for vehicles and
+ * when nothing tells it apart: the screen falls back to the risk type.
+ */
+function productName(riskType: RiskType, rawData: Prisma.JsonValue): string | null {
+  return productNameOf(riskType, rawData)
 }
 
 function extractInsuredItem(rawData: Prisma.JsonValue): InsuredItem | null {
@@ -95,8 +110,14 @@ const ADMIN_CLIENT_SELECT = {
   },
 } as const
 
+// The Triunfo code (código de productor) a client or a policy belongs to. The
+// client keeps the code it first came in under; each policy follows the code
+// Triunfo lists it under now, so one client's policies can span several codes.
+const PRODUCER_CODE_SELECT = { select: { id: true, code: true, holderName: true } } as const
+
 const ADMIN_CLIENT_DETAIL_SELECT = {
   ...ADMIN_CLIENT_SELECT,
+  producerCode: PRODUCER_CODE_SELECT,
   policies: {
     where: { deletedAt: null },
     select: {
@@ -110,6 +131,9 @@ const ADMIN_CLIENT_DETAIL_SELECT = {
       validTo: true,
       premium: true,
       paymentMethod: true,
+      producerCode: PRODUCER_CODE_SELECT,
+      // Only to name the policy; dropped from the response.
+      rawData: true,
       vehicle: {
         select: {
           id: true,
@@ -238,7 +262,11 @@ export class ClientsService {
         seenInactivePlate.add(licensePlate)
         return true
       })
-      .map(({ rawData, ...rest }) => ({ ...rest, insuredItem: extractInsuredItem(rawData) }))
+      .map(({ rawData, ...rest }) => ({
+        ...rest,
+        product: productName(rest.riskType, rawData),
+        insuredItem: extractInsuredItem(rawData),
+      }))
   }
 
   async findAllForAdmin(producerId: number, codeIds: number[], query: ListClientsDto) {
@@ -292,7 +320,7 @@ export class ClientsService {
       this.prisma.policy.count({ where: { AND: [activePoliza, expiringPolizaWhere(expiringLimit, now)] } }),
       this.prisma.policy.count({ where: { ...activePoliza, validTo: { lt: now } } }),
       this.prisma.installment.count({
-        where: { deletedAt: null, status: 'overdue', policy: { producerId, deletedAt: null, ...codeScope } },
+        where: { deletedAt: null, status: 'overdue', policy: { ...activePoliza, ...notCancelledPolizaWhere() } },
       }),
     ])
 
@@ -384,7 +412,14 @@ export class ClientsService {
       select: ADMIN_CLIENT_DETAIL_SELECT,
     })
     if (!client) throw new NotFoundException(`Client ${id} not found`)
-    return { ...client, policies: client.policies.map(p => ({ ...p, validityStatus: validityStatus(p) })) }
+    return {
+      ...client,
+      policies: client.policies.map(({ rawData, ...p }) => ({
+        ...p,
+        product: productName(p.riskType, rawData),
+        validityStatus: validityStatus(p),
+      })),
+    }
   }
 
   async findPolizaById(id: number, clientId: number, producerId: number) {
@@ -396,7 +431,12 @@ export class ClientsService {
     if (!poliza) throw new NotFoundException(`Policy ${id} not found`)
 
     const { rawData, ...rest } = poliza
-    return { ...rest, validityStatus: validityStatus(poliza), insuredItem: extractInsuredItem(rawData) }
+    return {
+      ...rest,
+      product: productName(rest.riskType, rawData),
+      validityStatus: validityStatus(poliza),
+      insuredItem: extractInsuredItem(rawData),
+    }
   }
 
   async findCobranzasForAdmin(producerId: number, codeIds: number[], query: ListCobranzasDto) {
@@ -404,11 +444,22 @@ export class ClientsService {
     const pageSize = query.pageSize ?? 20
     const search = query.search?.trim()
 
+    // A policy Triunfo cancelled keeps its unpaid cuotas; they are not debt.
+    // Only the policies of the codes in scope count, so an admin filtering by
+    // a code sees that code's debt and not the client's whole cartera; the
+    // medio de pago narrows them the same way ("Plan De Pago" for the office
+    // chasing coupon payers).
+    const livePoliza: Prisma.PolicyWhereInput = {
+      deletedAt: null,
+      ...notCancelledPolizaWhere(),
+      producerCodeId: { in: codeIds },
+      ...(query.paymentMethod ? { paymentMethod: query.paymentMethod } : {}),
+    }
     const and: Prisma.ClientWhereInput[] = [this.clientVisibility(codeIds)]
     const where: Prisma.ClientWhereInput = {
       producerId,
       deletedAt: null,
-      policies: { some: { deletedAt: null, installments: { some: { deletedAt: null } } } },
+      policies: { some: { ...livePoliza, installments: { some: { deletedAt: null } } } },
       AND: and,
     }
 
@@ -438,9 +489,10 @@ export class ClientsService {
         email: true,
         phone: true,
         policies: {
-          where: { deletedAt: null },
+          where: livePoliza,
           select: {
             riskType: true,
+            paymentMethod: true,
             vehicle: { select: { licensePlate: true } },
             installments: {
               where: { deletedAt: null },
@@ -462,8 +514,10 @@ export class ClientsService {
       const totalDebt = [...pending, ...overdue, ...rejected].reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0)
 
       const riskTypes: RiskType[] = []
+      const paymentMethods: string[] = []
       for (const p of client.policies) {
         if (!riskTypes.includes(p.riskType)) riskTypes.push(p.riskType)
+        if (p.paymentMethod && !paymentMethods.includes(p.paymentMethod)) paymentMethods.push(p.paymentMethod)
       }
       const licensePlate = client.policies.find(p => p.vehicle?.licensePlate)?.vehicle?.licensePlate ?? null
 
@@ -480,6 +534,7 @@ export class ClientsService {
         email: client.email,
         phone: client.phone,
         riskTypes,
+        paymentMethods,
         licensePlate,
         pendingCount: pending.length,
         overdueCount: overdue.length,
@@ -521,8 +576,10 @@ export class ClientsService {
     return { data, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) }
   }
 
-  async getCobranzasStats(producerId: number, codeIds: number[]) {
-    const codeScope = { producerCodeId: { in: codeIds } }
+  async getCobranzasStats(producerId: number, codeIds: number[], paymentMethod?: string) {
+    // Cuotas of a cancelled policy are not debt (see findCobranzasForAdmin).
+    const liveScope = { producerCodeId: { in: codeIds }, ...notCancelledPolizaWhere() }
+    const codeScope = { ...liveScope, ...(paymentMethod ? { paymentMethod } : {}) }
     const baseCuota = { deletedAt: null, policy: { producerId, deletedAt: null, ...codeScope } }
     // Count clients who have a policy IN an accessible code with a cuota of the
     // given status. Scoping by the policy's code (not the client's) naturally
@@ -570,6 +627,16 @@ export class ClientsService {
     // Negative-amount installments are insurer credits/adjustments, not debt — excluded from the owed total.
     const totalDebt = deudaCuotas.reduce((sum, c) => sum + Math.max(0, Number(c.amount)), 0).toFixed(2)
 
+    // The medios de pago the panel can filter by: whatever Triunfo stored on
+    // the policies in scope, whichever one is selected right now.
+    const methods = await this.prisma.policy.findMany({
+      where: { producerId, deletedAt: null, ...liveScope, paymentMethod: { not: null } },
+      distinct: ['paymentMethod'],
+      select: { paymentMethod: true },
+      orderBy: { paymentMethod: 'asc' },
+    })
+    const paymentMethods = methods.map(m => m.paymentMethod).filter((m): m is string => !!m)
+
     return {
       clientsWithDebt,
       clientsWithOverdue,
@@ -579,6 +646,7 @@ export class ClientsService {
       rejectedInstallments,
       pendingInstallments,
       totalDebt,
+      paymentMethods,
     }
   }
 }

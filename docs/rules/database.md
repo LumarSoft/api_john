@@ -75,3 +75,21 @@ one scoped transaction, so the next inbound message creates a fresh chat without
 conflicting with the unique WhatsApp/producer key. Business records are retained;
 contact leads are detached and related HANDOFF notices are soft-deleted. Media
 files remain subject to the existing retention policy.
+
+The **activity log** (`src/activity-log/activity-log.service.ts`) is the third:
+`ActivityLog` is an access log (who changed what in the panel and from which
+IP), not a business record, and it has to stay bounded. Rows older than
+`ACTIVITY_LOG_RETENTION_DAYS` (default 180) are hard-deleted every night.
+
+The **assistant's conversations** (`src/assistant/assistant-retention.service.ts`)
+are the fourth: a working aid with client data quoted in it, not a business
+record. Conversations untouched for `ASSISTANT_RETENTION_DAYS` (default 90) are
+hard-deleted every night with their messages and proposals. The changes those
+proposals made live where they were made, and in the activity log.
+
+## Counting events that were soft deleted
+
+The monthly balance (`src/balance/`) counts handoff notifications whatever their
+`deletedAt`: clearing "Asuntos pendientes" or deleting a chat soft-deletes the
+matter to take it off the worklist, but the customer did ask for a person. Every
+other balance query filters `deletedAt: null`.

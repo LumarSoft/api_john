@@ -140,6 +140,16 @@ describe('recommended coverage by vehicle year', () => {
 
     expect(result.map(c => c.code)).toEqual(['A', 'D2'])
   })
+
+  it("offers, recommends and orders the organization's coverages the number's own way", async () => {
+    const result = await serviceWith(rows).apply(1, quoted, 2015, [], VehicleType.AUTO, {
+      C1: { isActive: false, highlighted: null, sortOrder: null },
+      D2: { isActive: null, highlighted: true, sortOrder: 0 },
+    })
+
+    expect(result.map(c => c.code)).toEqual(['D2', 'A', 'B1'])
+    expect(result.filter(c => c.highlighted).map(c => c.code)).toEqual(['D2'])
+  })
 })
 
 describe('car coverage wording', () => {

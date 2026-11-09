@@ -1,14 +1,4 @@
-import {
-  ArrayUnique,
-  IsArray,
-  IsEmail,
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  MinLength,
-  MaxLength,
-} from 'class-validator'
+import { ArrayUnique, IsArray, IsEmail, IsIn, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator'
 import { Role } from 'generated/prisma/client'
 
 export class UpdateUserDto {
@@ -22,7 +12,8 @@ export class UpdateUserDto {
   password?: string
 
   @IsOptional()
-  @IsEnum(Role)
+  // Never OWNER: that is the platform operator, created by the seed alone.
+  @IsIn([Role.SUPERADMIN, Role.ADMIN])
   role?: Role
 
   // When provided, replaces the user's full set of producer-code grants.

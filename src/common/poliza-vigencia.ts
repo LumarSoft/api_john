@@ -22,6 +22,15 @@ export function isCancelledMovimiento(lastMovement: string | null | undefined): 
 }
 
 /**
+ * Where-clause for policies Triunfo has not cancelled, whatever their dates.
+ * Cobranzas needs it on its own: a cancelled policy keeps its unpaid cuotas,
+ * and in production 6,646 of the 11,559 cuotas shown as overdue were those.
+ */
+export function notCancelledPolizaWhere(): Prisma.PolicyWhereInput {
+  return { NOT: CANCELLED_PREFIXES.map(prefix => ({ lastMovement: { startsWith: prefix } })) }
+}
+
+/**
  * Where-clause for policies covering *now*: started, not ended, not cancelled.
  * A renewal that starts next week is not in force yet — the policy it replaces
  * still is, and it is the one a claim filed today belongs to.
@@ -31,7 +40,7 @@ export function inForcePolizaWhere(now: Date = new Date()): Prisma.PolicyWhereIn
     deletedAt: null,
     validTo: { gte: now },
     OR: [{ validFrom: null }, { validFrom: { lte: now } }],
-    NOT: CANCELLED_PREFIXES.map(prefix => ({ lastMovement: { startsWith: prefix } })),
+    ...notCancelledPolizaWhere(),
   }
 }
 

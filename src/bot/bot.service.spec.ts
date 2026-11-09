@@ -9,8 +9,13 @@ jest.mock('../siniestros/siniestro-upload.config', () => ({
 
 function createPrismaMock() {
   return {
-    phoneNumber: { findFirst: jest.fn() },
-    policy: { findFirst: jest.fn(), update: jest.fn(), count: jest.fn().mockResolvedValue(0) },
+    phoneNumber: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    policy: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      update: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+    },
     notification: { findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     conversation: {
       findFirst: jest.fn(),
@@ -30,6 +35,8 @@ function createPrismaMock() {
 describe('BotService', () => {
   let prisma: ReturnType<typeof createPrismaMock>
   let service: BotService
+  let coverages: { describeContracted: jest.Mock }
+  let novedades: { markConversationAnswered: jest.Mock }
 
   beforeEach(() => {
     prisma = createPrismaMock()
@@ -37,7 +44,25 @@ describe('BotService', () => {
     // triunfo/mail/novedades are unused by the methods under test; usage is only
     // consulted for the LLM budget flag, which these tests don't exercise.
     const usage = { isLlmEnabled: jest.fn().mockResolvedValue(true) }
-    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, config)
+    coverages = {
+      describeContracted: jest.fn().mockImplementation(async (_p: number, code: string) => ({
+        code,
+        name: 'Terceros Completo 2',
+        benefits: ['Rotura de cristales'],
+        exclusions: [],
+        deductible: null,
+      })),
+    }
+    novedades = { markConversationAnswered: jest.fn().mockResolvedValue(0) }
+    service = new BotService(
+      prisma as any,
+      {} as any,
+      {} as any,
+      novedades as any,
+      usage as any,
+      coverages as any,
+      config,
+    )
   })
 
   describe('requestPolicyCancellation', () => {
@@ -114,6 +139,15 @@ describe('BotService', () => {
       await expect(service.requestPolicyCancellation(3, 9)).resolves.toEqual({ id: 17 })
       expect(prisma.notification.create).not.toHaveBeenCalled()
     })
+
+    it('tells the office why the client wants out', async () => {
+      await expect(service.requestPolicyCancellation(3, 9, 'Vendí el vehículo')).resolves.toEqual({ id: 17 })
+      expect(prisma.notification.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ body: expect.stringContaining('Motivo: Vendí el vehículo') }),
+        }),
+      )
+    })
   })
 
   describe('identifyClient', () => {
@@ -150,6 +184,41 @@ describe('BotService', () => {
     })
   })
 
+  describe('holderOf', () => {
+    beforeEach(() => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 2, clientId: 5 })
+    })
+
+    it("says a plate on one of the client's policies is theirs", async () => {
+      prisma.policy.count.mockResolvedValueOnce(1)
+      await expect(service.holderOf(3, { plate: 'ac 677-nh' })).resolves.toEqual({ holder: 'self' })
+      expect(prisma.policy.count.mock.calls[0][0].where).toMatchObject({
+        clientId: 5,
+        vehicle: { licensePlate: 'AC677NH', deletedAt: null },
+      })
+    })
+
+    it("says a plate of another client's policy is someone else's, without naming them", async () => {
+      prisma.policy.count.mockResolvedValueOnce(0)
+      prisma.policy.findFirst.mockResolvedValueOnce({ clientId: 9, producerCodeId: 8 })
+      await expect(service.holderOf(3, { plate: 'LOS659' })).resolves.toEqual({ holder: 'other' })
+      expect(prisma.conversation.update).not.toHaveBeenCalled()
+    })
+
+    it("says a DNI of another client is someone else's and the own one is theirs", async () => {
+      prisma.client.findFirst.mockResolvedValueOnce({ id: 9, producerCodeId: 8 })
+      await expect(service.holderOf(3, { dni: '40123456' })).resolves.toEqual({ holder: 'other' })
+      prisma.client.findFirst.mockResolvedValueOnce({ id: 5, producerCodeId: 8 })
+      await expect(service.holderOf(3, { dni: '30123456' })).resolves.toEqual({ holder: 'self' })
+    })
+
+    it('says nobody has a plate or DNI the cartera does not know', async () => {
+      prisma.policy.count.mockResolvedValueOnce(0)
+      prisma.policy.findFirst.mockResolvedValueOnce(null)
+      await expect(service.holderOf(3, { plate: 'ZZZ999' })).resolves.toEqual({ holder: 'none' })
+    })
+  })
+
   describe('identifyByPhone', () => {
     beforeEach(() => {
       prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 2, clientId: null, waId: '5493413404951' })
@@ -175,14 +244,14 @@ describe('BotService', () => {
   })
 
   describe('getContext', () => {
-    it('exposes the organization-wide bot switch', async () => {
+    it('answers on a number whose own switch is on: there is no organization-wide switch', async () => {
       prisma.phoneNumber.findFirst.mockResolvedValue({
+        botEnabled: true,
         producer: {
           id: 1,
           name: 'John',
           slug: 'john',
           botName: 'Nico',
-          botEnabled: false,
           businessHours: null,
           systemPrompt: 'x',
           isActive: true,
@@ -190,8 +259,139 @@ describe('BotService', () => {
       })
 
       await expect(service.getContext('P1')).resolves.toEqual(
-        expect.objectContaining({ producerId: 1, botEnabled: false }),
+        expect.objectContaining({ producerId: 1, botEnabled: true }),
       )
+      expect(prisma.phoneNumber.findFirst.mock.calls[0][0].select.producer.select).not.toHaveProperty('botEnabled')
+    })
+
+    const producer = (over: Record<string, unknown>) => ({
+      producer: {
+        id: 2,
+        name: 'Seguros Norte SRL',
+        slug: 'seguros-norte',
+        botName: null,
+        businessHours: null,
+        botProfile: null,
+        systemPrompt: 'x',
+        isActive: true,
+        ...over,
+      },
+    })
+
+    it('stops the bot on a number whose own switch is off', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: false })
+
+      await expect(service.getContext('P2')).resolves.toEqual(expect.objectContaining({ botEnabled: false }))
+    })
+
+    it('stops the bot for the rest of the month when the number reaches its plan, and starts it again the next', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: true, planPausedAt: new Date() })
+      await expect(service.getContext('P2')).resolves.toEqual(
+        expect.objectContaining({ botEnabled: false, pausedForPlan: true }),
+      )
+
+      const lastMonth = new Date(Date.now() - 40 * 24 * 3600 * 1000)
+      prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: true, planPausedAt: lastMonth })
+      await expect(service.getContext('P2')).resolves.toEqual(
+        expect.objectContaining({ botEnabled: true, pausedForPlan: false }),
+      )
+    })
+
+    it("lists the organization's other lines so the bot never answers them (2/11 loop)", async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({ ...producer({}), botEnabled: true })
+      prisma.phoneNumber.findMany.mockResolvedValueOnce([
+        { producerId: 2, number: '+54 9 341 275-7294', phoneNumberId: 'P1' },
+        { producerId: 2, number: '+54 9 341 702-8217', phoneNumberId: 'P2' },
+        { producerId: 2, number: '1264573413408363', phoneNumberId: '1264573413408363' },
+      ])
+
+      await expect(service.getContext('P2')).resolves.toEqual(
+        expect.objectContaining({ internalWaIds: ['543412757294', '543417028217'] }),
+      )
+      expect(prisma.phoneNumber.findMany.mock.calls[0][0].where).toMatchObject({
+        producerId: { in: [2] },
+        isActive: true,
+        deletedAt: null,
+      })
+    })
+
+    it("gives the bot the organization's own name and data", async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue(
+        producer({
+          botProfile: {
+            orgName: 'Seguros Norte',
+            towTruckPhone: '0800-111-2222',
+            cashPaymentPlaces: 'Rapipago o Pago Fácil',
+            claimsEmail: 'siniestros@norte.test',
+          },
+        }),
+      )
+
+      const { profile } = await service.getContext('P2')
+
+      expect(profile).toEqual({
+        orgName: 'Seguros Norte',
+        orgShortName: null,
+        orgLegalName: null,
+        towTruckPhone: '0800-111-2222',
+        claimsPhone: null,
+        cashPaymentPlaces: 'Rapipago o Pago Fácil',
+        transfer: null,
+        quoteClosingNote: null,
+      })
+      expect(profile).not.toHaveProperty('claimsEmail')
+    })
+
+    it('names an organization without a profile by its own name, never JPMG', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue(producer({}))
+      await expect(service.getContext('P2')).resolves.toMatchObject({
+        profile: { orgName: 'Seguros Norte SRL', towTruckPhone: null, transfer: null },
+      })
+    })
+
+    it('lets the default organization keep the bot values until it saves a profile', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue(producer({ id: 1, slug: 'john' }))
+      await expect(service.getContext('P1')).resolves.toMatchObject({ profile: null })
+    })
+
+    it("gives a branch's number its own assistant and the organization's for the rest", async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({
+        botName: 'Sofi',
+        staffNames: 'Caro',
+        businessHours: null,
+        botProfile: { orgName: 'Seguros Norte Rafaela', transferAlias: 'NORTE.RAFAELA' },
+        ...producer({
+          botName: 'Nico',
+          staffNames: 'Mili, Milagros',
+          botProfile: { orgName: 'Seguros Norte', towTruckPhone: '0800-111-2222' },
+        }),
+      })
+
+      await expect(service.getContext('P2')).resolves.toMatchObject({
+        botName: 'Sofi',
+        staffNames: ['Caro'],
+        profile: {
+          orgName: 'Seguros Norte Rafaela',
+          towTruckPhone: '0800-111-2222',
+          transfer: { alias: 'NORTE.RAFAELA', cbu: null, holder: null, bank: null },
+        },
+      })
+    })
+
+    it('keeps the organization assistant on a number nobody configured', async () => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({
+        botName: null,
+        staffNames: null,
+        businessHours: null,
+        botProfile: null,
+        ...producer({ botName: 'Nico', staffNames: 'Mili', botProfile: { orgName: 'Seguros Norte' } }),
+      })
+
+      await expect(service.getContext('P2')).resolves.toMatchObject({
+        botName: 'Nico',
+        staffNames: ['Mili'],
+        profile: { orgName: 'Seguros Norte' },
+      })
     })
   })
 
@@ -199,6 +399,8 @@ describe('BotService', () => {
     beforeEach(() => {
       prisma.phoneNumber.findFirst.mockResolvedValue({
         producer: { id: 1, name: 'John', slug: 'john', systemPrompt: 'x', isActive: true },
+        responsibleProducerCodeId: null,
+        servedCodes: [],
       })
       prisma.message.findMany.mockResolvedValue([])
     })
@@ -351,7 +553,7 @@ describe('BotService', () => {
     })
 
     it('tells the bot what a person from the office said last, even in an earlier session', async () => {
-      const old = new Date(Date.now() - 3 * 60 * 60_000)
+      const old = new Date(Date.now() - 90 * 60_000)
       prisma.conversation.findFirst.mockResolvedValue({
         id: 7,
         sessionStartedAt: old,
@@ -366,16 +568,49 @@ describe('BotService', () => {
       const result = await service.getOrCreateConversation('P1', 'wa1')
 
       expect(result.newSession).toBe(true)
-      expect(result.lastHumanReply).toEqual({ content: 'Pasame las fotos que tenés', createdAt: old.toISOString() })
+      expect(result.lastHumanReply).toEqual({
+        content: 'Pasame las fotos que tenés',
+        createdAt: old.toISOString(),
+        kind: 'person',
+      })
       expect(result.previousActivityAt).toBe(old.toISOString())
       const where = prisma.message.findFirst.mock.calls[0][0].where
       expect(where.OR).toEqual([{ role: 'agent' }, { source: 'app_echo' }])
-      // Looks back three days, not just into the current session.
-      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThan(71 * 60 * 60_000)
+      // Looks back three days (for the platform's notices), not just into the current session.
+      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeGreaterThanOrEqual(72 * 60 * 60_000)
+      expect(Date.now() - (where.createdAt.gte as Date).getTime()).toBeLessThan(73 * 60 * 60_000)
+    })
+
+    it('stops reporting what a person wrote after a day, but a notice of the platform for three days', async () => {
+      const conversation = (old: Date) => ({
+        id: 7,
+        sessionStartedAt: old,
+        lastMessageAt: old,
+        phoneNumberId: 'P1',
+        client: null,
+      })
+
+      const person = new Date(Date.now() - 25 * 60 * 60_000)
+      prisma.conversation.findFirst.mockResolvedValue(conversation(person))
+      prisma.message.findFirst.mockResolvedValueOnce({ content: 'Dale, te aviso', createdAt: person, rawData: null })
+      await expect(service.getOrCreateConversation('P1', 'wa1')).resolves.toMatchObject({ lastHumanReply: null })
+
+      const notice = new Date(Date.now() - 30 * 60 * 60_000)
+      prisma.conversation.findFirst.mockResolvedValue(conversation(notice))
+      prisma.message.findFirst
+        .mockResolvedValueOnce({
+          content: 'Hola Ana, tu póliza venció…',
+          createdAt: notice,
+          rawData: { notice: 'policy_expiry' },
+        })
+        .mockResolvedValueOnce(null)
+      await expect(service.getOrCreateConversation('P1', 'wa1')).resolves.toMatchObject({
+        lastHumanReply: { content: 'Hola Ana, tu póliza venció…', kind: 'notice' },
+      })
     })
 
     it('drops the human reply once the bot answered after it', async () => {
-      const old = new Date(Date.now() - 3 * 60 * 60_000)
+      const old = new Date(Date.now() - 90 * 60_000)
       prisma.conversation.findFirst.mockResolvedValue({
         id: 7,
         sessionStartedAt: old,
@@ -427,6 +662,136 @@ describe('BotService', () => {
       expect(prisma.conversation.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ phoneNumberId: 'P1' }) }),
       )
+    })
+  })
+
+  describe("a branch's number", () => {
+    // +54 9 341 660-1874 serves only 10856 (id 4); the client is 10484's (id 2).
+    const branch = { responsibleProducerCodeId: 4, servedCodes: [] }
+    const evelyn = { id: 5, firstName: 'Evelyn', lastName: 'Benitez', dni: '37334584', phone: '341156643370' }
+    const onlyBranchCodes = {
+      OR: [{ producerCodeId: { in: [4] } }, { policies: { some: { deletedAt: null, producerCodeId: { in: [4] } } } }],
+    }
+
+    beforeEach(() => {
+      prisma.phoneNumber.findFirst.mockResolvedValue({
+        producer: { id: 1, name: 'John', slug: 'john', systemPrompt: 'x', isActive: true },
+        ...branch,
+      })
+      prisma.message.findMany.mockResolvedValue([])
+    })
+
+    it("does not find another office's client by DNI", async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: null, phoneNumberId: 'BRANCH' })
+      prisma.client.findFirst.mockResolvedValue(null)
+
+      await expect(service.identifyClient(3, { dni: '37334584' })).rejects.toThrow('No client found')
+      expect(prisma.client.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { dni: '37334584', producerId: 1, deletedAt: null, ...onlyBranchCodes } }),
+      )
+      expect(prisma.conversation.update).not.toHaveBeenCalled()
+    })
+
+    it('looks plates up only among the policies of its codes', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: null, phoneNumberId: 'BRANCH' })
+      prisma.policy.findFirst.mockResolvedValue(null)
+
+      await expect(service.identifyClient(3, { plate: 'GLQ 276' })).rejects.toThrow('No client found')
+      expect(prisma.policy.findFirst.mock.calls[0][0].where).toMatchObject({ producerCodeId: { in: [4] } })
+    })
+
+    it("files the chat under the branch's code when the client also has a policy there", async () => {
+      prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: null, phoneNumberId: 'BRANCH' })
+      prisma.client.findFirst.mockResolvedValue({ id: 5, producerCodeId: 2 })
+      prisma.policy.findFirst.mockResolvedValue({ producerCodeId: 4 })
+      prisma.conversation.update.mockResolvedValue({ client: evelyn })
+
+      await service.identifyClient(3, { dni: '37334584' })
+
+      expect(prisma.conversation.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ clientId: 5, producerCodeId: 4 }) }),
+      )
+      expect(prisma.policy.count).toHaveBeenCalledWith({
+        where: { clientId: 5, deletedAt: null, producerCodeId: { in: [4] } },
+      })
+    })
+
+    it('does not carry over a client identified on the main number', async () => {
+      const start = new Date(Date.now() - 60_000)
+      prisma.conversation.findFirst.mockResolvedValue({
+        id: 251,
+        sessionStartedAt: start,
+        lastMessageAt: new Date(),
+        phoneNumberId: 'MAIN',
+        producerCodeId: 2,
+        clientLinkedAt: new Date(),
+        client: evelyn,
+      })
+      prisma.client.findFirst.mockResolvedValue(null)
+
+      const result = await service.getOrCreateConversation('BRANCH', '5493416956364')
+
+      expect(result.client).toBeNull()
+      expect(prisma.conversation.update).toHaveBeenCalledWith({
+        where: { id: 251 },
+        data: { phoneNumberId: 'BRANCH', producerCodeId: null },
+      })
+      expect(prisma.client.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining(onlyBranchCodes) }),
+      )
+    })
+
+    it('keeps a client the branch serves', async () => {
+      const start = new Date(Date.now() - 60_000)
+      prisma.conversation.findFirst.mockResolvedValue({
+        id: 251,
+        sessionStartedAt: start,
+        lastMessageAt: new Date(),
+        phoneNumberId: 'BRANCH',
+        producerCodeId: 4,
+        clientLinkedAt: new Date(),
+        client: evelyn,
+      })
+      prisma.client.findFirst.mockResolvedValue({ id: 5 })
+
+      await expect(service.getOrCreateConversation('BRANCH', '5493416956364')).resolves.toMatchObject({
+        client: evelyn,
+      })
+    })
+
+    it('answers no policy, document or claim of a client it does not serve', async () => {
+      prisma.conversation.findFirst.mockResolvedValue({
+        producerId: 1,
+        phoneNumberId: 'BRANCH',
+        waId: '5493416956364',
+        sessionStartedAt: new Date(Date.now() - 60_000),
+        clientLinkedAt: new Date(),
+        client: { ...evelyn, email: null, city: null, deletedAt: null },
+      })
+      prisma.client.findFirst.mockResolvedValue(null)
+
+      await expect(service.getPolizas(251)).rejects.toThrow('no identified client')
+      await expect(service.getDocumentoPdf(251, 10712, '1020')).rejects.toThrow('no identified client')
+      expect(prisma.policy.findMany).not.toHaveBeenCalled()
+    })
+
+    it("lists only the policies of the branch's codes", async () => {
+      prisma.conversation.findFirst.mockResolvedValue({
+        producerId: 1,
+        phoneNumberId: 'BRANCH',
+        waId: '5493416956364',
+        sessionStartedAt: new Date(Date.now() - 60_000),
+        clientLinkedAt: new Date(),
+        client: { ...evelyn, email: null, city: null, deletedAt: null },
+      })
+      prisma.client.findFirst.mockResolvedValue({ id: 5 })
+
+      await service.getPolizas(251)
+
+      expect(prisma.policy.findMany.mock.calls[0][0].where).toMatchObject({
+        clientId: 5,
+        producerCodeId: { in: [4] },
+      })
     })
   })
 
@@ -486,6 +851,8 @@ describe('BotService', () => {
       expect(tx.conversation.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ botPaused: true }) }),
       )
+      // Her reply from the app is the office handling what the chat asked for.
+      expect(novedades.markConversationAnswered).toHaveBeenCalledWith(7)
       expect(result.created).toBe(true)
     })
 
@@ -522,6 +889,29 @@ describe('BotService', () => {
       expect(result).toEqual({ conversationId: 9, botPaused: true, created: true })
     })
 
+    it('runs the transaction again when MySQL rolled it back as a deadlock (2/11, three files in one second)', async () => {
+      const tx = {
+        message: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+        conversation: { update: jest.fn().mockResolvedValue({}) },
+      }
+      prisma.$transaction
+        .mockRejectedValueOnce(
+          Object.assign(new Error('Transaction failed due to a write conflict'), { code: 'P2034' }),
+        )
+        .mockImplementationOnce(async (cb: any) => cb(tx))
+
+      const result = await service.recordAgentEcho({
+        phoneNumberId: 'P1',
+        waId: 'wa1',
+        content: '[documento cupon.pdf]',
+        waMessageId: 'wamid.3',
+      })
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2)
+      expect(tx.message.createMany).toHaveBeenCalledTimes(1)
+      expect(result.created).toBe(true)
+    })
+
     it('turns a retried wamid into a no-op', async () => {
       const tx = {
         message: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -537,6 +927,7 @@ describe('BotService', () => {
       })
 
       expect(tx.conversation.update).not.toHaveBeenCalled()
+      expect(novedades.markConversationAnswered).not.toHaveBeenCalled()
       expect(result.created).toBe(false)
     })
   })
@@ -573,15 +964,29 @@ describe('BotService', () => {
           data: { warnedAt: expect.any(Date) },
         }),
       )
-      expect(prisma.conversation.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ producer: { botEnabled: true } }),
-        }),
-      )
+      // Numbers whose own switch is off are left out (there is no organization-wide switch).
+      expect(prisma.conversation.findMany.mock.calls[0][0].where).not.toHaveProperty('producer')
+      expect(prisma.conversation.findMany.mock.calls[0][0].where.phoneNumberId).toHaveProperty('notIn')
+      // Closures are the chat's number's.
+      expect(prisma.businessClosure.findMany.mock.calls[0][0].where).toMatchObject({
+        phoneNumber: { phoneNumberId: { in: ['P1'] } },
+      })
       expect(result).toHaveLength(1)
       expect(result[0]).toEqual(
         expect.objectContaining({ conversationId: 7, waId: 'wa1', phoneNumberId: 'P1', isOpenNow: true }),
       )
+    })
+
+    it("finalizes silently a chat with another of the organization's own lines (2/11 loop)", async () => {
+      prisma.conversation.findMany.mockResolvedValue([candidateWith(alwaysOpen, { waId: '5493417028217' })])
+      prisma.phoneNumber.findMany
+        .mockResolvedValueOnce([]) // numbers whose switch is off
+        .mockResolvedValueOnce([{ producerId: 1, number: '+54 9 341 702-8217', phoneNumberId: 'P2' }])
+
+      const result = await service.claimPendingWarnings()
+
+      expect(prisma.conversation.updateMany).toHaveBeenCalled()
+      expect(result).toHaveLength(0)
     })
 
     it('still sends the goodbye outside office hours, flagged as closed', async () => {
@@ -795,7 +1200,7 @@ describe('BotService.attachAdjuntos', () => {
     prisma = createPrismaMock()
     const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService
     const usage = { isLlmEnabled: jest.fn().mockResolvedValue(true) }
-    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, config)
+    service = new BotService(prisma as any, {} as any, {} as any, {} as any, usage as any, {} as any, config)
     prisma.conversation.findFirst.mockResolvedValue({ id: 3, producerId: 1, clientId: 5 })
     prisma.claim.findFirst.mockResolvedValue(null)
   })
@@ -827,5 +1232,68 @@ describe('BotService.attachAdjuntos', () => {
     expect(result).toMatchObject({ claimId: null, attached: false })
     expect(prisma.claim.findFirst).not.toHaveBeenCalled()
     expect(prisma.claim.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('BotService.getPolizas', () => {
+  it('sends a readable name, the place and what each policy covers', async () => {
+    const prisma = {
+      conversation: {
+        findFirst: jest.fn().mockResolvedValue({
+          producerId: 1,
+          waId: '5493410000000',
+          sessionStartedAt: null,
+          clientLinkedAt: new Date(),
+          client: { id: 7, phone: '3410000000', deletedAt: null },
+        }),
+      },
+      policy: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 1,
+            certificateNumber: '3519342',
+            riskType: 'auto',
+            vehicle: { licensePlate: 'AB123CD', brand: 'FIAT', model: 'CRONOS', year: 2020, coverage: 'C2 ' },
+            rawData: {},
+          },
+          {
+            id: 2,
+            certificateNumber: '1044644',
+            riskType: 'home',
+            vehicle: null,
+            rawData: {
+              SDTOtrosRiesgosDatos: {
+                SDTRiesgosCoberturas: [{ Riesgo: 'CRISTALES', Cobertura: 'CRISTALES', SumaAsegurada: '300000.00' }],
+                ObjetoSeguroDescripcion: 'SAN MARTIN 4060 C.P.:2000',
+              },
+            },
+          },
+        ]),
+      },
+    }
+    const coverages = {
+      describeContracted: jest.fn().mockResolvedValue({
+        code: 'C2',
+        name: 'Terceros Completo 2',
+        benefits: ['Rotura de cristales'],
+        exclusions: [],
+        deductible: null,
+      }),
+    }
+    const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService
+    const service = new BotService(prisma as any, {} as any, {} as any, {} as any, {} as any, coverages as any, config)
+
+    const [auto, hogar] = (await service.getPolizas(1)) as any[]
+
+    expect(coverages.describeContracted).toHaveBeenCalledWith(1, 'C2', 'AUTO')
+    expect(auto).toMatchObject({ product: null, place: null, riesgos: [] })
+    expect(auto.coverage.name).toBe('Terceros Completo 2')
+    expect(auto.rawData).toBeUndefined()
+    expect(hogar).toMatchObject({
+      product: 'Hogar',
+      place: 'San Martin 4060',
+      coverage: null,
+      riesgos: [{ riesgo: 'CRISTALES', cobertura: 'CRISTALES', sumaAsegurada: 300000 }],
+    })
   })
 })

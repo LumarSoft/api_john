@@ -1,0 +1,141 @@
+# Planes de mensajes desde el 30 de octubre de 2026
+
+## Qué cambia
+
+Reemplaza los planes por tokens del 29 de octubre (`token-plans-october-2026.md`):
+
+- **Se habla de mensajes, no de tokens.** 1 mensaje = 1 mensaje que la plataforma envía por WhatsApp: respuestas
+  del bot, mensajes de la oficina desde el panel y avisos por plantilla (rechazos, pólizas vencidas). Los mensajes
+  que escriben los clientes y los que se mandan desde la app WhatsApp Business del celular no cuentan. Es el
+  contador `metaMessages` de `UsageMonthly`.
+- **Un solo catálogo, del Owner.** Lumar define los planes para toda la plataforma (nombre, mensajes incluidos,
+  precio) desde Facturación → Planes. Es lo que ven y pagan todas las organizaciones. El SuperAdmin ya no arma
+  catálogo ni precios. El precio puede ser 0.
+- **El SuperAdmin asigna el plan de cada número** (`PATCH /admin/billing/numbers/:id/plan`). Un número sin plan
+  asignado está en el plan pago más chico.
+- **Pausa al llegar al límite (desde el 30/10 por la tarde, reemplaza la subida automática).** Un número nunca sube de
+  plan solo. Cuando sus mensajes del mes llegan a los que incluye su plan, su asistente se pausa: los mensajes se
+  siguen guardando y la oficina puede contestar desde el panel. Se avisa con una novedad en Asuntos pendientes (tipo
+  `plan`) y un mail a los SuperAdmins y a los Admins del código del número. En Inicio y en Facturación el SuperAdmin o
+  el Admin elige (`POST /admin/billing/numbers/:id/limit`): **continuar**, que lo pasa al plan siguiente (o le suma
+  un bloque de 1.000 si ya está en el más grande) y el asistente vuelve a responder, o **dejarlo en pausa** hasta el
+  1 del mes siguiente, cuando vuelve a responder solo. Los mensajes que la oficina mande a mano durante la pausa no
+  cambian el plan.
+- **Prueba = un plan más**, de precio 0 y marcado como prueba (`isTrial`). Un número nuevo de una organización creada
+  desde `COMMERCIAL_TRIAL_FROM` arranca en ese plan; vale solo en su primer mes de servicio. Al llegar a su límite se
+  pausa como cualquier plan y se le ofrece el plan pago siguiente. Desde el segundo mes queda en el plan pago más chico. Hay un solo plan de prueba activo
+  y su precio tiene que ser 0.
+- **Meta lo paga siempre Lumar.** El costo real de Meta se registra por mensaje con el `billable` y la categoría del
+  webhook de estados (los 1.000 mensajes de servicio gratis de cada número quedan en costo 0; las plantillas se
+  cobran desde el primero). OpenAI está precargado: se registra aparte y **no entra en la ganancia**.
+- **Tablero del Owner** (`GET /owner/billing`): por mes, organización y número, lo facturado, el costo real de Meta,
+  OpenAI aparte y la ganancia (facturado − Meta).
+
+## Reglas de facturación
+
+- Un número activo paga su plan completo, aunque no envíe mensajes. El SuperAdmin y el Admin ven siempre ese precio
+  completo.
+- El mes se cobra al plan del número, nunca a uno más grande que nadie eligió.
+- Pasado el plan más grande, solo con los bloques aceptados ese mes: ese plan más bloques de
+  `COMMERCIAL_BLOCK_MESSAGES` (1.000) mensajes al precio por mensaje del plan más grande.
+- El ciclo de facturación es el mes calendario, del 1 al último día, y **el mes se cobra completo** (desde el 4 de
+  noviembre de 2026): un número que sale a mitad de mes paga su plan completo ese mes, para todos los roles, el Owner
+  incluido. Antes, solo el tablero del Owner prorrateaba el primer mes desde el día del primer mensaje.
+- No se factura un número que todavía no envió nada, ni uno inactivo sin mensajes en el mes.
+- Un plan apagado conserva sus números, pero ningún número sube a él. Un plan retirado manda sus números al plan
+  pago más chico. Siempre tiene que quedar al menos un plan pago activo.
+- El presupuesto de IA por número (`monthlyBudgetUsd`, solo lo fija el Owner) limita solo el gasto de OpenAI y no
+  tiene relación con el plan.
+
+## Las campañas cuentan doble (desde el 1 de diciembre)
+
+Solo un mensaje de campaña (categoría `marketing` de Meta: las campañas comerciales) consume **2 mensajes del plan**.
+Todo lo demás consume 1: las respuestas dentro de la conversación (del bot o de la oficina, categorías `service` y
+`referral_conversion`), los avisos por plantilla `utility` (rechazos, pólizas vencidas, seguimiento de cotizaciones) y
+`authentication`. Rige para lo entregado desde `COMMERCIAL_TEMPLATE_WEIGHT_FROM` (por defecto `2026-12-01`, medianoche
+de Argentina); antes, todo cuenta 1. Hasta el 4 de noviembre la regla escrita era que toda plantilla contaba doble;
+nunca llegó a regir con la fecha por defecto.
+
+- `UsageMonthly.metaMessages` sigue contando cada mensaje una vez; `metaTemplateMessages` cuenta todas las plantillas
+  (avisos, campañas y autenticación, siempre, sea cual sea la fecha) y `templateExtraMessages` lo que suman de más
+  las campañas (1 por mensaje de campaña desde la fecha; la columna conserva su nombre, sin migración).
+  Los mensajes consumidos del plan son `metaMessages + templateExtraMessages`.
+- Ese número consumido es el que usa todo: el límite y la pausa, la barra de consumo, la elección del plan siguiente y
+  los bloques pasado el plan más grande.
+- Las organizaciones ven lo mismo de siempre (plan, precio, barra), con la barra en mensajes consumidos. No ven el
+  peso, los conteos crudos, las categorías ni ningún costo: `metaMessages` en `GET /admin/phone-numbers` pasó a ser
+  solo del Owner.
+- Migración `20261104180000_template_message_weight`, aditiva: las dos columnas, y `metaTemplateMessages` de los
+  meses ya registrados calculado desde `UsageEvent`.
+
+## Cierre mensual (desde el 4 de noviembre)
+
+El 1 de cada mes a las 00:00 (Argentina) la API congela el mes anterior de cada número en `MonthlyClose`
+(`MonthlyCloseService`): plan con el que se facturó (nombre, mensajes, precio, bloques, si era Prueba), mensajes
+enviados, plantillas y consumidos, lo facturado (la misma cifra «Facturado» del Tablero: el plan completo; un primer mes cerrado antes
+del 4/11 conserva el prorrateo con el que se congeló), lo que costaron Meta y OpenAI, el costo de servicio por mensaje y la liquidación con el socio, con los valores de
+ese día. Si la API arranca y el mes anterior sigue abierto, lo cierra en ese momento. `MONTHLY_CLOSE_ENABLED=false`
+lo apaga.
+
+- Las pantallas del Owner (Tablero y Liquidación) leen un mes cerrado de esas filas; solo el mes en curso (o uno
+  pasado que todavía no se cerró) se calcula con el plan actual de cada número. Antes, los meses pasados se
+  recalculaban con el plan y el estado de hoy.
+- Un mes cerrado no se vuelve a escribir. El Owner puede cerrar a mano cualquier mes terminado
+  (`POST /owner/billing/close`), que es como se cargan octubre de 2026 y los anteriores, y rehacer uno con `force`.
+- Un cierre hecho después del día 1 del mes siguiente usa los planes de ese día y queda marcado `backfilled`
+  («recalculado»): es la mejor aproximación disponible, no lo que se veía a fin de mes.
+- Liquidación con el socio: costo de servicio por mensaje consumido (`PARTNER_COST_PER_MESSAGE_USD`) y parte del socio
+  en lo que queda (`PARTNER_PROFIT_SHARE`). No tienen valor por defecto y se cargan solo en el `.env` del servidor (el
+  repo es público). Sin ellas la liquidación no está configurada: sus endpoints responden 503 y el cierre guarda todo
+  lo demás con la liquidación vacía; un mes cerrado así se liquida con los valores del día en que se consulta.
+- Migración `20261104181000_monthly_close`, aditiva (tabla nueva).
+
+## Funciones por plan (desde el 3 de noviembre)
+
+Además de los mensajes, cada plan dice qué funciones del panel incluye. El Owner las prende y apaga por plan en
+Facturación → Planes → «Funciones por plan». El catálogo de funciones está en `src/plan-features/plan-features.ts`
+(hoy: avisos de rechazos, avisos de pólizas vencidas, asistente con IA y las cinco campañas comerciales). Lo que un plan nunca tocó toma el valor por defecto de la función: los avisos (que ya se usaban antes) arrancan prendidos y todo lo que se sumó desde el 4/11 (asistente, campañas y cualquier función nueva) arranca apagado hasta que el Owner lo prenda. Además, cada función se puede apagar por rol (Administrador / SuperAdmin) en la misma tabla.
+
+- Una organización tiene una función si el plan de alguno de sus números activos la incluye (el mismo plan que lee la
+  facturación: el asignado, la Prueba solo en el primer mes, si no el pago más chico). Sin números, el plan con el que
+  va a arrancar el primero.
+- El panel la pide en `GET /admin/billing/features` para mostrarla o bloquearla con «disponible en el plan X».
+- Los avisos por plantilla salen solo desde números cuyo plan los incluye; si ninguno, la API responde 403.
+
+## Ejemplos con el catálogo inicial
+
+Catálogo inicial: Prueba 100 mensajes USD 0, Inicial 500 USD 25, Profesional 1.000 USD 50. Costo de Meta en
+Argentina: USD 0,026 por mensaje de servicio pasados los 1.000 gratis del mes, USD 0,0618 por plantilla de
+marketing.
+
+| Caso | Plan asignado | Mensajes del mes | Se cobra | Facturado | Meta | Ganancia |
+|---|---|---|---|---|---|---|
+| Cuenta nueva, primer mes, tranquilo | Prueba | 80 | Prueba | USD 0 | USD 0 | USD 0 |
+| Cuenta nueva, primer mes, movido | Prueba | 350 | Inicial (sube) | USD 25 | USD 0 | USD 25 |
+| Mes tranquilo | Inicial | 180 | Inicial | USD 25 | USD 0 | USD 25 |
+| Supera su plan | Inicial | 900 | Profesional (sube) | USD 50 | USD 0 | USD 50 |
+| Pasa los 1.000 gratis de Meta | Profesional | 1.350 | Profesional + 1.000 | USD 100 | USD 9,10 | USD 90,90 |
+| Número que salió el 21 de octubre | Inicial | 100 | Inicial, mes completo | USD 25 | USD 0 | USD 25 |
+
+## Base de datos
+
+Migración `20261030120000_global_message_plans`, aditiva:
+
+- `TokenPlan` (en Prisma, `MessagePlan`; la columna `tokens` es el campo `messages`): `producerId` pasa a ser
+  opcional (null = catálogo de la plataforma) y se agrega `isTrial`. Inserta el catálogo inicial.
+- `PhoneNumber`: se agregan `planId` (plan asignado) y `planUpgradedAt` (última subida automática). Los números que
+  tenían tokens de prueba (`trialTokens` > 0) quedan en el plan Prueba.
+- No borra nada: los catálogos viejos de cada organización y `PhoneNumber.trialTokens` quedan en la base sin uso, así
+  la API anterior sigue funcionando si hay que volver atrás. Se pueden borrar más adelante.
+
+## Despliegue
+
+1. Solo después de pasar a JPMG al panel de Polisend (`polisend-panel`): el panel de `front_John` no conoce estos
+   endpoints.
+2. API: `pnpm exec prisma migrate deploy`, `pnpm exec prisma generate`, build y `pm2 restart john_api --update-env`.
+   El bot no cambia.
+3. Panel: la rama de Facturación v3 de `polisend-panel`.
+4. El Owner revisa el catálogo inicial en Facturación → Planes y los SuperAdmins asignan los planes de sus números.
+
+Variables: `COMMERCIAL_TOKEN_BLOCK_SIZE` (1.000) y `COMMERCIAL_TRIAL_FROM` (2026-10-29). `COMMERCIAL_TOKEN_PRICE_USD`
+y `COMMERCIAL_TRIAL_TOKENS` ya no se usan.

@@ -5,6 +5,7 @@ import type { TriunfoService } from '../triunfo/triunfo.service'
 const LINK = (name: string) => `https://www.triunfonet.com.ar/gauswebtriunfo/servlet/${name}?abc`
 
 const POLICY = {
+  producerId: 3,
   certificateNumber: '1234567',
   rawData: { Articulo: 458, Empresa: 'T', Sucursal: 'CC' },
   producerCode: { code: '6088' },
@@ -32,6 +33,7 @@ describe('DocumentosService', () => {
     await service.listForPolicy({ id: 1 })
 
     expect(triunfo.getDocumentos).toHaveBeenCalledWith({
+      producerId: 3,
       productor: '6088',
       empresa: 'T',
       sucursal: 'CC',
@@ -64,7 +66,10 @@ describe('DocumentosService', () => {
     const file = await service.downloadForPolicy({ id: 1 }, '1050')
 
     expect(triunfo.getDocumentos).toHaveBeenCalledWith(expect.any(Object), { fresh: true })
-    expect(triunfo.downloadDocumento).toHaveBeenCalledWith(LINK('htarjetaverdec'))
+    expect(triunfo.downloadDocumento).toHaveBeenCalledWith(LINK('htarjetaverdec'), 3, {
+      code: '1050',
+      name: 'Tarjeta verde (Mercosur)',
+    })
     expect(file.filename).toBe('Tarjeta verde (Mercosur) - AB123CD.pdf')
   })
 

@@ -1,15 +1,38 @@
-import { BadRequestException, ConflictException } from '@nestjs/common'
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { Role } from 'generated/prisma/client'
 import { WhatsappOnboardingService } from './whatsapp-onboarding.service'
+
+// Reading the Meta portfolio never stops an onboarding.
+const portfolio = { refreshWith: jest.fn().mockResolvedValue(null) }
+// Creating the templates of a new account runs in the background.
+const templateSync = { syncAccountSoon: jest.fn() }
+
+/** ScopeService stand-in: the codes the caller may use. */
+const scopeOf = (codes: number[]) => ({
+  resolveAccessibleProducerCodeIds: jest.fn().mockResolvedValue(codes),
+  canAccessCode: jest.fn((_user: unknown, id: number) => Promise.resolve(codes.includes(id))),
+})
+
+const superAdmin = (producerId: number) => ({ id: 2, producerId, role: Role.SUPERADMIN })
+const admin = { id: 4, producerId: 1, role: Role.ADMIN }
 
 describe('WhatsappOnboardingService', () => {
   it('rejects a standard Cloud API result requested as Coexistence before persisting it', async () => {
     const prisma = {
+      producer: { findUnique: jest.fn().mockResolvedValue({ createdAt: new Date('2026-01-01T00:00:00Z') }) },
       phoneNumber: { findUnique: jest.fn() },
       wabaAccount: { upsert: jest.fn() },
     }
     const config = { get: jest.fn(), getOrThrow: jest.fn() }
     const http = { get: jest.fn(), post: jest.fn() }
-    const service = new WhatsappOnboardingService(prisma as any, config as any, http as any)
+    const service = new WhatsappOnboardingService(
+      prisma as any,
+      config as any,
+      http as any,
+      scopeOf([]) as any,
+      portfolio as any,
+      templateSync as any,
+    )
 
     jest.spyOn(service as any, 'exchangeCode').mockResolvedValue({ accessToken: 'token', expiresAt: null })
     jest.spyOn(service as any, 'resolvePhoneNumberId').mockResolvedValue('PHONE-1')
@@ -22,7 +45,7 @@ describe('WhatsappOnboardingService', () => {
     const subscribe = jest.spyOn(service as any, 'subscribeApp')
 
     await expect(
-      service.onboard(7, {
+      service.onboard(superAdmin(7), {
         code: 'exchangeable-code',
         wabaId: 'WABA-1',
         phoneNumberId: 'PHONE-1',
@@ -36,10 +59,17 @@ describe('WhatsappOnboardingService', () => {
   })
 
   describe('reconnecting a number after Meta dropped it', () => {
-    const OLD_ROW = { id: 8, phoneNumberId: 'OLD-ID', producerId: 1, deletedAt: null as Date | null }
+    const OLD_ROW = {
+      id: 8,
+      phoneNumberId: 'OLD-ID',
+      producerId: 1,
+      deletedAt: null as Date | null,
+      responsibleProducerCodeId: 11 as number | null,
+    }
 
-    function setup(options: { sameId?: unknown; rows?: unknown[] } = {}) {
+    function setup(options: { sameId?: unknown; rows?: unknown[]; codes?: number[] } = {}) {
       const prisma = {
+        producer: { findUnique: jest.fn().mockResolvedValue({ createdAt: new Date('2026-01-01T00:00:00Z') }) },
         phoneNumber: {
           findUnique: jest.fn().mockResolvedValue(options.sameId ?? null),
           findMany: jest.fn().mockResolvedValue(options.rows ?? []),
@@ -51,14 +81,22 @@ describe('WhatsappOnboardingService', () => {
         phoneNumberProducerCode: { createMany: jest.fn() },
         $transaction: jest.fn((operations: Promise<unknown>[]) => Promise.all(operations)),
       }
-      const config = { get: jest.fn().mockReturnValue('a'.repeat(64)), getOrThrow: jest.fn() }
+      const config = {
+        get: jest.fn((key: string) => (key.startsWith('COMMERCIAL_') ? undefined : 'a'.repeat(64))),
+        getOrThrow: jest.fn(),
+      }
       const service = new WhatsappOnboardingService(
         prisma as any,
         config as any,
         { get: jest.fn(), post: jest.fn() } as any,
+        scopeOf(options.codes ?? [11, 14]) as any,
+        portfolio as any,
+        templateSync as any,
       )
 
-      jest.spyOn(service as any, 'exchangeCode').mockResolvedValue({ accessToken: 'token', expiresAt: null })
+      const exchange = jest
+        .spyOn(service as any, 'exchangeCode')
+        .mockResolvedValue({ accessToken: 'token', expiresAt: null })
       jest.spyOn(service as any, 'resolvePhoneNumberId').mockResolvedValue('NEW-ID')
       jest.spyOn(service as any, 'waitForCoexistenceConfirmation').mockResolvedValue({
         metaPhoneNumberId: 'NEW-ID',
@@ -69,7 +107,7 @@ describe('WhatsappOnboardingService', () => {
       })
       const subscribe = jest.spyOn(service as any, 'subscribeApp').mockResolvedValue(undefined)
       jest.spyOn(service as any, 'requestAppDataSync').mockResolvedValue(true)
-      return { service, prisma, subscribe }
+      return { service, prisma, subscribe, exchange }
     }
 
     const dto = { code: 'exchangeable-code', wabaId: 'WABA-1', isCoexistence: true }
@@ -77,7 +115,7 @@ describe('WhatsappOnboardingService', () => {
     it('reconnects a number still listed in the panel instead of answering 409, keeping its billing code', async () => {
       const { service, prisma } = setup({ sameId: { ...OLD_ROW, phoneNumberId: 'NEW-ID' } })
 
-      const result = await service.onboard(1, dto)
+      const result = await service.onboard(superAdmin(1), dto)
 
       expect(result).toEqual(expect.objectContaining({ phoneNumberId: 8, reconnected: true }))
       expect(prisma.phoneNumber.create).not.toHaveBeenCalled()
@@ -90,10 +128,52 @@ describe('WhatsappOnboardingService', () => {
       expect(prisma.conversation.updateMany).not.toHaveBeenCalled()
     })
 
+    it('keeps the branch name on a reconnect that sends none, and renames it when one is typed', async () => {
+      const kept = setup({ sameId: { ...OLD_ROW, phoneNumberId: 'NEW-ID' } })
+      await kept.service.onboard(superAdmin(1), dto)
+      expect(kept.prisma.phoneNumber.update.mock.calls[0][0].data).not.toHaveProperty('branchName')
+
+      const renamed = setup({ sameId: { ...OLD_ROW, phoneNumberId: 'NEW-ID' } })
+      await renamed.service.onboard(superAdmin(1), { ...dto, branchName: ' 27 de Febrero ' })
+      expect(renamed.prisma.phoneNumber.update.mock.calls[0][0].data).toMatchObject({ branchName: '27 de Febrero' })
+    })
+
+    it('keeps the assistant the number had: the prefilled form changes nothing, a new alias keeps its CBU', async () => {
+      const own = {
+        botName: 'Nico',
+        staffNames: 'Vanesa',
+        businessHours: null,
+        botProfile: { transferAlias: 'TRUENO.VUELO.DELTA', transferCbu: '0000003100000000000002', claimsPhone: '0800' },
+      }
+      const form = {
+        ...dto,
+        branchName: 'Roldán',
+        botName: 'Nico',
+        presentationName: 'Seguros Norte SRL',
+        transferAlias: 'TRUENO.VUELO.DELTA',
+        staffNames: ['Vanesa'],
+      }
+
+      const same = setup({ sameId: { ...OLD_ROW, ...own, phoneNumberId: 'NEW-ID' } })
+      same.prisma.producer.findUnique.mockResolvedValue({ name: 'Seguros Norte SRL', createdAt: new Date() })
+      await same.service.onboard(superAdmin(1), form)
+      const kept = same.prisma.phoneNumber.update.mock.calls[0][0].data
+      for (const field of ['botName', 'staffNames', 'businessHours', 'botProfile'])
+        expect(kept).not.toHaveProperty(field)
+
+      const renamed = setup({ sameId: { ...OLD_ROW, ...own, phoneNumberId: 'NEW-ID' } })
+      renamed.prisma.producer.findUnique.mockResolvedValue({ name: 'Seguros Norte SRL', createdAt: new Date() })
+      await renamed.service.onboard(superAdmin(1), { ...form, transferAlias: 'NUEVO.ALIAS' })
+      expect(renamed.prisma.phoneNumber.update.mock.calls[0][0].data.botProfile).toEqual({
+        ...own.botProfile,
+        transferAlias: 'NUEVO.ALIAS',
+      })
+    })
+
     it('refuses a number that is live in another organization', async () => {
       const { service, subscribe } = setup({ sameId: { ...OLD_ROW, phoneNumberId: 'NEW-ID', producerId: 2 } })
 
-      await expect(service.onboard(1, dto)).rejects.toBeInstanceOf(ConflictException)
+      await expect(service.onboard(superAdmin(1), dto)).rejects.toBeInstanceOf(ConflictException)
       expect(subscribe).not.toHaveBeenCalled()
     })
 
@@ -109,7 +189,7 @@ describe('WhatsappOnboardingService', () => {
         ],
       })
 
-      await expect(service.onboard(1, dto)).resolves.toEqual(
+      await expect(service.onboard(superAdmin(1), dto)).resolves.toEqual(
         expect.objectContaining({ phoneNumberId: 8, reconnected: true, metaPhoneNumberId: 'NEW-ID' }),
       )
       expect(prisma.phoneNumber.update).toHaveBeenCalledWith(
@@ -134,7 +214,7 @@ describe('WhatsappOnboardingService', () => {
         ],
       })
 
-      await service.onboard(1, dto)
+      await service.onboard(superAdmin(1), dto)
 
       expect(prisma.phoneNumber.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 8 } }))
       expect(prisma.phoneNumber.create).not.toHaveBeenCalled()
@@ -145,11 +225,159 @@ describe('WhatsappOnboardingService', () => {
         rows: [{ ...OLD_ROW, number: 'OLD-ID', wabaAccount: { wabaId: 'WABA-1', disconnectedAt: null } }],
       })
 
-      await expect(service.onboard(1, dto)).resolves.toEqual(
+      await expect(service.onboard(superAdmin(1), dto)).resolves.toEqual(
         expect.objectContaining({ phoneNumberId: 9, reconnected: false }),
       )
       expect(prisma.phoneNumber.update).not.toHaveBeenCalled()
       expect(prisma.conversation.updateMany).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("an admin connecting their office's numbers", () => {
+    function setup(options: { sameId?: unknown; codes?: number[] } = {}) {
+      const prisma = {
+        producer: { findUnique: jest.fn().mockResolvedValue({ createdAt: new Date('2026-01-01T00:00:00Z') }) },
+        phoneNumber: {
+          findUnique: jest.fn().mockResolvedValue(options.sameId ?? null),
+          findFirst: jest.fn(),
+          findMany: jest.fn().mockResolvedValue([]),
+          update: jest.fn().mockResolvedValue({ id: 8 }),
+          create: jest.fn().mockResolvedValue({ id: 9 }),
+        },
+        wabaAccount: { upsert: jest.fn().mockResolvedValue({ id: 5 }) },
+        phoneNumberProducerCode: { createMany: jest.fn() },
+      }
+      const config = {
+        get: jest.fn((key: string) => (key.startsWith('COMMERCIAL_') ? undefined : 'a'.repeat(64))),
+        getOrThrow: jest.fn(),
+      }
+      const service = new WhatsappOnboardingService(
+        prisma as any,
+        config as any,
+        { get: jest.fn(), post: jest.fn() } as any,
+        scopeOf(options.codes ?? [14]) as any,
+        portfolio as any,
+        templateSync as any,
+      )
+      const exchange = jest
+        .spyOn(service as any, 'exchangeCode')
+        .mockResolvedValue({ accessToken: 'token', expiresAt: null })
+      jest.spyOn(service as any, 'resolvePhoneNumberId').mockResolvedValue('PHONE-1')
+      jest.spyOn(service as any, 'waitForCoexistenceConfirmation').mockResolvedValue({
+        metaPhoneNumberId: 'PHONE-1',
+        displayPhoneNumber: '+54 9 3492 55-0000',
+        verified: true,
+        isOnBizApp: true,
+        platformType: 'CLOUD_API',
+      })
+      const subscribe = jest.spyOn(service as any, 'subscribeApp').mockResolvedValue(undefined)
+      jest.spyOn(service as any, 'requestAppDataSync').mockResolvedValue(true)
+      return { service, prisma, subscribe, exchange }
+    }
+
+    const dto = { code: 'exchangeable-code', wabaId: 'WABA-2', isCoexistence: true }
+
+    it("bills a new number to the admin's only code when the panel sends none", async () => {
+      const { service, prisma } = setup()
+
+      await expect(service.onboard(admin, dto)).resolves.toMatchObject({ phoneNumberId: 9, reconnected: false })
+      expect(prisma.phoneNumber.create.mock.calls[0][0].data).toMatchObject({
+        producerId: 1,
+        responsibleProducerCodeId: 14,
+      })
+    })
+
+    it('saves the branch name typed before connecting', async () => {
+      const { service, prisma } = setup()
+
+      await service.onboard(admin, { ...dto, branchName: '  Pueblo Esther ' })
+      expect(prisma.phoneNumber.create.mock.calls[0][0].data).toMatchObject({ branchName: 'Pueblo Esther' })
+    })
+
+    it('saves the assistant typed before connecting: name, presentation, people and hours', async () => {
+      const { service, prisma } = setup()
+      const week = { mon: [{ from: '09:00', to: '13:00' }], tue: [], wed: [], thu: [], fri: [], sat: [], sun: [] }
+
+      await service.onboard(admin, {
+        ...dto,
+        branchName: 'Roldán',
+        botName: 'Nico',
+        presentationName: 'Vanesa Aguilar',
+        transferAlias: 'TRUENO.VUELO.DELTA',
+        staffNames: ['Vanesa', 'Emilia'],
+        businessHours: week,
+      })
+      expect(prisma.phoneNumber.create.mock.calls[0][0].data).toMatchObject({
+        branchName: 'Roldán',
+        botName: 'Nico',
+        staffNames: 'Vanesa, Emilia',
+        businessHours: week,
+        botProfile: {
+          orgName: 'Vanesa Aguilar',
+          orgLegalName: 'Vanesa Aguilar',
+          orgShortName: 'Vanesa Aguilar',
+          transferAlias: 'TRUENO.VUELO.DELTA',
+        },
+      })
+    })
+
+    it('rejects broken hours before spending the code', async () => {
+      const { service, prisma, exchange } = setup()
+
+      await expect(service.onboard(admin, { ...dto, businessHours: { mon: 'x' } })).rejects.toBeInstanceOf(
+        BadRequestException,
+      )
+      expect(prisma.phoneNumber.create).not.toHaveBeenCalled()
+      expect(exchange).not.toHaveBeenCalled()
+    })
+
+    it("refuses a code that is not theirs before spending Meta's code", async () => {
+      const { service, exchange } = setup()
+
+      await expect(service.onboard(admin, { ...dto, responsibleProducerCodeId: 11 })).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
+      await expect(service.onboard(admin, { ...dto, servedCodeIds: [11] })).rejects.toBeInstanceOf(ForbiddenException)
+      expect(exchange).not.toHaveBeenCalled()
+    })
+
+    it('asks an admin with several codes which one the number is billed to', async () => {
+      const { service, exchange } = setup({ codes: [14, 15] })
+
+      await expect(service.onboard(admin, dto)).rejects.toBeInstanceOf(BadRequestException)
+      expect(exchange).not.toHaveBeenCalled()
+      await expect(service.onboard(admin, { ...dto, responsibleProducerCodeId: 15 })).resolves.toMatchObject({
+        phoneNumberId: 9,
+      })
+    })
+
+    it("never reconnects another office's number", async () => {
+      const { service, prisma, subscribe } = setup({
+        sameId: { id: 8, phoneNumberId: 'PHONE-1', producerId: 1, deletedAt: null, responsibleProducerCodeId: 11 },
+      })
+
+      await expect(service.onboard(admin, dto)).rejects.toBeInstanceOf(ForbiddenException)
+      expect(subscribe).not.toHaveBeenCalled()
+      expect(prisma.phoneNumber.update).not.toHaveBeenCalled()
+    })
+
+    it('reconnects their own number', async () => {
+      const { service } = setup({
+        sameId: { id: 8, phoneNumberId: 'PHONE-1', producerId: 1, deletedAt: null, responsibleProducerCodeId: 14 },
+      })
+
+      await expect(service.onboard(admin, dto)).resolves.toMatchObject({ phoneNumberId: 8, reconnected: true })
+    })
+
+    it("does not show the connection status of another office's number", async () => {
+      const { service, prisma } = setup()
+      prisma.phoneNumber.findFirst.mockResolvedValue({ responsibleProducerCodeId: 11 })
+
+      await expect(service.getConnectionStatus(admin, 'PHONE-1')).rejects.toBeInstanceOf(NotFoundException)
+      await expect(service.retryAppDataSync(admin, 'PHONE-1')).rejects.toBeInstanceOf(NotFoundException)
+      expect(prisma.phoneNumber.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { phoneNumberId: 'PHONE-1', producerId: 1, deletedAt: null } }),
+      )
     })
   })
 })

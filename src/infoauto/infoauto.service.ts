@@ -9,6 +9,13 @@ import { HttpService } from '@nestjs/axios'
 import { ConfigService } from '@nestjs/config'
 import { AxiosError } from 'axios'
 import { firstValueFrom } from 'rxjs'
+import { IntegrationFailureKind } from 'generated/prisma/client'
+import type { IntegrationComponentKey } from '../integration-status/integration-components'
+import {
+  describeFailure,
+  IntegrationStatusService,
+  type IntegrationFailure,
+} from '../integration-status/integration-status.service'
 import { InfoAutoQueryDto } from './dto/infoauto-query.dto'
 import { VehicleType } from './infoauto.types'
 
@@ -41,6 +48,15 @@ const ORIGIN_FEATURE_ID: Record<VehicleType, number> = {
   [VehicleType.MOTO]: 15,
 }
 
+// Each catalog in the panel's Status section.
+const STATUS_COMPONENT: Record<VehicleType, IntegrationComponentKey> = {
+  [VehicleType.AUTO]: 'infoauto.cars',
+  [VehicleType.MOTO]: 'infoauto.motorcycles',
+}
+
+// Answers about the request itself (a model or brand that does not exist): the catalog works.
+const REQUEST_ERROR_STATUSES = new Set([400, 404, 422])
+
 @Injectable()
 export class InfoAutoService {
   private readonly logger = new Logger(InfoAutoService.name)
@@ -57,6 +73,7 @@ export class InfoAutoService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly status: IntegrationStatusService,
   ) {
     this.email = this.configService.getOrThrow<string>('INFOAUTO_EMAIL')
     this.password = this.configService.getOrThrow<string>('INFOAUTO_PASSWORD')
@@ -143,7 +160,7 @@ export class InfoAutoService {
     // token in the JSON body or in X-Access-Token. Support both contracts.
     const headerToken = response.headers?.['x-access-token']
     const token = (Array.isArray(headerToken) ? headerToken[0] : headerToken) || response.data?.access_token
-    if (!token) throw new BadGatewayException('InfoAuto API error')
+    if (!token) throw new BadGatewayException('El login de InfoAuto no devolvió token')
 
     catalog.tokenExpiresAt = this.readTokenExpiry(token) ?? Date.now() + 55 * 60 * 1000
     catalog.cachedToken = token
@@ -182,6 +199,7 @@ export class InfoAutoService {
     } catch (error) {
       const status = error instanceof AxiosError ? (error.response?.status ?? error.code) : 'unknown'
       this.logger.error(`InfoAuto ${type} login failed → ${status} (check INFOAUTO_EMAIL / INFOAUTO_PASSWORD)`)
+      void this.status.failed(STATUS_COMPONENT[type], loginFailure(error))
       throw new BadGatewayException('InfoAuto API error')
     }
 
@@ -192,6 +210,7 @@ export class InfoAutoService {
           headers: { Authorization: `Bearer ${token}` },
         }),
       )
+      void this.status.succeeded(STATUS_COMPONENT[type])
       return {
         data: response.data,
         pagination: this.parsePagination(response.headers['x-pagination'] as string),
@@ -199,6 +218,12 @@ export class InfoAutoService {
     } catch (error) {
       if (error instanceof AxiosError) {
         this.logger.warn(`InfoAuto ${type} GET ${path} failed → ${error.response?.status ?? error.code ?? 'unknown'}`)
+        const httpStatus = error.response?.status
+        if (httpStatus !== undefined && REQUEST_ERROR_STATUSES.has(httpStatus)) {
+          void this.status.succeeded(STATUS_COMPONENT[type])
+        } else {
+          void this.status.failed(STATUS_COMPONENT[type], describeFailure(error))
+        }
         throw new BadGatewayException('InfoAuto API error')
       }
       throw error
@@ -244,16 +269,18 @@ export class InfoAutoService {
           // Brand-new models sold only as 0km carry `list_price` and Triunfo
           // prices them for the current model year only (any other year comes
           // back with ValorVehiculo 0 and no theft coverage). Discontinued
-          // models with no price at all cannot be valued by Triunfo either.
+          // models with no price at all (a 1996 Hilux) cannot be valued by
+          // Triunfo either, but it still prices Responsabilidad Civil for
+          // them, so they go through: the cotizador reports the missing
+          // valuation and the office quotes the rest (21/10).
           if (model.list_price && year === currentYear) return
           if (model.list_price) {
             throw new BadRequestException(
               `El catálogo lista esta versión solo como 0km ${currentYear}. Elegí ese año o consultá con un asesor.`,
             )
           }
-          throw new BadRequestException(
-            'El catálogo no tiene precio de referencia para esta versión, así que no se puede cotizar online. Consultá con un asesor.',
-          )
+          this.logger.debug(`Codia ${codia} has no reference price in InfoAuto — leaving the ${year} quote to Triunfo`)
+          return
         }
         if (year < from || (year > to && !recentMoto)) {
           throw new BadRequestException(
@@ -342,4 +369,15 @@ export class InfoAutoService {
       return null
     }
   }
+}
+
+/** A login InfoAuto refuses (401/403) is the platform's user or subscription; anything else, the service. */
+function loginFailure(error: unknown): IntegrationFailure {
+  const failure = describeFailure(error)
+  if (failure.httpStatus === 401 || failure.httpStatus === 403) {
+    return { ...failure, kind: IntegrationFailureKind.CREDENTIALS_REJECTED, message: `Login: ${failure.message}` }
+  }
+  return failure.kind === IntegrationFailureKind.UNEXPECTED_RESPONSE
+    ? failure
+    : { ...failure, message: `Login: ${failure.message}` }
 }

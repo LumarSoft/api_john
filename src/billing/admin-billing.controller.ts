@@ -1,0 +1,38 @@
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Request, UseGuards } from '@nestjs/common'
+import { Role } from 'generated/prisma/client'
+import { UserAuthGuard } from '../auth/user-auth.guard'
+import { RolesGuard } from '../auth/roles.guard'
+import { Roles } from '../auth/roles.decorator'
+import { AuthenticatedRequest } from '../common/types/authenticated-request.type'
+import { BillingService } from './billing.service'
+import { AssignPlanDto } from './dto/assign-plan.dto'
+import { ResolveLimitDto } from './dto/resolve-limit.dto'
+
+/** "Facturación" in the panel: each number's plan and month, and the SuperAdmin's plan assignment. */
+@UseGuards(UserAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.SUPERADMIN)
+@Controller('admin/billing')
+export class AdminBillingController {
+  constructor(private readonly billing: BillingService) {}
+
+  @Get()
+  overview(@Query('period') period: string | undefined, @Request() req: AuthenticatedRequest) {
+    return this.billing.overview(req.user, period || undefined)
+  }
+
+  /** At the plan's limit: continue on the next plan (the assistant answers again) or stay paused this month. */
+  @Post('numbers/:id/limit')
+  resolveLimit(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ResolveLimitDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.billing.resolveLimit(req.user, id, dto.choice)
+  }
+
+  @Patch('numbers/:id/plan')
+  @Roles(Role.SUPERADMIN)
+  assignPlan(@Param('id', ParseIntPipe) id: number, @Body() dto: AssignPlanDto, @Request() req: AuthenticatedRequest) {
+    return this.billing.assignPlan(req.user, id, dto.planId)
+  }
+}

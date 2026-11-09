@@ -4,8 +4,10 @@ import * as bcrypt from 'bcrypt'
 import { ConfigService } from '@nestjs/config'
 import { InstallmentStatus, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { insuresAPerson, riesgosOf, RiesgoCubierto } from '../common/poliza-detail'
 import {
   TriunfoService,
+  type TriunfoCredentials,
   type TriunfoNovedad,
   type TriunfoCuotaDato,
   type TriunfoVehiculoDato,
@@ -25,9 +27,15 @@ import {
  *   - 267, 264           → home  (hogar — incendio + robo + contenido)
  *   - 170, 802           → commercial (comercio / edificio / RC)
  *   - 657                → other (bicicleta — robo, incendio, RC)
- *   - rest               → other
+ *   - rest               → life when it covers a person (sepelio, muerte,
+ *                          incapacidad: other articles of accidentes
+ *                          personales), else other
  */
-function resolveRiskType(vehiculoDatos: TriunfoVehiculoDato | null, articulo: number | string): RiskType {
+export function resolveRiskType(
+  vehiculoDatos: TriunfoVehiculoDato | null,
+  articulo: number | string,
+  riesgos: RiesgoCubierto[],
+): RiskType {
   if (vehiculoDatos) {
     const tipo = (vehiculoDatos.Tipo ?? '').toUpperCase()
     if (tipo.includes('MOTO') || tipo === 'MOTOCICLETA') return RiskType.moto
@@ -37,6 +45,7 @@ function resolveRiskType(vehiculoDatos: TriunfoVehiculoDato | null, articulo: nu
   if (code === 197 || code === 128 || code === 124 || code === 195) return RiskType.life
   if (code === 267 || code === 264) return RiskType.home
   if (code === 170 || code === 802) return RiskType.commercial
+  if (insuresAPerson(riesgos)) return RiskType.life
   return RiskType.other
 }
 
@@ -120,13 +129,30 @@ function sortBySuplemento(novedades: TriunfoNovedad[]): TriunfoNovedad[] {
   return [...novedades].sort((a, b) => Number(a.Suplemento ?? 0) - Number(b.Suplemento ?? 0))
 }
 
-// Map Triunfo cuota Estado to our status values
-function mapCuotaStatus(estado: string, dueDate: Date | null): InstallmentStatus {
+/**
+ * Map Triunfo cuota Estado to our status values. The states Triunfo really
+ * sends are PENDIENTE, PAGADA, ANULADA and EN PRELIQUIDACIÓN; the last one is
+ * a debit already sent to the bank or card, neither paid nor overdue until the
+ * next novedad says so. Mapping it by its due date showed every automatic
+ * debit of the month as overdue, and the office saw debt that did not exist.
+ */
+export function mapCuotaStatus(estado: string, dueDate: Date | null, now: Date = new Date()): InstallmentStatus {
   const upper = (estado ?? '').toUpperCase()
   if (upper === 'PAGADA' || upper === 'COBRADA') return 'paid'
   if (upper === 'RECHAZADA' || upper === 'RECHAZADO' || upper === 'DEBITO_RECHAZADO') return 'rejected'
-  if (dueDate && dueDate < new Date()) return 'overdue'
+  if (isCollectingEstado(upper)) return 'pending'
+  if (dueDate && dueDate < now) return 'overdue'
   return 'pending'
+}
+
+/** Sent to the bank: pending whatever the due date says (see mapCuotaStatus). */
+export function isCollectingEstado(estado: string | null | undefined): boolean {
+  return (estado ?? '').toUpperCase().startsWith('EN PRELIQ')
+}
+
+/** An ANULADA cuota does not exist for the platform: it is soft deleted. */
+export function isCancelledEstado(estado: string | null | undefined): boolean {
+  return (estado ?? '').trim().toUpperCase() === 'ANULADA'
 }
 
 // ─── Service ─────────────────────────────────────────────
@@ -165,6 +191,28 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       return
     }
     void this.runGuarded().catch(err => this.logger.error(`Cartera sync failed: ${err?.message ?? err}`))
+  }
+
+  // "overdue" used to be stamped only when a policy came through the sync, so
+  // a cuota of a policy with no novedad in the three-month window stayed
+  // "pending" past its due date for good (and the reverse: one stamped overdue
+  // on its due date). This pass keeps the status honest every night, with no
+  // Triunfo call. A cuota sent to the bank (EN PRELIQUIDACIÓN) is left alone:
+  // the next novedad says whether it was paid or rejected.
+  @Cron('15 0 * * *', { timeZone: 'America/Argentina/Buenos_Aires' })
+  async markOverdueInstallments(now = new Date()): Promise<number> {
+    const today = new Date(localISODate(now))
+    const { count } = await this.prisma.installment.updateMany({
+      where: {
+        deletedAt: null,
+        status: 'pending',
+        dueDate: { lt: today },
+        OR: [{ providerStatus: null }, { NOT: { providerStatus: { startsWith: 'EN PRELIQ' } } }],
+      },
+      data: { status: 'overdue' },
+    })
+    if (count) this.logger.log(`Cuotas marked overdue: ${count}`)
+    return count
   }
 
   // Keeps policies/cuotas fresh in production. Runs at 06:00 and 20:00 Argentina
@@ -219,6 +267,16 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     let codesProcessed = 0
 
     for (const producer of producers) {
+      // Each organization's cartera is asked with its own Triunfo credentials.
+      // One without them is skipped: its codes cannot be read with another's.
+      let credentials: TriunfoCredentials
+      try {
+        credentials = await this.triunfo.credentialsFor(producer.id)
+      } catch (err) {
+        this.logger.warn(`Producer ${producer.id}: cartera sync skipped — ${err instanceof Error ? err.message : err}`)
+        continue
+      }
+
       // Defensive fallback: if no ProducerCode rows are loaded yet (migration/seed
       // not applied), fall back to a single query with the env master code so the
       // sync isn't silently empty. Attributes to null (back-fill to master later).
@@ -246,8 +304,14 @@ export class CarteraSyncService implements OnApplicationBootstrap {
 
         let novedades: TriunfoNovedad[] = []
         try {
-          // code undefined → TriunfoService defaults to TRIUNFO_PRODUCTOR (env master).
-          novedades = await this.triunfo.getNovedadesCartera(fechaDesde, fechaHasta, target.code)
+          // code undefined → TriunfoService uses the credential's own code.
+          novedades = await this.triunfo.getNovedadesCartera(
+            fechaDesde,
+            fechaHasta,
+            credentials,
+            producer.id,
+            target.code,
+          )
           this.logger.log(
             `Code ${label}: ${novedades.length} novedades (${months}m: ${fechaDesde} → ${fechaHasta}${target.lastSyncAt ? '' : ', backfill inicial'})`,
           )
@@ -344,7 +408,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         ? novedad.SDTVehiculoDatos[0]
         : null
 
-    const riskType = resolveRiskType(vehiculoDatos, novedad.Articulo)
+    const riskType = resolveRiskType(vehiculoDatos, novedad.Articulo, riesgosOf(novedad))
 
     const cuotasDatos: TriunfoCuotaDato[] = Array.isArray(novedad.SDTCuota) ? novedad.SDTCuota : []
 
@@ -449,6 +513,11 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       },
       update: {
         endorsementNumber,
+        // Follows the article and coverages Triunfo sends now: a policy first
+        // stored with another type (a hogar kept as 'life', a moto as 'auto')
+        // gets fixed. A row without vehicle data that tells nothing else
+        // leaves the type alone, so a car never turns into 'other'.
+        ...(vehiculoDatos || riskType !== RiskType.other ? { riskType } : {}),
         lastMovement,
         validTo: vigHasta,
         premium,
@@ -499,24 +568,37 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     for (const cuota of cuotasDatos) {
       const dueDate = isoDate(cuota.FechaVtoCuota)
       const status = mapCuotaStatus(cuota.Estado, dueDate)
+      const providerStatus = (cuota.Estado ?? '').trim() || null
+      const cancelled = isCancelledEstado(providerStatus)
+      const where = { policyId_number: { policyId: poliza.id, number: cuota.NumeroCuota } }
 
       await this.prisma.installment.upsert({
-        where: {
-          policyId_number: { policyId: poliza.id, number: cuota.NumeroCuota },
-        },
+        where,
         create: {
           policyId: poliza.id,
           number: cuota.NumeroCuota,
           amount: cuota.ImporteCuota,
           dueDate,
           status,
+          providerStatus,
+          deletedAt: cancelled ? new Date() : null,
         },
         update: {
           amount: cuota.ImporteCuota,
           dueDate,
           status,
+          providerStatus,
+          // A cuota that is no longer ANULADA comes back; one that still is
+          // keeps the date it was first cancelled on.
+          ...(cancelled ? {} : { deletedAt: null }),
         },
       })
+      if (cancelled) {
+        await this.prisma.installment.updateMany({
+          where: { ...where.policyId_number, deletedAt: null },
+          data: { deletedAt: new Date() },
+        })
+      }
     }
   }
 }

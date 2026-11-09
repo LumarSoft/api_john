@@ -1,6 +1,7 @@
 import type { NovedadesService } from '../novedades/novedades.service'
 import type { ConfigService } from '@nestjs/config'
 import type { PrismaService } from '../prisma/prisma.service'
+import type { InboxService } from '../inbox/inbox.service'
 import { SolicitudesService } from './solicitudes.service'
 
 jest.mock('../siniestros/siniestro-upload.config', () => ({
@@ -26,6 +27,7 @@ describe('SolicitudesService — bot take-out documents', () => {
       prisma as unknown as PrismaService,
       {} as ConfigService,
       {} as NovedadesService,
+      {} as InboxService,
     )
     return { service, prisma }
   }
@@ -89,12 +91,181 @@ describe('SolicitudesService — bot take-out documents', () => {
       prisma as unknown as PrismaService,
       {} as ConfigService,
       {} as NovedadesService,
+      {} as InboxService,
     )
 
-    const detail = (await service.getDetail(1, [1], 'lead', 9)) as unknown as {
+    const detail = (await service.getDetail(1, [1], 'lead', 9, {})) as unknown as {
       payload: { adjuntos: { url: string }[] }
     }
 
     expect(detail.payload.adjuntos[0].url).toMatch(/^\/uploads\/leads\/a\.webp\?exp=\d+&sig=/)
+  })
+})
+
+describe('SolicitudesService — changing the coverage of a bot lead', () => {
+  beforeAll(() => {
+    process.env.JWT_SECRET = 'test-secret'
+  })
+
+  function setup(lead: { id: number; payload: unknown } | null) {
+    const prisma = {
+      contactLead: {
+        findFirst: jest.fn().mockResolvedValue(lead),
+        update: jest.fn().mockResolvedValue({}),
+      },
+    }
+    const service = new SolicitudesService(
+      prisma as unknown as PrismaService,
+      {} as ConfigService,
+      {} as NovedadesService,
+      {} as InboxService,
+    )
+    return { service, prisma }
+  }
+
+  it('moves the request to the new coverage and keeps the previous one and the photos', async () => {
+    const { service, prisma } = setup({
+      id: 15,
+      payload: {
+        cobertura: 'D3 — Todo Riesgo con Franquicia del 10%',
+        precio: '$ 223.091 por mes',
+        vehiculo: 'BYD SONG PRO DM-I GS',
+        adjuntos: [{ filename: 'dni.webp' }],
+      },
+    })
+
+    const res = await service.updateBotLeadCoverage(322, 15, {
+      cobertura: 'A — Responsabilidad Civil',
+      precio: '$ 67.825 por mes',
+    })
+
+    expect(prisma.contactLead.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 15, conversationId: 322, deletedAt: null } }),
+    )
+    expect(prisma.contactLead.update).toHaveBeenCalledWith({
+      where: { id: 15 },
+      data: {
+        payload: {
+          cobertura: 'A — Responsabilidad Civil',
+          precio: '$ 67.825 por mes',
+          coberturaAnterior: 'D3 — Todo Riesgo con Franquicia del 10%',
+          vehiculo: 'BYD SONG PRO DM-I GS',
+          adjuntos: [{ filename: 'dni.webp' }],
+        },
+      },
+    })
+    expect(res).toEqual({
+      leadId: 15,
+      cobertura: 'A — Responsabilidad Civil',
+      coberturaAnterior: 'D3 — Todo Riesgo con Franquicia del 10%',
+    })
+  })
+
+  it('drops the old price when the new coverage comes without one', async () => {
+    const { service, prisma } = setup({
+      id: 15,
+      payload: { cobertura: 'D3 — Todo Riesgo', precio: '$ 223.091 por mes' },
+    })
+
+    await service.updateBotLeadCoverage(322, 15, { cobertura: 'A — Responsabilidad Civil' })
+
+    const payload = prisma.contactLead.update.mock.calls[0][0].data.payload as Record<string, unknown>
+    expect(payload.precio).toBeUndefined()
+    expect(payload.coberturaAnterior).toBe('D3 — Todo Riesgo')
+  })
+
+  it('does not record a previous coverage when it is the same one', async () => {
+    const { service, prisma } = setup({ id: 15, payload: { cobertura: 'A — Responsabilidad Civil' } })
+
+    const res = await service.updateBotLeadCoverage(322, 15, { cobertura: 'A — Responsabilidad Civil' })
+
+    const payload = prisma.contactLead.update.mock.calls[0][0].data.payload as Record<string, unknown>
+    expect(payload.coberturaAnterior).toBeUndefined()
+    expect(res.coberturaAnterior).toBeNull()
+  })
+
+  it('refuses a lead of another conversation', async () => {
+    const { service, prisma } = setup(null)
+
+    await expect(service.updateBotLeadCoverage(1, 15, { cobertura: 'A' })).rejects.toThrow('not found')
+    expect(prisma.contactLead.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('SolicitudesService — the chat behind a solicitud', () => {
+  function setup(lead: { conversationId: number | null } | null, conversation: Record<string, unknown> | null) {
+    const prisma = {
+      contactLead: {
+        findFirst: jest.fn().mockResolvedValue(lead && { id: 9, payload: {}, selectedPlan: null, ...lead }),
+      },
+      conversation: { findFirst: jest.fn().mockResolvedValue(conversation), updateMany: jest.fn() },
+    }
+    const inbox = { listMessages: jest.fn().mockResolvedValue([{ id: 1, role: 'user', content: 'hola' }]) }
+    const service = new SolicitudesService(
+      prisma as unknown as PrismaService,
+      {} as ConfigService,
+      {} as NovedadesService,
+      inbox as unknown as InboxService,
+    )
+    return { service, prisma, inbox }
+  }
+
+  it('hands the panel the chat of a bot lead, named as the inbox names it', async () => {
+    const { service } = setup(
+      { conversationId: 4 },
+      { id: 4, status: 'open', contactName: 'Perfil WA', contactNameManual: 'Juan (manual)' },
+    )
+
+    const detail = (await service.getDetail(1, [1], 'lead', 9, {})) as unknown as { conversation: unknown }
+
+    expect(detail.conversation).toEqual({ id: 4, status: 'open', contactName: 'Juan (manual)' })
+  })
+
+  it('has no chat for a web lead or an online quote', async () => {
+    const { service, prisma, inbox } = setup({ conversationId: null }, null)
+
+    const detail = (await service.getDetail(1, [1], 'lead', 9, {})) as unknown as { conversation: unknown }
+    expect(detail.conversation).toBeNull()
+    expect(prisma.conversation.findFirst).not.toHaveBeenCalled()
+
+    expect(await service.getMessages(1, [1], 'lead', 9, {})).toEqual([])
+    expect(await service.getMessages(1, [1], 'cotizacion', 3, {})).toEqual([])
+    expect(inbox.listMessages).not.toHaveBeenCalled()
+  })
+
+  it('reads the thread without marking the chat as read', async () => {
+    const { service, prisma, inbox } = setup({ conversationId: 4 }, { id: 4 })
+
+    const messages = await service.getMessages(1, [1], 'lead', 9, {})
+
+    expect(messages).toHaveLength(1)
+    expect(inbox.listMessages).toHaveBeenCalledWith(4)
+    expect(prisma.conversation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 4, producerId: 1 }) }),
+    )
+    expect(prisma.conversation.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('refuses a lead outside the admin scope', async () => {
+    const { service } = setup(null, null)
+
+    await expect(service.getMessages(1, [1], 'lead', 9, {})).rejects.toThrow('Lead 9 not found')
+  })
+
+  it("looks a lead up within the admin's numbers, as the list does", async () => {
+    const { service, prisma } = setup({ conversationId: null }, null)
+    const ownNumbers = { phoneNumberId: { in: ['meta-7'] } }
+
+    await service.getDetail(1, [1], 'lead', 9, ownNumbers)
+
+    expect(prisma.contactLead.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 9,
+          producerId: 1,
+          AND: [{ OR: [{ producerCodeId: { in: [1] } }, { producerCodeId: null }] }, ownNumbers],
+        }),
+      }),
+    )
   })
 })

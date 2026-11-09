@@ -334,7 +334,7 @@ const MOTO_COPY: Record<string, CoverageCopy> = {
     ],
     exclusions: ['Daños parciales por accidente'],
     sortOrder: 400,
-    offered: false,
+    offered: true,
   },
 }
 

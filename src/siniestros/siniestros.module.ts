@@ -8,5 +8,6 @@ import { SiniestrosService } from './siniestros.service'
   imports: [NovedadesModule],
   controllers: [SiniestrosController, AdminSiniestrosController],
   providers: [SiniestrosService],
+  exports: [SiniestrosService],
 })
 export class SiniestrosModule {}

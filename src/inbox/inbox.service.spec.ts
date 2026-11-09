@@ -6,6 +6,18 @@ import type { BotNotifierService } from './bot-notifier.service'
 import type { ListInboxDto } from './dto/list-inbox.dto'
 import { InboxService } from './inbox.service'
 
+import type { NovedadesService } from '../novedades/novedades.service'
+
+const novedadesMock = () =>
+  ({
+    markConversationAnswered: jest.fn().mockResolvedValue(0),
+    resolveAnsweredMatters: jest.fn().mockResolvedValue(0),
+    blockedClaimsByConversation: jest.fn().mockResolvedValue(new Map()),
+  }) as unknown as NovedadesService
+
+/** A SuperAdmin of code 2: its chats plus the unattributed ones. */
+const SUPERADMIN_CHATS = { codeIds: [2], ownNumbers: null }
+
 describe('InboxService.listConversations', () => {
   it('returns the latest inbound timestamp without exposing the messages helper relation', async () => {
     const lastInboundMessageAt = new Date('2026-09-30T12:00:00.000Z')
@@ -17,7 +29,6 @@ describe('InboxService.listConversations', () => {
         contactName: null,
         client: null,
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
-        producer: { botEnabled: false },
         messages: [
           {
             role: 'assistant',
@@ -31,14 +42,20 @@ describe('InboxService.listConversations', () => {
     ])
     const groupBy = jest.fn().mockResolvedValue([{ conversationId: 7, _max: { createdAt: lastInboundMessageAt } }])
     const prisma = {
+      // P1's own bot switch is off: the office answers this chat.
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([{ phoneNumberId: 'P1' }]) },
       conversation: { findMany },
       message: { groupBy },
       whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const notifier = {}
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as BotNotifierService)
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as BotNotifierService,
+      novedadesMock(),
+    )
 
-    await expect(service.listConversations(1, [2], {} as ListInboxDto)).resolves.toEqual([
+    await expect(service.listConversations(1, SUPERADMIN_CHATS, {} as ListInboxDto)).resolves.toEqual([
       {
         id: 7,
         waId: '549341',
@@ -47,7 +64,7 @@ describe('InboxService.listConversations', () => {
         client: null,
         clientIsContact: false,
         lastMessageAt: new Date('2026-09-30T12:00:01.000Z'),
-        globalBotDisabled: true,
+        numberBotDisabled: true,
         customerMessageCount: 4,
         lastInboundMessageAt,
         lastMessage: {
@@ -56,6 +73,7 @@ describe('InboxService.listConversations', () => {
           mediaType: null,
           createdAt: new Date('2026-09-30T12:00:01.000Z'),
         },
+        blockedClaim: null,
       },
     ])
     expect(groupBy).toHaveBeenCalledWith(
@@ -69,7 +87,6 @@ describe('InboxService.listConversations', () => {
         select: expect.objectContaining({
           messages: expect.objectContaining({ where: { deletedAt: null }, take: 1 }),
           _count: { select: { messages: { where: { role: 'user', deletedAt: null } } } },
-          producer: { select: { botEnabled: true } },
         }),
         orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
       }),
@@ -80,17 +97,14 @@ describe('InboxService.listConversations', () => {
 describe('InboxService.listConversations contact vs. consulted client', () => {
   function setup(conversation: Record<string, unknown>, contacts: unknown[] = []) {
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: {
-        findMany: jest
-          .fn()
-          .mockResolvedValue([
-            { producer: { botEnabled: true }, messages: [], _count: { messages: 1 }, ...conversation },
-          ]),
+        findMany: jest.fn().mockResolvedValue([{ messages: [], _count: { messages: 1 }, ...conversation }]),
       },
       message: { groupBy: jest.fn().mockResolvedValue([]) },
       whatsAppContact: { findMany: jest.fn().mockResolvedValue(contacts) },
     }
-    return new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService)
+    return new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedadesMock())
   }
   const adriana = { id: 5, firstName: 'Adriana', lastName: 'Gómez', dni: '20111222' }
 
@@ -103,7 +117,7 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
       client: { ...adriana, phone: '341156930749' },
     })
 
-    const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
+    const [conversation] = await service.listConversations(1, SUPERADMIN_CHATS, {} as ListInboxDto)
 
     expect(conversation).toMatchObject({ contactName: 'John', clientIsContact: false, client: adriana })
     expect(conversation.client).not.toHaveProperty('phone', expect.anything())
@@ -118,7 +132,7 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
       client: { ...adriana, phone: '341153404951' },
     })
 
-    const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
+    const [conversation] = await service.listConversations(1, SUPERADMIN_CHATS, {} as ListInboxDto)
 
     expect(conversation.clientIsContact).toBe(true)
   })
@@ -143,7 +157,7 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
       ],
     )
 
-    const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
+    const [conversation] = await service.listConversations(1, SUPERADMIN_CHATS, {} as ListInboxDto)
 
     expect(conversation.contactName).toBe('John P.')
   })
@@ -158,19 +172,43 @@ describe('InboxService.listConversations contact vs. consulted client', () => {
       },
     ])
 
-    const [conversation] = await service.listConversations(1, [2], {} as ListInboxDto)
+    const [conversation] = await service.listConversations(1, SUPERADMIN_CHATS, {} as ListInboxDto)
 
     expect(conversation.contactName).toBe('John Pellegrini')
+  })
+})
+
+describe('InboxService.listConversations stopped claims', () => {
+  it('marks the chat whose open request is a claim the bot refused to file', async () => {
+    const novedades = novedadesMock()
+    ;(novedades.blockedClaimsByConversation as jest.Mock).mockResolvedValue(new Map([[7, 'REJECTED_PAYMENT']]))
+    const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
+      conversation: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 7, waId: '549341', phoneNumberId: 'P1', client: null, messages: [], _count: { messages: 1 } },
+          { id: 8, waId: '549342', phoneNumberId: 'P1', client: null, messages: [], _count: { messages: 1 } },
+        ]),
+      },
+      message: { groupBy: jest.fn().mockResolvedValue([]) },
+      whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const service = new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedades)
+
+    const [stopped, other] = await service.listConversations(1, SUPERADMIN_CHATS, {} as ListInboxDto)
+
+    expect(novedades.blockedClaimsByConversation).toHaveBeenCalledWith(1, [7, 8])
+    expect(stopped.blockedClaim).toBe('REJECTED_PAYMENT')
+    expect(other.blockedClaim).toBeNull()
   })
 })
 
 describe('InboxService.updateContact', () => {
   function setup() {
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: {
-        findFirst: jest
-          .fn()
-          .mockResolvedValue({ id: 7, waId: '549341', producerId: 1, producer: { botEnabled: true } }),
+        findFirst: jest.fn().mockResolvedValue({ id: 7, waId: '549341', producerId: 1 }),
         update: jest.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
           Promise.resolve({
             id: 7,
@@ -183,13 +221,19 @@ describe('InboxService.updateContact', () => {
         ),
       },
     }
-    return { prisma, service: new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService) }
+    return {
+      prisma,
+      service: new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedadesMock()),
+    }
   }
 
   it('shows the name set by hand and unlinks a client attached by mistake', async () => {
     const { prisma, service } = setup()
 
-    const result = await service.updateContact(7, 1, [2], { contactName: '  John Pellegrini ', unlinkClient: true })
+    const result = await service.updateContact(7, 1, SUPERADMIN_CHATS, {
+      contactName: '  John Pellegrini ',
+      unlinkClient: true,
+    })
 
     expect(prisma.conversation.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -203,7 +247,7 @@ describe('InboxService.updateContact', () => {
   it('goes back to the automatic name when the field is cleared, keeping the client', async () => {
     const { prisma, service } = setup()
 
-    const result = await service.updateContact(7, 1, [2], { contactName: '' })
+    const result = await service.updateContact(7, 1, SUPERADMIN_CHATS, { contactName: '' })
 
     expect(prisma.conversation.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { contactNameManual: null } }),
@@ -216,7 +260,7 @@ describe('InboxService.updateContact', () => {
     const { prisma, service } = setup()
     prisma.conversation.findFirst.mockResolvedValue(null)
 
-    await expect(service.updateContact(99, 1, [2], { unlinkClient: true })).rejects.toThrow('not found')
+    await expect(service.updateContact(99, 1, SUPERADMIN_CHATS, { unlinkClient: true })).rejects.toThrow('not found')
     expect(prisma.conversation.update).not.toHaveBeenCalled()
   })
 })
@@ -226,13 +270,13 @@ describe('InboxService.getMessages', () => {
     process.env.JWT_SECRET = 'test-secret'
     const createdAt = new Date('2026-09-30T12:00:00.000Z')
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       conversation: {
         findFirst: jest.fn().mockResolvedValue({
           id: 7,
           waId: '549341',
           producerId: 1,
           botPaused: false,
-          producer: { botEnabled: true },
           phoneNumberId: 'P1',
           sessionStartedAt: null,
         }),
@@ -257,9 +301,9 @@ describe('InboxService.getMessages', () => {
         ]),
       },
     }
-    const service = new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService)
+    const service = new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedadesMock())
 
-    const result = await service.getMessages(7, 1, [2])
+    const result = await service.getMessages(7, 1, SUPERADMIN_CHATS)
 
     expect(result[0].media?.url).toMatch(/^\/uploads\/siniestros\/a\.webp\?exp=\d+&sig=/)
     // The whole stored history, not just the current bot session.
@@ -276,7 +320,7 @@ describe('InboxService.getMessages', () => {
   })
 })
 
-describe('InboxService.sendMessage with global human attention', () => {
+describe('InboxService.sendMessage on a number with its bot off', () => {
   it('allows an advisor reply without taking the chat individually', async () => {
     const now = new Date()
     const conversation = {
@@ -284,7 +328,6 @@ describe('InboxService.sendMessage with global human attention', () => {
       waId: '549341',
       producerId: 1,
       botPaused: false,
-      producer: { botEnabled: false },
       phoneNumberId: 'P1',
       sessionStartedAt: now,
     }
@@ -296,14 +339,25 @@ describe('InboxService.sendMessage with global human attention', () => {
     const prisma = {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
-      phoneNumber: { findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }) },
+      phoneNumber: {
+        // P1's own bot switch is off.
+        findMany: jest.fn().mockResolvedValue([{ phoneNumberId: 'P1' }]),
+        findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }),
+      },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { sendMessage: jest.fn().mockResolvedValue(undefined) }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    const novedades = novedadesMock()
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedades,
+    )
 
-    await expect(service.sendMessage(7, 1, [2], 9, 'Te atiendo')).resolves.toEqual(created)
+    await expect(service.sendMessage(7, 1, SUPERADMIN_CHATS, 9, 'Te atiendo')).resolves.toEqual(created)
     expect(notifier.sendMessage).toHaveBeenCalledWith('549341', 'Te atiendo', 'P1')
+    // The reply from the panel is the office handling what the chat asked for.
+    expect(novedades.markConversationAnswered).toHaveBeenCalledWith(7, now)
   })
 })
 
@@ -315,18 +369,21 @@ describe('InboxService.sendMessage on a number that is off WhatsApp', () => {
       waId: '549341',
       producerId: 1,
       botPaused: true,
-      producer: { botEnabled: true },
       phoneNumberId: 'P1',
       sessionStartedAt: now,
     }
     const prisma = {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
-      phoneNumber: { findUnique: jest.fn().mockResolvedValue(phone) },
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn().mockResolvedValue(phone) },
       $transaction: jest.fn(),
     }
     const notifier = { sendMessage: jest.fn() }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedadesMock(),
+    )
     return { service, prisma, notifier }
   }
 
@@ -337,7 +394,7 @@ describe('InboxService.sendMessage on a number that is off WhatsApp', () => {
       wabaAccount: { disconnectedAt: new Date('2026-10-19T18:29:28.000Z') },
     })
 
-    await expect(service.sendMessage(7, 1, [2], 9, 'Hola')).rejects.toThrow('desconectado de Meta')
+    await expect(service.sendMessage(7, 1, SUPERADMIN_CHATS, 9, 'Hola')).rejects.toThrow('desconectado de Meta')
     expect(prisma.phoneNumber.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { phoneNumberId: 'P1' } }),
     )
@@ -348,17 +405,25 @@ describe('InboxService.sendMessage on a number that is off WhatsApp', () => {
   it('refuses to send through a number removed from Números', async () => {
     const { service, notifier } = setup({ isActive: false, deletedAt: new Date(), wabaAccount: null })
 
-    await expect(service.sendMessage(7, 1, [2], 9, 'Hola')).rejects.toThrow('dado de baja')
+    await expect(service.sendMessage(7, 1, SUPERADMIN_CHATS, 9, 'Hola')).rejects.toThrow('dado de baja')
     expect(notifier.sendMessage).not.toHaveBeenCalled()
   })
 })
 
 describe('InboxService.autoReleaseToBot', () => {
   function setup(updated: number) {
-    const prisma = { conversation: { updateMany: jest.fn().mockResolvedValue({ count: updated }) } }
+    const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
+      conversation: { updateMany: jest.fn().mockResolvedValue({ count: updated }) },
+    }
     const notifier = { resetFlow: jest.fn().mockResolvedValue(undefined) }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
-    return { service, prisma, notifier }
+    const novedades = novedadesMock()
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedades,
+    )
+    return { service, prisma, notifier, novedades }
   }
 
   const conversation = { id: 7, phoneNumberId: 'P1', waId: '549341' }
@@ -375,11 +440,18 @@ describe('InboxService.autoReleaseToBot', () => {
     expect(notifier.resetFlow).toHaveBeenCalledWith('P1', '549341')
   })
 
+  it('closes what the office was handling once the chat is back with the bot', async () => {
+    const { service, novedades } = setup(1)
+    await service.autoReleaseToBot(conversation)
+    expect(novedades.resolveAnsweredMatters).toHaveBeenCalledWith(7)
+  })
+
   it('does nothing when someone already released it', async () => {
-    const { service, notifier } = setup(0)
+    const { service, notifier, novedades } = setup(0)
 
     await expect(service.autoReleaseToBot(conversation)).resolves.toBe(false)
     expect(notifier.resetFlow).not.toHaveBeenCalled()
+    expect(novedades.resolveAnsweredMatters).not.toHaveBeenCalled()
   })
 })
 
@@ -392,16 +464,21 @@ describe('InboxService.deleteConversations', () => {
       notification: { updateMany: jest.fn() },
     }
     const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { resetFlow: jest.fn().mockResolvedValue(undefined) }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedadesMock(),
+    )
     return { service, tx, notifier }
   }
 
   it('scopes individual deletion and preserves business records', async () => {
     const { service, tx, notifier } = setup([{ id: 7, waId: '549341', phoneNumberId: 'P1' }])
-    await expect(service.deleteConversations(1, [2], 7)).resolves.toEqual({ deletedCount: 1 })
+    await expect(service.deleteConversations(1, SUPERADMIN_CHATS, 7)).resolves.toEqual({ deletedCount: 1 })
     const scope = {
       producerId: 1,
       deletedAt: null,
@@ -427,7 +504,7 @@ describe('InboxService.deleteConversations', () => {
 
   it('rejects nonexistent or unauthorized chats without deleting anything', async () => {
     const { service, tx, notifier } = setup()
-    await expect(service.deleteConversations(1, [2], 99)).rejects.toThrow('Conversation not found')
+    await expect(service.deleteConversations(1, SUPERADMIN_CHATS, 99)).rejects.toThrow('Conversation not found')
     expect(tx.message.deleteMany).not.toHaveBeenCalled()
     expect(tx.conversation.deleteMany).not.toHaveBeenCalled()
     expect(notifier.resetFlow).not.toHaveBeenCalled()
@@ -438,7 +515,7 @@ describe('InboxService.deleteConversations', () => {
       { id: 7, waId: 'one', phoneNumberId: 'P1' },
       { id: 8, waId: 'two', phoneNumberId: null },
     ])
-    await expect(service.deleteConversations(1, [2])).resolves.toEqual({ deletedCount: 2 })
+    await expect(service.deleteConversations(1, SUPERADMIN_CHATS)).resolves.toEqual({ deletedCount: 2 })
     expect(tx.conversation.findMany.mock.calls[0][0].where).toEqual({
       producerId: 1,
       deletedAt: null,
@@ -450,14 +527,16 @@ describe('InboxService.deleteConversations', () => {
 
   it('allows clearing an empty inbox', async () => {
     const { service, tx } = setup()
-    await expect(service.deleteConversations(1, [])).resolves.toEqual({ deletedCount: 0 })
+    await expect(service.deleteConversations(1, { codeIds: [], ownNumbers: null })).resolves.toEqual({
+      deletedCount: 0,
+    })
     expect(tx.conversation.deleteMany).not.toHaveBeenCalled()
   })
 
   it('does not reset bot memory if the transaction fails', async () => {
     const { service, tx, notifier } = setup([{ id: 7, waId: 'one', phoneNumberId: 'P1' }])
     tx.message.deleteMany.mockRejectedValue(new Error('database unavailable'))
-    await expect(service.deleteConversations(1, [2], 7)).rejects.toThrow('database unavailable')
+    await expect(service.deleteConversations(1, SUPERADMIN_CHATS, 7)).rejects.toThrow('database unavailable')
     expect(tx.conversation.deleteMany).not.toHaveBeenCalled()
     expect(notifier.resetFlow).not.toHaveBeenCalled()
   })
@@ -470,7 +549,6 @@ describe('InboxService.sendMedia', () => {
     waId: '549341',
     producerId: 1,
     botPaused: true,
-    producer: { botEnabled: true },
     phoneNumberId: 'P1',
     sessionStartedAt: now,
   }
@@ -489,11 +567,18 @@ describe('InboxService.sendMedia', () => {
     const prisma = {
       conversation: { findFirst: jest.fn().mockResolvedValue(conversation) },
       message: { findFirst: jest.fn().mockResolvedValue({ createdAt: now }) },
-      phoneNumber: { findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }) },
+      phoneNumber: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn().mockResolvedValue({ isActive: true, deletedAt: null, wabaAccount: null }),
+      },
       $transaction: jest.fn().mockImplementation(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     }
     const notifier = { sendMedia }
-    const service = new InboxService(prisma as unknown as PrismaService, notifier as unknown as BotNotifierService)
+    const service = new InboxService(
+      prisma as unknown as PrismaService,
+      notifier as unknown as BotNotifierService,
+      novedadesMock(),
+    )
     return { service, tx, notifier }
   }
 
@@ -508,7 +593,7 @@ describe('InboxService.sendMedia', () => {
     // Multer hands the multipart filename over as latin1.
     const file = upload('application/pdf', 1000, Buffer.from('Póliza.pdf', 'utf8').toString('latin1'))
 
-    const result = await service.sendMedia(7, 1, [2], file)
+    const result = await service.sendMedia(7, 1, SUPERADMIN_CHATS, file)
 
     expect(notifier.sendMedia).toHaveBeenCalledWith({
       to: '549341',
@@ -542,7 +627,7 @@ describe('InboxService.sendMedia', () => {
     const { service, tx, notifier } = setup()
     const file = upload('image/jpeg', 1000, 'foto.jpg')
 
-    await service.sendMedia(7, 1, [2], file, '  Tu cupón de octubre  ')
+    await service.sendMedia(7, 1, SUPERADMIN_CHATS, file, '  Tu cupón de octubre  ')
 
     expect(notifier.sendMedia).toHaveBeenCalledWith(expect.objectContaining({ caption: 'Tu cupón de octubre' }))
     expect(tx.message.create).toHaveBeenCalledWith(
@@ -554,7 +639,7 @@ describe('InboxService.sendMedia', () => {
     const { service, notifier } = setup()
     const file = upload('image/png', 6 * 1024 * 1024, 'grande.png')
 
-    await expect(service.sendMedia(7, 1, [2], file)).rejects.toThrow('5 MB')
+    await expect(service.sendMedia(7, 1, SUPERADMIN_CHATS, file)).rejects.toThrow('5 MB')
     expect(notifier.sendMedia).not.toHaveBeenCalled()
     expect(existsSync(file.path)).toBe(false)
   })
@@ -563,8 +648,52 @@ describe('InboxService.sendMedia', () => {
     const { service, tx } = setup(jest.fn().mockRejectedValue(new Error('bot down')))
     const file = upload('application/pdf', 1000, 'poliza.pdf')
 
-    await expect(service.sendMedia(7, 1, [2], file)).rejects.toThrow('bot down')
+    await expect(service.sendMedia(7, 1, SUPERADMIN_CHATS, file)).rejects.toThrow('bot down')
     expect(tx.message.create).not.toHaveBeenCalled()
     expect(existsSync(file.path)).toBe(false)
+  })
+})
+
+describe("an admin's inbox", () => {
+  // Their only number is the branch's; chat 251 came through the main line.
+  const ADMIN_CHATS = { codeIds: [4], ownNumbers: ['BRANCH'] }
+
+  function setup(conversation: Record<string, jest.Mock>) {
+    const prisma = {
+      phoneNumber: { findMany: jest.fn().mockResolvedValue([]) },
+      conversation,
+      message: { groupBy: jest.fn().mockResolvedValue([]) },
+      whatsAppContact: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    return new InboxService(prisma as unknown as PrismaService, {} as BotNotifierService, novedadesMock())
+  }
+
+  it('lists only the chats that came through their own numbers, whatever their code', async () => {
+    const findMany = jest.fn().mockResolvedValue([])
+    await setup({ findMany }).listConversations(1, ADMIN_CHATS, {} as ListInboxDto)
+
+    expect(findMany.mock.calls[0][0].where.AND).toEqual([{ phoneNumberId: { in: ['BRANCH'] } }])
+  })
+
+  it('does not open, take over or answer a chat of another number', async () => {
+    const findFirst = jest.fn().mockResolvedValue(null)
+    const service = setup({ findFirst })
+
+    await expect(service.getMessages(251, 1, ADMIN_CHATS)).rejects.toThrow('not found')
+    await expect(service.takeover(251, 1, ADMIN_CHATS, 4)).rejects.toThrow('not found')
+    await expect(service.sendMessage(251, 1, ADMIN_CHATS, 4, 'Hola')).rejects.toThrow('not found')
+    expect(findFirst.mock.calls[0][0].where).toEqual({
+      id: 251,
+      producerId: 1,
+      deletedAt: null,
+      AND: [{ phoneNumberId: { in: ['BRANCH'] } }],
+    })
+  })
+
+  it('sees no chat while they have no number of their own', async () => {
+    const findMany = jest.fn().mockResolvedValue([])
+    await setup({ findMany }).listConversations(1, { codeIds: [4], ownNumbers: [] }, {} as ListInboxDto)
+
+    expect(findMany.mock.calls[0][0].where.AND).toEqual([{ phoneNumberId: { in: [] } }])
   })
 })

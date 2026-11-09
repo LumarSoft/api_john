@@ -8,16 +8,8 @@ export enum CollectionStatusFilter {
   TODAS = 'todas',
 }
 
-export class ListCobranzasDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  search?: string
-
-  @IsOptional()
-  @IsEnum(CollectionStatusFilter)
-  status?: CollectionStatusFilter
-
+/** The filters the cobranzas list and its stats share, so the KPIs follow the list. */
+export class CobranzasScopeDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -31,6 +23,24 @@ export class ListCobranzasDto {
   @IsInt()
   @Min(1)
   phoneNumberId?: number
+
+  // Triunfo's medio de pago as stored on the policy ("Plan De Pago",
+  // "Convenio", "Débito Tarjeta"…); the stats list the values in scope.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  paymentMethod?: string
+}
+
+export class ListCobranzasDto extends CobranzasScopeDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  search?: string
+
+  @IsOptional()
+  @IsEnum(CollectionStatusFilter)
+  status?: CollectionStatusFilter
 
   @IsOptional()
   @Type(() => Number)

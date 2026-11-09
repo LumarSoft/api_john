@@ -1,11 +1,28 @@
 import { Type } from 'class-transformer'
-import { ArrayUnique, IsArray, IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator'
+import {
+  ArrayUnique,
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator'
 
 export class UpdatePhoneNumberDto {
   @IsOptional()
   @IsString()
   @MinLength(3)
   number?: string
+
+  // Empty string clears it.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  branchName?: string
 
   @IsOptional()
   @Type(() => Number)

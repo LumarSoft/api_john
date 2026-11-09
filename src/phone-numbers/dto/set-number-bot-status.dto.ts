@@ -1,6 +1,6 @@
 import { IsBoolean } from 'class-validator'
 
-export class SetBotStatusDto {
+export class SetNumberBotStatusDto {
   @IsBoolean()
   botEnabled: boolean
 }

@@ -1,11 +1,14 @@
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common'
+import type { NumberWhere } from '../common/scope/scope.service'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from 'generated/prisma/client'
 import { NovedadesService } from '../novedades/novedades.service'
 import { NovedadType } from '../novedades/dto/list-novedades.dto'
 import { PrismaService } from '../prisma/prisma.service'
+import { InboxService } from '../inbox/inbox.service'
 import { CreateLeadDto } from './dto/create-lead.dto'
 import { CreateBotLeadDto } from './dto/create-bot-lead.dto'
+import { UpdateBotLeadCoverageDto } from './dto/update-bot-lead-coverage.dto'
 import { signAdjuntoList } from '../siniestros/adjunto-url'
 import { LEADS_PUBLIC_PREFIX, toStoredAdjuntos } from '../siniestros/siniestro-upload.config'
 import { ListSolicitudesDto } from './dto/list-solicitudes.dto'
@@ -85,6 +88,8 @@ interface CreateLeadContext {
   producerId: number
   producerCodeId?: number | null
   conversationId?: number
+  /** Meta id of the number the chat came through (bot leads). */
+  phoneNumberId?: string | null
 }
 
 @Injectable()
@@ -93,6 +98,7 @@ export class SolicitudesService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly novedades: NovedadesService,
+    private readonly inbox: InboxService,
   ) {}
 
   // ─── Lead creation (web + bot) ─────────────────────────────
@@ -106,7 +112,7 @@ export class SolicitudesService {
   async createBotLead(conversationId: number, dto: CreateBotLeadDto): Promise<{ id: number }> {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, deletedAt: null },
-      select: { producerId: true, producerCodeId: true },
+      select: { producerId: true, producerCodeId: true, phoneNumberId: true },
     })
     if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
     return this.createLead(dto, {
@@ -114,6 +120,7 @@ export class SolicitudesService {
       producerId: conversation.producerId,
       producerCodeId: conversation.producerCodeId,
       conversationId,
+      phoneNumberId: conversation.phoneNumberId,
     })
   }
 
@@ -143,6 +150,39 @@ export class SolicitudesService {
     return { leadId: lead.id, attachmentCount: adjuntos.length, attached: true, attachments: stored }
   }
 
+  /**
+   * Moves a bot quote lead to another coverage: the customer picked one, got the
+   * documents request and changed their mind ("mejor una responsabilidad
+   * civil"). The previous choice stays in `payload.coberturaAnterior` so the
+   * office sees the change; the documents already attached are kept.
+   */
+  async updateBotLeadCoverage(
+    conversationId: number,
+    leadId: number,
+    dto: UpdateBotLeadCoverageDto,
+  ): Promise<{ leadId: number; cobertura: string; coberturaAnterior: string | null }> {
+    const lead = await this.prisma.contactLead.findFirst({
+      where: { id: leadId, conversationId, deletedAt: null },
+      select: { id: true, payload: true },
+    })
+    if (!lead) throw new NotFoundException(`Lead ${leadId} not found for conversation ${conversationId}`)
+
+    const { precio: _previousPrice, ...payload } = (lead.payload ?? {}) as Record<string, unknown>
+    const previous = typeof payload.cobertura === 'string' && payload.cobertura ? payload.cobertura : null
+    const changed = previous !== null && previous !== dto.cobertura
+    const next: Record<string, unknown> = {
+      ...payload,
+      cobertura: dto.cobertura,
+      ...(dto.precio ? { precio: dto.precio } : {}),
+      ...(changed ? { coberturaAnterior: previous } : {}),
+    }
+    await this.prisma.contactLead.update({
+      where: { id: lead.id },
+      data: { payload: next as Prisma.InputJsonValue },
+    })
+    return { leadId: lead.id, cobertura: dto.cobertura, coberturaAnterior: changed ? previous : null }
+  }
+
   private async createLead(dto: CreateLeadDto | CreateBotLeadDto, ctx: CreateLeadContext): Promise<{ id: number }> {
     // A chosen plan must belong to this producer and match the lead's product.
     if (dto.selectedPlanId !== undefined) {
@@ -168,6 +208,7 @@ export class SolicitudesService {
         payload: (dto.payload ?? {}) as Prisma.InputJsonValue,
         selectedPlanId: dto.selectedPlanId ?? null,
         conversationId: ctx.conversationId ?? null,
+        phoneNumberId: ctx.phoneNumberId ?? null,
       },
       select: { id: true },
     })
@@ -176,6 +217,7 @@ export class SolicitudesService {
       refId: lead.id,
       name: dto.contactName,
       producerCodeId: ctx.producerCodeId,
+      phoneNumberId: ctx.phoneNumberId ?? null,
       summary: `Solicita propuesta de ${dto.productType}. Contacto: ${dto.phone}. Pendiente de seguimiento por un asesor.`,
     })
     return lead
@@ -189,7 +231,7 @@ export class SolicitudesService {
    * normalized into one stream. Both sources are small for a broker, so they're
    * fetched, merged and paginated in memory rather than with a SQL UNION.
    */
-  async listForAdmin(producerId: number, codeIds: number[], dto: ListSolicitudesDto) {
+  async listForAdmin(producerId: number, codeIds: number[], dto: ListSolicitudesDto, numbers: NumberWhere = {}) {
     const page = dto.page && dto.page > 0 ? dto.page : 1
     const pageSize = dto.pageSize && dto.pageSize > 0 ? dto.pageSize : DEFAULT_PAGE_SIZE
     const search = dto.search?.trim().toLowerCase()
@@ -197,10 +239,10 @@ export class SolicitudesService {
     const items: SolicitudListItem[] = []
 
     if (dto.kind !== 'cotizacion') {
-      items.push(...(await this.loadLeads(producerId, codeIds, dto)))
+      items.push(...(await this.loadLeads(producerId, codeIds, dto, numbers)))
     }
     if (dto.kind !== 'lead') {
-      items.push(...(await this.loadCotizaciones(producerId, codeIds, dto)))
+      items.push(...(await this.loadCotizaciones(producerId, codeIds, dto, numbers)))
     }
 
     const filtered = search
@@ -219,14 +261,15 @@ export class SolicitudesService {
     producerId: number,
     codeIds: number[],
     dto: ListSolicitudesDto,
+    numbers: NumberWhere,
   ): Promise<SolicitudListItem[]> {
     const leads = await this.prisma.contactLead.findMany({
       where: {
         producerId,
         deletedAt: null,
-        // Include leads not yet attributed to a code (anonymous web leads) so any
-        // admin of the org can pick them up.
-        OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }],
+        // Leads not attributed to a code (anonymous web leads) stay visible by
+        // code; by number, a web lead counts as the organization's default number's.
+        AND: [{ OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }, numbers],
         ...(dto.status ? { status: dto.status } : {}),
         ...(dto.productType ? { productType: dto.productType } : {}),
       },
@@ -263,6 +306,7 @@ export class SolicitudesService {
     producerId: number,
     codeIds: number[],
     dto: ListSolicitudesDto,
+    numbers: NumberWhere,
   ): Promise<SolicitudListItem[]> {
     // The auto/moto Solicitud panel filters by vehicleType ("AUTO"/"MOTO").
     const vehicleType = dto.productType === 'auto' ? 'AUTO' : dto.productType === 'moto' ? 'MOTO' : undefined
@@ -276,7 +320,7 @@ export class SolicitudesService {
         quote: {
           producerId,
           deletedAt: null,
-          OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }],
+          AND: [{ OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }, numbers],
           ...(vehicleType ? { vehicleType } : {}),
         },
       },
@@ -308,11 +352,11 @@ export class SolicitudesService {
     }))
   }
 
-  async getDetail(producerId: number, codeIds: number[], kind: LeadKind, id: number) {
-    const codeOr = [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }]
+  async getDetail(producerId: number, codeIds: number[], kind: LeadKind, id: number, numbers: NumberWhere) {
+    const visible = visibleTo(codeIds, numbers)
     if (kind === 'lead') {
       const lead = await this.prisma.contactLead.findFirst({
-        where: { id, producerId, deletedAt: null, OR: codeOr },
+        where: { id, producerId, deletedAt: null, ...visible },
         select: {
           id: true,
           productType: true,
@@ -324,23 +368,26 @@ export class SolicitudesService {
           payload: true,
           notes: true,
           createdAt: true,
+          conversationId: true,
           selectedPlan: { select: { id: true, name: true, monthlyPrice: true, productType: true } },
         },
       })
       if (!lead) throw new NotFoundException(`Lead ${id} not found`)
+      const { conversationId, ...rest } = lead
       return {
         kind,
-        ...lead,
+        ...rest,
         payload: withSignedLeadAdjuntos(lead.payload),
         selectedPlan: lead.selectedPlan
           ? { ...lead.selectedPlan, monthlyPrice: Number(lead.selectedPlan.monthlyPrice) }
           : null,
+        conversation: await this.leadConversation(conversationId),
       }
     }
 
     // Card data is intentionally excluded from the detail response.
     const solicitud = await this.prisma.quoteRequest.findFirst({
-      where: { id, deletedAt: null, quote: { producerId, OR: codeOr } },
+      where: { id, deletedAt: null, quote: { producerId, ...visible } },
       select: {
         id: true,
         status: true,
@@ -375,14 +422,59 @@ export class SolicitudesService {
       // All quoted coverages with their prices (cheapest first), so the admin sees
       // the same figures presented to the client.
       coverages: parseQuoteCoverages(result),
+      // Online quotes come from the web form: there is no WhatsApp chat behind them.
+      conversation: null,
     }
   }
 
-  async updateStatus(producerId: number, codeIds: number[], kind: LeadKind, id: number, dto: UpdateSolicitudDto) {
+  /** The WhatsApp chat a bot lead came from, as the panel's "Chat" tab shows it. */
+  private async leadConversation(conversationId: number | null) {
+    if (!conversationId) return null
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, deletedAt: null },
+      select: { id: true, status: true, contactName: true, contactNameManual: true },
+    })
+    if (!conversation) return null
+    return {
+      id: conversation.id,
+      status: conversation.status,
+      contactName: conversation.contactNameManual ?? conversation.contactName ?? null,
+    }
+  }
+
+  /**
+   * The chat behind a solicitud, read-only: how the customer got to ask for the
+   * coverage. Access follows the solicitud (an admin who can open it can read its
+   * chat), not the inbox scoping by producer code, and nothing is marked as read.
+   * Empty for solicitudes without a chat (web form, online quote).
+   */
+  async getMessages(producerId: number, codeIds: number[], kind: LeadKind, id: number, numbers: NumberWhere) {
+    if (kind !== 'lead') return []
+    const lead = await this.prisma.contactLead.findFirst({
+      where: { id, producerId, deletedAt: null, ...visibleTo(codeIds, numbers) },
+      select: { conversationId: true },
+    })
+    if (!lead) throw new NotFoundException(`Lead ${id} not found`)
+    if (!lead.conversationId) return []
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: lead.conversationId, producerId, deletedAt: null },
+      select: { id: true },
+    })
+    return conversation ? this.inbox.listMessages(conversation.id) : []
+  }
+
+  async updateStatus(
+    producerId: number,
+    codeIds: number[],
+    kind: LeadKind,
+    id: number,
+    dto: UpdateSolicitudDto,
+    numbers: NumberWhere,
+  ) {
     if (dto.status === undefined && dto.notes === undefined) {
       throw new BadRequestException('Nothing to update')
     }
-    const codeOr = [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }]
+    const visible = visibleTo(codeIds, numbers)
     const data = {
       ...(dto.status !== undefined ? { status: dto.status } : {}),
       ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
@@ -390,7 +482,7 @@ export class SolicitudesService {
 
     if (kind === 'lead') {
       const lead = await this.prisma.contactLead.findFirst({
-        where: { id, producerId, deletedAt: null, OR: codeOr },
+        where: { id, producerId, deletedAt: null, ...visible },
         select: { id: true },
       })
       if (!lead) throw new NotFoundException(`Lead ${id} not found`)
@@ -402,7 +494,7 @@ export class SolicitudesService {
     }
 
     const solicitud = await this.prisma.quoteRequest.findFirst({
-      where: { id, deletedAt: null, quote: { producerId, OR: codeOr } },
+      where: { id, deletedAt: null, quote: { producerId, ...visible } },
       select: { id: true },
     })
     if (!solicitud) throw new NotFoundException(`Solicitud ${id} not found`)
@@ -434,4 +526,13 @@ export class SolicitudesService {
     if (!producer) throw new InternalServerErrorException(`Default producer "${slug}" not found`)
     return producer.id
   }
+}
+
+/**
+ * One request as the user sees it in the list: by code (a web lead not yet
+ * attributed to a code too) and by the number it came through, so an admin
+ * cannot open or change another branch's request by its id.
+ */
+function visibleTo(codeIds: number[], numbers: NumberWhere) {
+  return { AND: [{ OR: [{ producerCodeId: { in: codeIds } }, { producerCodeId: null }] }, numbers] }
 }

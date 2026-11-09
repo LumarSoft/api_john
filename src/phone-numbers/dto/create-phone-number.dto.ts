@@ -1,7 +1,8 @@
 import { Type } from 'class-transformer'
-import { ArrayUnique, IsArray, IsInt, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator'
+import { ArrayUnique, IsArray, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator'
+import { AssistantSetupDto } from './assistant-setup.dto'
 
-export class CreatePhoneNumberDto {
+export class CreatePhoneNumberDto extends AssistantSetupDto {
   // Meta phone_number_id (the id Meta sends in webhook metadata).
   @IsString()
   @MinLength(3)
@@ -11,6 +12,12 @@ export class CreatePhoneNumberDto {
   @IsString()
   @MinLength(3)
   number: string
+
+  // What the office calls the branch, shown next to the number ("27 de Febrero").
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  branchName?: string
 
   // The code this number is billed to.
   @IsOptional()

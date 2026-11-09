@@ -7,10 +7,12 @@ import {
   IsOptional,
   IsString,
   Matches,
+  MaxLength,
   Min,
   MinLength,
   ValidateIf,
 } from 'class-validator'
+import { AssistantSetupDto } from '../../phone-numbers/dto/assistant-setup.dto'
 
 /**
  * Payload the admin panel sends right after Embedded Signup finishes.
@@ -18,7 +20,7 @@ import {
  * `code` has a time-to-live of 30 SECONDS, so the front must post this the
  * moment the popup closes — no confirmation dialogs in between.
  */
-export class OnboardWhatsappDto {
+export class OnboardWhatsappDto extends AssistantSetupDto {
   // Exchangeable token code returned by Embedded Signup (NOT an access token).
   @IsString()
   @MinLength(10)
@@ -42,6 +44,14 @@ export class OnboardWhatsappDto {
   @IsOptional()
   @IsString()
   number?: string
+
+  // What the office calls the branch ("27 de Febrero", "Pueblo Esther"); the
+  // panel shows it next to the number. The panel always asks for it; optional
+  // here so a reconnect without it keeps the name the number already had.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  branchName?: string
 
   // True when the flow was the Coexistence one (the business keeps using the
   // WhatsApp Business app on the same number).

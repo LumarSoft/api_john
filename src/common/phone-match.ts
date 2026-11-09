@@ -40,3 +40,22 @@ export function phoneSuffix(waId: string | null | undefined): string | null {
   const [national] = nationalCandidates(waId)
   return national ? national.slice(-6) : null
 }
+
+/**
+ * The WhatsApp ids (`549` + area + number) a stored phone may be, to write to
+ * someone who never messaged us. More than one when the `15` split is
+ * ambiguous; none for a number we can't read ("1", a missing digit).
+ */
+export function whatsAppIds(phone: string | null | undefined): string[] {
+  return nationalCandidates(phone).map(national => `549${national}`)
+}
+
+/**
+ * One spelling for a WhatsApp id or a stored number of ours, to compare the
+ * two: digits only, with the mobile `9` WhatsApp puts after `54` dropped
+ * (`5493417028217` and `+54 9 341 702-8217` both read `543417028217`).
+ */
+export function canonicalWaId(raw: string | null | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '')
+  return digits.startsWith('549') ? `54${digits.slice(3)}` : digits
+}

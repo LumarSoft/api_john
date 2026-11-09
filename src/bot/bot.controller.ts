@@ -97,6 +97,12 @@ export class BotController {
     return this.botService.identifyClient(conversationId, dto)
   }
 
+  /** Whether a DNI or plate is the identified client's, another client's or nobody's. */
+  @Post('conversation/:conversationId/holder')
+  holderOf(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: IdentifyClientDto) {
+    return this.botService.holderOf(conversationId, dto)
+  }
+
   @Post('conversation/:conversationId/identify-by-phone')
   identifyByPhone(@Param('conversationId', ParseIntPipe) conversationId: number) {
     return this.botService.identifyByPhone(conversationId)
@@ -178,11 +184,11 @@ export class BotController {
     @Param('conversationId', ParseIntPipe) id: number,
     @Body() dto: RequestPolicyCancellationDto,
   ) {
-    return this.botService.requestPolicyCancellation(id, dto.policyId)
+    return this.botService.requestPolicyCancellation(id, dto.policyId, dto.reason)
   }
 
   @Post('conversation/:conversationId/request-handoff')
   requestHandoff(@Param('conversationId', ParseIntPipe) conversationId: number, @Body() dto: HandoffReasonDto) {
-    return this.botService.requestHandoff(conversationId, dto?.reason)
+    return this.botService.requestHandoff(conversationId, dto?.reason, dto?.blockedClaimReason)
   }
 }

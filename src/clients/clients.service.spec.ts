@@ -61,4 +61,114 @@ describe('ClientsService.findPolizas (portal)', () => {
       { id: 11, estado: 'vencida' },
     ])
   })
+
+  it('names a personal accident policy as such, not as Vida', async () => {
+    const ap = {
+      ...poliza(20, null, 'REFACTURACION', '2026-01-01', '2027-01-01'),
+      riskType: 'life',
+      rawData: {
+        Articulo: 128,
+        SDTOtrosRiesgosDatos: { SDTRiesgosCoberturas: [{ Riesgo: 'CATEGORIA 4', Cobertura: 'MUERTE' }] },
+      },
+    }
+    const prisma = { policy: { findMany: jest.fn().mockResolvedValue([ap]) } }
+    const service = new ClientsService(prisma as unknown as PrismaService)
+
+    const [res] = await service.findPolizas(1, 1)
+
+    expect(res.product).toBe('Acc. personales')
+    expect(res).not.toHaveProperty('rawData')
+  })
+})
+
+describe('ClientsService.findCobranzasForAdmin', () => {
+  const cuota = (status: string, amount: string, dueDate = '2026-09-10') => ({
+    status,
+    amount,
+    dueDate: new Date(dueDate),
+  })
+  const client = {
+    id: 1,
+    firstName: 'Ana',
+    lastName: 'Pérez',
+    dni: '1',
+    email: null,
+    phone: null,
+    policies: [
+      {
+        riskType: 'auto',
+        paymentMethod: 'Plan De Pago',
+        vehicle: { licensePlate: 'AB123CD' },
+        installments: [cuota('overdue', '100')],
+      },
+      {
+        riskType: 'moto',
+        paymentMethod: 'Convenio',
+        vehicle: null,
+        installments: [cuota('pending', '50', '2026-12-01')],
+      },
+    ],
+  }
+
+  function setup() {
+    const findMany = jest.fn().mockResolvedValue([client])
+    const service = new ClientsService({ client: { findMany } } as unknown as PrismaService)
+    return { service, findMany }
+  }
+
+  it('counts only the cuotas of live policies of the codes in scope, with the medio de pago asked for', async () => {
+    const { service, findMany } = setup()
+
+    const page = await service.findCobranzasForAdmin(1, [7, 9], { paymentMethod: 'Plan De Pago' })
+
+    const nested = findMany.mock.calls[0][0].select.policies.where
+    expect(nested).toMatchObject({
+      deletedAt: null,
+      producerCodeId: { in: [7, 9] },
+      paymentMethod: 'Plan De Pago',
+      NOT: [{ lastMovement: { startsWith: 'ANUL' } }, { lastMovement: { startsWith: 'RESCISION' } }],
+    })
+    expect(findMany.mock.calls[0][0].where.policies.some).toMatchObject({ producerCodeId: { in: [7, 9] } })
+    expect(page.data[0]).toMatchObject({
+      paymentMethods: ['Plan De Pago', 'Convenio'],
+      overdueCount: 1,
+      pendingCount: 1,
+      totalDebt: '150.00',
+      oldestOverdueDate: new Date('2026-09-10').toISOString(),
+    })
+  })
+
+  it('does not ask for a medio de pago when none is selected', async () => {
+    const { service, findMany } = setup()
+
+    await service.findCobranzasForAdmin(1, [7], {})
+
+    expect(findMany.mock.calls[0][0].select.policies.where).not.toHaveProperty('paymentMethod')
+  })
+})
+
+describe('ClientsService.findOneForAdmin', () => {
+  const code = (id: number, holderName: string) => ({ id, code: String(8000 + id), holderName })
+
+  it('names the producer code of the client and of each of its policies', async () => {
+    const findFirst = jest.fn().mockResolvedValue({
+      id: 1,
+      firstName: 'Ana',
+      lastName: 'Pérez',
+      producerCode: code(7, 'GOMEZ LAURA'),
+      policies: [
+        { id: 10, riskType: 'auto', lastMovement: 'REFACTURACION', rawData: {}, producerCode: code(7, 'GOMEZ LAURA') },
+        { id: 11, riskType: 'moto', lastMovement: 'REFACTURACION', rawData: {}, producerCode: code(9, 'DIAZ PABLO') },
+      ],
+    })
+    const service = new ClientsService({ client: { findFirst } } as unknown as PrismaService)
+
+    const client = await service.findOneForAdmin(1, 1, [7, 9])
+
+    const select = findFirst.mock.calls[0][0].select
+    expect(select.producerCode).toEqual({ select: { id: true, code: true, holderName: true } })
+    expect(select.policies.select.producerCode).toEqual(select.producerCode)
+    expect(client.producerCode).toEqual(code(7, 'GOMEZ LAURA'))
+    expect(client.policies.map(p => p.producerCode)).toEqual([code(7, 'GOMEZ LAURA'), code(9, 'DIAZ PABLO')])
+  })
 })

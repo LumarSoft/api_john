@@ -3,23 +3,17 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common'
 import * as bcrypt from 'bcrypt'
 import { Prisma, Role } from 'generated/prisma/client'
 import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
+import { type BotProfile, mergeBotProfile, parseBotProfile } from '../common/bot-profile'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
+import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 import { UpdateProfileDto } from './dto/update-profile.dto'
-import { BotStatusAlertService } from './bot-status-alert.service'
-
-/** Admin who flips the organization-wide bot switch. */
-export interface BotStatusActor {
-  id: number
-  email: string
-}
 
 const SAFE_SELECT = {
   id: true,
@@ -37,34 +31,19 @@ const SAFE_SELECT = {
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name)
+  constructor(private readonly prisma: PrismaService) {}
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly botStatusAlerts: BotStatusAlertService,
-  ) {}
-
-  /** Bot/producer configuration shown in the admin "Configuración" screen. */
+  /**
+   * Bot/producer configuration shown in the admin "Configuración" screen. The
+   * bot is switched on and off per number (Números → Asistente), not here.
+   */
   async getProducerConfig(producerId: number) {
     const producer = await this.prisma.producer.findFirst({
       where: { id: producerId, deletedAt: null },
-      select: { botName: true, botEnabled: true, staffNames: true },
+      select: { botName: true, staffNames: true },
     })
     if (!producer) throw new NotFoundException('Producer not found')
-    const lastChange = await this.prisma.botStatusChange.findFirst({
-      where: { producerId, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      select: { botEnabled: true, createdAt: true, user: { select: { email: true } } },
-    })
-    return {
-      botName: producer.botName,
-      botEnabled: producer.botEnabled,
-      staffNames: parseStaffNames(producer.staffNames),
-      // Who last flipped the switch and when, so the screen can show it.
-      lastBotStatusChange: lastChange
-        ? { botEnabled: lastChange.botEnabled, at: lastChange.createdAt, by: lastChange.user?.email ?? null }
-        : null,
-    }
+    return { botName: producer.botName, staffNames: parseStaffNames(producer.staffNames) }
   }
 
   /**
@@ -84,65 +63,35 @@ export class UsersService {
     const updated = await this.prisma.producer.update({
       where: { id: producerId },
       data,
-      select: { botName: true, botEnabled: true, staffNames: true },
+      select: { botName: true, staffNames: true },
     })
-    return {
-      botName: updated.botName,
-      botEnabled: updated.botEnabled,
-      staffNames: parseStaffNames(updated.staffNames),
-    }
+    return { botName: updated.botName, staffNames: parseStaffNames(updated.staffNames) }
   }
 
-  /**
-   * Enables/disables every automated bot response for this organization.
-   *
-   * Every real flip is recorded in BotStatusChange and announced to the owner
-   * (BotStatusAlertService): the switch used to leave no trace, and the office
-   * turned the bot off for days without anyone knowing. Setting the same state
-   * again is a no-op so a double click never produces a second audit row.
-   */
-  async setBotEnabled(producerId: number, botEnabled: boolean, actor: BotStatusActor | null = null) {
+  /** The organization's bot profile, as stored (null fields = not configured). */
+  async getBotProfile(producerId: number): Promise<BotProfile> {
     const producer = await this.prisma.producer.findFirst({
       where: { id: producerId, deletedAt: null },
-      select: { id: true, name: true, botName: true, botEnabled: true },
+      select: { botProfile: true },
+    })
+    if (!producer) throw new NotFoundException('Producer not found')
+    return parseBotProfile(producer.botProfile)
+  }
+
+  /** Changes the fields sent (an empty string clears one) and returns the whole profile. */
+  async updateBotProfile(producerId: number, changes: Partial<Record<keyof BotProfile, string>>): Promise<BotProfile> {
+    const producer = await this.prisma.producer.findFirst({
+      where: { id: producerId, deletedAt: null },
+      select: { botProfile: true },
     })
     if (!producer) throw new NotFoundException('Producer not found')
 
-    if (producer.botEnabled === botEnabled) {
-      return { botName: producer.botName, botEnabled: producer.botEnabled }
-    }
-
-    const previous = await this.prisma.botStatusChange.findFirst({
-      where: { producerId, deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      select: { createdAt: true },
+    const profile = mergeBotProfile(producer.botProfile, changes)
+    await this.prisma.producer.update({
+      where: { id: producerId },
+      data: { botProfile: profile as unknown as Prisma.InputJsonObject },
     })
-
-    const [updated, change] = await this.prisma.$transaction([
-      this.prisma.producer.update({
-        where: { id: producerId },
-        data: { botEnabled },
-        select: { botName: true, botEnabled: true },
-      }),
-      this.prisma.botStatusChange.create({
-        data: { producerId, botEnabled, userId: actor?.id ?? null },
-        select: { createdAt: true },
-      }),
-    ])
-
-    // Best-effort announcement; the switch is already persisted.
-    void this.botStatusAlerts
-      .notify({
-        producerId,
-        producerName: producer.name,
-        botEnabled,
-        actorEmail: actor?.email ?? null,
-        at: change.createdAt,
-        since: previous?.createdAt ?? null,
-      })
-      .catch(err => this.logger.warn(`Bot status alert failed: ${(err as Error).message}`))
-
-    return updated
+    return profile
   }
 
   findAll(producerId: number) {
@@ -219,8 +168,39 @@ export class UsersService {
     return { id }
   }
 
-  getProfile(userId: number) {
-    return this.prisma.user.findUnique({ where: { id: userId }, select: SAFE_SELECT })
+  /** The logged-in user, with the organization the panel shows its name for. */
+  async getProfile(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { ...SAFE_SELECT, producer: { select: { name: true, slug: true, botProfile: true, logoUrl: true } } },
+    })
+    if (!user) return null
+    const { producer, ...profile } = user
+    const brand = parseBotProfile(producer.botProfile)
+    // The office line: the active number billed to the master code. The panel
+    // opens the SuperAdmin's sections filtered by it.
+    const defaultPhoneNumber = await this.prisma.phoneNumber.findFirst({
+      where: {
+        producerId: user.producerId,
+        deletedAt: null,
+        isActive: true,
+        responsibleProducerCode: { isMaster: true },
+      },
+      orderBy: { id: 'asc' },
+      select: { id: true, number: true },
+    })
+    return {
+      ...profile,
+      organization: {
+        slug: producer.slug,
+        name: producer.name,
+        displayName: brand.orgName ?? producer.name,
+        shortName: brand.orgShortName,
+        // The organization's logo (API-relative URL), or null for its initials.
+        logoUrl: producer.logoUrl,
+        defaultPhoneNumber,
+      },
+    }
   }
 
   async updateProfile(userId: number, dto: UpdateProfileDto) {
@@ -235,6 +215,30 @@ export class UsersService {
       },
       select: SAFE_SELECT,
     })
+  }
+
+  /**
+   * A branch's code, created by the SuperAdmin from the branch onboarding. A
+   * code that was retired comes back instead of clashing with the
+   * (producerId, code) unique; the master code stays the owner's to set.
+   */
+  async createProducerCode(producerId: number, dto: CreateProducerCodeDto) {
+    const code = dto.code.trim()
+    const holderName = dto.holderName?.trim() || null
+    const select = { id: true, code: true, holderName: true, isMaster: true, isActive: true }
+    const existing = await this.prisma.producerCode.findFirst({
+      where: { producerId, code },
+      select: { id: true, deletedAt: true },
+    })
+    if (existing && !existing.deletedAt) throw new ConflictException(`El código ${code} ya existe en la organización`)
+    if (existing) {
+      return this.prisma.producerCode.update({
+        where: { id: existing.id },
+        data: { deletedAt: null, holderName, isActive: true },
+        select,
+      })
+    }
+    return this.prisma.producerCode.create({ data: { code, holderName, producerId }, select })
   }
 
   /** All producer codes of the organization — for the user-management UI. */

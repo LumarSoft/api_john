@@ -31,14 +31,15 @@ function todayInArgentina(now: Date): string {
 }
 
 /**
- * Loads Argentina's national holidays as closures of every active organization,
+ * Loads Argentina's national holidays as closures of every number of every
+ * active organization (each branch closes on its own: one may open on a holiday),
  * so the bot says "hoy estamos cerrados" and promises the right reopening day
  * without anyone typing them in. The calendar comes from argentinadatos.com,
  * which mirrors the official one (argentina.gob.ar/feriados) and picks up new
  * decrees, like the 2026 papal visit.
  *
- * A holiday closure an admin deleted (the office opens that day) is still in
- * the table, so it is not created again. And an upcoming holiday that is no
+ * A holiday closure an admin deleted (that number opens that day) is still in
+ * the table, so it is not created again for it. And an upcoming holiday that is no
  * longer in its year's calendar (the government moved it) is removed, but only
  * when that calendar was actually fetched.
  */
@@ -65,8 +66,9 @@ export class HolidaySyncService implements OnApplicationBootstrap {
     void this.sync().catch(error => this.logger.error(`Holiday sync failed: ${(error as Error).message}`))
   }
 
-  // Weekly is plenty: holidays are decreed weeks or months ahead.
-  @Cron('0 5 * * 1', { timeZone: BUSINESS_TZ })
+  // Daily: holidays are decreed weeks ahead, but a number connected today must
+  // not wait a week for its own.
+  @Cron('0 5 * * *', { timeZone: BUSINESS_TZ })
   async scheduledSync(): Promise<void> {
     if (!this.enabled) return
     await this.sync().catch(error => this.logger.error(`Holiday sync failed: ${(error as Error).message}`))
@@ -82,30 +84,31 @@ export class HolidaySyncService implements OnApplicationBootstrap {
       .flatMap(calendar => calendar ?? [])
       .filter(h => h.fecha >= today && this.types.includes(h.tipo))
 
-    const producers = await this.prisma.producer.findMany({
-      where: { deletedAt: null, isActive: true },
-      select: { id: true },
+    const numbers = await this.prisma.phoneNumber.findMany({
+      where: { deletedAt: null, producer: { deletedAt: null, isActive: true } },
+      select: { id: true, producerId: true },
     })
-    if (producers.length === 0 || fetchedYears.length === 0) return { created: 0, removed: 0 }
+    if (numbers.length === 0 || fetchedYears.length === 0) return { created: 0, removed: 0 }
 
     const removed = await this.removeMoved(holidays, fetchedYears, today)
 
-    // Deleted rows included on purpose: they are holidays an admin chose to open on.
+    // Deleted rows included on purpose: they are holidays a number chose to open on.
     const existing = await this.prisma.businessClosure.findMany({
       where: {
         source: HOLIDAY_SOURCE,
-        producerId: { in: producers.map(p => p.id) },
+        phoneNumberId: { in: numbers.map(n => n.id) },
         startDate: { gte: new Date(`${today}T00:00:00Z`) },
       },
-      select: { producerId: true, startDate: true },
+      select: { phoneNumberId: true, startDate: true },
     })
-    const loaded = new Set(existing.map(c => `${c.producerId}|${c.startDate.toISOString().slice(0, 10)}`))
+    const loaded = new Set(existing.map(c => `${c.phoneNumberId}|${c.startDate.toISOString().slice(0, 10)}`))
 
-    const data = producers.flatMap(producer =>
+    const data = numbers.flatMap(number =>
       holidays
-        .filter(h => !loaded.has(`${producer.id}|${h.fecha}`))
+        .filter(h => !loaded.has(`${number.id}|${h.fecha}`))
         .map(h => ({
-          producerId: producer.id,
+          producerId: number.producerId,
+          phoneNumberId: number.id,
           startDate: new Date(`${h.fecha}T00:00:00Z`),
           endDate: new Date(`${h.fecha}T00:00:00Z`),
           reason: `feriado nacional: ${h.nombre}`.slice(0, 160),
@@ -115,7 +118,7 @@ export class HolidaySyncService implements OnApplicationBootstrap {
     if (data.length === 0) return { created: 0, removed }
 
     const { count } = await this.prisma.businessClosure.createMany({ data })
-    this.logger.log(`Loaded ${count} national holiday closure(s) for ${producers.length} organization(s)`)
+    this.logger.log(`Loaded ${count} national holiday closure(s) for ${numbers.length} number(s)`)
     return { created: count, removed }
   }
 

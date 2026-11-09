@@ -93,7 +93,7 @@ export class SiniestrosService {
       select: SINIESTRO_SELECT,
     })
 
-    await this.notifyAdvisor(siniestro.id, clientId, dto, poliza, adjuntos.length)
+    await this.notifyAdvisor(siniestro.id, clientId, producerId, dto, poliza, adjuntos.length)
 
     const cliente = await this.prisma.client.findUnique({
       where: { id: clientId },
@@ -226,6 +226,7 @@ export class SiniestrosService {
   private async notifyAdvisor(
     siniestroId: number,
     clientId: number,
+    producerId: number,
     dto: CreateSiniestroDto,
     poliza: { certificateNumber: string; company: string },
     adjuntosCount: number,
@@ -238,6 +239,7 @@ export class SiniestrosService {
 
     await this.mail.sendSiniestroNotification({
       siniestroId,
+      producerId,
       tipo: dto.type,
       descripcion: dto.description,
       fecha: new Date(dto.occurredAt),
