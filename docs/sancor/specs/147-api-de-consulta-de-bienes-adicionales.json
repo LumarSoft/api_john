@@ -1,0 +1,462 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Api de Consulta de bienes Adicionales",
+    "x-ibm-name": "aditionals",
+    "version": "1.0.0",
+    "description": "Servicio de parametría para consulta de bienes adicionales para cotizar ramo Combinado Familiar, producto Hogar Protegido",
+    "x-ibm-summary": ""
+  },
+  "schemes": [
+    "https"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "securityDefinitions": {
+    "clientIdHeader": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-IBM-Client-Id"
+    }
+  },
+  "x-ibm-configuration": {
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "cors": {
+      "enabled": true
+    },
+    "application-authentication": {
+      "certificate": false
+    },
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "definitions": {
+    "AditionalsResponse200": {
+      "title": "Root Type for AditionalsResponse200",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "additionalOptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inputParameter": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "inputParameterDescription": {
+                "type": "string"
+              },
+              "optionCode": {
+                "format": "int32",
+                "type": "integer"
+              },
+              "optionName": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "paging": {
+          "type": "object",
+          "properties": {
+            "offset": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "limit": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "total": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "additionalOptions": [
+          {
+            "inputParameter": 1,
+            "inputParameterDescription": "Equipos Electrónicos-PC",
+            "optionCode": 1,
+            "optionName": "Opción 1 - $ 25.000"
+          },
+          {
+            "inputParameter": 1,
+            "inputParameterDescription": "Equipos Electrónicos-PC",
+            "optionCode": 2,
+            "optionName": "Opción 2 - $ 35.000"
+          },
+          {
+            "inputParameter": 1,
+            "inputParameterDescription": "Equipos Electrónicos-PC",
+            "optionCode": 3,
+            "optionName": "Opción 3 - $ 45.000"
+          },
+          {
+            "inputParameter": 2,
+            "inputParameterDescription": "Terremoto edificio y contenido",
+            "optionCode": 0,
+            "optionName": []
+          },
+          {
+            "inputParameter": 4,
+            "inputParameterDescription": "Notebooks",
+            "optionCode": 1,
+            "optionName": "Opción 1 - $ 35.000"
+          },
+          {
+            "inputParameter": 4,
+            "inputParameterDescription": "Notebooks",
+            "optionCode": 2,
+            "optionName": "Opción 2 - $ 45.000"
+          },
+          {
+            "inputParameter": 4,
+            "inputParameterDescription": "Notebooks",
+            "optionCode": 3,
+            "optionName": "Opción 3 - $ 55.000"
+          },
+          {
+            "inputParameter": 4,
+            "inputParameterDescription": "Notebooks",
+            "optionCode": 4,
+            "optionName": "Opción 4 - $ 75.000"
+          },
+          {
+            "inputParameter": 5,
+            "inputParameterDescription": "Cobertura Integral para Plasmas y LCD",
+            "optionCode": 1,
+            "optionName": "Opción 1 - $ 25.000"
+          },
+          {
+            "inputParameter": 5,
+            "inputParameterDescription": "Cobertura Integral para Plasmas y LCD",
+            "optionCode": 2,
+            "optionName": "Opción 2 - $ 40.000"
+          },
+          {
+            "inputParameter": 5,
+            "inputParameterDescription": "Cobertura Integral para Plasmas y LCD",
+            "optionCode": 3,
+            "optionName": "Opción 3 - $ 50.000"
+          },
+          {
+            "inputParameter": 5,
+            "inputParameterDescription": "Cobertura Integral para Plasmas y LCD",
+            "optionCode": 4,
+            "optionName": "Opción 4 - $ 60.000"
+          },
+          {
+            "inputParameter": 6,
+            "inputParameterDescription": "Consolas de video juego",
+            "optionCode": 1,
+            "optionName": "Opción 1 - $ 20.000"
+          },
+          {
+            "inputParameter": 6,
+            "inputParameterDescription": "Consolas de video juego",
+            "optionCode": 2,
+            "optionName": "Opción 2 - $ 35.000"
+          },
+          {
+            "inputParameter": 6,
+            "inputParameterDescription": "Consolas de video juego",
+            "optionCode": 3,
+            "optionName": "Opción 3 - $ 45.000"
+          },
+          {
+            "inputParameter": 7,
+            "inputParameterDescription": "Tablets",
+            "optionCode": 1,
+            "optionName": "Opción 1 - $ 15.000"
+          },
+          {
+            "inputParameter": 7,
+            "inputParameterDescription": "Tablets",
+            "optionCode": 2,
+            "optionName": "Opción 2 - $ 20.000"
+          },
+          {
+            "inputParameter": 7,
+            "inputParameterDescription": "Tablets",
+            "optionCode": 3,
+            "optionName": "Opción 3 - $ 25.000"
+          }
+        ],
+        "paging": {
+          "offset": 1,
+          "limit": 1,
+          "total": 1
+        },
+        "messages": [
+          {
+            "status": "",
+            "help": ""
+          }
+        ]
+      }
+    },
+    "AditionalsError": {
+      "title": "Root Type for AditionalsError",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "messages": [
+          {
+            "status": "",
+            "code": "GSS-HttpErrorCode-001",
+            "text": "Texto de error",
+            "help": "Ayuda sobre el error."
+          }
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/familyCombined/additionals": {
+      "get": {
+        "parameters": [
+          {
+            "name": "startEffectiveDate",
+            "description": "fecha de efecto.",
+            "in": "query",
+            "required": true,
+            "type": "string",
+            "format": "date-time"
+          },
+          {
+            "name": "coveragesModule",
+            "description": "codigo de modulo",
+            "in": "query",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "productCode",
+            "description": "codigo de producto",
+            "in": "query",
+            "required": true,
+            "type": "integer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response OK",
+            "schema": {
+              "$ref": "#/definitions/AditionalsResponse200"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "",
+                    "code": "GSS-200-002",
+                    "text": "Ejecución exitosa.",
+                    "help": ""
+                  }
+                ]
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/AditionalsError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "400",
+                    "code": "GSS-400-002",
+                    "text": "Error de esquema.",
+                    "help": "Parámetros de entrada inválidos/mal escritos."
+                  }
+                ]
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/AditionalsError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "401",
+                    "code": "GSS-401-001",
+                    "text": "No podemos procesar su pedido.",
+                    "help": "Por favor le pedimos que vuelva a intentar. O póngase en contacto con nosotros así podemos ayudarlo."
+                  }
+                ]
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/AditionalsError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "403",
+                    "code": "GSS-403-001",
+                    "text": "No podemos procesar su pedido.",
+                    "help": "Por favor le pedimos que vuelva a intentar. O póngase en contacto con nosotros así podemos ayudarlo."
+                  }
+                ]
+              }
+            }
+          },
+          "415": {
+            "description": "Error de esquema",
+            "schema": {
+              "$ref": "#/definitions/AditionalsError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "415",
+                    "code": "GSS-415-001",
+                    "text": "Error de esquema.",
+                    "help": "Faltan parámetros de entrada obligatorios."
+                  }
+                ]
+              }
+            }
+          },
+          "422": {
+            "description": "Error de esquema",
+            "schema": {
+              "$ref": "#/definitions/AditionalsError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "422",
+                    "code": "GSS-422-002",
+                    "text": "Error de esquema.",
+                    "help": "Parámetros de entrada con valores incorrectos."
+                  }
+                ]
+              }
+            }
+          },
+          "500": {
+            "description": "No podemos procesar su pedido",
+            "schema": {
+              "$ref": "#/definitions/AditionalsError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "500",
+                    "code": "GSS-500-003",
+                    "text": "No podemos procesar su pedido.",
+                    "help": "Por favor le pedimos que vuelva a intentar. O póngase en contacto con nosotros así podemos ayudarlo."
+                  }
+                ]
+              }
+            }
+          },
+          "504": {
+            "description": "No podemos procesar su pedido",
+            "schema": {
+              "$ref": "#/definitions/AditionalsError"
+            },
+            "examples": {
+              "application/json": {
+                "messages": [
+                  {
+                    "status": "504",
+                    "code": "GSS-504-003",
+                    "text": "No podemos procesar su pedido.",
+                    "help": "Por favor le pedimos que vuelva a intentar. O póngase en contacto con nosotros así podemos ayudarlo."
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ]
+      },
+      "parameters": [
+        {
+          "name": "Authorization",
+          "in": "header",
+          "required": true,
+          "description": "Bearer Token",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "host": "external-pre-api.gruposancorseguros.com",
+  "basePath": "/apissa/pre-catalog"
+}

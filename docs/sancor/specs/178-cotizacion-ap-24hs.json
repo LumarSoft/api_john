@@ -1,0 +1,543 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Cotización AP 24hs",
+    "version": "1.0.0",
+    "description": "Servicio de cotización Accidentes Personales/AP24hs.",
+    "x-ibm-name": "personal-accident-ap24-modulate",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/quotations/personalAccident/AP24Modulate": {
+      "post": {
+        "operationId": "quoteAP24Modulate",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponse"
+            }
+          },
+          "204": {
+            "description": "No Content",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponseError"
+            }
+          },
+          "401": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponseError"
+            }
+          },
+          "403": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponseError"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponseError"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponseError"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponseError"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/AP24ModulateResponseError"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "Obtener cotizacion de automotor",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/AP24Modulate"
+            },
+            "description": "vehicleQuotation",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "AP24Modulate": {
+      "title": "AP24Modulate",
+      "description": "cotizar AP24",
+      "type": "object",
+      "properties": {
+        "policyTypeId": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Tipo de póliza",
+          "enum": [
+            "1 Indivual",
+            "2 Colectiva"
+          ],
+          "example": 1
+        },
+        "locationRisk": {
+          "type": "object",
+          "description": "Direccion de Cliente",
+          "properties": {
+            "cityId": {
+              "type": "integer",
+              "description": "Codigo de ciudad.",
+              "example": 1496
+            },
+            "zipCode": {
+              "type": "integer",
+              "description": "Codigo postal",
+              "example": 2322
+            }
+          }
+        },
+        "clientIdentify": {
+          "type": "object",
+          "description": "Datos de cliente",
+          "properties": {
+            "documentNumber": {
+              "type": "integer",
+              "description": "Numero Documento",
+              "example": 42055099
+            },
+            "documentType": {
+              "type": "string",
+              "description": "Tipo documento",
+              "example": "D",
+              "enum": [
+                "D - DNI",
+                "C - LC",
+                "L - LE",
+                "I - CI",
+                "J - CUIT"
+              ]
+            }
+          }
+        },
+        "offeringCode": {
+          "type": "integer",
+          "example": 32,
+          "description": "Código del módulo de portada"
+        },
+        "startEffectiveDate": {
+          "type": "string",
+          "format": "date-time",
+          "example": "2025-02-20T00:00:00.596Z",
+          "description": "fecha de efecto"
+        },
+        "endEffectiveDate": {
+          "type": "string",
+          "format": "date-time",
+          "example": "2026-02-20T00:00:00.596Z",
+          "description": "fecha de expiración"
+        },
+        "organizerNumber": {
+          "type": "integer",
+          "example": 100025,
+          "description": "Codigo del organizador"
+        },
+        "producerNumber": {
+          "type": "integer",
+          "example": 203953,
+          "description": "Codigo del productor"
+        },
+        "periodOfValidityId": {
+          "type": "integer",
+          "example": 1,
+          "description": "ID de perdiodo de vigencia"
+        },
+        "feeId": {
+          "type": "integer",
+          "example": 12,
+          "description": "Cantidad de cuotas"
+        },
+        "respectClientIvaCondition": {
+          "type": "boolean",
+          "example": false,
+          "description": "respetar Condición Iva Cliente"
+        },
+        "sealExemptActivity": {
+          "type": "boolean",
+          "example": false,
+          "description": "sellar Actividad Exenta"
+        },
+        "statisticCodeIds": {
+          "type": "integer",
+          "example": 0,
+          "description": "código estadístico"
+        },
+        "personInsured": {
+          "type": "object",
+          "properties": {
+            "rank": {
+              "type": "object",
+              "description": "coberturas",
+              "properties": {
+                "rank16To70": {
+                  "type": "object",
+                  "properties": {
+                    "selected": {
+                      "type": "boolean"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "example": 1,
+                      "description": "1 individual o 2 matrimonial"
+                    },
+                    "deathCoverAmount": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "value": {
+                          "type": "integer",
+                          "example": 8000000
+                        }
+                      }
+                    }
+                  }
+                },
+                "rank71To75": {
+                  "type": "object",
+                  "properties": {
+                    "selected": {
+                      "type": "boolean"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "example": 1,
+                      "description": "1 individual o 2 matrimonial"
+                    },
+                    "deathCoverAmount": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "value": {
+                          "type": "integer",
+                          "example": 1500000
+                        }
+                      }
+                    }
+                  }
+                },
+                "rank76To800": {
+                  "type": "object",
+                  "properties": {
+                    "selected": {
+                      "type": "boolean"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "example": 1,
+                      "description": "1 individual o 2 matrimonial"
+                    },
+                    "deathCoverAmount": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "integer",
+                          "example": 1
+                        },
+                        "value": {
+                          "type": "integer",
+                          "example": 1500000
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "discountCustomizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "personalizaciones de descuento",
+            "properties": {
+              "discountNumber": {
+                "type": "integer",
+                "description": "Número de descuento"
+              },
+              "rate": {
+                "type": "number",
+                "format": "float",
+                "description": "tasa"
+              }
+            }
+          }
+        }
+      }
+    },
+    "AP24ModulateResponse": {
+      "type": "object",
+      "properties": {
+        "AP24Modulate": {
+          "type": "object",
+          "properties": {
+            "relationQuotationId": {
+              "type": "integer"
+            },
+            "rank16To70": {
+              "$ref": "#/definitions/RankRespType"
+            },
+            "rank71To75": {
+              "$ref": "#/definitions/RankRespType"
+            },
+            "rank76To800": {
+              "$ref": "#/definitions/RankRespType"
+            }
+          }
+        }
+      }
+    },
+    "RankRespType": {
+      "type": "object",
+      "properties": {
+        "basesImponibles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Bases imponibles",
+            "properties": {
+              "ivaMensual": {
+                "type": "number",
+                "format": "float",
+                "description": "IVA mensual"
+              },
+              "ivaSegunVigencia": {
+                "type": "number",
+                "format": "float",
+                "description": "IVA segun vigencia"
+              }
+            }
+          }
+        },
+        "finallyCalculationResult": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Resultado del cálculo final",
+            "properties": {
+              "capital": {
+                "type": "number",
+                "format": "float",
+                "description": "Capital"
+              },
+              "descripcion": {
+                "type": "string",
+                "description": "Descripción"
+              },
+              "detalle": {
+                "type": "string",
+                "description": "Detalle"
+              },
+              "detalleInt": {
+                "type": "integer",
+                "description": "Id del detalle"
+              },
+              "primaMensual": {
+                "type": "number",
+                "format": "float",
+                "description": "Prima mensual"
+              },
+              "primaSegunVigencia": {
+                "type": "number",
+                "format": "float",
+                "description": "Prima según la vigencia"
+              },
+              "tipoDetalle": {
+                "type": "string",
+                "description": "Tipo de detalle"
+              }
+            }
+          }
+        },
+        "premioMensual": {
+          "type": "number",
+          "format": "float",
+          "description": "Premio Mensual"
+        },
+        "premioSegunVigencia": {
+          "type": "number",
+          "format": "float",
+          "description": "Premio segun vigencia"
+        },
+        "pricingId": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Id de precios",
+            "properties": {
+              "keyValuePairOflonglong": {
+                "type": "object",
+                "description": "Valor Clave",
+                "properties": {
+                  "key": {
+                    "type": "number",
+                    "description": "Clave"
+                  },
+                  "value": {
+                    "type": "number",
+                    "description": "Valor"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "quotationId": {
+          "type": "number",
+          "description": "Id de cotización"
+        },
+        "success": {
+          "type": "boolean",
+          "description": "Exitoso"
+        },
+        "validationResults": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Resultado de validación",
+            "properties": {
+              "errorMessage": {
+                "type": "string",
+                "description": "Mensaje de error"
+              },
+              "level": {
+                "type": "string",
+                "description": "Nivel"
+              },
+              "memberNames": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "AP24ModulateResponseError": {
+      "title": "Root Type for AP24ModulateResponseError",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "messages": [
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          },
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          }
+        ]
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "x-ibm-configuration": {
+    "cors": {
+      "enabled": true
+    },
+    "phase": "realized",
+    "enforced": true,
+    "type": "rest",
+    "testable": true,
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "security": [
+    {
+      "clientIdHeader": []
+    }
+  ],
+  "securityDefinitions": {
+    "clientIdHeader": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "basePath": "/apissa/pre-catalog"
+}

@@ -1,0 +1,92 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "version": "1.0.0",
+    "title": "Api de Consultas coberturas C.F. Premium",
+    "x-ibm-name": "api-consultas-coberturas-c.f.-premium",
+    "description": "",
+    "x-ibm-summary": ""
+  },
+  "basePath": "/apissa/pre-catalog",
+  "x-ibm-configuration": {
+    "cors": {
+      "enabled": true
+    },
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "paths": {
+    "/covers/familycombined/premium": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "covers": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ]
+      },
+      "parameters": [
+        {
+          "name": "sumaAsegurada",
+          "in": "query",
+          "type": "integer"
+        },
+        {
+          "name": "amparo",
+          "in": "query",
+          "type": "integer",
+          "required": true
+        }
+      ]
+    }
+  },
+  "securityDefinitions": {
+    "gss_apiclient_id": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "security": [
+    {
+      "gss_apiclient_id": []
+    }
+  ],
+  "host": "external-pre-api.gruposancorseguros.com"
+}

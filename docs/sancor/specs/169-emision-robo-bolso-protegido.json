@@ -1,0 +1,536 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Emisión Robo Bolso Protegido",
+    "x-ibm-name": "theft-protectedbag-issuance",
+    "description": "Servicio para emitir pólizas del ramo Robo Bolso",
+    "version": "1.0.0",
+    "x-ibm-summary": ""
+  },
+  "x-ibm-configuration": {
+    "cors": {
+      "enabled": true
+    },
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "paths": {
+    "/theft/protectedbag/issuance/single": {
+      "post": {
+        "operationId": "Emite pólizas del ramo Robo Bolso",
+        "responses": {
+          "200": {
+            "description": "Poliza Emitida.",
+            "schema": {
+              "$ref": "#/definitions/ProtectedBagQuotationResponse"
+            }
+          },
+          "400": {
+            "description": "Parametros de entrada invalidos/mal escritos.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "401": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "403": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "415": {
+            "description": "Faltan parametros de entrada obligatorios.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "422": {
+            "description": "Parametros de entrada con valores incorrectos.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "500": {
+            "description": "No response from Backend",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Message"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "Authorization",
+            "required": true,
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "required": true,
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ProtectedBagRequest"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "ProtectedBagRequest": {
+      "type": "object",
+      "properties": {
+        "producerNumber": {
+          "type": "integer",
+          "description": "Nro. de Productor"
+        },
+        "organizerNumber": {
+          "type": "integer",
+          "description": "Nro. de Organizador"
+        },
+        "statisticCodeIds": {
+          "type": "integer",
+          "description": "Cód. / Grupo Estadístico",
+          "example": 2166
+        },
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "startEffectiveDate": {
+              "type": "string",
+              "description": "Vigencia Desde (YYYY-MM-DD)"
+            },
+            "endEffectiveDate": {
+              "type": "string",
+              "description": "Vigencia Hasta (YYYY-MM-DD)"
+            },
+            "locationRisk": {
+              "type": "object",
+              "description": "Direccion de Riesgo",
+              "properties": {
+                "cityId": {
+                  "type": "integer",
+                  "description": "código de Ciudad",
+                  "example": 3000
+                },
+                "zipCode": {
+                  "type": "integer",
+                  "description": "código Postal",
+                  "example": 1000
+                },
+                "street": {
+                  "type": "string",
+                  "description": "Nombre de la calle"
+                }
+              },
+              "required": [
+                "cityId",
+                "zipCode"
+              ]
+            },
+            "clients": {
+              "type": "object",
+              "description": "Datos del Cliente Asegurado",
+              "properties": {
+                "documentType": {
+                  "type": "string",
+                  "description": "Tipo de Documento",
+                  "example": "D",
+                  "enum": [
+                    "D - DNI",
+                    "C - LC",
+                    "L - LE",
+                    "I - CI",
+                    "J - CUIT"
+                  ]
+                },
+                "documentNumber": {
+                  "type": "integer",
+                  "description": "numero de DNI/CUIT/CI/LE/LC"
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Nombre/s del Cliente"
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del Cliente"
+                },
+                "genderId": {
+                  "type": "integer",
+                  "description": "Género del Cliente",
+                  "example": 1,
+                  "enum": [
+                    "1 Masculino",
+                    "2 Femenino",
+                    "3 No binario"
+                  ]
+                },
+                "birthDate": {
+                  "description": "Fecha de Nacimiento"
+                },
+                "locationData": {
+                  "type": "object",
+                  "description": "Dirección actual",
+                  "properties": {
+                    "cityId": {
+                      "type": "integer",
+                      "description": "Codigo de Ciudad",
+                      "example": 30001
+                    },
+                    "zipCode": {
+                      "type": "integer",
+                      "description": "Codigo Postal",
+                      "example": 1000
+                    },
+                    "street": {
+                      "type": "string",
+                      "description": "Nombre de la calle"
+                    }
+                  },
+                  "required": [
+                    "cityId",
+                    "zipCode"
+                  ]
+                },
+                "email": {
+                  "type": "string",
+                  "description": "Dirección de e-mail"
+                },
+                "areaCode": {
+                  "type": "integer",
+                  "description": "Cód. de Área (Teléfono)",
+                  "example": 54
+                },
+                "phoneNumber": {
+                  "type": "integer",
+                  "description": "Nro. de Teléfono",
+                  "example": 56473892
+                },
+                "key": {
+                  "type": "integer",
+                  "description": "Rol Cliente (2- Asegurado)"
+                }
+              },
+              "required": [
+                "documentType",
+                "documentNumber",
+                "firstName",
+                "lastName",
+                "genderId",
+                "birthDate",
+                "locationData",
+                "email",
+                "areaCode",
+                "phoneNumber"
+              ]
+            },
+            "offeringCode": {
+              "type": "string",
+              "description": "Modulo cobertura (consultar Servicio de Modulos)",
+              "example": 4
+            },
+            "paymentMethodCode": {
+              "type": "integer",
+              "example": 1,
+              "enum": [
+                "0 Efectivo",
+                "1 Cuenta Bancaria",
+                "2 Tarjeta de Credito",
+                "4 Cuenta Bancaria",
+                "5 Pago Virtual"
+              ],
+              "description": "Tipo de pago"
+            },
+            "debitData": {
+              "type": "object",
+              "description": "Método de pago",
+              "properties": {
+                "cbuAccount": {
+                  "type": "string",
+                  "description": "Número de CBU (Enviar solo si el tipo de pago fue 4)"
+                },
+                "creditCardToValidityDate": {
+                  "type": "string",
+                  "description": "Fecha de Expiración de tarjeta de credito (YYYY/MM)"
+                },
+                "creditCardBrandCode": {
+                  "type": "string",
+                  "description": "Cod. Marca de la Tarjeta de Credito"
+                },
+                "creditCardNumber": {
+                  "type": "string",
+                  "description": "Nro. de la Tarjeta de Credito"
+                },
+                "email": {
+                  "type": "string",
+                  "description": "email del cliente (Se usa solo en Pago Virtual)"
+                },
+                "recurrencyId": {
+                  "type": "integer",
+                  "description": "recurrencia (Se usa solo en Pago Virtual)"
+                },
+                "payments": {
+                  "type": "object",
+                  "description": "detalle de pago (Se usa solo en Pago Virtual)",
+                  "properties": {
+                    "amount": {
+                      "type": "integer",
+                      "description": "monto total"
+                    },
+                    "paymentTransactionID": {
+                      "type": "integer",
+                      "description": "numero de transaccion"
+                    },
+                    "customerId": {
+                      "type": "string",
+                      "description": "numero de ticket"
+                    },
+                    "cardId": {
+                      "type": "integer",
+                      "description": "numero de tarjeta"
+                    },
+                    "paymentMethodId": {
+                      "type": "integer",
+                      "description": "id de Pago"
+                    }
+                  }
+                }
+              }
+            },
+            "electronicDispatchInformation": {
+              "type": "object",
+              "description": "Despacho electronico",
+              "properties": {
+                "electronicDispatchEmail": {
+                  "type": "string",
+                  "description": "Direccion de correo"
+                },
+                "sms": {
+                  "type": "object",
+                  "description": "SMS de adhesión",
+                  "properties": {
+                    "codigoArea": {
+                      "type": "integer",
+                      "description": "código de área",
+                      "example": 54
+                    },
+                    "nroTelefono": {
+                      "type": "integer",
+                      "description": "número de telefono",
+                      "example": 432569384
+                    }
+                  }
+                },
+                "whatsapp": {
+                  "type": "object",
+                  "description": "whatsapp de adhesión",
+                  "properties": {
+                    "codigoArea": {
+                      "type": "integer",
+                      "description": "código de área",
+                      "example": 54
+                    },
+                    "nroTelefono": {
+                      "type": "integer",
+                      "description": "número de telefono",
+                      "example": 1543874920
+                    }
+                  }
+                }
+              },
+              "required": [
+                "electronicDispatchEmail"
+              ]
+            },
+            "quotation": {
+              "type": "object",
+              "description": "Relacion cotizacion",
+              "properties": {
+                "pricingIds": {
+                  "type": "object",
+                  "description": "Id cotizacion",
+                  "properties": {
+                    "long": {
+                      "type": "integer",
+                      "example": 78432900
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "startEffectiveDate",
+            "locationRisk",
+            "clients",
+            "coverModule",
+            "paymentMethod",
+            "electronicDispatchInformation"
+          ]
+        }
+      },
+      "required": [
+        "certificateData",
+        "producerNumber",
+        "organizerNumber"
+      ]
+    },
+    "ProtectedBagQuotationResponse": {
+      "type": "object",
+      "properties": {
+        "paging": {
+          "type": "object",
+          "properties": {
+            "offset": {
+              "type": "integer"
+            },
+            "limit": {
+              "type": "integer",
+              "format": ""
+            },
+            "total": {
+              "type": "integer"
+            }
+          }
+        },
+        "messages": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "help": {
+              "type": "string"
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "branchOfficeNumber": {
+              "type": "integer"
+            },
+            "certificateNumber": {
+              "type": "integer"
+            },
+            "managementNumber": {
+              "type": "string"
+            },
+            "managementStatusName": {
+              "type": "string"
+            },
+            "officialNumber": {
+              "type": "integer"
+            },
+            "receipt": {
+              "type": "object",
+              "properties": {
+                "detail": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "receiptDescription": {
+                        "type": "string"
+                      },
+                      "issueTransactionPremium": {
+                        "type": "integer",
+                        "format": "decimal"
+                      },
+                      "quotaAmount": {
+                        "type": "integer",
+                        "format": "decimal"
+                      }
+                    }
+                  }
+                },
+                "receiptNumber": {
+                  "type": "integer"
+                }
+              }
+            },
+            "referenceNumber": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      },
+      "example": {
+        "status": "",
+        "code": "GSS-422-002",
+        "text": "Error de esquema",
+        "help": "Parámetros de entrada con valores incorrectos"
+      }
+    }
+  },
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ],
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "basePath": "/apissa/pre-catalog"
+}

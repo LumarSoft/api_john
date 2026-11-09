@@ -1,0 +1,398 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Cotización Combinado Familiar Hogar Protegido",
+    "x-ibm-name": "family-combined-home-protected-quotation",
+    "version": "1.0.0",
+    "description": "Servicio de cotización del combinado familiar hogar protegido",
+    "x-ibm-summary": ""
+  },
+  "schemes": [
+    "https"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "security": [
+    {
+      "clientIdHeader": []
+    }
+  ],
+  "securityDefinitions": {
+    "clientIdHeader": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "x-ibm-configuration": {
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "cors": {
+      "enabled": true
+    },
+    "application-authentication": {
+      "certificate": false
+    },
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "definitions": {
+    "QuotationResponseError": {
+      "title": "Root Type for QuotationResponseError",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "messages": [
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          },
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          }
+        ]
+      }
+    },
+    "QuotationRequest": {
+      "description": "Cotizar poliza Combinado Familiar",
+      "type": "object",
+      "properties": {
+        "producerNumber": {
+          "type": "integer",
+          "description": "Nro. de Productor",
+          "example": 234509
+        },
+        "organizerNumber": {
+          "type": "integer",
+          "description": "Nro. de Organizador",
+          "example": 101518
+        },
+        "statisticCodeIds": {
+          "type": "integer",
+          "description": "Cód. / Grupo Estadístico",
+          "example": 2345
+        },
+        "startEffectiveDate": {
+          "type": "string",
+          "description": "Fecha de inicio vigencia.",
+          "example": "2024-10-19"
+        },
+        "locationRisk": {
+          "type": "object",
+          "properties": {
+            "cityId": {
+              "type": "integer",
+              "description": "Id de ciudad"
+            },
+            "zipCode": {
+              "type": "integer",
+              "description": "Código postal"
+            }
+          },
+          "description": "Datos localidad."
+        },
+        "offeringCode": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "example": 4,
+            "description": "Módulo de cobertura"
+          }
+        },
+        "aditionals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "format": "int32",
+                "type": "integer",
+                "description": "Codigo del adicional"
+              },
+              "option": {
+                "format": "int32",
+                "type": "integer",
+                "description": "Opcion de Capital"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "organizerNumber": 100202,
+        "producerNumber": 234222,
+        "statisticCodeIds": 233,
+        "startEffectiveDate": "2022-10-27",
+        "locationRisk": {
+          "cityId": 1234,
+          "zipCode": 2300,
+          "street": "prueba"
+        },
+        "offeringCode": [],
+        "aditionals": [
+          {
+            "id": 1,
+            "option": 3
+          }
+        ]
+      }
+    },
+    "QuotationResponse200": {
+      "title": "Root Type for QuotationResponse200",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "protectedHome": {
+          "type": "object",
+          "properties": {
+            "quotation": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "format": "int32",
+                  "type": "integer",
+                  "description": "Id cotizacion"
+                },
+                "currency": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "format": "int32",
+                      "type": "integer"
+                    },
+                    "description": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "plans": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "coveragesModules": {
+                        "format": "int32",
+                        "type": "integer"
+                      },
+                      "taxbases": {
+                        "type": "array",
+                        "items": []
+                      },
+                      "coverageValues": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "capital": {
+                              "format": "int32",
+                              "type": "integer",
+                              "description": "Capital cotizado"
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "Descripcion cobertura"
+                            },
+                            "detail": {
+                              "type": "string",
+                              "description": "Detalle Cobertura"
+                            },
+                            "coverId": {
+                              "format": "int32",
+                              "type": "integer",
+                              "description": "Codigo Interno Cobertura"
+                            },
+                            "monthlyPremium": {
+                              "format": "double",
+                              "type": "number",
+                              "description": "Prima mensual"
+                            },
+                            "premiomToValidity": {
+                              "format": "double",
+                              "type": "number",
+                              "description": "Prima segun vigencia"
+                            },
+                            "detailType": {
+                              "type": "string",
+                              "description": "Tipo de Cobertura"
+                            }
+                          }
+                        }
+                      },
+                      "premioMensual": {
+                        "type": "number"
+                      },
+                      "premioSegunVigencia": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "protectedHome": {
+          "quotation": {
+            "id": 1234555,
+            "currency": {
+              "id": 1,
+              "description": "ARS"
+            },
+            "plans": [
+              {
+                "module": 40,
+                "taxbases": [
+                  []
+                ],
+                "coverageValues": [
+                  {
+                    "capital": 3434,
+                    "description": "Aparatos Electrodomésticos",
+                    "detail": "Prima",
+                    "coverId": 10,
+                    "monthlyPremium": 45.4,
+                    "premiomToValidity": 486.87,
+                    "detailType": "Cobertura"
+                  },
+                  {
+                    "capital": 3434,
+                    "description": "Aparatos Electrodomésticos",
+                    "detail": "Prima",
+                    "coverId": 10,
+                    "monthlyPremium": 45.4,
+                    "premiomToValidity": 486.87,
+                    "detailType": "Cobertura"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/quotations/familyCombined/homeProtected": {
+      "post": {
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/QuotationRequest"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "schema": {
+              "$ref": "#/definitions/QuotationResponse200"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/QuotationResponseError"
+            }
+          },
+          "401": {
+            "description": "Auth Missing",
+            "schema": {
+              "$ref": "#/definitions/QuotationResponseError"
+            }
+          },
+          "403": {
+            "description": "Sin permisos",
+            "schema": {
+              "$ref": "#/definitions/QuotationResponseError"
+            }
+          },
+          "415": {
+            "description": "Faltan valores obligatorios",
+            "schema": {
+              "$ref": "#/definitions/QuotationResponseError"
+            }
+          },
+          "422": {
+            "description": "Valores incorrectos",
+            "schema": {
+              "$ref": "#/definitions/QuotationResponseError"
+            }
+          },
+          "500": {
+            "description": "Error interno no manejado",
+            "schema": {
+              "$ref": "#/definitions/QuotationResponseError"
+            }
+          },
+          "504": {
+            "description": "Time out",
+            "schema": {
+              "$ref": "#/definitions/QuotationResponseError"
+            }
+          }
+        },
+        "summary": "quotation"
+      }
+    }
+  },
+  "host": "external-pre-api.gruposancorseguros.com",
+  "basePath": "/apissa/pre-catalog"
+}

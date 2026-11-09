@@ -1,0 +1,817 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Emisión Combinado Familiar Hogar Premium",
+    "x-ibm-name": "family-combined-home-premium-issuance",
+    "version": "1.0.0",
+    "description": "Servicio de emision de polizas de combinado familiar hogar premium",
+    "x-ibm-summary": ""
+  },
+  "schemes": [
+    "https"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "security": [
+    {
+      "clientIdHeader": []
+    }
+  ],
+  "securityDefinitions": {
+    "clientIdHeader": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "x-ibm-configuration": {
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "cors": {
+      "enabled": true
+    },
+    "application-authentication": {
+      "certificate": false
+    },
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "definitions": {
+    "IssuanceResponseError": {
+      "title": "Root Type for IssuanceResponseError",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "messages": [
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          },
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          }
+        ]
+      }
+    },
+    "issuanceRequest": {
+      "type": "object",
+      "description": "Emitir poliza Combinado Familiar Premium",
+      "properties": {
+        "producerNumber": {
+          "type": "integer",
+          "description": "Nro. de Productor",
+          "example": 234509
+        },
+        "organizerNumber": {
+          "type": "integer",
+          "description": "Nro. de Organizador",
+          "example": 101518
+        },
+        "statisticCodeIds": {
+          "type": "integer",
+          "description": "Cód. / Grupo Estadístico",
+          "example": 2345
+        },
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "startEffectiveDate": {
+              "type": "string",
+              "description": "Fecha de inicio vigencia (YYYY-MM-DD)",
+              "example": "2026-03-01"
+            },
+            "endEffectiveDate": {
+              "type": "string",
+              "description": "Fecha de fin de la vigencia (YYYY-MM-DD)",
+              "example": "2027-03-01"
+            },
+            "locationRisk": {
+              "type": "object",
+              "description": "Direccion de Riesgo",
+              "properties": {
+                "cityId": {
+                  "type": "integer",
+                  "description": "código de Ciudad",
+                  "example": 3001
+                },
+                "zipCode": {
+                  "type": "integer",
+                  "description": "código Postal",
+                  "example": 1000
+                },
+                "street": {
+                  "type": "string",
+                  "description": "Nombre de la calle",
+                  "example": "nombre de prueba"
+                }
+              },
+              "required": [
+                "cityId",
+                "zipCode"
+              ]
+            },
+            "clients": {
+              "type": "object",
+              "description": "Datos del Cliente Asegurado",
+              "properties": {
+                "documentType": {
+                  "type": "string",
+                  "description": "Tipo de Documento",
+                  "example": "D",
+                  "enum": [
+                    "D - DNI",
+                    "C - LC",
+                    "L - LE",
+                    "I - CI",
+                    "J - CUIT"
+                  ]
+                },
+                "documentNumber": {
+                  "type": "integer",
+                  "description": "Número de Documento",
+                  "example": 4538294
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Nombre/s del Cliente",
+                  "example": "Maria"
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del Cliente",
+                  "example": "Perez"
+                },
+                "genderId": {
+                  "type": "integer",
+                  "description": "Género del Cliente",
+                  "example": 1,
+                  "enum": [
+                    "1 Masculino",
+                    "2 Femenino",
+                    "3 No binario"
+                  ]
+                },
+                "birthDate": {
+                  "description": "Fecha de Nacimiento",
+                  "example": "1980-08-30",
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "AAAA-mm-dd"
+                },
+                "locationData": {
+                  "type": "object",
+                  "description": "Dirección actual",
+                  "properties": {
+                    "cityId": {
+                      "type": "integer",
+                      "description": "Codigo de Ciudad",
+                      "example": 30001
+                    },
+                    "zipCode": {
+                      "type": "integer",
+                      "description": "Codigo Postal",
+                      "example": 1000
+                    },
+                    "street": {
+                      "type": "string",
+                      "description": "Nombre de la calle",
+                      "example": "calle prueba"
+                    }
+                  },
+                  "required": [
+                    "cityId",
+                    "zipCode"
+                  ]
+                },
+                "email": {
+                  "type": "string",
+                  "description": "Dirección de e-mail",
+                  "example": "prueba@sancorseguros.com"
+                },
+                "areaCode": {
+                  "type": "integer",
+                  "description": "Cód. de Área (Teléfono)",
+                  "example": 54
+                },
+                "phoneNumber": {
+                  "type": "integer",
+                  "description": "Nro. de Teléfono",
+                  "example": 76582930
+                }
+              },
+              "required": [
+                "documentType",
+                "documentNumber",
+                "firstName",
+                "lastName",
+                "genderId",
+                "birthDate",
+                "locationData",
+                "email",
+                "areaCode",
+                "phoneNumber"
+              ]
+            },
+            "branchData": {
+              "type": "object",
+              "properties": {
+                "activityId": {
+                  "type": "integer",
+                  "description": "tipo de Actividad",
+                  "enum": [
+                    "1021-Casa de ocupación permanente",
+                    "1023-Country de ocupación permanente",
+                    "1022-Departamento de ocupación permanente",
+                    "1024-Vivienda y/o Departamento de ocupación transitoria"
+                  ]
+                },
+                "basicCapital": {
+                  "type": "integer",
+                  "description": "Capital básico"
+                },
+                "buildingAntique": {
+                  "type": "integer",
+                  "description": "Antiguedad del edificio"
+                },
+                "buildingEnclosureTypeId": {
+                  "type": "integer",
+                  "description": "Tipo de Cerramiento",
+                  "enum": [
+                    "1- Totalmente cerrado",
+                    "5- Con al menos un costado abierto",
+                    "6- Totalmente abierto"
+                  ]
+                },
+                "buildingShelters": {
+                  "type": "object",
+                  "description": "Amparos",
+                  "properties": {
+                    "id": {
+                      "type": "integer",
+                      "description": "ID de Amparo"
+                    }
+                  }
+                },
+                "constructionCategoryId": {
+                  "type": "integer",
+                  "description": "Tipo de Construcción",
+                  "enum": [
+                    "7-Material",
+                    "8-Material, piedra y hasta 50% madera",
+                    "9-Madera",
+                    "10-Construcción en seco",
+                    "11-Adobe o similar"
+                  ]
+                },
+                "constructionQualityId": {
+                  "type": "integer",
+                  "description": "Categoría de la Construcción",
+                  "enum": [
+                    "1-Económica",
+                    "2-Buena",
+                    "3-Muy Buena",
+                    "4-De Lujo"
+                  ]
+                },
+                "constructionTypeId": {
+                  "type": "integer",
+                  "description": "Tipo de Construcción Antisísmica",
+                  "enum": [
+                    "5-Adobe o similar",
+                    "6-Antisísmica",
+                    "7-No Antisísmica"
+                  ]
+                },
+                "deductibleTypeId": {
+                  "type": "integer",
+                  "description": "Deducible"
+                },
+                "floorsNumber": {
+                  "type": "integer",
+                  "description": "Cantidad de Plantas"
+                },
+                "mt2Quantity": {
+                  "type": "integer",
+                  "description": "Cantidad de Mts2"
+                },
+                "roofTypeId": {
+                  "type": "integer",
+                  "description": "Tipo de Techo",
+                  "enum": [
+                    "5-Material",
+                    "6-Material y tejas",
+                    "7-Tirantería de madera y tejas",
+                    "8-Tirantería de madera y zinc",
+                    "9-Zinc",
+                    "10-Tirantería de madera y paja",
+                    "11-Tirantería y tejas de madera",
+                    "12-Fibrocemento"
+                  ]
+                }
+              },
+              "required": [
+                "activityId",
+                "buildingEnclosureTypeId",
+                "buildingShelters",
+                "constructionCategoryId",
+                "constructionQualityId",
+                "mt2Quantity",
+                "roofTypeId"
+              ]
+            },
+            "offeringCode": {
+              "type": "string",
+              "description": "Modulo cobertura (consultar Servicio de Modulos)",
+              "example": 0
+            },
+            "paymentMethodCode": {
+              "type": "integer",
+              "example": 1,
+              "enum": [
+                "0 Efectivo",
+                "2 Tarjeta de Credito",
+                "4 CBU",
+                "5 Pago Virtual"
+              ],
+              "description": "Tipo de pago"
+            },
+            "debitData": {
+              "type": "object",
+              "description": "Método de pago",
+              "properties": {
+                "cbuAccount": {
+                  "type": "string",
+                  "description": "Número de CBU (Enviar solo si el tipo de pago fue 4)"
+                },
+                "creditCardToValidityDate": {
+                  "type": "string",
+                  "description": "Fecha de Expiración de tarjeta de credito (YYYY/MM)"
+                },
+                "creditCardBrand": {
+                  "type": "string",
+                  "description": "Cod. Marca de la Tarjeta de Credito",
+                  "enum": [
+                    "1- Cabal",
+                    "5- Visa",
+                    "7- Favacard",
+                    "9- American Express",
+                    "12- Naranja",
+                    "16- Diners Club",
+                    "18- Naranja Visa",
+                    "20- Cordobesa - Mastercard",
+                    "23- TDF - Tierra del Fuego",
+                    "45- Mastercard Nueva",
+                    "57- ELEBAR",
+                    "70- Cencosud Mastercard"
+                  ]
+                },
+                "creditCardNumber": {
+                  "type": "string",
+                  "description": "Nro. de la Tarjeta de Credito"
+                },
+                "email": {
+                  "type": "string",
+                  "description": "email del cliente (Se usa solo en Pago Virtual)"
+                },
+                "recurrencyId": {
+                  "type": "integer",
+                  "description": "recurrencia (Se usa solo en Pago Virtual)"
+                },
+                "payments": {
+                  "type": "object",
+                  "description": "detalle de pago (Se usa solo en Pago Virtual)",
+                  "properties": {
+                    "amount": {
+                      "type": "integer",
+                      "description": "monto total"
+                    },
+                    "paymentTransactionID": {
+                      "type": "integer",
+                      "description": "numero de transaccion"
+                    },
+                    "customerId": {
+                      "type": "string",
+                      "description": "numero de ticket"
+                    },
+                    "cardId": {
+                      "type": "integer",
+                      "description": "numero de tarjeta"
+                    },
+                    "paymentMethodId": {
+                      "type": "integer",
+                      "description": "id de Pago"
+                    }
+                  }
+                }
+              }
+            },
+            "electronicDispatchInformation": {
+              "type": "object",
+              "description": "Despacho electronico",
+              "properties": {
+                "email": {
+                  "type": "string",
+                  "description": "Direccion de correo"
+                },
+                "sms": {
+                  "type": "object",
+                  "description": "SMS de adhesión",
+                  "properties": {
+                    "areaCode": {
+                      "type": "integer",
+                      "description": "código de área"
+                    },
+                    "telephoneNumber": {
+                      "type": "integer",
+                      "description": "número de telefono"
+                    }
+                  }
+                },
+                "whatsapp": {
+                  "type": "object",
+                  "description": "whatsapp de adhesión",
+                  "properties": {
+                    "areaCode": {
+                      "type": "integer",
+                      "description": "código de área"
+                    },
+                    "telephoneNumber": {
+                      "type": "integer",
+                      "description": "número de telefono"
+                    }
+                  }
+                }
+              },
+              "required": [
+                "electronicDispatchEmail"
+              ]
+            },
+            "covers": {
+              "type": "object",
+              "description": "Tipo de Coberturas (asociado con buildingShelters/id)",
+              "properties": {
+                "capital": {
+                  "type": "integer",
+                  "description": "monto de Capital"
+                },
+                "coverCode": {
+                  "type": "integer",
+                  "description": "tipo de cobertura"
+                },
+                "deductibleTypeId": {
+                  "type": "integer",
+                  "description": "ID de Deducible"
+                }
+              }
+            },
+            "quotation": {
+              "type": "object",
+              "description": "Relacion cotizacion",
+              "properties": {
+                "pricingIds": {
+                  "type": "string",
+                  "description": "Id cotizacion"
+                }
+              }
+            },
+            "surchargeDiscounts": {
+              "type": "object",
+              "description": "Lista de descuentos.",
+              "properties": {
+                "discountCode": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "ID Tipo de descuento.",
+                  "example": 32
+                },
+                "discountRate": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Porcentaje de descuento.",
+                  "example": 20
+                }
+              },
+              "required": [
+                "discountCode",
+                "discountRate"
+              ]
+            }
+          },
+          "required": [
+            "startEffectiveDate",
+            "locationRisk",
+            "branchData",
+            "clients",
+            "offeringCode",
+            "paymentMethodCode",
+            "covers"
+          ]
+        }
+      },
+      "required": [
+        "organizerNumber",
+        "producerNumber",
+        "certificateData"
+      ],
+      "example": {
+        "organizerNumber": 100055,
+        "producerNumber": 229532,
+        "certificateData": {
+          "startEffectiveDate": "2026-02-17",
+          "locationRisk": {
+            "cityId": 1234,
+            "zipCode": 2300,
+            "street": "Av Directorio 7136"
+          },
+          "clients": [
+            {
+              "documentType": "D",
+              "documentNumber": "33688464",
+              "firstName": "Martin",
+              "lastName": "Perez",
+              "genderId": "2",
+              "birthDate": "1988-03-04",
+              "locationData": {
+                "cityId": 1234,
+                "zipCode": 2300,
+                "street": "Av Directorio 7136"
+              },
+              "areaCode": "11",
+              "email": "prueba@gmail.com",
+              "phoneNumber": "11234567"
+            }
+          ],
+          "offeringCode": 0,
+          "paymentMethodCode": 0,
+          "electronicDispatchInformation": {
+            "email": "prueba@gmail.com",
+            "whatsApp": {
+              "areaCode": "11",
+              "telephoneNumber": "11234567"
+            },
+            "sms": {
+              "areaCode": "11",
+              "telephoneNumber": "11234567"
+            }
+          },
+          "branchData": {
+            "activityId": 1021,
+            "constructionQualityId": 2,
+            "mt2Quantity": 40,
+            "constructionCategoryId": 7,
+            "buildingEnclosureTypeId": 1,
+            "roofTypeId": 6,
+            "buildingShelters": [
+              {
+                "id": 6
+              }
+            ]
+          },
+          "covers": [
+            {
+              "capital": 0,
+              "coverCode": 44,
+              "deductibleTypeId": 1
+            }
+          ],
+          "discountCustomizations": [
+            {
+              "rate": 20,
+              "discountNumber": 32
+            }
+          ]
+        }
+      }
+    },
+    "issuanceResponse200": {
+      "title": "Root Type for issuanceResponse200",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "premiumHome": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "type": "object",
+              "properties": {
+                "branchCode": {
+                  "type": "string"
+                },
+                "certificateNumber": {
+                  "type": "string"
+                },
+                "managementNumber": {
+                  "type": "string"
+                },
+                "managementStatus": {
+                  "type": "string"
+                },
+                "officialNumber": {
+                  "type": "string"
+                },
+                "referenceNumber": {
+                  "type": "string"
+                }
+              }
+            },
+            "receipt": {
+              "type": "object",
+              "properties": {
+                "detail": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "description": {
+                        "type": "string"
+                      },
+                      "premium": {
+                        "type": "string"
+                      },
+                      "premiumAccordingPayForm": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "number": {
+                  "type": "string"
+                }
+              }
+            },
+            "link": {
+              "type": "object",
+              "properties": {
+                "policyData": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "premiumHome": {
+          "policy": {
+            "branchCode": "1800",
+            "certificateNumber": "0",
+            "managementNumber": 118000000000290030000,
+            "managementStatus": "Emitida",
+            "officialNumber": "3018197",
+            "referenceNumber": "1530053"
+          },
+          "receipt": {
+            "detail": [
+              {
+                "description": "Prima                         ",
+                "premium": "5548.5600",
+                "premiumAccordingPayForm": "462.4000"
+              },
+              {
+                "description": "Iva General                   ",
+                "premium": "1165.2000",
+                "premiumAccordingPayForm": "97.1000"
+              },
+              {
+                "description": "Tasas e Impuestos             ",
+                "premium": "66.5900",
+                "premiumAccordingPayForm": "5.5400"
+              },
+              {
+                "description": "Capital Social                ",
+                "premium": "479.5200",
+                "premiumAccordingPayForm": "39.9600"
+              }
+            ],
+            "number": "487158683"
+          },
+          "link": {
+            "policyData": "URL de la consulta de la poliza"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/issuance/familyCombined/homePremium": {
+      "post": {
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/issuanceRequest"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "description": "Bearer TOKEN",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operacion Exitosa",
+            "schema": {
+              "$ref": "#/definitions/issuanceResponse200"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "401": {
+            "description": "Auth Missing",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "403": {
+            "description": "Sin permisos",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "415": {
+            "description": "Faltan valores obligatorios",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "422": {
+            "description": "Valores incorrectos",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "500": {
+            "description": "Error interno no manejado",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "504": {
+            "description": "Time out",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ]
+      }
+    }
+  },
+  "host": "external-pre-api.gruposancorseguros.com",
+  "basePath": "/apissa/pre-catalog"
+}

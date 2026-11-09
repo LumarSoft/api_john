@@ -310,6 +310,46 @@ Están documentados en las specs y en la colección de Postman (marcados
 - **Anulación** (151): `DELETE /policies/annulment/certificate` con ramo, número
   y causa (`4` = decisión del tomador/asegurado).
 
+## Catálogo completo del portal (9/11/2026)
+
+Relevado con la cuenta de Lumarsoft el 9/11/2026: 22 productos y 71 APIs, contra
+los 6 productos a los que está suscripta la aplicación "John Pellegrini
+Management Group" (Servicios de Autenticación, Automotores, Motovehiculos,
+Siniestro/Denuncia, Impresión documento, APIs Generales). Las specs nuevas que
+sirven para lo que el bot ofrece y Triunfo no cotiza online están en
+`docs/sancor/specs/` (17 archivos más). Todo cuelga de
+`https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog`; todas
+piden `Authorization: Bearer <token del intermediario>` y la Clave en
+`X-IBM-Client-Id`. Las cotizaciones comparten la forma: `producerNumber`,
+`organizerNumber`, `startEffectiveDate`, `locationRisk {cityId, zipCode}` y un
+`offeringCode` (módulo) que se saca de `GET /modules/<producto>` (API 176).
+
+| Producto (portal) | APIs (id) | Qué permite | Lo ofrece el bot hoy |
+|---|---|---|---|
+| Combinado Familiar - Hogar Premium | Coberturas 1507 `GET /covers/familycombined/premium`; Cotización 1081 `POST /quotations/familyCombined/homePremium`; Emisión 1079 | Cotizar y emitir hogar con datos de la vivienda (tipo de ocupación, calidad y tipo de construcción, m², capital edificio, deducible) | Sí: «Hogar», hoy con precios fijos de la oficina |
+| Combinado Familiar - Hogar Protegido | Adicionales 147 `GET /familyCombined/additionals`; Cotización 146 `POST /quotations/familyCombined/homeProtected`; Emisión 145 | Hogar por módulos (`offeringCode` de `GET /modules/homeProtected`) con bienes adicionales | Sí: «Hogar» |
+| Robo Bolso | Cotización 168 `POST /quotations/theft/protectedbag`; Emisión 169 | Bolso protegido por módulo (`GET /modules/bag`) y DNI | Sí: «Bolso protegido», hoy con precios fijos |
+| Robo - Bicicleta | Cotización 554 `POST /quotations/theft/bicycle`; Emisión 555 | Robo de bicicleta por módulo (`GET /modules/bicycle`) | Sí: «Bici / Monopatín» |
+| Robo - Movilidad | Amparos 163; Cotización 162 `POST /quotation/theft/mobility`; Emisión 161 | Monopatines y movilidad eléctrica (specs de 150–175 KB, no descargadas) | Parcial: «Bici / Monopatín» |
+| Accidentes Personales/AP24hs | Actividades 181; Cotización 178 `POST /quotations/personalAccident/AP24Modulate`; Emisión 1304 (colectiva + certificados) | AP 24 hs individual o colectiva, por franjas de edad y capital de muerte | Sí: «Personas» (AP), hoy solo a la oficina |
+| AP - Ocasion de trabajo (AP 13) | Actividades/tareas 164; Coberturas 177; Cotización 172; Emisión 173 (single y colectiva) | AP en ocasión de trabajo con cláusulas; es lo que piden las nóminas de los contratistas | Solo oficina |
+| AP Integro Max | Actividades 183; Coberturas 1458; Cotización 180; Emisión 1463 | AP con sepelio, renta diaria y asistencia farmacéutica | Solo oficina |
+| Amparo (Vida colectivo) | Cotización 1810 `POST /quotations/collectivelife/deathgrant`; Emisión 1811 | Vida colectivo / sepelio, individual o familiar, por fecha de nacimiento y capital | Sí: «Personas» (Vida/Sepelio) |
+| Salud Max | Cotización 1474 `POST /quotations/health/safemax`; Emisión 1475 | Salud Plan Familia por personas y plan | Sí: «Personas» (salud) |
+| Riesgos Varios (Garantía extendida) | Grupos y categorías 1163; Coberturas 1161; Cotización 1162; Emisión 1160 | Garantía extendida de bienes | No |
+| Robo Tecnologia | Cotización 154; Emisión 1429; Siniestros 167 | Robo de tecnología (notebooks, celulares) | No |
+| Robo Cajero Automático | Cotización 174; Emisión 175 | Robo en cajero | No |
+| Granizo | Tasa agro 1091, destino 884, coberturas 534, figuras 525, pagos 524 | Granizo agrícola | No |
+| Anulación de poliza | 151 `DELETE /policies/annulment/certificate` | Anular un certificado | Baja de póliza: hoy solo aviso a la oficina |
+| Prestadores Siniestros | 1335 `POST /v2/claim/serviceorders/informnovelty`; 1322 `.../fileupload` | Para talleres y prestadores: novedades y archivos de una orden de servicio | No |
+| Automotores / Motovehiculos / Siniestro/Denuncia / Impresión documento / APIs Generales / Servicios de Autenticación | ver [Resumen](#resumen) | Ya relevados el 20/10 | Sí |
+
+Lo que no cambia: sigue faltando el usuario del intermediario (SOLHDG) y los
+códigos `producerNumber`/`organizerNumber` de John en Sancor; sin eso ninguna
+de estas APIs devuelve datos. Al suscribir la aplicación a los productos nuevos
+hay que hacerlo en el portal (Apps → John Pellegrini Management Group →
+suscribir) antes de llamarlas, si no el gateway contesta 403 "Not registered to plan".
+
 ## Pendientes
 
 1. ~~Registrar la aplicación en el portal y guardar Clave y Secreto.~~ Hecho el

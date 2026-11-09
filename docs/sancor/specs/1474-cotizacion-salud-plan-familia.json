@@ -1,0 +1,467 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Cotización - Salud - Plan Familia",
+    "version": "1.0.0",
+    "description": "Cotizador de salud max.",
+    "x-ibm-name": "health-max-quotation",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/safemax": {
+      "post": {
+        "operationId": "Servicio para cotizar salud segura Plan Familiar (MAX)",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/SafeMaxResult"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "401": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "403": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "Servicio para cotizar salud segura Plan Familiar (MAX).",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/safeMax"
+            },
+            "description": "body",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Token del usuario"
+          },
+          {
+            "name": "Content-Type",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "application/json"
+          },
+          {
+            "name": "Accept",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "application/json"
+          }
+        ]
+      }
+    }
+  },
+  "basePath": "/apissa/pre-catalog/quotations/health",
+  "definitions": {
+    "safeMax": {
+      "type": "object",
+      "properties": {
+        "organizerNumber": {
+          "type": "string",
+          "description": "Código de Organizador",
+          "example": 204992
+        },
+        "producerNumber": {
+          "type": "integer",
+          "description": "Codigo de productor",
+          "example": 204992
+        },
+        "statisticCode": {
+          "type": "integer",
+          "description": "Grupo estadístico",
+          "example": 266
+        },
+        "startEffectiveDate": {
+          "type": "string",
+          "description": "Fecha de inicio vigencia.",
+          "example": "2024-03-19"
+        },
+        "endEffectiveDate": {
+          "type": "string",
+          "description": "Fecha fin de vigencia",
+          "example": "2025-03-19"
+        },
+        "locationRisk": {
+          "type": "object",
+          "description": "Datos localidad.",
+          "required": [
+            "zipCode",
+            "cityId"
+          ],
+          "properties": {
+            "cityId": {
+              "type": "integer",
+              "description": "Id de ciudad",
+              "example": 11890
+            },
+            "zipCode": {
+              "type": "integer",
+              "description": "Código postal",
+              "example": 5521
+            }
+          }
+        },
+        "offeringCode": {
+          "type": "string",
+          "example": 1,
+          "description": "Módulo de cobertura",
+          "enum": [
+            "1 - Modulo A",
+            "2 - Modulo B"
+          ]
+        },
+        "discountCustomizations": {
+          "type": "object",
+          "properties": {
+            "discountCode": {
+              "type": "integer",
+              "example": 53
+            },
+            "percentage": {
+              "type": "integer",
+              "example": 30
+            }
+          }
+        },
+        "numberOfPeople": {
+          "type": "integer",
+          "example": 3
+        },
+        "personsInsured": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "insuredGroup": {
+                "type": "integer",
+                "example": 134532
+              },
+              "birthDate": {
+                "type": "string",
+                "format": "date",
+                "example": "1980/09/04"
+              },
+              "percentageCoverage": {
+                "type": "integer",
+                "example": 28275,
+                "enum": [
+                  "28275 - Plan 5",
+                  "33403 - Plan 6",
+                  "56128 - Plan 100"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "locationRisk",
+        "organizerNumber",
+        "producerNumber",
+        "startEffectiveDate"
+      ]
+    },
+    "safeMaxResult": {
+      "type": "object",
+      "properties": {
+        "relationQuotationCode": {
+          "type": "integer"
+        },
+        "quotation": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "insuredGroup": {
+                "type": "integer"
+              },
+              "percentageCoverage": {
+                "type": "integer",
+                "format": "decimal"
+              },
+              "relationQuotationCode": {
+                "type": "integer"
+              },
+              "taxableBases": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "premiunBaseAmount": {
+                      "type": "integer",
+                      "format": "decimal"
+                    },
+                    "taxAmount": {
+                      "type": "integer",
+                      "format": "decimal"
+                    }
+                  }
+                }
+              },
+              "finallyCalculationResults": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "chargeBasisAmount": {
+                      "type": "integer",
+                      "format": "decimal"
+                    },
+                    "chargeDescription": {
+                      "type": "string"
+                    },
+                    "planDetail": {
+                      "type": "string"
+                    },
+                    "chargeCode": {
+                      "type": "integer"
+                    },
+                    "quotaPremiumMonthly": {
+                      "type": "integer",
+                      "format": "decimal"
+                    },
+                    "quotaPremiumVigency": {
+                      "type": "integer",
+                      "format": "decimal"
+                    },
+                    "chargeType": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "premiumMonthly": {
+                "type": "integer",
+                "format": "decimal"
+              },
+              "premiumVigency": {
+                "type": "integer",
+                "format": "decimal"
+              },
+              "additioinalsCalculationResults": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "premiumWithoutIva": {
+                      "type": "integer",
+                      "format": "decimal"
+                    },
+                    "premiumWithoutIvaRate": {
+                      "type": "integer",
+                      "format": "decimal"
+                    }
+                  }
+                }
+              },
+              "pricingIds": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "policyPeriodKey": {
+                      "type": "integer"
+                    },
+                    "policyPeriodPremium": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "quotationCode": {
+                "type": "integer"
+              },
+              "success": {
+                "type": "boolean"
+              },
+              "validationResults": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "errorMessage": {
+                      "type": "string"
+                    },
+                    "level": {
+                      "type": "string"
+                    },
+                    "memberNames": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "memberName": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "required": [
+              "insuredGroup",
+              "percentageCoverage"
+            ]
+          }
+        }
+      },
+      "required": [
+        "relationQuotationCode"
+      ]
+    },
+    "SafeMaxResult": {
+      "type": "object",
+      "properties": {
+        "safeMaxResult": {
+          "$ref": "#/definitions/safeMaxResult"
+        },
+        "paging": {
+          "$ref": "#/definitions/Paging"
+        },
+        "message": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "Paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    }
+  },
+  "x-ibm-configuration": {
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "cors": {
+      "enabled": true
+    },
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog/quotations/health",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "security": [
+    {
+      "clientIdHeader": []
+    }
+  ],
+  "securityDefinitions": {
+    "clientIdHeader": {
+      "type": "apiKey",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id",
+      "in": "header"
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com"
+}

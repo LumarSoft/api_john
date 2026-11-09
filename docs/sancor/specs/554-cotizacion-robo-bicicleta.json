@@ -1,0 +1,407 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Cotización Robo Bicicleta",
+    "x-ibm-name": "theft-bicycle-quotation",
+    "version": "1.0.0",
+    "description": "Servicio de cotizacion del ramo Robo producto Bicicleta",
+    "x-ibm-summary": ""
+  },
+  "x-ibm-configuration": {
+    "cors": {
+      "enabled": true
+    },
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "paths": {
+    "/quotations/theft/bicycle": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "operationId": "quoteBicycle",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "required": true,
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "required": true,
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/BicycleQuotation"
+            }
+          }
+        ],
+        "description": "Obtener cotizacion de bicicleta "
+      }
+    }
+  },
+  "definitions": {
+    "BicycleQuotation": {
+      "type": "object",
+      "properties": {
+        "producerNumber": {
+          "type": "integer",
+          "description": "Codigo de productor",
+          "example": 204992
+        },
+        "organizerNumber": {
+          "type": "integer",
+          "description": "Codigo de organizador",
+          "example": 100212
+        },
+        "startEffectiveDate": {
+          "type": "string",
+          "description": "Fecha de inicio vigencia.",
+          "example": "2024-10-19"
+        },
+        "relationQuotationCode": {
+          "type": "integer",
+          "x-nullable": true
+        },
+        "clients": {
+          "type": "object",
+          "properties": {
+            "documentNumber": {
+              "type": "integer",
+              "description": "Numero Documento",
+              "example": 42055099
+            },
+            "documentType": {
+              "type": "string",
+              "description": "Tipo documento",
+              "example": "D",
+              "enum": [
+                "D - DNI",
+                "C - LC",
+                "L - LE",
+                "I - CI",
+                "J - CUIT"
+              ]
+            },
+            "fiscalConditionCode": {
+              "type": "string",
+              "description": "Condicion Fiscal"
+            }
+          }
+        },
+        "locationRisk": {
+          "type": "object",
+          "properties": {
+            "cityId": {
+              "type": "integer",
+              "description": "Id de ciudad"
+            },
+            "zipCode": {
+              "type": "integer",
+              "description": "Código postal"
+            }
+          },
+          "description": "Datos localidad."
+        },
+        "offeringCode": {
+          "type": "string",
+          "example": 4,
+          "description": "Módulo de cobertura"
+        },
+        "respectClientIvaCondition": {
+          "type": "boolean"
+        },
+        "endEffectiveDate": {
+          "type": "string",
+          "description": "Fecha fin de vigencia",
+          "example": "2025-03-19"
+        }
+      },
+      "required": [
+        "locationRisk",
+        "producerNumber",
+        "startEffectiveDate"
+      ]
+    },
+    "VehicleQuotationResponse": {
+      "type": "object",
+      "properties": {
+        "vehicleQuotation": {
+          "type": "object",
+          "properties": {
+            "quotationCode": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "relationQuotationCode": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "plans": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "details": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "chargeBasisAmount": {
+                          "type": "number"
+                        },
+                        "chargeDescription": {
+                          "type": "string"
+                        },
+                        "planDetail": {
+                          "type": "string"
+                        },
+                        "chargeCode": {
+                          "type": "integer"
+                        },
+                        "quotaAmount": {
+                          "type": "number"
+                        },
+                        "premium": {
+                          "type": "number"
+                        },
+                        "chargetype": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "module": {
+                    "type": "object",
+                    "properties": {
+                      "coverageCode": {
+                        "type": "integer"
+                      },
+                      "coverageName": {
+                        "type": "string"
+                      },
+                      "coverageAbbreviatedName": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "observations": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "quotaPremiumMonthly": {
+                    "type": "number"
+                  },
+                  "premium": {
+                    "type": "number"
+                  },
+                  "success": {
+                    "type": "boolean"
+                  },
+                  "validationResults": {
+                    "type": "string"
+                  },
+                  "outStandard": {
+                    "type": "boolean"
+                  },
+                  "billitem": {
+                    "type": "integer"
+                  },
+                  "codeGood": {
+                    "type": "integer"
+                  },
+                  "detCode": {
+                    "type": "integer"
+                  },
+                  "id": {
+                    "type": "integer"
+                  },
+                  "print": {
+                    "type": "boolean"
+                  },
+                  "product": {
+                    "type": "integer"
+                  },
+                  "taxSeal": {
+                    "type": "integer"
+                  },
+                  "typeDetai": {
+                    "type": "integer"
+                  },
+                  "vehicleTrackingEquipment": {
+                    "type": "boolean"
+                  },
+                  "hasLoJack": {
+                    "type": "boolean"
+                  },
+                  "vehicleInsuredSum": {
+                    "type": "number"
+                  },
+                  "additionalsCalculation": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "premiumWithoutIva": {
+                          "type": "number"
+                        },
+                        "premiumWithoutIvaRate": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "pricingCode": {
+                    "type": "integer"
+                  },
+                  "pricingCodeAPF": {
+                    "type": "integer"
+                  },
+                  "taxBases": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "premiunBaseAmount": {
+                          "type": "number"
+                        },
+                        "taxAmount": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "quotes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "policyQuotas": {
+                          "type": "integer"
+                        },
+                        "coverageRate": {
+                          "type": "number"
+                        },
+                        "quotaPremium": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "premiumTotals": {
+                    "type": "object",
+                    "properties": {
+                      "quotaAmount": {
+                        "type": "number"
+                      },
+                      "quotationPremium": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "paging": {
+          "$ref": "#/definitions/Paging"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    },
+    "Paging": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer",
+          "format": ""
+        },
+        "total": {
+          "type": "integer"
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "security": [
+    {
+      "clientID": [
+        "JOsdt0agj5D1NnquA6zWZaOg5GEZZgUP"
+      ]
+    }
+  ],
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com",
+  "basePath": "/apissa/pre-catalog"
+}

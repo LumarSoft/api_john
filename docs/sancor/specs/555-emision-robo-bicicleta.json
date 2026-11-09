@@ -1,0 +1,558 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Emisión Robo Bicicleta",
+    "x-ibm-name": "theft-bicycle-issuance",
+    "version": "1.0.0",
+    "description": "Servicio de emision de polizas del ramo Robo producto Bicicleta",
+    "x-ibm-summary": ""
+  },
+  "schemes": [
+    "https"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "security": [
+    {
+      "clientIdHeader": []
+    }
+  ],
+  "securityDefinitions": {
+    "clientIdHeader": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "x-ibm-configuration": {
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "cors": {
+      "enabled": true
+    },
+    "application-authentication": {
+      "certificate": false
+    },
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "definitions": {
+    "IssuanceResponseError": {
+      "title": "Root Type for IssuanceResponseError",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "help": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "messages": [
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          },
+          {
+            "status": "32",
+            "code": "GSS-HttpErrorCode-002",
+            "text": "Texto del error.",
+            "help": "Ayuda sobre ese error"
+          }
+        ]
+      }
+    },
+    "issuanceRequest": {
+      "title": "Root Type for issuanceRequest",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "statisticCodeIds": {
+          "type": "string",
+          "description": "Codigo/Grupo Estadistico"
+        },
+        "producerNumber": {
+          "type": "string",
+          "description": "Codigo del Productor"
+        },
+        "organizerNumber": {
+          "type": "string",
+          "description": "Codigo del Organizador"
+        },
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "startEffectiveDate": {
+              "format": "date",
+              "type": "string",
+              "description": "Fecha de Vigencia Desde"
+            },
+            "locationRisk": {
+              "type": "object",
+              "properties": {
+                "cityId": {
+                  "format": "int32",
+                  "type": "integer",
+                  "description": "Codigo de Localidad"
+                },
+                "zipCode": {
+                  "format": "int32",
+                  "type": "integer",
+                  "description": "Codigo Postal"
+                },
+                "street": {
+                  "type": "string",
+                  "description": "Direccion"
+                }
+              }
+            },
+            "clients": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "documentType": {
+                    "type": "string",
+                    "description": "Codigo de tipo de documento"
+                  },
+                  "documentNumber": {
+                    "format": "int32",
+                    "type": "integer",
+                    "description": "Numero de documento"
+                  },
+                  "firstName": {
+                    "type": "string",
+                    "description": "Nombre/s"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "description": "Apellido/s"
+                  },
+                  "genderId": {
+                    "format": "int32",
+                    "type": "integer",
+                    "description": "Id de genero"
+                  },
+                  "birthDate": {
+                    "format": "date-time",
+                    "type": "string",
+                    "description": "Fecha de nacimiento"
+                  },
+                  "locationData": {
+                    "type": "object",
+                    "properties": {
+                      "cityId": {
+                        "format": "int32",
+                        "type": "integer",
+                        "description": "Codigo de Localidad"
+                      },
+                      "zipCode": {
+                        "format": "int32",
+                        "type": "integer",
+                        "description": "Codigo Postal"
+                      },
+                      "street": {
+                        "type": "string",
+                        "description": "Direccion"
+                      }
+                    }
+                  },
+                  "email": {
+                    "type": "string",
+                    "description": "Email del cliente"
+                  },
+                  "areaCode": {
+                    "format": "int32",
+                    "type": "integer",
+                    "description": "Codigo de Area"
+                  },
+                  "phoneNumber": {
+                    "format": "int32",
+                    "type": "integer",
+                    "description": "Numero de telefono"
+                  }
+                }
+              }
+            },
+            "offeringCode": {
+              "format": "int32",
+              "type": "integer",
+              "description": "Codigo de oferta"
+            },
+            "paymentMethodCode": {
+              "type": "integer",
+              "example": 1,
+              "enum": [
+                "0 Efectivo",
+                "1 Cuenta Bancaria",
+                "2 Tarjeta de Credito",
+                "4 CBU",
+                "5 Pago Virtual"
+              ],
+              "description": "Tipo de pago"
+            },
+            "debitData": {
+              "type": "object",
+              "description": "Método de pago",
+              "properties": {
+                "cbuAccount": {
+                  "type": "string",
+                  "description": "Número de CBU (Enviar solo si el tipo de pago fue 4)"
+                },
+                "creditCardToValidityDate": {
+                  "type": "string",
+                  "description": "Fecha de Expiración de tarjeta de credito (YYYY/MM)"
+                },
+                "creditCardBrand": {
+                  "type": "string",
+                  "description": "Cod. Marca de la Tarjeta de Credito",
+                  "enum": [
+                    "1- Cabal",
+                    "5- Visa",
+                    "7- Favacard",
+                    "9- American Express",
+                    "12- Naranja",
+                    "16- Diners Club",
+                    "18- Naranja Visa",
+                    "20- Cordobesa - Mastercard",
+                    "23- TDF - Tierra del Fuego",
+                    "45- Mastercard Nueva",
+                    "57- ELEBAR",
+                    "70- Cencosud Mastercard"
+                  ]
+                },
+                "creditCardNumber": {
+                  "type": "string",
+                  "description": "Nro. de la Tarjeta de Credito"
+                },
+                "accountNumber": {
+                  "type": "string",
+                  "description": "Nro. de Cuenta de Débito"
+                },
+                "accountTypeId": {
+                  "type": "string",
+                  "description": "Tipo de Cuenta de Débito",
+                  "enum": [
+                    "1 Caja de ahorro",
+                    "2 Cuenta Corriente"
+                  ]
+                },
+                "bankAgencyCode": {
+                  "type": "string",
+                  "description": "Cód. de Agencia/Sucursal de Débito"
+                },
+                "bankCode": {
+                  "type": "string",
+                  "description": "Cód. de Banco"
+                },
+                "email": {
+                  "type": "string",
+                  "description": "email del cliente (Se usa solo en Pago Virtual)"
+                },
+                "recurrencyId": {
+                  "type": "integer",
+                  "description": "recurrencia (Se usa solo en Pago Virtual)"
+                },
+                "payments": {
+                  "type": "object",
+                  "description": "detalle de pago (Se usa solo en Pago Virtual)",
+                  "properties": {
+                    "amount": {
+                      "type": "integer",
+                      "description": "monto total"
+                    },
+                    "paymentTransactionID": {
+                      "type": "integer",
+                      "description": "numero de transaccion"
+                    },
+                    "customerId": {
+                      "type": "string",
+                      "description": "numero de ticket"
+                    },
+                    "cardId": {
+                      "type": "integer",
+                      "description": "numero de tarjeta"
+                    },
+                    "paymentMethodId": {
+                      "type": "integer",
+                      "description": "id de Pago"
+                    }
+                  }
+                }
+              }
+            },
+            "quotation": {
+              "type": "object",
+              "description": "Relacion cotizacion",
+              "properties": {
+                "pricingIds": {
+                  "type": "string",
+                  "description": "Id cotizacion"
+                }
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "statisticCodeIds": "2036",
+        "producerNumber": "227802",
+        "organizerNumber": "101587",
+        "certificateData": {
+          "startEffectiveDate": "2024-09-01",
+          "locationRisk": {
+            "cityId": 288,
+            "zipCode": 1406,
+            "street": "prueba"
+          },
+          "clients": [
+            {
+              "documentType": "D",
+              "documentNumber": "33509305",
+              "firstName": "GUILLERMO",
+              "lastName": "AGUIRRE",
+              "genderId": 2,
+              "birthDate": "1988-01-02T00:00:00",
+              "locationData": {
+                "cityId": 30001,
+                "zipCode": 1000,
+                "street": "CALLE EJEMPLO 123 1 A"
+              },
+              "email": "ssantillo@galiciaseguros.com.ar",
+              "areaCode": 379,
+              "phoneNumber": 154143728
+            }
+          ],
+          "offeringCode": 1,
+          "paymentMethod": 0,
+          "quotation": {
+            "pricingIds": {
+              "long": 78432900
+            }
+          }
+        }
+      }
+    },
+    "issuanceResponse200": {
+      "title": "Root Type for issuanceResponse200",
+      "description": "",
+      "type": "object",
+      "properties": {
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "type": "object",
+              "properties": {
+                "branchCode": {
+                  "type": "string"
+                },
+                "certificateNumber": {
+                  "type": "string"
+                },
+                "managementNumber": {
+                  "type": "string"
+                },
+                "managementStatus": {
+                  "type": "string"
+                },
+                "officialNumber": {
+                  "type": "string"
+                },
+                "referenceNumber": {
+                  "type": "string"
+                }
+              }
+            },
+            "receipt": {
+              "type": "object",
+              "properties": {
+                "detail": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "description": {
+                        "type": "string"
+                      },
+                      "premium": {
+                        "type": "string"
+                      },
+                      "premiumAccordingPayForm": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "number": {
+                  "type": "string"
+                }
+              }
+            },
+            "link": {
+              "type": "object",
+              "properties": {
+                "policyData": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "example": {
+        "clienetData": {
+          "policy": {
+            "branchCode": "700",
+            "certificateNumber": "0",
+            "managementNumber": 118000000000290030000,
+            "managementStatus": "Emitida",
+            "officialNumber": "3018197",
+            "referenceNumber": "1530053"
+          },
+          "receipt": {
+            "detail": [
+              {
+                "description": "Prima                         ",
+                "premium": "5548.5600",
+                "premiumAccordingPayForm": "462.4000"
+              },
+              {
+                "description": "Iva General                   ",
+                "premium": "1165.2000",
+                "premiumAccordingPayForm": "97.1000"
+              },
+              {
+                "description": "Tasas e Impuestos             ",
+                "premium": "66.5900",
+                "premiumAccordingPayForm": "5.5400"
+              },
+              {
+                "description": "Capital Social                ",
+                "premium": "479.5200",
+                "premiumAccordingPayForm": "39.9600"
+              }
+            ],
+            "number": "487158683"
+          },
+          "link": {
+            "policyData": "URL de la consulta de la poliza"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/theft/bicycle/issuance/single": {
+      "post": {
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/issuanceRequest"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "description": "Bearer TOKEN",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Operacion Exitosa",
+            "schema": {
+              "$ref": "#/definitions/issuanceResponse200"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "401": {
+            "description": "Auth Missing",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "403": {
+            "description": "Sin permisos",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "415": {
+            "description": "Faltan valores obligatorios",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "422": {
+            "description": "Valores incorrectos",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "500": {
+            "description": "Error interno no manejado",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          },
+          "504": {
+            "description": "Time out",
+            "schema": {
+              "$ref": "#/definitions/IssuanceResponseError"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ]
+      }
+    }
+  },
+  "host": "external-pre-api.gruposancorseguros.com",
+  "basePath": "/apissa/pre-catalog"
+}

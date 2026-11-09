@@ -1,0 +1,758 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "version": "1.0.0",
+    "description": "Emision de Poliza Colectiva Accidentes Personales",
+    "x-ibm-name": "issuancecollectiveap24",
+    "title": "Emisión AP 24hs",
+    "x-ibm-summary": ""
+  },
+  "paths": {
+    "/issuance/collective": {
+      "post": {
+        "operationId": "postCollective",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/collectivePolicyResponse"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "alta poliza colectiva",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/collectivePolicy"
+            },
+            "description": "The request body for the operation",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Token de usuario."
+          }
+        ]
+      }
+    },
+    "/addCertificate": {
+      "post": {
+        "operationId": "postAddCertificate",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/addCertificateResponse"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "agregar certificado a poliza colectiva",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/addCertificate"
+            },
+            "description": "The request body for the operation",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Token de usuario."
+          }
+        ]
+      }
+    },
+    "/confirmPolicyCollective": {
+      "post": {
+        "operationId": "postConfirmPolicyCollective",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/confirmPolicyCollectiveResponse"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "description": "Confirmar poliza colectiva y certificados",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/confirmPolicyCollective"
+            },
+            "description": "The request body for the operation",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Token de usuario."
+          }
+        ]
+      }
+    }
+  },
+  "basePath": "/apissa/pre-catalog/personalAccident/24",
+  "definitions": {
+    "collectivePolicy": {
+      "type": "object",
+      "properties": {
+        "organizerNumber": {
+          "type": "integer",
+          "description": "Nro. de Organizador",
+          "example": 151528
+        },
+        "producerNumber": {
+          "type": "integer",
+          "description": "Nro. de Productor",
+          "example": 215141
+        },
+        "statisticCodeIds": {
+          "type": "integer",
+          "description": "Cód. / Grupo Estadístico",
+          "example": 1440
+        },
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "startEffectiveDate": {
+              "type": "string",
+              "description": "Vigencia Desde (YYYY-MM-DD)",
+              "example": "2024-09-01"
+            },
+            "endEffectiveDate": {
+              "type": "string",
+              "description": "Vigencia Hasta (YYYY-MM-DD)",
+              "example": "2025-09-01"
+            },
+            "locationRisk": {
+              "type": "object",
+              "description": "Direccion de Riesgo",
+              "properties": {
+                "cityId": {
+                  "type": "integer",
+                  "description": "código de Ciudad",
+                  "example": 3001
+                },
+                "zipCode": {
+                  "type": "integer",
+                  "description": "código Postal",
+                  "example": 1000
+                },
+                "street": {
+                  "type": "string",
+                  "description": "nombre de calle",
+                  "example": "Av Hipólito Yrigoyen"
+                }
+              },
+              "required": [
+                "cityId",
+                "zipCode"
+              ]
+            },
+            "client": {
+              "type": "object",
+              "description": "Datos del Cliente Asegurado",
+              "properties": {
+                "documentType": {
+                  "type": "string",
+                  "description": "Tipo de Documento",
+                  "example": "D",
+                  "enum": [
+                    "D - DNI",
+                    "C - LC",
+                    "L - LE",
+                    "I - CI",
+                    "J - CUIT"
+                  ]
+                },
+                "documentNumber": {
+                  "type": "integer",
+                  "description": "Número de Documento",
+                  "example": 4538294
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Nombre/s del Cliente",
+                  "example": "Maria"
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del Cliente",
+                  "example": "Perez"
+                },
+                "gender": {
+                  "type": "integer",
+                  "description": "Género del Cliente",
+                  "example": 1,
+                  "enum": [
+                    "1 Femenino",
+                    "2 Masculino",
+                    "3 No binario"
+                  ]
+                },
+                "birthDate": {
+                  "description": "Fecha de Nacimiento",
+                  "example": "30/08/1980"
+                },
+                "locationData": {
+                  "type": "object",
+                  "description": "Dirección actual",
+                  "properties": {
+                    "cityId": {
+                      "type": "integer",
+                      "description": "Codigo de Ciudad",
+                      "example": 30001
+                    },
+                    "zipCode": {
+                      "type": "integer",
+                      "description": "Codigo Postal",
+                      "example": 1000
+                    },
+                    "street": {
+                      "type": "string",
+                      "description": "nombre de calle",
+                      "example": "Av Hipólito Yrigoyen"
+                    }
+                  },
+                  "required": [
+                    "cityId",
+                    "zipCode"
+                  ]
+                },
+                "email": {
+                  "type": "string",
+                  "description": "Dirección de e-mail",
+                  "example": "prueba@sancorseguros.com"
+                },
+                "areaCode": {
+                  "type": "integer",
+                  "description": "Cód. de Área (Teléfono)",
+                  "example": 54
+                },
+                "phoneNumber": {
+                  "type": "integer",
+                  "description": "Nro. de Teléfono",
+                  "example": 76582930
+                },
+                "personRoleCode": {
+                  "type": "integer",
+                  "description": "Rol Cliente (1- Titular)",
+                  "example": 1
+                }
+              },
+              "required": [
+                "documentType",
+                "documentNumber",
+                "firstName",
+                "lastName",
+                "gender",
+                "birthDate",
+                "locationData",
+                "email",
+                "areaCode",
+                "phoneNumber",
+                "personRoleCode"
+              ]
+            },
+            "paymentMethodCode": {
+              "type": "integer",
+              "description": "Tipo de pago",
+              "example": 1,
+              "enum": [
+                "0 Efectivo",
+                "1 Cuenta Bancaria",
+                "2 Tarjeta de Credito",
+                "4 CBU",
+                "5 Pago Virtual"
+              ]
+            },
+            "debitData": {
+              "type": "object",
+              "description": "Método de pago",
+              "properties": {
+                "cbuAccount": {
+                  "type": "string",
+                  "description": "Número de CBU (Enviar solo si el tipo de pago fue 4)"
+                },
+                "creditCardToValidityDate": {
+                  "type": "string",
+                  "description": "Fecha de Expiración de tarjeta de credito (YYYY/MM)"
+                },
+                "creditCardBrand": {
+                  "type": "string",
+                  "description": "Cod. Marca de la Tarjeta de Credito",
+                  "enum": [
+                    "1- Cabal",
+                    "5- Visa",
+                    "7- Favacard",
+                    "9- American Express",
+                    "12- Naranja",
+                    "16- Diners Club",
+                    "18- Naranja Visa",
+                    "20- Cordobesa - Mastercard",
+                    "23- TDF - Tierra del Fuego",
+                    "45- Mastercard Nueva",
+                    "57- ELEBAR",
+                    "70- Cencosud Mastercard"
+                  ]
+                },
+                "creditCardNumber": {
+                  "type": "string",
+                  "description": "Nro. de la Tarjeta de Credito"
+                },
+                "policyHolderName": {
+                  "type": "string",
+                  "description": "Titular de la cuenta",
+                  "example": "Pedro Gomez"
+                },
+                "accountNumber": {
+                  "type": "string",
+                  "description": "Nro. de Cuenta de Débito"
+                },
+                "accountTypeId": {
+                  "type": "string",
+                  "description": "Tipo de Cuenta de Débito",
+                  "enum": [
+                    "1 Caja de ahorro",
+                    "2 Cuenta Corriente"
+                  ]
+                },
+                "bankAgencyCode": {
+                  "type": "string",
+                  "description": "Cód. de Agencia/Sucursal de Débito"
+                },
+                "bankCode": {
+                  "type": "string",
+                  "description": "Cód. de Banco"
+                },
+                "email": {
+                  "type": "string",
+                  "description": "email del cliente (Se usa solo en Pago Virtual)"
+                },
+                "recurrencyId": {
+                  "type": "integer",
+                  "description": "recurrencia (Se usa solo en Pago Virtual)"
+                },
+                "payments": {
+                  "type": "object",
+                  "description": "detalle de pago (Se usa solo en Pago Virtual)",
+                  "properties": {
+                    "amount": {
+                      "type": "integer",
+                      "description": "monto total"
+                    },
+                    "paymentTransactionID": {
+                      "type": "integer",
+                      "description": "numero de transaccion"
+                    },
+                    "customerId": {
+                      "type": "string",
+                      "description": "numero de ticket"
+                    },
+                    "cardId": {
+                      "type": "integer",
+                      "description": "numero de tarjeta"
+                    },
+                    "paymentMethodId": {
+                      "type": "integer",
+                      "description": "id de Pago"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "locationRisk",
+            "paymentMethodCode"
+          ]
+        }
+      },
+      "required": [
+        "organizerNumber",
+        "producerNumber"
+      ]
+    },
+    "addCertificate": {
+      "type": "object",
+      "properties": {
+        "policyId": {
+          "type": "integer",
+          "description": "Poliza asociada",
+          "example": 21805944
+        },
+        "certificateId": {
+          "type": "integer",
+          "description": "Numero de certificado asociado",
+          "example": 113995159
+        },
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "startEffectiveDate": {
+              "type": "string",
+              "description": "Vigencia certificado desde (YYYY-MM-DD)",
+              "example": "2025-09-01"
+            },
+            "locationRisk": {
+              "type": "object",
+              "description": "Direccion de Riesgo",
+              "properties": {
+                "cityId": {
+                  "type": "integer",
+                  "description": "código de Ciudad",
+                  "example": 3001
+                },
+                "zipCode": {
+                  "type": "integer",
+                  "description": "código Postal",
+                  "example": 1000
+                },
+                "streetName": {
+                  "type": "string",
+                  "description": "nombre de calle",
+                  "example": "Av Hipólito Yrigoyen"
+                }
+              },
+              "required": [
+                "cityId",
+                "zipCode"
+              ]
+            },
+            "clients": {
+              "type": "object",
+              "description": "Datos del Cliente Asegurado",
+              "properties": {
+                "documentType": {
+                  "type": "string",
+                  "description": "Tipo de Documento",
+                  "example": "D",
+                  "enum": [
+                    "D - DNI",
+                    "C - LC",
+                    "L - LE",
+                    "I - CI",
+                    "J - CUIT"
+                  ]
+                },
+                "documentNumber": {
+                  "type": "integer",
+                  "description": "Número de Documento",
+                  "example": 4538294
+                },
+                "firstName": {
+                  "type": "string",
+                  "description": "Nombre/s del Cliente",
+                  "example": "Maria"
+                },
+                "lastName": {
+                  "type": "string",
+                  "description": "Apellido del Cliente",
+                  "example": "Perez"
+                },
+                "gender": {
+                  "type": "integer",
+                  "description": "Género del Cliente",
+                  "example": 1,
+                  "enum": [
+                    "1 Femenino",
+                    "2 Masculino",
+                    "3 No binario"
+                  ]
+                },
+                "birthDate": {
+                  "description": "Fecha de Nacimiento",
+                  "example": "30/08/1980"
+                },
+                "locationData": {
+                  "type": "object",
+                  "description": "Dirección actual",
+                  "properties": {
+                    "cityId": {
+                      "type": "integer",
+                      "description": "Codigo de Ciudad",
+                      "example": 30001
+                    },
+                    "zipCode": {
+                      "type": "integer",
+                      "description": "Codigo Postal",
+                      "example": 1000
+                    },
+                    "street": {
+                      "type": "string",
+                      "description": "nombre de calle",
+                      "example": "Av Hipólito Yrigoyen"
+                    }
+                  },
+                  "required": [
+                    "cityId",
+                    "zipCode"
+                  ]
+                },
+                "email": {
+                  "type": "string",
+                  "description": "Dirección de e-mail",
+                  "example": "prueba@sancorseguros.com"
+                },
+                "areaCode": {
+                  "type": "integer",
+                  "description": "Cód. de Área (Teléfono)",
+                  "example": 54
+                },
+                "phoneNumber": {
+                  "type": "integer",
+                  "description": "Nro. de Teléfono",
+                  "example": 76582930
+                },
+                "personRoleCode": {
+                  "type": "integer",
+                  "description": "Rol Cliente (2- Asegurado / 17- Beneficiario)",
+                  "example": 2
+                }
+              },
+              "required": [
+                "documentType",
+                "documentNumber",
+                "firstName",
+                "lastName",
+                "gender",
+                "birthDate",
+                "locationData",
+                "email",
+                "areaCode",
+                "phoneNumber",
+                "personRoleCode"
+              ]
+            },
+            "offeringCode": {
+              "type": "string",
+              "description": "Modulo cobertura (consultar Servicio de Modulos)",
+              "example": 100
+            },
+            "branchData": {
+              "type": "object",
+              "properties": {
+                "activityCode": {
+                  "type": "string",
+                  "description": "Tipo de Actividad (consultar servicio de actividades)",
+                  "example": 1
+                },
+                "activityClassifCode": {
+                  "type": "string",
+                  "description": "Cod de Actividad (consultar servicio de Clasificacion)",
+                  "example": 17
+                },
+                "hasDisability": {
+                  "type": "boolean",
+                  "description": "buscar descripcion",
+                  "example": false
+                },
+                "isLeftHanded": {
+                  "type": "boolean",
+                  "description": "buscar descripcion",
+                  "example": false
+                },
+                "disabilityDeclaration": {
+                  "type": "string",
+                  "description": "buscar descripcion"
+                }
+              }
+            }
+          },
+          "required": [
+            "offeringCode",
+            "locationRisk",
+            "paymentMethodCode",
+            "branchData"
+          ]
+        }
+      },
+      "required": [
+        "policyId",
+        "certificateId"
+      ]
+    },
+    "confirmPolicyCollective": {
+      "type": "object",
+      "properties": {
+        "policyId": {
+          "type": "integer",
+          "description": "Poliza asociada",
+          "example": 22160486
+        }
+      },
+      "required": [
+        "policyId"
+      ]
+    },
+    "confirmPolicyCollectiveResponse": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "object",
+          "properties": {
+            "referenceNumber": {
+              "type": "integer"
+            },
+            "certificateNumber": {
+              "type": "integer"
+            },
+            "officialNumber": {
+              "type": "integer"
+            },
+            "managementNumber": {
+              "type": "string"
+            },
+            "managementStatusName": {
+              "type": "string"
+            },
+            "receipt": {
+              "type": "object",
+              "properties": {
+                "detail": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "receiptDescription": {
+                        "type": "string"
+                      },
+                      "issueTransactionPremium": {
+                        "type": "number",
+                        "format": "decimal"
+                      },
+                      "quotaAmount": {
+                        "type": "number",
+                        "format": "decimal"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "collectivePolicyResponse": {
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "object",
+          "properties": {
+            "policyId": {
+              "type": "string",
+              "example": 22162911
+            },
+            "certificateId": {
+              "type": "string",
+              "example": 113998854
+            }
+          }
+        }
+      }
+    },
+    "addCertificateResponse": {
+      "type": "object",
+      "properties": {
+        "certificateData": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "type": "object",
+              "properties": {
+                "certificateNumber": {
+                  "type": "string",
+                  "example": 1
+                },
+                "managementNumber": {
+                  "type": "string",
+                  "example": 106000000000333090000
+                },
+                "managementStatus": {
+                  "type": "string",
+                  "example": "Trámite Iniciado en CEIBO"
+                },
+                "officialNumber": {
+                  "type": "string",
+                  "example": 0
+                },
+                "referenceNumber": {
+                  "type": "string",
+                  "example": 99112357
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemes": [
+    "https"
+  ],
+  "x-ibm-configuration": {
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "cors": {
+      "enabled": true
+    },
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog/personalAccident/24",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "securityDefinitions": {
+    "clientId": {
+      "type": "apiKey",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id",
+      "in": "header"
+    }
+  },
+  "security": [
+    {
+      "clientId": []
+    }
+  ],
+  "host": "external-pre-api.gruposancorseguros.com"
+}

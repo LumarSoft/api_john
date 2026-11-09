@@ -1,0 +1,446 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Cotización - Vida Colectivo - Amparo",
+    "x-ibm-name": "collective-life-death-grant-quotation",
+    "version": "1.0.0",
+    "description": "",
+    "x-ibm-summary": ""
+  },
+  "x-ibm-configuration": {
+    "cors": {
+      "enabled": true
+    },
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog/quotations/collectivelife",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "basePath": "/apissa/pre-catalog/quotations/collectivelife",
+  "paths": {
+    "/deathgrant": {
+      "post": {
+        "operationId": "postDeathGrant",
+        "responses": {
+          "200": {
+            "description": "The operation was successful.",
+            "schema": {
+              "$ref": "#/definitions/deathGrantResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or misspelled input parameter error.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "401": {
+            "description": "Authorization.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "403": {
+            "description": "Authentication.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "415": {
+            "description": "Mandatory parameters missing.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "422": {
+            "description": "Wrong/Invalid parameter(s).",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "500": {
+            "description": "No response from Backend.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          },
+          "504": {
+            "description": "TimeOut from server.",
+            "schema": {
+              "$ref": "#/definitions/Messages"
+            }
+          }
+        },
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/deathGrantRequest"
+            },
+            "description": "body",
+            "required": true
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "type": "string",
+            "required": true,
+            "description": "Token del usuario."
+          }
+        ]
+      },
+      "parameters": []
+    }
+  },
+  "definitions": {
+    "deathGrantRequest": {
+      "type": "object",
+      "properties": {
+        "locationRisk": {
+          "type": "object",
+          "properties": {
+            "cityId": {
+              "type": "integer",
+              "format": "int64",
+              "description": "Codigo de ciudad."
+            },
+            "zipCode": {
+              "type": "integer",
+              "format": "int64",
+              "description": "Codigo postal"
+            }
+          },
+          "description": "Datos de localidad."
+        },
+        "clients": {
+          "type": "object",
+          "description": "Datos de cliente",
+          "properties": {
+            "documentNumber": {
+              "type": "integer",
+              "description": "Numero Documento",
+              "example": 42055099
+            },
+            "documentType": {
+              "type": "string",
+              "description": "Tipo documento",
+              "example": "D",
+              "enum": [
+                "D - DNI",
+                "C - LC",
+                "L - LE",
+                "I - CI",
+                "J - CUIT"
+              ]
+            }
+          }
+        },
+        "offeringCode": {
+          "type": "integer",
+          "example": 32,
+          "description": "Código del módulo de portada"
+        },
+        "startEffectiveDate": {
+          "type": "string",
+          "example": "2025-02-20",
+          "description": "fecha de efecto"
+        },
+        "endEffectiveDate": {
+          "type": "string",
+          "example": "2026-02-20",
+          "description": "fecha de expiración"
+        },
+        "organizerNumber": {
+          "type": "integer",
+          "example": 100025,
+          "description": "Codigo del organizador"
+        },
+        "producerNumber": {
+          "type": "integer",
+          "example": 203953,
+          "description": "Codigo del productor"
+        },
+        "paymentFrequency": {
+          "type": "integer",
+          "example": 5,
+          "description": "Frecuencia de póliza 5- mensual, 7-cuotas"
+        },
+        "respectClientIvaCondition": {
+          "type": "boolean",
+          "example": false,
+          "description": "respetar Condición Iva Cliente"
+        },
+        "sealExemptActivity": {
+          "type": "boolean",
+          "example": false,
+          "description": "sellar Actividad Exenta"
+        },
+        "statisticCodeIds": {
+          "type": "integer",
+          "example": 0,
+          "description": "código estadístico"
+        },
+        "conditionCode": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Condición fiscal",
+          "enum": [
+            "1 Responsable Inscripto",
+            "2 Responsable No Inscripto",
+            "3 Exento",
+            "4 Consumidor Final",
+            "5 No Declarado",
+            "6 No Alcanzado",
+            "7 Responsable Monotributo"
+          ],
+          "example": 4
+        },
+        "personInsured": {
+          "type": "object",
+          "properties": {
+            "insuredGroup": {
+              "type": "integer",
+              "description": "grupo asegurado",
+              "enum": [
+                "1 Individual",
+                "3 Familiar"
+              ]
+            },
+            "birthDate": {
+              "type": "string",
+              "example": "2026-02-20",
+              "description": "fecha de nacimiento"
+            },
+            "insuredCapital": {
+              "type": "integer",
+              "format": "decimal",
+              "description": "capital asegurado"
+            }
+          }
+        },
+        "discountCustomizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "Lista de descuentos",
+            "properties": {
+              "discountNumber": {
+                "type": "integer",
+                "description": "Número de descuento"
+              },
+              "rate": {
+                "type": "number",
+                "format": "float",
+                "description": "Tasa %"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "locationRisk",
+        "paymentFrequency"
+      ]
+    },
+    "deathGrantResponse": {
+      "type": "object",
+      "properties": {
+        "relationQuotationCode": {
+          "type": "integer"
+        },
+        "quotation": {
+          "type": "object",
+          "properties": {
+            "insuredGroupInsured": {
+              "type": "integer"
+            },
+            "taxableBases": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "premiunBaseAmount": {
+                    "type": "integer",
+                    "format": "decimal"
+                  },
+                  "taxAmount": {
+                    "type": "integer",
+                    "format": "decimal"
+                  }
+                }
+              }
+            },
+            "finallyCalculationResults": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "chargeBasisAmount": {
+                    "type": "integer",
+                    "format": "decimal"
+                  },
+                  "chargeDescription": {
+                    "type": "string"
+                  },
+                  "planDetail": {
+                    "type": "string"
+                  },
+                  "chargeCode": {
+                    "type": "integer"
+                  },
+                  "quotaPremiumMonthly": {
+                    "type": "integer",
+                    "format": "decimal"
+                  },
+                  "quotaPremiumVigency": {
+                    "type": "integer",
+                    "format": "decimal"
+                  },
+                  "chargeType": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "premiumMonthly": {
+              "type": "integer",
+              "format": "decimal"
+            },
+            "premiumVigency": {
+              "type": "integer",
+              "format": "decimal"
+            },
+            "additioinalsCalculationResults": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "premiumWithoutIva": {
+                    "type": "integer",
+                    "format": "decimal"
+                  },
+                  "premiumWithoutIvaRate": {
+                    "type": "integer",
+                    "format": "decimal"
+                  }
+                }
+              }
+            },
+            "pricingIds": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "policyPeriodKey": {
+                    "type": "integer"
+                  },
+                  "policyPeriodPremium": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "quotationCode": {
+              "type": "integer"
+            },
+            "success": {
+              "type": "boolean"
+            },
+            "validationResults": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "errorMessage": {
+                    "type": "string"
+                  },
+                  "level": {
+                    "type": "string"
+                  },
+                  "memberNames": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "memberName": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "message": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Message"
+              }
+            }
+          }
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Messages": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Message"
+          }
+        }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ],
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com"
+}

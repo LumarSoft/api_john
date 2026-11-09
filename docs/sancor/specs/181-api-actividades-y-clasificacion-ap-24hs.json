@@ -1,0 +1,95 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Api Actividades y Clasificación AP 24hs",
+    "x-ibm-name": "ap-getactivitiesap24",
+    "version": "1.0.0",
+    "description": "Actividades y Clasificación",
+    "x-ibm-summary": ""
+  },
+  "x-ibm-configuration": {
+    "cors": {
+      "enabled": true
+    },
+    "type": "rest",
+    "phase": "realized",
+    "enforced": true,
+    "testable": true,
+    "servers": [
+      {
+        "url": "https://external-pre-api.gruposancorseguros.com/apissa/pre-catalog/parameters/ap/24",
+        "type": [
+          "production",
+          "development"
+        ]
+      }
+    ]
+  },
+  "basePath": "/apissa/pre-catalog/parameters/ap/24",
+  "paths": {
+    "/getActivities": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "400": {
+            "description": "Bad Request."
+          }
+        },
+        "consumes": [],
+        "produces": [
+          "application/json"
+        ]
+      },
+      "parameters": []
+    },
+    "/getClassfication": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "success",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          }
+        },
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "activityId",
+            "required": true,
+            "in": "query",
+            "type": "integer",
+            "description": "Id de actividad"
+          }
+        ]
+      }
+    }
+  },
+  "securityDefinitions": {
+    "clientID": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "gss_apiclient_id",
+      "x-key-type": "client_id"
+    }
+  },
+  "security": [
+    {
+      "clientID": []
+    }
+  ],
+  "schemes": [
+    "https"
+  ],
+  "host": "external-pre-api.gruposancorseguros.com"
+}
