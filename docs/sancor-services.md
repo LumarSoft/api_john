@@ -357,11 +357,43 @@ piden `Authorization: Bearer <token del intermediario>` y la Clave en
 | Prestadores Siniestros | 1335 `POST /v2/claim/serviceorders/informnovelty`; 1322 `.../fileupload` | Para talleres y prestadores: novedades y archivos de una orden de servicio | No |
 | Automotores / Motovehiculos / Siniestro/Denuncia / Impresión documento / APIs Generales / Servicios de Autenticación | ver [Resumen](#resumen) | Ya relevados el 20/10 | Sí |
 
-Lo que no cambia: sigue faltando el usuario del intermediario (SOLHDG) y los
-códigos `producerNumber`/`organizerNumber` de John en Sancor; sin eso ninguna
-de estas APIs devuelve datos. Al suscribir la aplicación a los productos nuevos
-hay que hacerlo en el portal (Apps → John Pellegrini Management Group →
-suscribir) antes de llamarlas, si no el gateway contesta 403 "Not registered to plan".
+**Estado al 9/11/2026 (noche):** la aplicación quedó suscripta también a
+Combinado Familiar - Hogar Premium, Combinado Familiar - Hogar Protegido, Robo
+Bolso, Robo - Bicicleta y Accidentes Personales/AP24hs (11 productos en total;
+planes de 100 llamadas por hora, Hogar Protegido 1000 por minuto). Se suscribe
+desde el portal: producto → Plans → Select → elegir la aplicación → Next. Sin
+eso el gateway contesta 403 "Not registered to plan".
+
+Primera cotización real ese día, con el usuario del intermediario (el mismo de
+la web) y sus códigos de productor y organizador:
+
+```json
+POST {BASE}/quotations/theft/protectedbag
+{ "organizerNumber": "<organizador>", "producerNumber": <productor>,
+  "locationRisk": { "cityId": 1240, "zipCode": 2000 },
+  "offeringCode": "1", "startEffectiveDate": "2026-11-10" }
+```
+
+```json
+200
+{ "quotation": { "relationQuotationId": 43545582, "quotationId": 1777710952,
+    "plans": [ { "coveragesModules": 1, "premiumMonthly": 30, "premiumVigency": 360.23,
+        "coverageValues": [ { "capital": 2000, "description": "Objetos Diversos", "detailType": "Cobertura", "monthlyPremium": 21.96 },
+                            { "description": "IVA General", "detailType": "Impuesto", "monthlyPremium": 4.69 } ] } ] } }
+```
+
+- `startEffectiveDate` va como `YYYY-MM-DD` y **tiene que ser la fecha de hoy
+  en UTC**: a las 21:20 de Argentina del 9/11 Sancor rechazó `2026-11-09`
+  ("Solo se permite cotizar a la fecha actual") y aceptó `2026-11-10`. Con
+  hora (`T00:00:00`) también la rechaza.
+- `offeringCode` es el `id` de `GET /modules/bag` (1 = "Plan 2000" … 10 = "Plan 25000").
+  `cityId` sale de `GET /localities?zipCode=…&countryCode=AR` (Rosario = 1240).
+- Los importes de preproducción no son los de venta: sirven para probar la forma.
+- Las demás respondieron con errores de validación, o sea que la suscripción
+  anda: `GET /covers/familycombined/premium` y `GET /familyCombined/additionals`
+  400 "required API parameters are missing"; `POST /quotations/theft/bicycle`
+  con cuerpo vacío 415 "Faltan parametros de entrada obligatorios (locationRisk)";
+  `GET /parameters/ap/24/getActivities` 200 con las actividades.
 
 ## Pendientes
 
