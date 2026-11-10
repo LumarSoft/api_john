@@ -11,7 +11,8 @@ import { UpdateScheduleDto } from './dto/update-schedule.dto'
  * Admin "Horarios" screen, always scoped to the caller's producer: the
  * organization's weekly hours, the ones every number without its own uses.
  * Holidays and closures are each number's (admin/phone-numbers/:id/closures):
- * a branch's closure never closes the others.
+ * a branch's closure never closes the others. Only the SuperAdmin changes the
+ * organization's hours; a branch's admin sets their number's own.
  */
 @UseGuards(UserAuthGuard, RolesGuard)
 @Controller('admin/business-hours')
@@ -24,7 +25,7 @@ export class AdminBusinessHoursController {
   }
 
   @Patch('schedule')
-  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  @Roles(Role.SUPERADMIN)
   updateSchedule(@Request() req: AuthenticatedRequest, @Body() dto: UpdateScheduleDto) {
     return this.service.updateSchedule(req.user.producerId, dto)
   }

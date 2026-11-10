@@ -12,8 +12,8 @@ import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
  * Coverage rows are never created or deleted by hand: they appear when Triunfo
  * quotes a code for the first time. The admin only edits them — turning them on
  * or off, renaming them and setting their order. They are what the whole
- * organization offers; any admin may change them (28/10: the office asked
- * for every organization setting to be open to its admins).
+ * organization offers, so only the SuperAdmin changes them; a branch's admin
+ * picks which ones their number offers in its assistant.
  */
 @UseGuards(UserAuthGuard, RolesGuard)
 @Controller('admin/coberturas')
@@ -26,13 +26,13 @@ export class AdminCoverageSettingsController {
   }
 
   @Patch('orden')
-  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  @Roles(Role.SUPERADMIN)
   reorder(@Body() dto: ReorderCoverageSettingsDto, @Request() req: AuthenticatedRequest) {
     return this.coverageSettingsService.reorder(req.user.producerId, dto)
   }
 
   @Patch(':id')
-  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  @Roles(Role.SUPERADMIN)
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCoverageSettingDto,

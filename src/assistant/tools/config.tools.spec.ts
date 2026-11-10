@@ -38,12 +38,14 @@ function setup({
       preview,
     })),
   }
+  const users = { updateBotProfile: jest.fn(), updateProducerConfig: jest.fn() }
+  const businessHours = { updateSchedule: jest.fn() }
   const set = configTools({
     prisma: prisma as unknown as PrismaService,
     scope: scope as unknown as ScopeService,
-    users: {} as UsersService,
+    users: users as unknown as UsersService,
     phoneNumbers: {} as PhoneNumbersService,
-    businessHours: {} as BusinessHoursService,
+    businessHours: businessHours as unknown as BusinessHoursService,
     actions: actions as unknown as AssistantActionsService,
   })
   const tool = set.tools.find(t => t.name === 'proponer_cambio_datos_de_pago')!
@@ -55,7 +57,7 @@ function setup({
     proposed: [],
     ownWords,
   }
-  return { tool, ctx, actions, prisma }
+  return { tool, ctx, actions, prisma, set, users, businessHours }
 }
 
 const number = (id: number, botProfile: unknown = null) => ({
@@ -102,6 +104,14 @@ describe('proponer_cambio_datos_de_pago', () => {
     expect(preview.notes.join(' ')).toContain('cbu, titular, banco quedan vacíos')
   })
 
+  it('does not let an admin change the whole organization’s account, only their number’s', async () => {
+    const { tool, ctx, actions } = setup({ role: Role.ADMIN, numbers: [number(1)] })
+    await expect(tool.run(ctx, { alcance: 'organizacion', alias: 'nuevo.alias' })).rejects.toThrow(
+      'lo cambia solo un SuperAdmin',
+    )
+    expect(actions.propose).not.toHaveBeenCalled()
+  })
+
   it('does not let an admin touch a number that is not theirs', async () => {
     const { tool, ctx, actions } = setup({ role: Role.ADMIN, numbers: [number(1)] })
     await expect(tool.run(ctx, { alcance: 'numero', numero_id: 8, alias: 'otro.alias' })).rejects.toThrow(
@@ -146,6 +156,56 @@ describe('proponer_cambio_datos_de_pago', () => {
     await expect(tool.run(ctx, { alcance: 'organizacion', alias: 'viejo.alias' })).rejects.toThrow(
       'ya son los que están cargados',
     )
+  })
+})
+
+describe('the whole organization’s settings, for an admin', () => {
+  const tool = (set: ReturnType<typeof setup>['set'], name: string) => set.tools.find(t => t.name === name)!
+  const executor = (set: ReturnType<typeof setup>['set'], type: string) => set.executors.find(e => e.type === type)!
+
+  it('proposes no change to the organization’s name, people or hours', async () => {
+    const { set, ctx, actions } = setup({ role: Role.ADMIN, numbers: [number(1)] })
+    await expect(
+      tool(set, 'proponer_cambio_datos_productora').run(ctx, {
+        nombre_organizacion: 'DEMIS',
+        personas_oficina: ['Demis'],
+      }),
+    ).rejects.toThrow('lo cambia solo un SuperAdmin')
+    await expect(
+      tool(set, 'proponer_cambio_horarios').run(ctx, { alcance: 'organizacion', dias: { lun: [] } }),
+    ).rejects.toThrow('lo cambia solo un SuperAdmin')
+    expect(actions.propose).not.toHaveBeenCalled()
+  })
+
+  it('refuses to carry out an organization change an admin confirms or undoes', async () => {
+    const { set, ctx, users, businessHours } = setup({ role: Role.ADMIN })
+    await expect(
+      executor(set, 'datos_de_pago').execute(ctx.user, [], {
+        scope: 'organization',
+        changes: { transferAlias: 'x.y' },
+      }),
+    ).rejects.toThrow('Only the SuperAdmin')
+    await expect(
+      executor(set, 'datos_productora').execute(ctx.user, [], {
+        profileChanges: { orgName: 'DEMIS' },
+        configChanges: { staffNames: ['Demis'] },
+      }),
+    ).rejects.toThrow('Only the SuperAdmin')
+    await expect(
+      executor(set, 'horarios').execute(ctx.user, [], { scope: 'organization', weekly: {} }),
+    ).rejects.toThrow('Only the SuperAdmin')
+    expect(users.updateBotProfile).not.toHaveBeenCalled()
+    expect(users.updateProducerConfig).not.toHaveBeenCalled()
+    expect(businessHours.updateSchedule).not.toHaveBeenCalled()
+  })
+
+  it('still lets the SuperAdmin change the organization’s account', async () => {
+    const { set, ctx, users } = setup()
+    await executor(set, 'datos_de_pago').execute(ctx.user, [], {
+      scope: 'organization',
+      changes: { transferAlias: 'nuevo.alias' },
+    })
+    expect(users.updateBotProfile).toHaveBeenCalledWith(7, { transferAlias: 'nuevo.alias' })
   })
 })
 

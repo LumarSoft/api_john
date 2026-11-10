@@ -625,7 +625,7 @@ Configuración del bot de la organización del usuario autenticado. El bot se en
 
 Actualiza el nombre con el que se presenta el bot y los nombres de las personas de la oficina. Solo cambian los campos enviados. Un `botName` vacío vuelve al nombre por defecto; una lista `staffNames` vacía borra los nombres. Si un mensaje nombra a una de esas personas ("Hola Mili"), el bot le deja un aviso a la oficina y sigue atendiendo al cliente. Vale para todos los números de la organización que no tengan los suyos (ver `PATCH /admin/phone-numbers/:id/assistant`).
 
-**Auth required:** Yes (SuperAdmin or Admin)
+**Auth required:** Yes (SuperAdmin; a branch's admin changes their number's own in `PATCH /admin/phone-numbers/:id/assistant`)
 
 **Request body**
 
@@ -687,7 +687,7 @@ What the bot says that is particular to the organization: how it names it, the g
 
 Changes the fields sent; an empty string clears one. The bot reads it on its next message. Without `claimsEmail`, the default organization's claims keep going to `ADVISOR_EMAIL` and any other organization's are not e-mailed.
 
-**Auth required:** Yes (SuperAdmin or Admin)
+**Auth required:** Yes (SuperAdmin; a branch's admin changes their number's own in `PATCH /admin/phone-numbers/:id/assistant`)
 
 **Request body** (every field optional)
 
@@ -3952,7 +3952,7 @@ Lista todos los planes (activos e inactivos) del productor.
 
 ### POST /admin/pricing
 
-**Auth required:** Yes (SuperAdmin or Admin)
+**Auth required:** Yes (SuperAdmin: the prices are the whole organization's)
 
 **Request body**
 
@@ -3967,24 +3967,27 @@ Lista todos los planes (activos e inactivos) del productor.
 | sortOrder     | number   | No       | ≥0, default 0            |
 
 `201 Created` → plan creado
+`403 Forbidden` → the caller is not a SuperAdmin
 
 ### PATCH /admin/pricing/:id
 
 Igual al body de creación pero todos los campos opcionales (`productType` no es
 modificable).
 
-**Auth required:** Yes (SuperAdmin or Admin)
+**Auth required:** Yes (SuperAdmin: the prices are the whole organization's)
 
 `200 OK` → plan actualizado
+`403 Forbidden` → the caller is not a SuperAdmin
 `404 Not Found`
 
 ### DELETE /admin/pricing/:id
 
 Soft delete del plan.
 
-**Auth required:** Yes (SuperAdmin or Admin)
+**Auth required:** Yes (SuperAdmin: the prices are the whole organization's)
 
 `200 OK` → `{ "ok": true }`
+`403 Forbidden` → the caller is not a SuperAdmin
 `404 Not Found`
 
 ---
@@ -4078,7 +4081,7 @@ The organization's weekly schedule.
 
 The organization's hours: they apply to every number that has no hours of its own (`PATCH /admin/phone-numbers/:id/assistant`).
 
-**Auth required:** Yes (SuperAdmin or Admin)
+**Auth required:** Yes (SuperAdmin; a branch's admin changes their number's own in `PATCH /admin/phone-numbers/:id/assistant`)
 
 **Request body**
 
@@ -4159,7 +4162,7 @@ Lists every coverage code ever seen for the authenticated user's producer, order
 
 Updates one coverage. Any edit sets `isConfigured` to `true`.
 
-**Auth required:** Yes (SuperAdmin or Admin; every role reads `GET /admin/coberturas`)
+**Auth required:** Yes (SuperAdmin; every role reads `GET /admin/coberturas`, and a branch's admin picks what their number offers in `PATCH /admin/phone-numbers/:id/assistant`)
 
 **Request body**
 
@@ -4189,13 +4192,15 @@ Updates one coverage. Any edit sets `isConfigured` to `true`.
 
 `401 Unauthorized` — Missing or invalid token
 
+`403 Forbidden` — The caller is not a SuperAdmin
+
 `404 Not Found` — The coverage does not exist for this producer
 
 ### PATCH /admin/coberturas/orden
 
 Persists a whole ordering in one call, for a drag-and-drop list.
 
-**Auth required:** Yes (SuperAdmin or Admin)
+**Auth required:** Yes (SuperAdmin; a branch's admin changes their number's own in `PATCH /admin/phone-numbers/:id/assistant`)
 
 **Request body**
 
@@ -4221,6 +4226,8 @@ Persists a whole ordering in one call, for a drag-and-drop list.
 `400 Bad Request` — Validation error
 
 `401 Unauthorized` — Missing or invalid token
+
+`403 Forbidden` — The caller is not a SuperAdmin
 
 `404 Not Found` — One of the ids does not belong to this producer
 

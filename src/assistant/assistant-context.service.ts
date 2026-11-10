@@ -88,7 +88,7 @@ export class AssistantContextService {
       `- Nombre: ${oneLine(userName)}${person?.name ? ` (${person.email})` : ''}. Tratala por su nombre de pila si lo tiene.`,
       superAdmin
         ? '- Rol: SuperAdmin. Ve y configura toda la organización: todos los códigos, todos los números y Usuarios.'
-        : '- Rol: Administrador. Ve solo los datos de sus códigos de productor y configura solo sus números; Usuarios, Balance y el alta de números son del SuperAdmin. La configuración general de la organización (Configuración) sí la puede cambiar.',
+        : '- Rol: Administrador. Ve solo los datos de sus códigos de productor y configura solo sus números; Usuarios, Balance y el alta de números son del SuperAdmin. La configuración general de la organización la cambia solo el SuperAdmin; en Configuración › Asistente cambia la de su número (nombre, personas, horario, feriados, datos, cuenta y coberturas).',
       `- Organización: ${oneLine(orgName)}.`,
       `- Códigos de productor que ve: ${codeLines.length ? codeLines.join('; ') : 'ninguno'}.`,
       numbers.length

@@ -10,9 +10,11 @@ import { UpdateBotProfileDto } from './dto/update-bot-profile.dto'
 
 /**
  * Producer-level configuration for the admin "Configuración" screen, always
- * scoped to the caller's producer. Everyone reads it, and every admin of the
- * organization may change it (60ee071), though it applies to all its numbers.
- * A branch's own number is configured in admin/phone-numbers/:id/assistant.
+ * scoped to the caller's producer. Everyone reads it; only the SuperAdmin
+ * changes it, since it applies to every number without its own. A branch's
+ * admin configures their own number in admin/phone-numbers/:id/assistant:
+ * twice (6/11 and 10/11) a branch admin saved their branch's name, people and
+ * bank account here and every other branch started using them.
  */
 @UseGuards(UserAuthGuard, RolesGuard)
 @Controller('admin/config')
@@ -25,7 +27,7 @@ export class AdminConfigController {
   }
 
   @Patch()
-  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  @Roles(Role.SUPERADMIN)
   update(@Request() req: AuthenticatedRequest, @Body() dto: UpdateConfigDto) {
     return this.usersService.updateProducerConfig(req.user.producerId, dto)
   }
@@ -36,9 +38,9 @@ export class AdminConfigController {
     return this.usersService.getBotProfile(req.user.producerId)
   }
 
-  /** What the bot tells customers about payments and assistance: any admin of the organization changes it. */
+  /** What the bot tells customers about payments and assistance: only the SuperAdmin changes the organization's. */
   @Patch('profile')
-  @Roles(Role.SUPERADMIN, Role.ADMIN)
+  @Roles(Role.SUPERADMIN)
   updateProfile(@Request() req: AuthenticatedRequest, @Body() dto: UpdateBotProfileDto) {
     return this.usersService.updateBotProfile(req.user.producerId, dto)
   }

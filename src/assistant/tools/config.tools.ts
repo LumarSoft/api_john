@@ -1,5 +1,5 @@
-import { BadRequestException } from '@nestjs/common'
-import { Prisma } from 'generated/prisma/client'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../../common/scope/scope.service'
 import { BotProfile, parseBotProfile, TRANSFER_FIELDS } from '../../common/bot-profile'
@@ -67,6 +67,28 @@ const PROFILE_ARGS: Record<string, { field: keyof BotProfile; label: string }> =
 }
 
 const ORGANIZATION = 'Toda la organización'
+
+/**
+ * What applies to the whole organization only its SuperAdmin (or the owner)
+ * changes: a branch's admin changes their own numbers (10/11, a branch admin
+ * saved their branch's data as the whole organization's).
+ */
+function changesOrganization(user: ScopeUser): boolean {
+  return user.role === Role.SUPERADMIN || user.role === Role.OWNER
+}
+
+/** Stops the model from proposing an organization change an admin may not make, with what to do instead. */
+function assertChangesOrganization(user: ScopeUser): void {
+  if (changesOrganization(user)) return
+  throw new ToolError(
+    'Lo de toda la organización lo cambia solo un SuperAdmin. Esta persona cambia lo de sus números: usá alcance "numero" con el id del número, o mandala a Configuración › Asistente, que le muestra su número.',
+  )
+}
+
+/** The same rule when the change is confirmed or undone: a card proposed before it must not get through. */
+function assertExecutesOnOrganization(user: ScopeUser): void {
+  if (!changesOrganization(user)) throw new ForbiddenException('Only the SuperAdmin changes the organization')
+}
 
 interface VisibleNumber {
   id: number
@@ -189,7 +211,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
         status: 'Preparando el cambio de cuenta',
         proposes: true,
         description:
-          'Prepara el cambio de la cuenta para transferencias y le muestra a la persona una tarjeta para confirmarlo (no cambia nada hasta que toque Confirmar). alcance "organizacion" cambia la cuenta que usan todos los números sin cuenta propia; "numero" cambia la de un solo número (numero_id). Cada dato: un texto para cambiarlo, "" para borrarlo, sin pasarlo queda como está. Un número con cuenta propia usa solo sus cuatro datos, nunca mezcla con los de la organización. Para que un número vuelva a usar la cuenta de la organización: alcance "numero" y usar_cuenta_de_la_organizacion true.',
+          'Prepara el cambio de la cuenta para transferencias y le muestra a la persona una tarjeta para confirmarlo (no cambia nada hasta que toque Confirmar). alcance "organizacion" (solo un SuperAdmin) cambia la cuenta que usan todos los números sin cuenta propia; "numero" cambia la de un solo número (numero_id). Cada dato: un texto para cambiarlo, "" para borrarlo, sin pasarlo queda como está. Un número con cuenta propia usa solo sus cuatro datos, nunca mezcla con los de la organización. Para que un número vuelva a usar la cuenta de la organización: alcance "numero" y usar_cuenta_de_la_organizacion true.',
         parameters: {
           type: 'object',
           additionalProperties: false,
@@ -209,6 +231,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
         },
         run: async (ctx, args) => {
           const scope = optionalText(args, 'alcance') === 'numero' ? 'number' : 'organization'
+          if (scope === 'organization') assertChangesOrganization(ctx.user)
           const changes: Partial<Record<TransferField, string>> = {}
           const notes: string[] = []
 
@@ -353,7 +376,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
         status: 'Preparando el cambio de datos',
         proposes: true,
         description:
-          'Prepara un cambio en los datos de la organización que usa el bot (no la cuenta bancaria: para eso proponer_cambio_datos_de_pago) y muestra la tarjeta para confirmarlo. Cada dato: texto para cambiarlo, "" para borrarlo, sin pasarlo queda igual.',
+          'Prepara un cambio en los datos de la organización que usa el bot (no la cuenta bancaria: para eso proponer_cambio_datos_de_pago) y muestra la tarjeta para confirmarlo. Solo para un SuperAdmin: vale para todos los números sin datos propios. Cada dato: texto para cambiarlo, "" para borrarlo, sin pasarlo queda igual.',
         parameters: {
           type: 'object',
           additionalProperties: false,
@@ -370,6 +393,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
           },
         },
         run: async (ctx, args) => {
+          assertChangesOrganization(ctx.user)
           const profileChanges: Partial<Record<keyof BotProfile, string>> = {}
           for (const [arg, { field }] of Object.entries(PROFILE_ARGS)) {
             if (typeof args[arg] === 'string') profileChanges[field] = (args[arg] as string).trim()
@@ -472,7 +496,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
         status: 'Preparando el cambio de horarios',
         proposes: true,
         description:
-          'Prepara un cambio de horarios de atención y muestra la tarjeta para confirmarlo. Pasá solo los días que cambian; los demás quedan como están. Un día es una lista de hasta dos turnos {desde, hasta} en HH:mm; [] es cerrado. alcance "organizacion" o "numero" (con numero_id); usar_horario_de_la_organizacion true hace que el número vuelva al horario general.',
+          'Prepara un cambio de horarios de atención y muestra la tarjeta para confirmarlo. Pasá solo los días que cambian; los demás quedan como están. Un día es una lista de hasta dos turnos {desde, hasta} en HH:mm; [] es cerrado. alcance "organizacion" (solo un SuperAdmin) o "numero" (con numero_id); usar_horario_de_la_organizacion true hace que el número vuelva al horario general.',
         parameters: {
           type: 'object',
           additionalProperties: false,
@@ -504,6 +528,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
         },
         run: async (ctx, args) => {
           const scope = optionalText(args, 'alcance') === 'numero' ? 'number' : 'organization'
+          if (scope === 'organization') assertChangesOrganization(ctx.user)
           const org = await businessHours.getConfig(ctx.user.producerId)
           let current: WeeklySchedule = org.weekly
           let target = ORGANIZATION
@@ -607,6 +632,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
               link: numberLink(Number(payload.numberId), 'numero-pagos'),
             }
           }
+          assertExecutesOnOrganization(user)
           await users.updateBotProfile(user.producerId, changes)
           return {
             summary: 'Listo: la cuenta de la organización quedó actualizada.',
@@ -636,6 +662,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
         async execute(user, _codeIds, payload) {
           const profileChanges = payload.profileChanges as Partial<Record<keyof BotProfile, string>>
           const configChanges = payload.configChanges as { botName?: string; staffNames?: string[] }
+          assertExecutesOnOrganization(user)
           if (Object.keys(configChanges).length) await users.updateProducerConfig(user.producerId, configChanges)
           if (Object.keys(profileChanges).length) await users.updateBotProfile(user.producerId, profileChanges)
           return {
@@ -673,6 +700,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
               link: numberLink(Number(payload.numberId), 'numero-horario'),
             }
           }
+          assertExecutesOnOrganization(user)
           await businessHours.updateSchedule(user.producerId, { weekly: weekly as unknown as Record<string, unknown> })
           return {
             summary: 'Listo: el horario de la organización quedó guardado.',

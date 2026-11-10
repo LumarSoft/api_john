@@ -8,11 +8,12 @@ import { AdminPhoneNumbersController } from '../phone-numbers/admin-phone-number
 
 const rolesOf = (handler: unknown): Role[] | undefined => Reflect.getMetadata(ROLES_KEY, handler as object) as Role[]
 
-// What applies to the whole organization is read by everyone and changed by
-// any admin (SuperAdmin or Admin; the OWNER passes every gate), since 28/10 when
-// the office asked for the whole Configuración screen to be open to its admins.
-// A number's own assistant, bot switch and holidays are open to its admins too;
-// since 29/10 there is no organization-wide bot switch nor shared holidays.
+// What applies to the whole organization is read by everyone and changed only
+// by the SuperAdmin (the OWNER passes every gate). From 28/10 to 10/11 any admin
+// could change it, and twice a branch's admin saved their branch's name, people
+// and bank account as the whole organization's. A branch's admin changes their
+// own number's assistant, bot switch and holidays instead; since 29/10 there is
+// no organization-wide bot switch nor shared holidays.
 describe('who changes the organization settings', () => {
   it.each([
     ['assistant name and office people', AdminConfigController.prototype.update],
@@ -23,8 +24,8 @@ describe('who changes the organization settings', () => {
     ['create a price', AdminPricingController.prototype.create],
     ['change a price', AdminPricingController.prototype.update],
     ['remove a price', AdminPricingController.prototype.remove],
-  ])('any admin changes the %s', (_, handler) => {
-    expect(rolesOf(handler)).toEqual([Role.SUPERADMIN, Role.ADMIN])
+  ])('only the SuperAdmin changes the %s', (_, handler) => {
+    expect(rolesOf(handler)).toEqual([Role.SUPERADMIN])
   })
 
   it.each([
