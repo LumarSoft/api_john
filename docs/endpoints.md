@@ -3865,6 +3865,90 @@ Igual que `GET /pricing/:productType` pero scope al productor de la conversació
 
 **Auth required:** Yes (`x-bot-secret`)
 
+## Bot — Cotizaciones con Sancor
+
+Precios de Sancor para bolso, hogar (Hogar Protegido), bici y accidentes
+personales. Solo para las organizaciones de `SANCOR_BOT_PRODUCER_IDS` (vacío =
+ninguna) y con las credenciales de Sancor cargadas; el resto sigue con los planes
+fijos de la oficina o el pedido a un asesor. Detalle en `docs/sancor-services.md`.
+
+### GET /bot/conversation/:conversationId/sancor/products
+
+Qué productos cotiza con Sancor el bot de esa conversación.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Responses**
+
+`200 OK`
+```json
+{ "productTypes": ["bolso", "hogar", "bici", "personas"] }
+```
+
+`200 OK` — organización no habilitada o Sancor sin credenciales
+```json
+{ "productTypes": [] }
+```
+
+`404 Not Found` — conversación inexistente
+
+### POST /bot/conversation/:conversationId/sancor/quote
+
+Cotiza un producto con Sancor y devuelve los planes con la forma de los planes
+fijos (`id` es el módulo de Sancor, no un plan de la oficina), del más barato al
+más caro, hasta 10.
+
+**Auth required:** Yes (`x-bot-secret`)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| productType | string | Yes | `bolso`, `hogar`, `bici` o `personas` (accidentes personales) |
+| zipCode | number | Yes | código postal numérico, 1000–9999 |
+| cityName | string | No | localidad, para elegir entre las que comparten el código postal; máx. 80 |
+| documentNumber | number | Para `personas` | DNI, 7 u 8 dígitos |
+| birthDate | string | No | `DD/MM/AAAA`; en `personas` define la franja de edad (16–70 por defecto) |
+
+```json
+{ "productType": "hogar", "zipCode": 2000, "cityName": "Rosario" }
+```
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "insurer": "Sancor",
+  "zipCode": 2000,
+  "quotationId": 839576707,
+  "plans": [
+    {
+      "id": 70,
+      "productType": "hogar",
+      "name": "Plan 1",
+      "monthlyPrice": 7630,
+      "description": "Incluye asistencia en viaje a las personas",
+      "coverageItems": [{ "label": "Incendio Edificio", "amount": 21000000 }],
+      "isActive": true,
+      "sortOrder": 0
+    }
+  ]
+}
+```
+
+`400 Bad Request` — código postal sin localidades en Sancor, o `personas` sin DNI
+```json
+{ "statusCode": 400, "message": "Sancor no tiene localidades para el código postal 9998", "error": "Bad Request" }
+```
+
+`404 Not Found` — conversación inexistente, o Sancor no cotiza ese producto para su organización
+
+`502 Bad Gateway` — Sancor no respondió o rechazó la cotización
+```json
+{ "statusCode": 502, "message": "Sancor POST /quotations/theft/protectedbag falló — …", "error": "Bad Gateway" }
+```
+
 ## Admin — Solicitudes de cotización
 
 Panel unificado: lista los leads (`ContactLead`) y las solicitudes de cobertura

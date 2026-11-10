@@ -376,6 +376,25 @@ código del servicio, y no coincide del todo con las specs del portal:
   y el servicio lo incluye en el error.
 - Los importes de preproducción no son los de venta.
 
+### En el bot
+
+`SancorBotQuotesService` (`POST /bot/conversation/:id/sancor/quote`, ver
+`docs/endpoints.md`) le da al bot los planes de Sancor con la forma de los planes
+fijos de la oficina. Está apagado salvo para las organizaciones de
+`SANCOR_BOT_PRODUCER_IDS`: las credenciales del `.env` son de un solo productor
+(JPMG) y en preproducción los precios no son los de venta. Qué cotiza:
+
+- **Bolso:** todos los planes que lista `/modules/bag` (10), en una llamada.
+- **Hogar:** todos los de `/modules/homeProtected`; Sancor contesta solo los
+  habilitados (70 a 73). El mes de revisión del nombre ("Plan 1 - AGOSTO 2026")
+  se saca: el cliente lo lee como una fecha.
+- **Bici:** los planes estándar (25.000 a 100.000).
+- **Accidentes personales:** una llamada por capital de `SANCOR_AP_MODULES`
+  (por defecto 47, 60 y 72: 8, 10 y 20 millones), con el DNI y la franja de edad
+  de la fecha de nacimiento.
+
+Probado contra preproducción el 9/11/2026 con los cuatro productos.
+
 ## Catálogo completo del portal (9/11/2026)
 
 Relevado con la cuenta de Lumarsoft el 9/11/2026: 22 productos y 71 APIs, contra
