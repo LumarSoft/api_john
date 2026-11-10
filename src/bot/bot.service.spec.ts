@@ -1191,6 +1191,172 @@ describe('BotService', () => {
   })
 })
 
+describe('BotService: cover of a claim and of a stopped claim', () => {
+  const d = (iso: string) => new Date(`${iso}T00:00:00Z`)
+  let prisma: ReturnType<typeof createPrismaMock> & { claim: { create: jest.Mock } }
+  let mail: { sendSiniestroNotification: jest.Mock }
+  let novedades: { recordSiniestro: jest.Mock; recordHandoff: jest.Mock }
+  let service: BotService
+
+  const client = { id: 5, dni: '12345678', firstName: 'Ana', lastName: 'Pérez', email: null, phone: null }
+  const inForce = {
+    id: 9,
+    clientId: 5,
+    producerId: 2,
+    riskType: 'auto',
+    certificateNumber: '4400001',
+    endorsementNumber: 0,
+    lastMovement: 'POLIZA NUEVA',
+    validFrom: d('2026-11-05'),
+    validTo: d('2027-11-05'),
+    rawData: { Vigencia: 12, VigenciaDesde: '2026-11-05' },
+    vehicle: { licensePlate: 'AB123CD' },
+    installments: [],
+    paymentRejections: [],
+  }
+
+  beforeEach(() => {
+    const base = createPrismaMock()
+    prisma = { ...base, claim: { ...base.claim, create: jest.fn() } }
+    mail = { sendSiniestroNotification: jest.fn().mockResolvedValue(undefined) }
+    novedades = {
+      recordSiniestro: jest.fn().mockResolvedValue(undefined),
+      recordHandoff: jest.fn().mockResolvedValue(undefined),
+    }
+    const config = { get: jest.fn().mockReturnValue(undefined) } as unknown as ConfigService
+    service = new BotService(prisma as any, {} as any, mail as any, novedades as any, {} as any, {} as any, config)
+  })
+
+  describe('createSiniestro', () => {
+    const file = (occurredAt: string) => {
+      prisma.conversation.findFirst.mockResolvedValue({
+        producerId: 2,
+        phoneNumberId: null,
+        waId: '5493410000000',
+        sessionStartedAt: new Date(Date.now() - 60_000),
+        clientLinkedAt: new Date(),
+        client: { ...client, deletedAt: null },
+      })
+      prisma.policy.findFirst.mockResolvedValue({
+        id: 9,
+        certificateNumber: '4400001',
+        company: 'triunfo',
+        producerCodeId: 1,
+        vehicle: { licensePlate: 'AB123CD' },
+      })
+      prisma.claim.create.mockResolvedValue({
+        id: 31,
+        type: 'auto',
+        description: 'Choque en una esquina',
+        occurredAt: d(occurredAt),
+        status: 'pending',
+        insurerClaimNumber: null,
+        createdAt: new Date(),
+        policy: { id: 9, certificateNumber: '4400001', riskType: 'auto' },
+      })
+      return service.createSiniestro(3, {
+        policyId: 9,
+        type: 'auto',
+        occurredAt,
+        description: 'Choque en una esquina',
+      })
+    }
+
+    it('returns the claim with a clean check when the policy covered the day', async () => {
+      prisma.policy.findMany.mockResolvedValueOnce([inForce])
+
+      const claim = await file('2026-11-08')
+
+      expect(claim).toMatchObject({ id: 31, coverageCheck: { level: 'ok', issues: [] } })
+      expect(novedades.recordSiniestro.mock.calls[0][1].alerta).toBeNull()
+      expect(mail.sendSiniestroNotification.mock.calls[0][0].alerta).toBeNull()
+    })
+
+    it('tells the bot and the office when the incident is from before the policy started', async () => {
+      prisma.policy.findMany.mockResolvedValueOnce([inForce]).mockResolvedValueOnce([])
+
+      const claim = await file('2026-11-02')
+
+      expect(claim.coverageCheck.level).toBe('danger')
+      expect(claim.coverageCheck.issues[0]).toMatchObject({ code: 'BEFORE_START', date: '2026-11-05' })
+      const alerta = novedades.recordSiniestro.mock.calls[0][1].alerta
+      expect(alerta).toContain('El hecho es anterior al inicio de la póliza')
+      expect(mail.sendSiniestroNotification.mock.calls[0][0].alerta).toBe(alerta)
+    })
+
+    it('files the claim even when the check cannot be read', async () => {
+      prisma.policy.findMany.mockRejectedValueOnce(new Error('connection lost'))
+
+      const claim = await file('2026-11-08')
+
+      expect(claim).toMatchObject({ id: 31, coverageCheck: { level: 'ok', issues: [] } })
+      expect(novedades.recordSiniestro).toHaveBeenCalled()
+    })
+  })
+
+  describe('requestHandoff', () => {
+    const conversation = (over: Record<string, unknown> = {}) => ({
+      id: 3,
+      status: 'bot',
+      waId: '5493410000000',
+      producerId: 2,
+      producerCodeId: 1,
+      phoneNumberId: null,
+      clientId: 5,
+      contactName: null,
+      sessionStartedAt: new Date(Date.now() - 60_000),
+      clientLinkedAt: new Date(),
+      client,
+      ...over,
+    })
+    const reason = 'Denuncia de siniestro no registrada: el cliente no tiene pólizas vigentes.'
+
+    it('adds why the client has no policy in force to a claim stopped for it', async () => {
+      prisma.conversation.findFirst.mockResolvedValue(conversation())
+      prisma.policy.findMany.mockResolvedValueOnce([
+        {
+          ...inForce,
+          endorsementNumber: 3,
+          lastMovement: 'ANULA COBRANZA',
+          validFrom: d('2026-03-03'),
+          validTo: d('2027-03-03'),
+          rawData: { Vigencia: 12, VigenciaDesde: '2026-06-03' },
+        },
+        { ...inForce, certificateNumber: '4300009', validFrom: d('2025-03-03'), validTo: d('2026-03-03') },
+      ])
+
+      await service.requestHandoff(3, reason, 'NO_POLICY')
+
+      expect(prisma.policy.findMany.mock.calls[0][0].where).toEqual({ clientId: 5, producerId: 2, deletedAt: null })
+      expect(novedades.recordHandoff.mock.calls[0][1]).toMatchObject({
+        blockedClaimReason: 'NO_POLICY',
+        reason:
+          `${reason}\nSus últimas pólizas: ` +
+          'N° 4400001 (AB123CD): anulada por falta de pago (ANULA COBRANZA) desde el 03/06/2026; ' +
+          'N° 4300009 (AB123CD): vencida el 03/03/2026.',
+      })
+    })
+
+    it('leaves the reason alone when the client has no policy on record', async () => {
+      prisma.conversation.findFirst.mockResolvedValue(conversation())
+      prisma.policy.findMany.mockResolvedValueOnce([])
+
+      await service.requestHandoff(3, reason, 'NO_POLICY')
+
+      expect(novedades.recordHandoff.mock.calls[0][1].reason).toBe(reason)
+    })
+
+    it('does not look at policies for any other request', async () => {
+      prisma.conversation.findFirst.mockResolvedValue(conversation())
+
+      await service.requestHandoff(3, 'Quiere hablar con un asesor.')
+
+      expect(prisma.policy.findMany).not.toHaveBeenCalled()
+      expect(novedades.recordHandoff.mock.calls[0][1].reason).toBe('Quiere hablar con un asesor.')
+    })
+  })
+})
+
 describe('BotService.attachAdjuntos', () => {
   let prisma: ReturnType<typeof createPrismaMock>
   let service: BotService

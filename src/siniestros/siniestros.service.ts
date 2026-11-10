@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { Prisma, ClaimStatus } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { MailService } from '../mail/mail.service'
@@ -8,6 +8,8 @@ import { ListSiniestrosDto } from './dto/list-siniestros.dto'
 import { UpdateSiniestroDto } from './dto/update-siniestro.dto'
 import { toStoredAdjuntos } from './siniestro-upload.config'
 import { withSignedAttachments } from './adjunto-url'
+import { COVERAGE_OK, coverageAlert } from './claim-coverage'
+import { claimCoverageChecks } from './claim-coverage.query'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -59,6 +61,8 @@ const ADMIN_SINIESTRO_SELECT = {
 
 @Injectable()
 export class SiniestrosService {
+  private readonly logger = new Logger(SiniestrosService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
@@ -99,7 +103,11 @@ export class SiniestrosService {
       select: SINIESTRO_SELECT,
     })
 
-    await this.notifyAdvisor(siniestro.id, clientId, producerId, dto, poliza, adjuntos.length)
+    // The portal lets the client pick any of their policies, in force or not:
+    // the office hears right away when this one did not cover the day.
+    const alerta = await this.coverageAlertOf(siniestro.id, siniestro.occurredAt, poliza.id)
+
+    await this.notifyAdvisor(siniestro.id, clientId, producerId, dto, poliza, adjuntos.length, alerta)
 
     const cliente = await this.prisma.client.findUnique({
       where: { id: clientId },
@@ -110,10 +118,32 @@ export class SiniestrosService {
       clientId,
       clienteNombre: cliente ? `${cliente.firstName} ${cliente.lastName}`.trim() : `Cliente #${clientId}`,
       descripcion: siniestro.description,
+      alerta,
       producerCodeId: poliza.producerCodeId,
     })
 
     return withSignedAttachments(siniestro)
+  }
+
+  /** What Triunfo states against the claim's cover, in one line; null when nothing or when it can't be read. */
+  private async coverageAlertOf(claimId: number, occurredAt: Date, policyId: number): Promise<string | null> {
+    try {
+      const checks = await claimCoverageChecks(this.prisma, [{ id: claimId, occurredAt, policyId }])
+      return coverageAlert(checks.get(claimId) ?? COVERAGE_OK)
+    } catch (error) {
+      // The claim is filed either way; the panel computes the check again when it is opened.
+      this.logger.warn(`Coverage check of claim #${claimId} failed: ${(error as Error).message}`)
+      return null
+    }
+  }
+
+  /** Adds to each claim whether its policy covered the day of the incident (see checkClaimCoverage). */
+  private async withCoverageCheck<T extends { id: number; occurredAt: Date; policy: { id: number } }>(claims: T[]) {
+    const checks = await claimCoverageChecks(
+      this.prisma,
+      claims.map(claim => ({ id: claim.id, occurredAt: claim.occurredAt, policyId: claim.policy.id })),
+    )
+    return claims.map(claim => ({ ...claim, coverageCheck: checks.get(claim.id) ?? COVERAGE_OK }))
   }
 
   async findAll(clientId: number, producerId: number) {
@@ -155,7 +185,7 @@ export class SiniestrosService {
     ])
 
     return {
-      data: data.map(withSignedAttachments),
+      data: (await this.withCoverageCheck(data)).map(withSignedAttachments),
       total,
       page,
       pageSize,
@@ -186,7 +216,8 @@ export class SiniestrosService {
     if (!siniestro) {
       throw new NotFoundException(`Siniestro ${id} not found`)
     }
-    return withSignedAttachments(siniestro)
+    const [checked] = await this.withCoverageCheck([siniestro])
+    return withSignedAttachments(checked)
   }
 
   /** Admin progresses the claim and/or records the official Triunfo number after manual filing. */
@@ -207,7 +238,8 @@ export class SiniestrosService {
       },
       select: ADMIN_SINIESTRO_SELECT,
     })
-    return withSignedAttachments(updated)
+    const [checked] = await this.withCoverageCheck([updated])
+    return withSignedAttachments(checked)
   }
 
   private buildAdminWhere(producerId: number, codeIds: number[], query: ListSiniestrosDto): Prisma.ClaimWhereInput {
@@ -237,6 +269,7 @@ export class SiniestrosService {
     dto: CreateSiniestroDto,
     poliza: { certificateNumber: string; company: string; vehicle: { licensePlate: string | null } | null },
     adjuntosCount: number,
+    alerta: string | null,
   ): Promise<void> {
     const client = await this.prisma.client.findUnique({
       where: { id: clientId },
@@ -257,6 +290,7 @@ export class SiniestrosService {
         licensePlate: poliza.vehicle?.licensePlate,
       },
       adjuntosCount,
+      alerta,
     })
   }
 }

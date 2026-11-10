@@ -89,6 +89,22 @@ describe('NovedadesService', () => {
       })
     })
 
+    it("opens a claim's text with what Triunfo states against its cover", async () => {
+      prisma.notification.create.mockResolvedValue({ id: 1 })
+
+      await service.recordSiniestro(5, {
+        siniestroId: 6,
+        clientId: 3,
+        clienteNombre: 'Ana Gómez',
+        descripcion: 'choque',
+        alerta: 'Póliza anulada por falta de pago. Triunfo la anuló (ANULA COBRANZA) con efecto desde el 03/09/2026.',
+      })
+
+      expect(prisma.notification.create.mock.calls[0][0].data.body).toBe(
+        '⚠️ Póliza anulada por falta de pago. Triunfo la anuló (ANULA COBRANZA) con efecto desde el 03/09/2026.\n\nchoque',
+      )
+    })
+
     it('records a handoff novedad with no body (client may be null)', async () => {
       prisma.notification.create.mockResolvedValue({ id: 2 })
 

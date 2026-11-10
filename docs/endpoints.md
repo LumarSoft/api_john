@@ -1912,6 +1912,36 @@ Triunfo's API has no claims endpoint, so claims filed through the bot or the cli
 
 All endpoints require an employee/admin JWT (`type: "user"`). A client token returns `403`.
 
+**`coverageCheck`** — every claim returned here (list, detail and `PATCH`) says whether its policy covered the day of the incident, computed on each read from the cartera as it is now:
+
+```json
+{
+  "level": "danger",
+  "issues": [
+    {
+      "code": "CANCELLED",
+      "level": "danger",
+      "title": "Póliza anulada por falta de pago",
+      "detail": "Triunfo la anuló (ANULA COBRANZA) con efecto desde el 03/09/2026. El hecho fue el 12/10/2026: ese día ya no tenía cobertura.",
+      "date": "2026-09-03"
+    }
+  ]
+}
+```
+
+`level` is the worst of its issues: `ok` (none), `warning` or `danger`. `date` is the day the issue hinges on (`YYYY-MM-DD`) or `null`.
+
+| `code`                | `level`   | When                                                                                                                                              |
+| --------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CANCELLED`           | `danger`  | Triunfo cancelled the policy (movement `ANUL…` / `RESCISION…`) and the cancellation was in effect on the day, or it gives no effective day         |
+| `CANCELLED_AFTER`     | `warning` | The policy is cancelled, with effect from a day after the incident                                                                                |
+| `BEFORE_START`        | `danger`  | The incident is from before the policy's term started                                                                                             |
+| `AFTER_END`           | `danger`  | The incident is from after the policy's term ended                                                                                                |
+| `OTHER_POLICY`        | `warning` | Outside this policy's term, but another policy of the same client and plate (or kind of risk) covered that day — usually the one it renewed       |
+| `UNPAID_INSTALLMENTS` | `warning` | Installments due before the day still read as unpaid in the last cartera sync (those sent to the bank, `EN PRELIQUIDACIÓN`, are left out)         |
+
+A policy cancelled by the day of the incident carries only `CANCELLED`. Unpaid installments are a warning, not a fact: the sync may lag a few days behind a payment.
+
 ### GET /admin/siniestros
 
 Paginated list of the producer's claims, newest first.
@@ -1958,7 +1988,8 @@ Paginated list of the producer's claims, newest first.
         "company": "triunfo",
         "riskType": "auto",
         "vehicle": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" }
-      }
+      },
+      "coverageCheck": { "level": "ok", "issues": [] }
     }
   ],
   "total": 1,
@@ -3228,7 +3259,7 @@ Leaves a `baja_poliza` notification for the office with the policy, the client's
 
 ### POST /bot/conversation/:conversationId/request-handoff
 
-The customer needs a person: the conversation goes to `pending` and the office gets a `handoff` matter in Asuntos pendientes (an exact repeat, or a follow-up of an open request of the same kind within 24 h, joins the open one). When the bot refused to file a claim it sends `blockedClaimReason`; the matter is marked "denuncia frenada", filed under siniestros and counted in the monthly balance. No claim is created. A bot that only sends `reason` still gets the mark when the reason starts with "Denuncia de siniestro no registrada:".
+The customer needs a person: the conversation goes to `pending` and the office gets a `handoff` matter in Asuntos pendientes (an exact repeat, or a follow-up of an open request of the same kind within 24 h, joins the open one). When the bot refused to file a claim it sends `blockedClaimReason`; the matter is marked "denuncia frenada", filed under siniestros and counted in the monthly balance. No claim is created. A bot that only sends `reason` still gets the mark when the reason starts with "Denuncia de siniestro no registrada:". With `blockedClaimReason: "NO_POLICY"` and an identified client, the matter's text also lists the client's three latest policies and why each is not in force ("Sus últimas pólizas: N° 4400001 (AB123CD): anulada por falta de pago (ANULA COBRANZA) desde el 03/06/2026; N° 4300009 (AB123CD): vencida el 03/03/2026.").
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -3421,7 +3452,7 @@ Claims filed by the identified client, newest first, with their internal trackin
 
 ### POST /bot/conversation/:conversationId/siniestros
 
-Files a new claim for one of the identified client's policies and notifies the advisor by email. The policy must be in force. Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
+Files a new claim for one of the identified client's policies and notifies the advisor by email. The policy must be in force. The response carries the claim's `coverageCheck` (see **Admin — Siniestros**): the policy is in force today, but the incident may be from before it started (`BEFORE_START`), and the bot tells the customer only that. What Triunfo states against the cover (a `danger` issue) also opens the office's matter and e-mail. Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -3451,7 +3482,8 @@ Files a new claim for one of the identified client's policies and notifies the a
   "status": "pending",
   "insurerClaimNumber": null,
   "createdAt": "2026-06-12T13:05:00.000Z",
-  "policy": { "id": 12, "certificateNumber": "334455", "riskType": "auto" }
+  "policy": { "id": 12, "certificateNumber": "334455", "riskType": "auto" },
+  "coverageCheck": { "level": "ok", "issues": [] }
 }
 ```
 
