@@ -34,6 +34,20 @@ export interface ChatScope {
   defaultNumber?: string | null
 }
 
+/**
+ * Meta ids of the numbers a user sees: the one they filtered by, else an
+ * admin's own numbers; null when not limited (the SuperAdmin without a filter).
+ * A filter set to a number that is not the organization's ('') or not the
+ * admin's own sees nothing, never everything.
+ */
+export function visibleNumbers(scope: ChatScope): string[] | null {
+  const filter = scope.filterNumber
+  if (filter != null) {
+    return filter === '' || (scope.ownNumbers && !scope.ownNumbers.includes(filter)) ? [] : [filter]
+  }
+  return scope.ownNumbers
+}
+
 /** Prisma fragment on a `phoneNumberId` column (Notification, ContactLead, Quote). */
 export type NumberWhere =
   | Record<string, never>
@@ -47,15 +61,7 @@ export type NumberWhere =
  * they filtered by (the default number also brings what came through none).
  */
 export function numberWhere(scope: ChatScope): NumberWhere {
-  const filter = scope.filterNumber
-  // A filter set to a number that is not the organization's ('') or not the
-  // admin's own sees nothing, never everything.
-  const visible =
-    filter != null
-      ? filter === '' || (scope.ownNumbers && !scope.ownNumbers.includes(filter))
-        ? []
-        : [filter]
-      : scope.ownNumbers
+  const visible = visibleNumbers(scope)
   if (visible === null) return {}
   const withNone = scope.defaultNumber != null && visible.includes(scope.defaultNumber)
   return withNone

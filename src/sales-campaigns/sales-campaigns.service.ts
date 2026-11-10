@@ -33,7 +33,7 @@ import {
   validateBody,
   withSettings,
 } from './campaign-catalog'
-import { CampaignFinderService, CampaignTarget, formatDay } from './campaign-finder.service'
+import { CampaignFinderService, CampaignScope, CampaignTarget, formatDay } from './campaign-finder.service'
 import { opportunityView, SalesOpportunitiesService, targetKeyOf } from './sales-opportunities.service'
 import type { AssignOpportunitiesDto } from './dto/assign-opportunities.dto'
 import type { CampaignResultsDto } from './dto/campaign-results.dto'
@@ -107,8 +107,8 @@ export class SalesCampaignsService implements OnModuleInit {
 
   // ─── Set-up ────────────────────────────────────────────
 
-  /** Every campaign of the organization, configured or not, with how many clients it finds in the user's scope. */
-  async list(user: ScopeUser, codeIds: number[], now = new Date()) {
+  /** Every campaign of the organization, configured or not, with how many clients it finds in the user's codes and numbers. */
+  async list(user: ScopeUser, scope: CampaignScope, now = new Date()) {
     const [rows, plans, accounts] = await Promise.all([
       this.prisma.salesCampaign.findMany({ where: { producerId: user.producerId, deletedAt: null } }),
       this.planFeatures.forUser(user),
@@ -120,14 +120,14 @@ export class SalesCampaignsService implements OnModuleInit {
       Object.values(CAMPAIGNS).map(async definition => {
         const row = byKind.get(definition.kind) ?? null
         const settings = settingsOf(definition, row?.settings)
-        const targets = await this.finder.find(definition, settings, user.producerId, codeIds, now)
+        const targets = await this.finder.find(definition, settings, user.producerId, scope, now)
         return this.view(definition, row, plans, accounts, targets.length)
       }),
     )
     return { campaigns }
   }
 
-  async update(user: ScopeUser, kind: string, dto: UpdateSalesCampaignDto, codeIds: number[]) {
+  async update(user: ScopeUser, kind: string, dto: UpdateSalesCampaignDto, scope: CampaignScope) {
     const definition = campaignOf(kind)
     const current = await this.findRow(user.producerId, definition)
     const plans = await this.planFeatures.forUser(user)
@@ -162,11 +162,11 @@ export class SalesCampaignsService implements OnModuleInit {
       create: { producerId: user.producerId, kind: definition.dbKind, ...data },
       update: data,
     })
-    return this.one(user, definition, codeIds)
+    return this.one(user, definition, scope)
   }
 
   /** Asks Meta again how the campaign's templates are doing. */
-  async refreshTemplates(user: ScopeUser, kind: string, codeIds: number[]) {
+  async refreshTemplates(user: ScopeUser, kind: string, scope: CampaignScope) {
     const definition = campaignOf(kind)
     const row = await this.findRow(user.producerId, definition)
     if (row && row.templateVersion > 0) {
@@ -174,7 +174,7 @@ export class SalesCampaignsService implements OnModuleInit {
       // A number connected after the last text: its account gets the current one.
       await this.submitToNewAccounts(row)
     }
-    return this.one(user, definition, codeIds)
+    return this.one(user, definition, scope)
   }
 
   /**
@@ -230,14 +230,14 @@ export class SalesCampaignsService implements OnModuleInit {
   async candidates(
     user: ScopeUser,
     kind: string,
-    codeIds: number[],
+    scope: CampaignScope,
     query: ListCampaignCandidatesDto,
     now = new Date(),
   ) {
     const definition = campaignOf(kind)
     const row = await this.findRow(user.producerId, definition)
     const settings = settingsOf(definition, row?.settings)
-    const targets = await this.finder.find(definition, settings, user.producerId, codeIds, now)
+    const targets = await this.finder.find(definition, settings, user.producerId, scope, now)
     const [messages, optedOut, opportunities, customerReasons] = await Promise.all([
       row ? this.recentMessages(row.id, now) : Promise.resolve([]),
       this.optedOutWaIds(user.producerId),
@@ -374,7 +374,7 @@ export class SalesCampaignsService implements OnModuleInit {
    * the list while any is SENDING). Someone without WhatsApp, written to within
    * the cooldown, still going out or who asked not to get these is left out.
    */
-  async send(user: ScopeUser, kind: string, codeIds: number[], ids: number[], now = new Date()) {
+  async send(user: ScopeUser, kind: string, scope: CampaignScope, ids: number[], now = new Date()) {
     const definition = campaignOf(kind)
     await this.planFeatures.assertRole(user, definition.feature)
     const row = await this.findRow(user.producerId, definition)
@@ -395,7 +395,7 @@ export class SalesCampaignsService implements OnModuleInit {
     }
 
     const settings = settingsOf(definition, row.settings)
-    const targets = await this.finder.find(definition, settings, user.producerId, codeIds, now, ids)
+    const targets = await this.finder.find(definition, settings, user.producerId, scope, now, ids)
     const [messages, optedOut] = await Promise.all([
       this.recentMessages(row.id, now),
       this.optedOutWaIds(user.producerId),
@@ -457,7 +457,7 @@ export class SalesCampaignsService implements OnModuleInit {
   }
 
   /** The office reached these clients by other means: they are not offered again for the cooldown. */
-  async mark(user: ScopeUser, kind: string, codeIds: number[], ids: number[], now = new Date()) {
+  async mark(user: ScopeUser, kind: string, scope: CampaignScope, ids: number[], now = new Date()) {
     const definition = campaignOf(kind)
     await this.planFeatures.assertRole(user, definition.feature)
     const row = await this.ensureRow(user, definition)
@@ -465,7 +465,7 @@ export class SalesCampaignsService implements OnModuleInit {
       definition,
       settingsOf(definition, row.settings),
       user.producerId,
-      codeIds,
+      scope,
       now,
       ids,
     )
@@ -495,7 +495,7 @@ export class SalesCampaignsService implements OnModuleInit {
   // ─── Following each one ────────────────────────────────
 
   /** "Asignar a…": the ticked clients' opportunities go to one person of the office (or to nobody). */
-  async assign(user: ScopeUser, kind: string, codeIds: number[], dto: AssignOpportunitiesDto, now = new Date()) {
+  async assign(user: ScopeUser, kind: string, scope: CampaignScope, dto: AssignOpportunitiesDto, now = new Date()) {
     const definition = campaignOf(kind)
     await this.planFeatures.assertRole(user, definition.feature)
     const row = await this.ensureRow(user, definition)
@@ -503,7 +503,7 @@ export class SalesCampaignsService implements OnModuleInit {
       definition,
       settingsOf(definition, row.settings),
       user.producerId,
-      codeIds,
+      scope,
       now,
       dto.ids,
     )
@@ -514,7 +514,7 @@ export class SalesCampaignsService implements OnModuleInit {
   async updateOpportunity(
     user: ScopeUser,
     kind: string,
-    codeIds: number[],
+    scope: CampaignScope,
     targetId: number,
     dto: UpdateOpportunityDto,
     now = new Date(),
@@ -526,7 +526,7 @@ export class SalesCampaignsService implements OnModuleInit {
       definition,
       settingsOf(definition, row.settings),
       user.producerId,
-      codeIds,
+      scope,
       now,
       [targetId],
     )
@@ -535,12 +535,12 @@ export class SalesCampaignsService implements OnModuleInit {
   }
 
   /** How the campaigns did: sent, answered, quoted, won, lost and the premium, by campaign and by person. */
-  results(user: ScopeUser, codeIds: number[], query: CampaignResultsDto) {
-    return this.opportunities.results(user, codeIds, query)
+  results(user: ScopeUser, scope: CampaignScope, query: CampaignResultsDto) {
+    return this.opportunities.results(user, scope, query)
   }
 
   /** These people asked not to get campaign messages: no campaign of the organization offers them again. */
-  async optOut(user: ScopeUser, kind: string, codeIds: number[], ids: number[], now = new Date()) {
+  async optOut(user: ScopeUser, kind: string, scope: CampaignScope, ids: number[], now = new Date()) {
     const definition = campaignOf(kind)
     await this.planFeatures.assertRole(user, definition.feature)
     const row = await this.findRow(user.producerId, definition)
@@ -548,7 +548,7 @@ export class SalesCampaignsService implements OnModuleInit {
       definition,
       settingsOf(definition, row?.settings),
       user.producerId,
-      codeIds,
+      scope,
       now,
       ids,
     )
@@ -668,13 +668,13 @@ export class SalesCampaignsService implements OnModuleInit {
 
   // ─── Helpers ───────────────────────────────────────────
 
-  private async one(user: ScopeUser, definition: CampaignDefinition, codeIds: number[]) {
+  private async one(user: ScopeUser, definition: CampaignDefinition, scope: CampaignScope) {
     const [row, plans, accounts] = await Promise.all([
       this.findRow(user.producerId, definition),
       this.planFeatures.forUser(user),
       this.templates.accounts(user.producerId),
     ])
-    const targets = await this.finder.find(definition, settingsOf(definition, row?.settings), user.producerId, codeIds)
+    const targets = await this.finder.find(definition, settingsOf(definition, row?.settings), user.producerId, scope)
     return this.view(definition, row, plans, accounts, targets.length)
   }
 

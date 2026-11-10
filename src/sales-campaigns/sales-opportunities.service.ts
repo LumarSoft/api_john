@@ -4,7 +4,7 @@ import { Prisma, Role, SalesOpportunityLostReason, SalesOpportunityStatus } from
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeUser } from '../common/scope/scope.service'
 import { CAMPAIGNS, CampaignDefinition, CampaignSettings, campaignOfDbKind, settingsOf } from './campaign-catalog'
-import type { CampaignTarget } from './campaign-finder.service'
+import { CampaignFinderService, CampaignScope, CampaignTarget } from './campaign-finder.service'
 import type { CampaignResultsDto } from './dto/campaign-results.dto'
 import type { UpdateOpportunityDto } from './dto/update-opportunity.dto'
 
@@ -182,7 +182,10 @@ export class SalesOpportunitiesService {
   private readonly logger = new Logger(SalesOpportunitiesService.name)
   private readonly lastTracked = new Map<number, number>()
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly finder: CampaignFinderService,
+  ) {}
 
   // ─── Reading ───────────────────────────────────────────
 
@@ -572,11 +575,11 @@ export class SalesOpportunitiesService {
 
   /**
    * How the campaigns did in a period (by default the last 90 days), in the
-   * user's codes: what went out, how many answered, got a quote, bought or
+   * user's codes and numbers: what went out, how many answered, got a quote, bought or
    * were lost, and the premium of what was sold; by campaign and by person.
    * An opportunity belongs to the period it was contacted in.
    */
-  async results(user: ScopeUser, codeIds: number[], query: CampaignResultsDto, now = new Date()) {
+  async results(user: ScopeUser, scope: CampaignScope, query: CampaignResultsDto, now = new Date()) {
     if (now.getTime() - (this.lastTracked.get(user.producerId) ?? 0) > TRACK_STALE_MS) {
       await this.track(user.producerId, now).catch(error =>
         this.logger.warn(`Opportunity tracking before the results failed: ${(error as Error).message}`),
@@ -592,7 +595,13 @@ export class SalesOpportunitiesService {
       select: { id: true, kind: true },
     })
     const campaignIds = campaigns.map(c => c.id)
-    const scope = { producerCodeId: { in: codeIds } }
+    // A policy's opportunity belongs to its code; a quote's, to the number the person wrote to.
+    const inScope = {
+      OR: [
+        { quoteId: null, producerCodeId: { in: scope.codeIds } },
+        { quote: await this.finder.quoteOrigin(user.producerId, scope) },
+      ],
+    }
     const [opportunities, messages] = campaignIds.length
       ? await Promise.all([
           this.prisma.salesOpportunity.findMany({
@@ -601,7 +610,7 @@ export class SalesOpportunitiesService {
               deletedAt: null,
               status: { not: NEW },
               contactedAt: { gte: from, lt: to },
-              ...scope,
+              ...inScope,
               ...(query.assignedToId ? { assignedToId: query.assignedToId } : {}),
             },
             select: {
@@ -619,7 +628,7 @@ export class SalesOpportunitiesService {
               deletedAt: null,
               status: { in: ['SENT', 'MARKED'] },
               sentAt: { gte: from, lt: to },
-              ...scope,
+              ...inScope,
               ...(query.assignedToId ? { sentById: query.assignedToId } : {}),
             },
             select: { campaignId: true, status: true },
