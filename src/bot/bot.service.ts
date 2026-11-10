@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config'
 import { type BlockedClaimReason, Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { inForcePolizaWhere } from '../common/poliza-vigencia'
+import { COVERAGE_OK, coverageAlert, lapsedPolicyLine, type ClaimCoverageCheck } from '../siniestros/claim-coverage'
+import { claimCoverageChecks } from '../siniestros/claim-coverage.query'
 import { canonicalWaId, isSamePhone, phoneSuffix } from '../common/phone-match'
 import { retryOnWriteConflict } from '../common/prisma-retry'
 import { estimateNextDueDate } from '../common/next-installment'
@@ -1096,6 +1098,21 @@ export class BotService {
       },
     })
 
+    // The policy is in force today, but the incident may be from before it
+    // started. The office reads it on the claim; the bot tells the customer
+    // only what the dates say (see checkClaimCoverage).
+    let coverageCheck: ClaimCoverageCheck = COVERAGE_OK
+    try {
+      const checks = await claimCoverageChecks(this.prisma, [
+        { id: siniestro.id, occurredAt: siniestro.occurredAt, policyId: poliza.id },
+      ])
+      coverageCheck = checks.get(siniestro.id) ?? COVERAGE_OK
+    } catch (error) {
+      // The claim is filed either way; the panel computes the check again when it is opened.
+      this.logger.warn(`Coverage check of claim #${siniestro.id} failed: ${(error as Error).message}`)
+    }
+    const alerta = coverageAlert(coverageCheck)
+
     // Never blocks the response — MailService swallows its own errors.
     await this.mail.sendSiniestroNotification({
       siniestroId: siniestro.id,
@@ -1111,6 +1128,7 @@ export class BotService {
         licensePlate: poliza.vehicle?.licensePlate,
       },
       adjuntosCount: 0,
+      alerta,
     })
 
     await this.novedades.recordSiniestro(producerId, {
@@ -1118,11 +1136,12 @@ export class BotService {
       clientId,
       clienteNombre: `${client.firstName} ${client.lastName}`.trim(),
       descripcion: siniestro.description,
+      alerta,
       producerCodeId: poliza.producerCodeId,
       phoneNumberId,
     })
 
-    return siniestro
+    return { ...siniestro, coverageCheck }
   }
 
   /**
@@ -1226,6 +1245,12 @@ export class BotService {
     const clienteNombre = client
       ? `${client.firstName} ${client.lastName}`.trim()
       : (conversation.contactName ?? conversation.waId)
+    // A claim stopped for lack of a policy in force: the office reads why the
+    // client's policies lapsed without opening the cartera.
+    if (blockedClaimReason === 'NO_POLICY' && client && conversation.clientId) {
+      reason = await this.withLapsedPolicies(reason, conversation.clientId, conversation.producerId)
+    }
+
     await this.novedades.recordHandoff(conversation.producerId, {
       conversationId,
       reason,
@@ -1237,6 +1262,38 @@ export class BotService {
     })
 
     return { ok: true }
+  }
+
+  /**
+   * The reason of a stopped claim plus the client's latest policies and why
+   * each is not in force ("anulada por falta de pago desde el…", "vencida
+   * el…"). The reason comes back as it was when there is nothing to add.
+   */
+  private async withLapsedPolicies(reason: string | undefined, clientId: number, producerId: number) {
+    const policies = await this.prisma.policy
+      .findMany({
+        where: { clientId, producerId, deletedAt: null },
+        orderBy: [{ validTo: 'desc' }, { id: 'desc' }],
+        take: 3,
+        select: {
+          certificateNumber: true,
+          endorsementNumber: true,
+          lastMovement: true,
+          validFrom: true,
+          validTo: true,
+          rawData: true,
+          vehicle: { select: { licensePlate: true } },
+        },
+      })
+      .catch((error: Error) => {
+        this.logger.warn(`Could not read the lapsed policies of client #${clientId}: ${error.message}`)
+        return null
+      })
+    const lines = (policies ?? [])
+      .map(policy => lapsedPolicyLine(policy))
+      .filter((line): line is string => line !== null)
+    if (lines.length === 0) return reason
+    return `${reason?.trim() ?? ''}\nSus últimas pólizas: ${lines.join('; ')}.`.trim()
   }
 
   /** Record a request for the office; never cancel the policy automatically. */
