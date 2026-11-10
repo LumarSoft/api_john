@@ -2610,6 +2610,7 @@ The five campaigns of the organization, configured or not (an unconfigured one i
       "kind": "renewal",
       "label": "Renovaciones",
       "description": "Pólizas vigentes que vencen pronto y todavía no tienen la renovación emitida.",
+      "howItWorks": ["Busca las pólizas que vencen en los próximos 30 días y todavía no tienen la renovación emitida. …", "…"],
       "enabled": true,
       "discountPercent": 15,
       "body": "¡Hola, {nombre}! El seguro de tu {bien} vence el {vencimiento}. …",
@@ -2627,6 +2628,8 @@ The five campaigns of the organization, configured or not (an unconfigured one i
   ]
 }
 ```
+
+`howItWorks`: how the campaign works, in a few sentences for the top of its page — who it finds and when it offers someone again (with the organization's settings), then what every campaign shares.
 
 `filters`: what the candidates list can be narrowed by besides the scope and the search: `coverage` (`coverage_upgrade`, `cross_sell`), `gap` (what the client lacks: `coverage_upgrade`, `cross_sell`) or `reason` (`winback`).
 

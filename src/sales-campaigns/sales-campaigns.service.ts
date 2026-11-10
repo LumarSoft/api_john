@@ -38,6 +38,7 @@ import {
 } from './campaign-catalog'
 import { CampaignFinderService, CampaignScope, CampaignTarget, formatDay } from './campaign-finder.service'
 import { followUpOf, FollowUp } from './campaign-follow-up'
+import { howItWorks } from './campaign-guide'
 import { OpportunityRow, opportunityView, SalesOpportunitiesService, targetKeyOf } from './sales-opportunities.service'
 import type { AssignOpportunitiesDto } from './dto/assign-opportunities.dto'
 import type { CampaignResultsDto } from './dto/campaign-results.dto'
@@ -793,6 +794,8 @@ export class SalesCampaignsService implements OnModuleInit {
       kind: definition.kind,
       label: definition.label,
       description: definition.description,
+      // The explanation at the top of the campaign's page, with these settings.
+      howItWorks: howItWorks(definition, settingsOf(definition, row?.settings)),
       enabled: row?.enabled ?? false,
       discountPercent,
       body,
