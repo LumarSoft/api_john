@@ -3,7 +3,7 @@ import { Prisma } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UpdateCoverageSettingDto } from './dto/update-coverage-setting.dto'
 import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
-import { defaultCopyFor, motoCopyFor } from './coverage-defaults'
+import { defaultCopyFor, motoCopyFor, MOTO_COVERAGE_CODES } from './coverage-defaults'
 import { VehicleType } from '../infoauto/infoauto.types'
 import type { CoverageOverrides } from '../common/coverage-overrides'
 
@@ -154,7 +154,8 @@ export class CoverageSettingsService {
 
     // Motorcycles share Triunfo's letter codes with cars but not the products:
     // the admin screen configures car wording, so a moto quote always uses the
-    // fixed moto catalog (names, benefits, order) and no car highlight.
+    // fixed moto catalog (names, benefits, order) and no car highlight. Which
+    // of its codes are offered is decided before, by offeredMotoCodes.
     if (vehicleType === VehicleType.MOTO) {
       return coverages
         .map(c => ({ c, copy: motoCopyFor(c.code) }))
@@ -205,6 +206,22 @@ export class CoverageSettingsService {
       })
       .sort((a, b) => Number(b.highlighted) - Number(a.highlighted) || a._order - b._order)
       .map(({ _order, ...coverage }) => coverage as T & CoverageDisplay)
+  }
+
+  /**
+   * The motorcycle coverages an organization — or one of its numbers — offers.
+   * The moto catalog is fixed (Triunfo's names, benefits and order), but
+   * whether each code is offered follows the "Ofrecer" switch the panel shows
+   * for that code: an office that left B4 unticked was still getting "RC +
+   * incendio" on every moto quote (10/11). The car year windows do not apply.
+   */
+  async offeredMotoCodes(producerId: number, overrides: CoverageOverrides | null = null): Promise<string[]> {
+    const settings = await this.prisma.coverageSetting.findMany({
+      where: { producerId, code: { in: [...MOTO_COVERAGE_CODES] }, deletedAt: null },
+      select: { code: true, isActive: true, isConfigured: true },
+    })
+    const byCode = new Map(settings.map(s => [s.code, s]))
+    return MOTO_COVERAGE_CODES.filter(code => overrides?.[code]?.isActive ?? this.isOffered(code, byCode.get(code)))
   }
 
   /**
@@ -317,7 +334,7 @@ export class CoverageSettingsService {
    * what was stored when it was discovered predates the manual's descriptions
    * (every code was stored visible), so it is not a choice anyone made.
    */
-  private isOffered(code: string, setting?: SettingRow): boolean {
+  private isOffered(code: string, setting?: Pick<SettingRow, 'isActive' | 'isConfigured'>): boolean {
     return setting?.isConfigured ? setting.isActive : defaultCopyFor(code).offered
   }
 

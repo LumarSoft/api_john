@@ -338,6 +338,9 @@ const MOTO_COPY: Record<string, CoverageCopy> = {
   },
 }
 
+/** The motorcycle catalog, in the order it is offered. */
+export const MOTO_COVERAGE_CODES: readonly string[] = Object.keys(MOTO_COPY)
+
 /** Wording for a motorcycle coverage code; unknown codes fall back to the car copy. */
 export function motoCopyFor(code: string): CoverageCopy {
   return MOTO_COPY[code.trim().toUpperCase()] ?? defaultCopyFor(code)

@@ -135,10 +135,7 @@ describe('CotizadorService model year guard', () => {
 })
 
 describe('CotizadorService motorcycle offers', () => {
-  it.each([
-    ['A', 'B', 'B1', 'B4'],
-    ['A', 'B1'],
-  ])('offers required codes and reports absent prices: %j', async (...codes: string[]) => {
+  function motoQuote(codes: string[], offeredCodes: string[]) {
     const http = {
       post: jest.fn().mockReturnValue(
         of({
@@ -156,6 +153,7 @@ describe('CotizadorService motorcycle offers', () => {
     }
     const settings = {
       registerDiscovered: jest.fn().mockResolvedValue(undefined),
+      offeredMotoCodes: jest.fn().mockResolvedValue(offeredCodes),
       apply: jest.fn().mockImplementation(async (_producer, coverages) => coverages),
     }
     const service = new CotizadorService(
@@ -173,13 +171,25 @@ describe('CotizadorService motorcycle offers', () => {
       {} as NovedadesService,
       { record: jest.fn(), recordException: jest.fn(), answered: jest.fn() } as unknown as TriunfoErrorsService,
     )
-    const result = await service.quoteVehicle(
-      VehicleType.MOTO,
-      { brand: '881', model: '8810215', manufactureYear: 2025, postalCode: 2000 },
-      1,
-      null,
-    )
+    return {
+      settings,
+      quote: service.quoteVehicle(
+        VehicleType.MOTO,
+        { brand: '881', model: '8810215', manufactureYear: 2025, postalCode: 2000 },
+        1,
+        null,
+      ),
+    }
+  }
+
+  it.each([
+    ['A', 'B', 'B1', 'B4'],
+    ['A', 'B1'],
+  ])('offers the catalog codes and reports absent prices: %j', async (...codes: string[]) => {
+    const { settings, quote } = motoQuote(codes, ['A', 'B4', 'B1', 'B'])
+    const result = await quote
     expect(result.coverages.map(c => c.code)).toEqual(codes.filter(c => ['A', 'B4', 'B1', 'B'].includes(c)))
+    expect(settings.offeredMotoCodes).toHaveBeenCalledWith(1, null)
     expect(settings.apply).toHaveBeenCalledWith(
       1,
       expect.any(Array),
@@ -190,6 +200,19 @@ describe('CotizadorService motorcycle offers', () => {
     )
     expect(result.messages.some(message => message.includes('cobertura B4.'))).toBe(!codes.includes('B4'))
     expect(result.messages.some(message => message.includes('cobertura B.'))).toBe(!codes.includes('B'))
+  })
+
+  it('leaves out a coverage the office switched off, priced or not, without reporting it as missing', async () => {
+    for (const codes of [
+      ['A', 'B', 'B1', 'B4'],
+      ['A', 'B', 'B1'],
+    ]) {
+      const { settings, quote } = motoQuote(codes, ['A', 'B1', 'B'])
+      const result = await quote
+      expect(result.coverages.map(c => c.code)).toEqual(['A', 'B', 'B1'])
+      expect(settings.apply).toHaveBeenCalledWith(1, expect.any(Array), 2025, ['A', 'B1', 'B'], VehicleType.MOTO, null)
+      expect(result.messages.some(message => message.includes('cobertura B4'))).toBe(false)
+    }
   })
 })
 
@@ -276,6 +299,7 @@ describe('CotizadorService vehicle Triunfo could not value', () => {
       } as unknown as InfoAutoService,
       {
         registerDiscovered: jest.fn().mockResolvedValue(undefined),
+        offeredMotoCodes: jest.fn().mockResolvedValue(['A', 'B4', 'B1', 'B']),
         apply: jest.fn().mockImplementation(async (_producer, coverages) => coverages),
       } as unknown as CoverageSettingsService,
       {} as ConfigService,
@@ -353,6 +377,7 @@ describe('CotizadorService 0 km and GNC', () => {
       } as unknown as InfoAutoService,
       {
         registerDiscovered: jest.fn().mockResolvedValue(undefined),
+        offeredMotoCodes: jest.fn().mockResolvedValue(['A', 'B4', 'B1', 'B']),
         apply: jest.fn().mockImplementation(async (_producer, coverages) => coverages),
       } as unknown as CoverageSettingsService,
       {} as ConfigService,

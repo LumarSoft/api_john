@@ -69,7 +69,7 @@ The raw Triunfo response is persisted as `Quote` (with `vehicleType`); the endpo
 Two rules are applied on top of what Triunfo returns:
 
 - **Payment methods** — only `Débito Automático` (`1`) and `Plan de Pago` (`9`) are exposed. `Contado` (`6`) is quoted by Triunfo but never shown; see `src/common/payment-methods.ts`.
-- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see _Admin — Coberturas_). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes always return A, B4 and B1 with fixed moto wording.
+- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see _Admin — Coberturas_). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes use a fixed catalog (A, B4, B1 and B) with fixed moto wording and order; of those, only the codes whose "Ofrecer" switch is on — for the organization, or for the number that quotes — are returned.
 
 `Valor` is sent as `"0"` so Triunfo resolves the market value itself and returns it in `vehicleValue`; the InfoAuto valuation endpoints are not part of the current subscription.
 

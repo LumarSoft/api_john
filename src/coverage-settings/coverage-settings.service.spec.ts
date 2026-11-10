@@ -33,8 +33,44 @@ describe('motorcycle wording', () => {
   })
 })
 
-describe('motorcycle required coverages', () => {
-  it('keeps A, B and B1 even when car display settings hide them by activity or year', async () => {
+describe('motorcycle offered coverages', () => {
+  function serviceWith(rows: unknown[]) {
+    const prisma = { coverageSetting: { findMany: jest.fn().mockResolvedValue(rows) } }
+    return new CoverageSettingsService(prisma as unknown as PrismaService)
+  }
+
+  it('leaves out B4 while nobody switched it on, as the panel shows it', async () => {
+    // Rows as they are stored when a quote discovers the code: visible, not configured.
+    const service = serviceWith([
+      { code: 'A', isActive: true, isConfigured: false },
+      { code: 'B4', isActive: true, isConfigured: false },
+    ])
+    expect(await service.offeredMotoCodes(1)).toEqual(['A', 'B1', 'B'])
+  })
+
+  it('follows the switches an admin set, whatever the car year windows say', async () => {
+    const service = serviceWith([
+      { code: 'B4', isActive: true, isConfigured: true },
+      { code: 'B1', isActive: false, isConfigured: true },
+      { code: 'B', isActive: true, isConfigured: true, yearFrom: 2025, yearTo: null },
+    ])
+    expect(await service.offeredMotoCodes(1)).toEqual(['A', 'B4', 'B'])
+  })
+
+  it("lets a number offer the organization's coverages its own way", async () => {
+    const service = serviceWith([{ code: 'B4', isActive: true, isConfigured: true }])
+    const own = { isActive: null, highlighted: null, sortOrder: null }
+    const overrides = {
+      B4: { ...own, isActive: false },
+      B: { ...own, isActive: false },
+      B1: { ...own, sortOrder: 1 },
+    }
+    expect(await service.offeredMotoCodes(1, overrides)).toEqual(['A', 'B1'])
+  })
+})
+
+describe('car required coverages', () => {
+  it('keeps the required codes even when the display settings hide them by activity or year', async () => {
     const prisma = {
       coverageSetting: {
         findMany: jest.fn().mockResolvedValue([
