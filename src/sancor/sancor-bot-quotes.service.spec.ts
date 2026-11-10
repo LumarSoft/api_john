@@ -18,9 +18,9 @@ function plan(module: number, monthly: number, coverages: Array<[string, number]
   return { module, monthlyPremium: monthly, termPremium: monthly * 12, coverages: lines, lines }
 }
 
-function setup(env: Record<string, string> = { SANCOR_BOT_PRODUCER_IDS: '1, 7' }, producerId = 1) {
+function setup(env: Record<string, string> = {}, { enabled = true, missing = [] as string[] } = {}) {
   const sancor = {
-    isConfigured: true,
+    missingFor: jest.fn().mockReturnValue(missing),
     resolveLocation: jest.fn().mockResolvedValue(LOCATION),
     getModules: jest.fn().mockResolvedValue([]),
     quoteBag: jest.fn(),
@@ -28,7 +28,11 @@ function setup(env: Record<string, string> = { SANCOR_BOT_PRODUCER_IDS: '1, 7' }
     quoteHomeProtected: jest.fn(),
     quotePersonalAccident: jest.fn(),
   }
-  const prisma = { conversation: { findFirst: jest.fn().mockResolvedValue({ producerId }) } }
+  const prisma = {
+    conversation: {
+      findFirst: jest.fn().mockResolvedValue({ producer: { slug: 'john', sancorQuotesEnabled: enabled } }),
+    },
+  }
   const config = { get: (key: string) => env[key] } as unknown as ConfigService
   const service = new SancorBotQuotesService(
     prisma as unknown as PrismaService,
@@ -39,19 +43,18 @@ function setup(env: Record<string, string> = { SANCOR_BOT_PRODUCER_IDS: '1, 7' }
 }
 
 describe('SancorBotQuotesService.productsFor', () => {
-  it('offers the four products to the organizations listed in SANCOR_BOT_PRODUCER_IDS', async () => {
-    const { service } = setup()
-    await expect(service.productsFor(10)).resolves.toEqual({ productTypes: ['bolso', 'hogar', 'bici', 'personas'] })
-  })
-
-  it('offers nothing to other organizations, or to anyone when the list is empty', async () => {
-    await expect(setup(undefined, 3).service.productsFor(10)).resolves.toEqual({ productTypes: [] })
-    await expect(setup({}).service.productsFor(10)).resolves.toEqual({ productTypes: [] })
-  })
-
-  it('offers nothing while Sancor has no credentials', async () => {
+  it('offers the four products when the organization switched Sancor on', async () => {
     const { service, sancor } = setup()
-    sancor.isConfigured = false
+    await expect(service.productsFor(10)).resolves.toEqual({ productTypes: ['bolso', 'hogar', 'bici', 'personas'] })
+    expect(sancor.missingFor).toHaveBeenCalledWith('john')
+  })
+
+  it('offers nothing while the switch is off', async () => {
+    await expect(setup({}, { enabled: false }).service.productsFor(10)).resolves.toEqual({ productTypes: [] })
+  })
+
+  it('offers nothing while the organization lacks Sancor credentials, even switched on', async () => {
+    const { service } = setup({}, { missing: ['Falta el código de productor de Sancor.'] })
     await expect(service.productsFor(10)).resolves.toEqual({ productTypes: [] })
   })
 
@@ -64,7 +67,7 @@ describe('SancorBotQuotesService.productsFor', () => {
 
 describe('SancorBotQuotesService.quote', () => {
   it('refuses to quote for an organization that is not enabled', async () => {
-    const { service, sancor } = setup(undefined, 3)
+    const { service, sancor } = setup({}, { enabled: false })
     await expect(service.quote(10, { productType: 'bolso', zipCode: 2000 })).rejects.toBeInstanceOf(NotFoundException)
     expect(sancor.resolveLocation).not.toHaveBeenCalled()
   })
@@ -147,7 +150,7 @@ describe('SancorBotQuotesService.quote', () => {
   })
 
   it('quotes personal accidents once per offered capital with the DNI and the age range', async () => {
-    const { service, sancor } = setup({ SANCOR_BOT_PRODUCER_IDS: '1', SANCOR_AP_MODULES: '47,60,999' })
+    const { service, sancor } = setup({ SANCOR_AP_MODULES: '47,60,999' })
     sancor.getModules.mockResolvedValue([
       { id: 32, description: 'Módulo $7.000.000' },
       { id: 47, description: 'Módulo $8.000.000' },

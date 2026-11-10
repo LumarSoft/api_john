@@ -68,15 +68,13 @@ export interface SancorBotQuoteInput {
 }
 
 /**
- * Sancor prices for the bot's lead products. Opt-in per organization: the
- * Sancor credentials in .env are one producer's (JPMG), so only the producers
- * listed in SANCOR_BOT_PRODUCER_IDS quote with them, and none by default while
- * the integration runs on Sancor's preproduction, whose prices are not real.
+ * Sancor prices for the bot's lead products, for the organizations whose
+ * SuperAdmin switched Sancor on in "Configuración" (off by default) and that
+ * have Sancor credentials of their own (today only the default organization).
  */
 @Injectable()
 export class SancorBotQuotesService {
   private readonly logger = new Logger(SancorBotQuotesService.name)
-  private readonly producerIds: Set<number>
   private readonly apModules: number[]
 
   constructor(
@@ -84,14 +82,19 @@ export class SancorBotQuotesService {
     private readonly sancor: SancorService,
     configService: ConfigService,
   ) {
-    this.producerIds = new Set(parseIds(configService.get<string>('SANCOR_BOT_PRODUCER_IDS')))
     const apModules = parseIds(configService.get<string>('SANCOR_AP_MODULES'))
     this.apModules = apModules.length ? apModules : DEFAULT_AP_MODULES
   }
 
   /** The product types this conversation's bot quotes with Sancor (none when it is off). */
   async productsFor(conversationId: number): Promise<{ productTypes: SancorBotProductType[] }> {
-    const enabled = this.sancor.isConfigured && this.producerIds.has(await this.producerOf(conversationId))
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, deletedAt: null },
+      select: { producer: { select: { slug: true, sancorQuotesEnabled: true } } },
+    })
+    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
+    const { slug, sancorQuotesEnabled } = conversation.producer
+    const enabled = sancorQuotesEnabled && this.sancor.missingFor(slug).length === 0
     return { productTypes: enabled ? [...SANCOR_BOT_PRODUCT_TYPES] : [] }
   }
 
@@ -186,15 +189,6 @@ export class SancorBotQuotesService {
       isActive: true,
       sortOrder: index,
     }
-  }
-
-  private async producerOf(conversationId: number): Promise<number> {
-    const conversation = await this.prisma.conversation.findFirst({
-      where: { id: conversationId, deletedAt: null },
-      select: { producerId: true },
-    })
-    if (!conversation) throw new NotFoundException(`Conversation ${conversationId} not found`)
-    return conversation.producerId
   }
 }
 

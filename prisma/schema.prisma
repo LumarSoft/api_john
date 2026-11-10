@@ -19,38 +19,44 @@ datasource db {
 // (Kept the name `Producer` to avoid a destabilizing rename — see CONTEXT.md.)
 
 model Producer {
-  id            Int       @id @default(autoincrement())
-  name          String
-  slug          String    @unique
+  id                   Int       @id @default(autoincrement())
+  name                 String
+  slug                 String    @unique
   // The organization's principal Triunfo code (e.g. "11425"). The cartera of every
   // dependent code rolls up to this org. Informational/anchor for the master code.
-  masterCode    String?   @db.VarChar(20)
+  masterCode           String?   @db.VarChar(20)
   // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
   // Null/empty → the bot introduces itself as "el asistente de <org>".
-  botName       String?   @db.VarChar(60)
+  botName              String?   @db.VarChar(60)
   // First names of the office people customers write to by name ("Mili,
   // Milagros"), comma separated. A message that names one of them alerts the
   // office, and the bot keeps attending the customer.
-  staffNames    String?   @db.VarChar(255)
+  staffNames           String?   @db.VarChar(255)
   // Weekly business hours (Mon–Sun) shown across every channel (WhatsApp bot and
   // the public web) and used to compute "open now". Single source of truth edited
   // from the admin "Horarios" screen. JSON shape: { mon: [{from,to}], ..., sun: [] }
   // where each day holds zero or more HH:mm ranges ([] = closed). Null → app default.
-  businessHours Json?
+  businessHours        Json?
   // How the bot names the organization and what it tells customers about
   // assistance and payments (grúa line, claims line, transfer account, where to
   // pay cash), edited from "Configuración". Flat JSON, see
   // src/common/bot-profile.ts. Null → the bot's own defaults.
-  botProfile    Json?
+  botProfile           Json?
   // The organization's logo, served from /uploads/logos (a square WebP). The
   // panel shows it after login and on the printable policy card; null = its
   // initials.
-  logoUrl       String?   @db.VarChar(255)
-  systemPrompt  String    @db.Text
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  logoUrl              String?   @db.VarChar(255)
+  systemPrompt         String    @db.Text
+  // Which insurers the bot quotes with, switched in "Configuración" by the
+  // SuperAdmin. Turned on only after the insurer gives a token with the
+  // organization's credentials. Triunfo: autos and motos; Sancor: bolso, hogar,
+  // bici and accidentes personales.
+  triunfoQuotesEnabled Boolean   @default(true)
+  sancorQuotesEnabled  Boolean   @default(false)
+  isActive             Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
 
   producerCodes           ProducerCode[]
   phoneNumbers            PhoneNumber[]

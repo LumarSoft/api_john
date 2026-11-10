@@ -56,6 +56,42 @@ function httpError(status: number, data: unknown) {
   })
 }
 
+describe('SancorService.missingFor', () => {
+  it('has nothing missing for the default organization with the whole SANCOR_* setup', () => {
+    expect(createService({}).missingFor('john')).toEqual([])
+  })
+
+  it('never lends the SANCOR_* intermediary to another organization', () => {
+    expect(createService({}).missingFor('otra')).toEqual([
+      'Esta organización todavía no tiene su usuario de Sancor (lo carga Lumarsoft).',
+    ])
+  })
+
+  it('lists the user and the codes that are missing', () => {
+    const env = { ...ENV, SANCOR_PASSWORD: '', SANCOR_ORGANIZER_CODE: '' }
+    expect(createService({}, env).missingFor('john')).toEqual([
+      'Faltan el usuario y la contraseña del intermediario en Sancor.',
+      'Falta el código de organizador de Sancor.',
+    ])
+    expect(createService({}, { ...ENV, SANCOR_CLIENT_ID: '' }).missingFor('john')).toEqual([
+      'Falta la clave de la aplicación de Sancor (la carga Lumarsoft).',
+    ])
+  })
+})
+
+describe('SancorService.verifyToken', () => {
+  it('logs in again even with a cached token, and keeps the new one', async () => {
+    const post = jest.fn().mockReturnValueOnce(tokenResponse('old')).mockReturnValueOnce(tokenResponse('new'))
+    const service = createService({ post })
+    await service.getToken()
+
+    await service.verifyToken()
+
+    expect(post).toHaveBeenCalledTimes(2)
+    expect(await service.getToken()).toBe('new')
+  })
+})
+
 describe('SancorService.getToken', () => {
   it('asks the auth0 token with the intermediary user and the portal client id', async () => {
     const post = jest.fn().mockReturnValue(tokenResponse())

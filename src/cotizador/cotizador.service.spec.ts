@@ -414,7 +414,7 @@ describe('CotizadorService 0 km and GNC', () => {
 })
 
 describe('CotizadorService bot quotes per organization', () => {
-  function createService(phone: { producerId: number } | null) {
+  function createService(phone: { producerId: number; producer: { triunfoQuotesEnabled: boolean } } | null) {
     const prisma = { phoneNumber: { findFirst: jest.fn().mockResolvedValue(phone) } }
     const triunfo = { getAuth: jest.fn().mockRejectedValue(new Error('stop after auth')) }
     const service = new CotizadorService(
@@ -435,15 +435,21 @@ describe('CotizadorService bot quotes per organization', () => {
   const dto = { brand: '12', model: '120236', manufactureYear: 2019, postalCode: 2000 }
 
   it("quotes with the Triunfo account of the number's organization", async () => {
-    const { service, prisma, triunfo } = createService({ producerId: 2 })
+    const { service, prisma, triunfo } = createService({ producerId: 2, producer: { triunfoQuotesEnabled: true } })
 
     await expect(service.quoteVehicleForNumber('555', VehicleType.AUTO, dto)).rejects.toThrow('stop after auth')
 
     expect(prisma.phoneNumber.findFirst).toHaveBeenCalledWith({
       where: { phoneNumberId: '555', isActive: true, deletedAt: null },
-      select: { producerId: true, coverageSettings: true },
+      select: { producerId: true, coverageSettings: true, producer: { select: { triunfoQuotesEnabled: true } } },
     })
     expect(triunfo.getAuth).toHaveBeenCalledWith(2)
+  })
+
+  it('refuses to quote when the organization switched Triunfo off', async () => {
+    const { service, triunfo } = createService({ producerId: 2, producer: { triunfoQuotesEnabled: false } })
+    await expect(service.quoteVehicleForNumber('555', VehicleType.AUTO, dto)).rejects.toMatchObject({ status: 403 })
+    expect(triunfo.getAuth).not.toHaveBeenCalled()
   })
 
   it('refuses a number that is not registered', async () => {

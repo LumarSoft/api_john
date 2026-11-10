@@ -380,9 +380,11 @@ código del servicio, y no coincide del todo con las specs del portal:
 
 `SancorBotQuotesService` (`POST /bot/conversation/:id/sancor/quote`, ver
 `docs/endpoints.md`) le da al bot los planes de Sancor con la forma de los planes
-fijos de la oficina. Está apagado salvo para las organizaciones de
-`SANCOR_BOT_PRODUCER_IDS`: las credenciales del `.env` son de un solo productor
-(JPMG) y en preproducción los precios no son los de venta. Qué cotiza:
+fijos de la oficina. Lo enciende el SuperAdmin en Configuración → Aseguradoras
+(`PATCH /admin/config/insurers`, apagado por defecto), que antes pide un token a
+Sancor. Las credenciales del `.env` son de un solo productor (JPMG, la
+organización por defecto): otra organización no puede encenderlo hasta tener
+las suyas. En preproducción los precios no son los de venta. Qué cotiza:
 
 - **Bolso:** todos los planes que lista `/modules/bag` (10), en una llamada.
 - **Hogar:** todos los de `/modules/homeProtected`; Sancor contesta solo los

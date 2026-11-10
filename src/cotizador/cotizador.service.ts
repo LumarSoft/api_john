@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   GatewayTimeoutException,
   Injectable,
   InternalServerErrorException,
@@ -318,9 +319,13 @@ export class CotizadorService {
   ): Promise<QuoteAutoResult> {
     const phone = await this.prisma.phoneNumber.findFirst({
       where: { phoneNumberId, isActive: true, deletedAt: null },
-      select: { producerId: true, coverageSettings: true },
+      select: { producerId: true, coverageSettings: true, producer: { select: { triunfoQuotesEnabled: true } } },
     })
     if (!phone) throw new NotFoundException(`Phone number ${phoneNumberId} is not registered`)
+    // The SuperAdmin switched Triunfo off in "Configuración → Aseguradoras".
+    if (!phone.producer.triunfoQuotesEnabled) {
+      throw new ForbiddenException('Esta organización no cotiza con Triunfo desde el bot')
+    }
     // The number's own view of the coverages (which to offer, recommend and first).
     const overrides = parseCoverageOverrides(phone.coverageSettings)
     const { conversationId, vehicleLabel, ...vehicle } = dto

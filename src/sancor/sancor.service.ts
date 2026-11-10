@@ -143,6 +143,8 @@ export class SancorService {
   private readonly appClient?: string
   private readonly producerCode?: number
   private readonly organizerCode?: number
+  // The organization the SANCOR_* intermediary belongs to.
+  private readonly defaultProducerSlug: string
 
   constructor(
     private readonly httpService: HttpService,
@@ -159,11 +161,37 @@ export class SancorService {
     this.appClient = this.configService.get<string>('SANCOR_APP_CLIENT') || undefined
     this.producerCode = this.readCode('SANCOR_PRODUCER_CODE')
     this.organizerCode = this.readCode('SANCOR_ORGANIZER_CODE')
+    this.defaultProducerSlug = this.configService.get<string>('DEFAULT_PRODUCER_SLUG') ?? 'john'
   }
 
   /** True once the portal app and the intermediary user are configured. */
   get isConfigured(): boolean {
     return Boolean(this.clientId && this.username && this.password)
+  }
+
+  /**
+   * What an organization lacks to quote with Sancor; empty when it has it all.
+   * The SANCOR_* intermediary and codes are the default organization's (JPMG),
+   * like the TRIUNFO_* settings: another organization never quotes with them.
+   */
+  missingFor(producerSlug: string): string[] {
+    if (!this.clientId) return ['Falta la clave de la aplicación de Sancor (la carga Lumarsoft).']
+    if (producerSlug !== this.defaultProducerSlug) {
+      return ['Esta organización todavía no tiene su usuario de Sancor (lo carga Lumarsoft).']
+    }
+    const missing: string[] = []
+    if (!this.username || !this.password) missing.push('Faltan el usuario y la contraseña del intermediario en Sancor.')
+    if (!this.producerCode) missing.push('Falta el código de productor de Sancor.')
+    if (!this.organizerCode) missing.push('Falta el código de organizador de Sancor.')
+    return missing
+  }
+
+  /**
+   * Logs in to Sancor right now, skipping the cached token: proves the
+   * intermediary's user still works. The token is kept for the next calls.
+   */
+  async verifyToken(): Promise<void> {
+    await this.renewToken()
   }
 
   /**

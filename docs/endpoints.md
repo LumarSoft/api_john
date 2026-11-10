@@ -648,6 +648,67 @@ Actualiza el nombre con el que se presenta el bot y los nombres de las personas 
 
 `403 Forbidden` — the caller is not a SuperAdmin
 
+### GET /admin/config/insurers
+
+Con qué aseguradoras cotiza el bot de la organización ("Configuración →
+Aseguradoras") y qué le falta a cada una para funcionar. No llama a las
+aseguradoras: `problems` sale de las credenciales cargadas y de la última caída
+registrada de Triunfo.
+
+**Auth required:** Yes (cualquier rol)
+
+**Responses**
+
+`200 OK`
+```json
+{
+  "triunfo": { "enabled": true, "products": ["Auto", "Moto"], "problems": [] },
+  "sancor": {
+    "enabled": false,
+    "products": ["Bolso protegido", "Hogar", "Bici", "Accidentes personales"],
+    "problems": ["Esta organización todavía no tiene su usuario de Sancor (lo carga Lumarsoft)."]
+  }
+}
+```
+
+### PATCH /admin/config/insurers
+
+Enciende o apaga cada aseguradora. **Encender pide un token en ese momento** con
+las credenciales de la organización (Triunfo: las de Integración con Triunfo o,
+para la organización por defecto, `TRIUNFO_*`; Sancor: clave de la aplicación,
+usuario del intermediario y códigos de productor y organizador): si falta algo o
+la aseguradora no da el token, queda apagada y responde por qué. Apagar no
+consulta nada. Lo que no se manda queda como está.
+
+**Auth required:** Yes (SUPERADMIN)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| triunfo | boolean | No | |
+| sancor | boolean | No | |
+
+```json
+{ "sancor": true }
+```
+
+**Responses**
+
+`200 OK` — el estado nuevo, igual que `GET /admin/config/insurers`
+
+`400 Bad Request` — falta algo para el token, o la aseguradora lo rechazó
+```json
+{ "statusCode": 400, "message": "Sancor no dio el token con el usuario de esta organización: No se pudo obtener token de Sancor — Usuario o contraseña incorrecta.", "error": "Bad Request" }
+```
+
+`403 Forbidden` — no es SUPERADMIN
+
+`502 Bad Gateway` — la aseguradora no respondió
+```json
+{ "statusCode": 502, "message": "No se pudo contactar a Sancor para verificar el usuario. Probá de nuevo.", "error": "Bad Gateway" }
+```
+
 ### GET /admin/config/profile
 
 What the bot says that is particular to the organization: how it names it, the grúa and claims lines, the transfer account and where to pay cash with the coupon, plus the e-mail that gets each new claim. A field never configured is `null`.
@@ -2882,9 +2943,12 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
       "bank": "Banco Galicia"
     },
     "quoteClosingNote": null
-  }
+  },
+  "quoteInsurers": { "triunfo": true, "sancor": false }
 }
 ```
+
+`quoteInsurers` are the organization's switches of `PATCH /admin/config/insurers`: with `triunfo` off the bot does not quote autos and motos (it takes the request for an advisor, and `POST /bot/numbers/:phoneNumberId/cotizador/:vehicleType` answers 403); with `sancor` on it asks Sancor for bolso, hogar, bici and accidentes personales.
 
 `profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU, `quoteClosingNote` is the line the bot appends to every quote (`null` = none). It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
 
@@ -3868,9 +3932,10 @@ Igual que `GET /pricing/:productType` pero scope al productor de la conversació
 ## Bot — Cotizaciones con Sancor
 
 Precios de Sancor para bolso, hogar (Hogar Protegido), bici y accidentes
-personales. Solo para las organizaciones de `SANCOR_BOT_PRODUCER_IDS` (vacío =
-ninguna) y con las credenciales de Sancor cargadas; el resto sigue con los planes
-fijos de la oficina o el pedido a un asesor. Detalle en `docs/sancor-services.md`.
+personales. Solo para las organizaciones con Sancor encendido en
+`PATCH /admin/config/insurers` y credenciales de Sancor propias (hoy solo la
+organización por defecto, con las `SANCOR_*`); el resto sigue con los planes fijos
+de la oficina o el pedido a un asesor. Detalle en `docs/sancor-services.md`.
 
 ### GET /bot/conversation/:conversationId/sancor/products
 
@@ -3885,7 +3950,7 @@ Qué productos cotiza con Sancor el bot de esa conversación.
 { "productTypes": ["bolso", "hogar", "bici", "personas"] }
 ```
 
-`200 OK` — organización no habilitada o Sancor sin credenciales
+`200 OK` — Sancor apagado para la organización, o la organización sin credenciales de Sancor
 ```json
 { "productTypes": [] }
 ```

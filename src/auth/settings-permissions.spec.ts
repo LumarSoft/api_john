@@ -5,6 +5,7 @@ import { AdminBusinessHoursController } from '../business-hours/admin-business-h
 import { AdminCoverageSettingsController } from '../coverage-settings/admin-coverage-settings.controller'
 import { AdminPricingController } from '../product-plans/admin-pricing.controller'
 import { AdminPhoneNumbersController } from '../phone-numbers/admin-phone-numbers.controller'
+import { AdminQuoteInsurersController } from '../quote-insurers/admin-quote-insurers.controller'
 
 const rolesOf = (handler: unknown): Role[] | undefined => Reflect.getMetadata(ROLES_KEY, handler as object) as Role[]
 
@@ -42,6 +43,11 @@ describe('who changes the organization settings', () => {
     expect(rolesOf(AdminPhoneNumbersController.prototype.setBotStatus)).toEqual([Role.SUPERADMIN, Role.ADMIN])
     expect(rolesOf(AdminPhoneNumbersController.prototype.addClosure)).toEqual([Role.SUPERADMIN, Role.ADMIN])
     expect(rolesOf(AdminPhoneNumbersController.prototype.removeClosure)).toEqual([Role.SUPERADMIN, Role.ADMIN])
+  })
+
+  it('lets everyone see the insurers the bot quotes with and only the SuperAdmin switch them', () => {
+    expect(rolesOf(AdminQuoteInsurersController.prototype.get)).toBeUndefined()
+    expect(rolesOf(AdminQuoteInsurersController.prototype.update)).toEqual([Role.SUPERADMIN])
   })
 
   it('has no organization-wide bot switch nor organization holidays', () => {

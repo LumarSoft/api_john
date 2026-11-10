@@ -189,6 +189,8 @@ export class BotService {
             botProfile: true,
             systemPrompt: true,
             isActive: true,
+            triunfoQuotesEnabled: true,
+            sancorQuotesEnabled: true,
           },
         },
       },
@@ -229,6 +231,9 @@ export class BotService {
       llmEnabled,
       // How the bot names the organization, its grúa/claims lines and payment data.
       profile: toBotContextProfile({ name, botProfile }, slug === this.defaultProducerSlug),
+      // Which insurers the bot quotes with ("Configuración → Aseguradoras"):
+      // without Triunfo, autos and motos go to an advisor.
+      quoteInsurers: { triunfo: producer.triunfoQuotesEnabled, sancor: producer.sancorQuotesEnabled },
     }
   }
 
