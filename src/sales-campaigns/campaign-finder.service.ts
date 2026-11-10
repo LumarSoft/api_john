@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Prisma, RiskType } from 'generated/prisma/client'
+import { LeadStatus, Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ChatScope, visibleNumbers } from '../common/scope/scope.service'
 import { inForcePolizaWhere, notCancelledPolizaWhere } from '../common/poliza-vigencia'
@@ -9,8 +9,11 @@ import {
   CampaignSettings,
   CancellationReason,
   codesSetting,
+  CrossSellProduct,
+  GAP_LABELS,
   numberSetting,
 } from './campaign-catalog'
+import { coverageGaps, lowestInstallment } from './coverage-gaps'
 
 const DAY_MS = 86_400_000
 
@@ -53,8 +56,16 @@ export interface CampaignTarget {
   sortDate: Date | null
   /** Coverage codes of the vehicle ("A", "C2 Full"); in CROSS_SELL, of every car or motorbike in force. */
   coverages: string[]
-  /** WINBACK: why Triunfo cancelled the policy. */
+  /** WINBACK: why Triunfo cancelled the policy, or that it ran out unrenewed. */
   reason: CancellationReason | null
+  /**
+   * What the client lacks: protections of the vehicle's coverage or its insured
+   * sum (COVERAGE_UPGRADE), products they do not have (CROSS_SELL).
+   */
+  gaps: string[]
+  /** QUOTE_FOLLOWUP: the lowest instalment the quote offered, and who quoted it. */
+  amount: number | null
+  company: string | null
   producerCodeId: number | null
   producerCode: { id: number; code: string } | null
 }
@@ -67,6 +78,25 @@ const RISK_LABELS: Record<string, string> = {
   commercial: 'comercio',
   other: 'seguro',
 }
+
+/** The risk types that count as having each product Venta cruzada offers. */
+export const PRODUCT_RISKS: Record<CrossSellProduct, RiskType[]> = {
+  home: [RiskType.home],
+  life: [RiskType.life],
+  vehicle: [RiskType.auto, RiskType.moto],
+  commercial: [RiskType.commercial],
+}
+
+/** Each product as the list's reason names it, in a few letters. */
+const PRODUCT_SHORT: Record<CrossSellProduct, string> = {
+  home: 'hogar',
+  life: 'vida',
+  vehicle: 'auto o moto',
+  commercial: 'comercio',
+}
+
+/** Every quote stored today is Triunfo's (Quote has no company of its own yet). */
+const QUOTE_COMPANY = 'Triunfo'
 
 /** Cancellations that do not lose the client: the policy was replaced or issued by mistake. */
 const NOT_A_LOSS = ['ANULA POR REEMPLAZO', 'ANULA POR ERROR']
@@ -101,7 +131,7 @@ const POLICY_SELECT = {
   producerCodeId: true,
   producerCode: { select: { id: true, code: true } },
   client: { select: { id: true, firstName: true, lastName: true, dni: true, phone: true, deletedAt: true } },
-  vehicle: { select: { licensePlate: true, brand: true, model: true, year: true, coverage: true } },
+  vehicle: { select: { licensePlate: true, brand: true, model: true, year: true, coverage: true, sumInsured: true } },
 } satisfies Prisma.PolicySelect
 
 type PolicyRow = Prisma.PolicyGetPayload<{ select: typeof POLICY_SELECT }>
@@ -134,7 +164,7 @@ export class CampaignFinderService {
       case 'winback':
         return this.winback(settings, producerId, codeIds, now, ids)
       case 'cross_sell':
-        return this.crossSell(producerId, codeIds, now, ids)
+        return this.crossSell(settings, producerId, codeIds, now, ids)
     }
   }
 
@@ -143,7 +173,8 @@ export class CampaignFinderService {
    * their codes that they may see (an admin, their own numbers; the SuperAdmin,
    * every number or the one they filtered by). The number is the quote's own;
    * an older quote without one takes its chat's. The organization's default
-   * number also brings the quotes of chats that came through no number.
+   * number also brings the quotes that came through no number: older chats and
+   * the web's.
    */
   async quoteOrigin(producerId: number, scope: CampaignScope): Promise<Prisma.QuoteWhereInput> {
     const numbers = await this.prisma.phoneNumber.findMany({
@@ -157,12 +188,22 @@ export class CampaignFinderService {
       OR: [
         { phoneNumberId: { in: metaIds } },
         { phoneNumberId: null, conversation: { phoneNumberId: { in: metaIds } } },
-        ...(withNone ? [{ phoneNumberId: null, conversation: { phoneNumberId: null } }] : []),
+        // No number at all: an older chat, or a quote asked on the web.
+        ...(withNone
+          ? [
+              { phoneNumberId: null, conversation: { phoneNumberId: null } },
+              { phoneNumberId: null, conversationId: null },
+            ]
+          : []),
       ],
     }
   }
 
-  /** A car or motorbike in force on one of the coverages the organization counts as basic. */
+  /**
+   * A car or motorbike in force on one of the coverages the organization counts
+   * as basic or, when it reviews insured sums, insured for less than its
+   * threshold. Each one says what its coverage leaves out.
+   */
   private async coverageUpgrade(
     settings: CampaignSettings,
     producerId: number,
@@ -171,21 +212,38 @@ export class CampaignFinderService {
     ids?: number[],
   ): Promise<CampaignTarget[]> {
     const basic = codesSetting(settings, 'basicCoverages')
-    if (!basic.length) return []
+    const sumBelow = numberSetting(settings, 'reviewSumBelow')
+    if (!basic.length && !sumBelow) return []
     const policies = await this.policies(
       {
         ...this.scope(producerId, codeIds, ids),
         ...inForcePolizaWhere(now),
         riskType: { in: [RiskType.auto, RiskType.moto] },
-        vehicle: { coverage: { in: basic } },
+        vehicle: {
+          OR: [
+            ...(basic.length ? [{ coverage: { in: basic } }] : []),
+            ...(sumBelow ? [{ sumInsured: { gt: 0, lt: sumBelow } }] : []),
+          ],
+        },
       },
       now,
     )
-    return policies.map(p =>
-      policyTarget(p, [`Cobertura ${coverageOf(p) ?? ''}`.trim(), since(p)].filter(Boolean).join(' · '), p.validTo, {
+    return policies.map(p => {
+      const sum = p.vehicle?.sumInsured == null ? 0 : Number(p.vehicle.sumInsured)
+      const lowSum = sumBelow > 0 && sum > 0 && sum < sumBelow
+      const missing = coverageGaps(coverageOf(p), p.riskType === RiskType.moto)
+      const coverage = [
+        `Cobertura ${coverageOf(p) ?? ''}`.trim(),
+        missing.length ? `(sin ${listOf(missing.map(g => GAP_LABELS[g].toLowerCase()))})` : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+      const detail = [coverage, lowSum ? `suma asegurada ${money(sum)}` : '', since(p)].filter(Boolean).join(' · ')
+      return policyTarget(p, detail, p.validTo, {
         sortDate: p.validFrom,
-      }),
-    )
+        gaps: [...missing, ...(lowSum ? ['suma'] : [])],
+      })
+    })
   }
 
   /** A policy in force that ends within `daysBefore` and has no renewal issued yet. */
@@ -213,7 +271,9 @@ export class CampaignFinderService {
 
   /**
    * A policy cancelled within `withinDays` (not replaced, not issued by
-   * mistake) whose client has nothing running on the same vehicle or risk.
+   * mistake), or that ran out in that time and nobody renewed (unless the
+   * office hid it from "pólizas vencidas": it knows it is gone for good), whose
+   * client has nothing running on the same vehicle or risk.
    */
   private async winback(
     settings: CampaignSettings,
@@ -234,9 +294,22 @@ export class CampaignFinderService {
       },
       now,
     )
-    const cancelled = policies
-      .map(p => ({ policy: p, at: cancelledAt(p) }))
-      .filter(({ at }) => at >= since && at <= now)
+    const expired = await this.policies(
+      {
+        ...this.scope(producerId, codeIds, ids),
+        deletedAt: null,
+        hiddenAt: null,
+        validTo: { gte: since, lt: now },
+        ...notCancelledPolizaWhere(),
+      },
+      now,
+    )
+    const cancelled = [
+      ...policies
+        .map(p => ({ policy: p, at: cancelledAt(p), expired: false }))
+        .filter(({ at }) => at >= since && at <= now),
+      ...expired.map(p => ({ policy: p, at: p.validTo ?? now, expired: true })),
+    ]
     const running = await this.runningPolicies(
       producerId,
       cancelled.map(c => c.policy.clientId),
@@ -251,7 +324,13 @@ export class CampaignFinderService {
       const seen = latest.get(key)
       if (!seen || seen.at < c.at) latest.set(key, c)
     }
-    return [...latest.values()].map(({ policy, at }) => {
+    return [...latest.values()].map(({ policy, at, expired }) => {
+      if (expired) {
+        return policyTarget(policy, `Venció el ${formatDay(at)} y no se renovó`, at, {
+          sortDate: at,
+          reason: 'no_renovada',
+        })
+      }
       const movement = policy.lastMovement.trim().toUpperCase()
       const why = CANCELLATIONS.find(c => movement.startsWith(c.prefix))
       return policyTarget(policy, `Anulada el ${formatDay(at)}${why ? ` (${why.detail})` : ''}`, at, {
@@ -262,52 +341,65 @@ export class CampaignFinderService {
   }
 
   /**
-   * A client with a car or motorbike in force and no home policy in force: one
-   * row per client, showing the policy that started last. The filter by
-   * coverage reads all of them (a client with a car on A and a motorbike on C).
+   * A client with something in force who lacks one of the products the
+   * organization offers (`offer`: home, life, a vehicle, commerce): one row per
+   * client, showing the policy that started last and what they lack. The filter
+   * by coverage reads all their vehicles (a car on A and a motorbike on C).
    */
-  private async crossSell(producerId: number, codeIds: number[], now: Date, ids?: number[]): Promise<CampaignTarget[]> {
-    const policies = await this.policies(
-      {
-        ...this.scope(producerId, codeIds, ids),
-        ...inForcePolizaWhere(now),
-        riskType: { in: [RiskType.auto, RiskType.moto] },
-      },
-      now,
-    )
-    const withHome = await this.prisma.policy.findMany({
+  private async crossSell(
+    settings: CampaignSettings,
+    producerId: number,
+    codeIds: number[],
+    now: Date,
+    ids?: number[],
+  ): Promise<CampaignTarget[]> {
+    const offer = codesSetting(settings, 'offer') as CrossSellProduct[]
+    if (!offer.length) return []
+    const policies = await this.policies({ ...this.scope(producerId, codeIds, ids), ...inForcePolizaWhere(now) }, now)
+    // What each client has in force in the whole organization, not only in these codes.
+    const inForce = await this.prisma.policy.findMany({
       where: {
         producerId,
         clientId: { in: [...new Set(policies.map(p => p.clientId))] },
-        riskType: RiskType.home,
         ...inForcePolizaWhere(now),
       },
-      select: { clientId: true },
+      select: { clientId: true, riskType: true },
     })
-    const hasHome = new Set(withHome.map(h => h.clientId))
+    const has = new Map<number, Set<RiskType>>()
+    for (const p of [...policies, ...inForce]) {
+      has.set(p.clientId, (has.get(p.clientId) ?? new Set<RiskType>()).add(p.riskType))
+    }
+    const lacks = (clientId: number) =>
+      offer.filter(product => !PRODUCT_RISKS[product].some(risk => has.get(clientId)?.has(risk)))
+
     const byClient = new Map<number, PolicyRow>()
     const coveragesByClient = new Map<number, Set<string>>()
     for (const p of policies) {
-      if (hasHome.has(p.clientId)) continue
+      if (!lacks(p.clientId).length) continue
       const coverage = coverageOf(p)
       if (coverage) coveragesByClient.set(p.clientId, (coveragesByClient.get(p.clientId) ?? new Set()).add(coverage))
       const seen = byClient.get(p.clientId)
       if (!seen || startOf(seen, now) < startOf(p, now)) byClient.set(p.clientId, p)
     }
     return [...byClient.values()].map(p => {
-      const coverage = coverageOf(p)
-      const risk = `Tiene seguro de ${RISK_LABELS[p.riskType] ?? p.riskType}${coverage ? ` (cobertura ${coverage})` : ''}`
-      return policyTarget(p, [`${risk}, no de hogar`, since(p)].filter(Boolean).join(' · '), p.validTo, {
+      const missing = lacks(p.clientId)
+      const owned = listOf([...new Set([...(has.get(p.clientId) ?? [])].map(risk => RISK_LABELS[risk] ?? risk))])
+      const detail = [`Tiene ${owned}`, `le falta: ${missing.map(g => PRODUCT_SHORT[g]).join(', ')}`, since(p)]
+        .filter(Boolean)
+        .join(' · ')
+      return policyTarget(p, detail, p.validTo, {
         sortDate: p.validFrom,
         coverages: [...(coveragesByClient.get(p.clientId) ?? [])],
+        gaps: missing,
       })
     })
   }
 
   /**
-   * A bot quote between `afterDays` and `withinDays` old that nobody asked to
-   * contract (no request) and whose chat did not get a policy afterwards. One
-   * per chat: the latest quote.
+   * A quote between `afterDays` and `withinDays` old that did not end in a
+   * policy: one asked to the bot that nobody asked to contract, or one (the
+   * bot's or the web's) whose request to contract the office has not closed.
+   * One per person (the chat, or the document of the request): the latest.
    */
   private async quoteFollowup(
     settings: CampaignSettings,
@@ -323,13 +415,11 @@ export class CampaignFinderService {
       where: {
         producerId,
         deletedAt: null,
-        conversationId: { not: null },
-        quoteRequest: { is: null },
         createdAt: {
           gte: new Date(now.getTime() - numberSetting(settings, 'withinDays') * DAY_MS),
           lte: new Date(now.getTime() - numberSetting(settings, 'afterDays') * DAY_MS),
         },
-        ...origin,
+        AND: [origin, { OR: [{ conversationId: { not: null } }, { quoteRequest: { isNot: null } }] }],
         ...(ids ? { id: { in: ids } } : {}),
       },
       orderBy: { createdAt: 'desc' },
@@ -339,8 +429,21 @@ export class CampaignFinderService {
         vehicleType: true,
         vehicleLabel: true,
         manufactureYear: true,
+        result: true,
         producerCodeId: true,
         producerCode: { select: { id: true, code: true } },
+        quoteRequest: {
+          select: {
+            status: true,
+            selectedCoverage: true,
+            applicantFirstName: true,
+            applicantLastName: true,
+            applicantPhone: true,
+            applicantDocNumber: true,
+            createdAt: true,
+            deletedAt: true,
+          },
+        },
         conversation: {
           select: {
             id: true,
@@ -353,40 +456,69 @@ export class CampaignFinderService {
         },
       },
     })
-    const latest = new Map<number, (typeof quotes)[number]>()
+    type QuoteRow = (typeof quotes)[number]
+    const requestOf = (q: QuoteRow) => (q.quoteRequest && !q.quoteRequest.deletedAt ? q.quoteRequest : null)
+    const documentOf = (q: QuoteRow) => requestOf(q)?.applicantDocNumber.replace(/\D/g, '') || null
+    const latest = new Map<string, QuoteRow>()
     for (const q of quotes) {
-      if (q.conversation && !latest.has(q.conversation.id)) latest.set(q.conversation.id, q)
+      const key = q.conversation ? `chat:${q.conversation.id}` : `doc:${documentOf(q) ?? q.id}`
+      if (!latest.has(key)) latest.set(key, q)
     }
-    const clientIds = [...latest.values()].flatMap(q => (q.conversation?.clientId ? [q.conversation.clientId] : []))
+    // The person's latest quote is the one that counts: a request the office closed ends it.
+    const open = [...latest.values()].filter(q => requestOf(q)?.status !== LeadStatus.CLOSED)
+
+    const documents = [
+      ...new Set(open.flatMap(q => (!q.conversation?.clientId && documentOf(q) ? [documentOf(q)!] : []))),
+    ]
+    const byDocument = documents.length
+      ? await this.prisma.client.findMany({
+          where: { producerId, deletedAt: null, dni: { in: documents } },
+          select: { id: true, dni: true },
+        })
+      : []
+    const clientIdOf = (q: QuoteRow) =>
+      q.conversation?.clientId ?? byDocument.find(c => c.dni === documentOf(q))?.id ?? null
+    const clientIds = [...new Set(open.flatMap(q => (clientIdOf(q) != null ? [clientIdOf(q)!] : [])))]
     const contracted = clientIds.length
       ? await this.prisma.policy.findMany({
           where: { producerId, clientId: { in: clientIds }, deletedAt: null },
           select: { clientId: true, createdAt: true },
         })
       : []
-    return [...latest.values()]
-      .filter(q => !contracted.some(p => p.clientId === q.conversation!.clientId && p.createdAt >= q.createdAt))
+    return open
+      .filter(q => !contracted.some(p => p.clientId === clientIdOf(q) && p.createdAt >= q.createdAt))
       .map(q => {
-        const chat = q.conversation!
-        const contact = chat.contactNameManual || chat.contactName || ''
-        const name = chat.client ? fullName(chat.client.firstName, chat.client.lastName) : contact || 'Sin nombre'
+        const chat = q.conversation
+        const request = requestOf(q)
+        const contact = chat?.contactNameManual || chat?.contactName || ''
+        const applicant = request ? fullName(request.applicantFirstName, request.applicantLastName) : ''
+        const name = chat?.client
+          ? fullName(chat.client.firstName, chat.client.lastName)
+          : applicant || contact || 'Sin nombre'
         const vehicle = q.vehicleLabel || (q.vehicleType === 'MOTO' ? 'moto' : 'auto')
+        const amount = lowestInstallment(q.result)
+        const what = request
+          ? `Pidió contratar el ${formatDate(request.createdAt)} (cobertura ${request.selectedCoverage}) y no tiene póliza`
+          : `Cotizó el ${formatDate(q.createdAt)}`
         return {
           id: q.id,
-          clientId: chat.clientId,
+          clientId: clientIdOf(q),
           name,
-          firstName: greetingName(chat.client?.firstName || contact),
-          dni: chat.client?.dni ?? null,
-          phone: null,
-          waId: chat.waId,
-          conversationId: chat.id,
+          firstName: greetingName(chat?.client?.firstName || request?.applicantFirstName || contact),
+          dni: chat?.client?.dni ?? documentOf(q),
+          phone: chat ? null : (request?.applicantPhone ?? null),
+          waId: chat?.waId ?? null,
+          conversationId: chat?.id ?? null,
           item: [q.vehicleLabel ? titleCase(q.vehicleLabel) : vehicle, q.manufactureYear].filter(Boolean).join(' '),
           bien: q.vehicleLabel ? shortVehicle(q.vehicleLabel) : vehicle,
-          detail: `Cotizó el ${formatDate(q.createdAt)}`,
+          detail: [what, QUOTE_COMPANY, amount ? `cuotas desde ${money(amount)}` : ''].filter(Boolean).join(' · '),
           date: q.createdAt,
           sortDate: q.createdAt,
           coverages: [],
           reason: null,
+          gaps: [],
+          amount,
+          company: QUOTE_COMPANY,
           producerCodeId: q.producerCodeId,
           producerCode: q.producerCode,
         }
@@ -428,7 +560,7 @@ function policyTarget(
   p: PolicyRow,
   detail: string,
   date: Date | null,
-  extra: { sortDate: Date | null; coverages?: string[]; reason?: CancellationReason },
+  extra: { sortDate: Date | null; coverages?: string[]; reason?: CancellationReason; gaps?: string[] },
 ): CampaignTarget {
   const vehicle = p.vehicle
   const vehicleName = vehicle ? [vehicle.brand, vehicle.model].filter(Boolean).join(' ') : ''
@@ -457,9 +589,23 @@ function policyTarget(
     sortDate: extra.sortDate,
     coverages: extra.coverages ?? (coverageOf(p) ? [coverageOf(p)!] : []),
     reason: extra.reason ?? null,
+    gaps: extra.gaps ?? [],
+    amount: null,
+    company: null,
     producerCodeId: p.producerCodeId,
     producerCode: p.producerCode,
   }
+}
+
+/** "granizo, cristales y robo": a list as a person says it. */
+function listOf(items: string[]): string {
+  if (items.length < 2) return items[0] ?? ''
+  return `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}`
+}
+
+/** "$ 3.200.000": pesos without cents. */
+function money(value: number): string {
+  return `$ ${Math.round(value).toLocaleString('es-AR')}`
 }
 
 /** The vehicle's coverage code as Triunfo writes it ("A", "C2 Full"), or null. */

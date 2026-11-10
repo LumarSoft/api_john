@@ -17,19 +17,47 @@ export interface CampaignPlaceholder {
 export interface CampaignSettingField {
   key: string
   label: string
-  /** number: whole days; codes: coverage codes ("A", "B1"). */
-  type: 'number' | 'codes'
+  /**
+   * number: a whole number (days, pesos); codes: coverage codes ("A", "B1");
+   * days: a list of whole days, longest first, that may be empty; options: some
+   * of `options`, at least one.
+   */
+  type: 'number' | 'codes' | 'days' | 'options'
   min?: number
   max?: number
+  options?: Array<{ value: string; label: string }>
   help: string
 }
 
-export type CampaignSettings = Record<string, number | string[]>
+export type CampaignSettings = Record<string, number | string[] | number[]>
 
-/** What the office can narrow a campaign's list by, besides the code or number and the search. */
-export type CampaignFilter = 'coverage' | 'reason'
+/**
+ * What the office can narrow a campaign's list by, besides the code or number
+ * and the search. `gap` is what the client lacks: a protection (Mejora de
+ * coberturas) or a product (Venta cruzada).
+ */
+export type CampaignFilter = 'coverage' | 'reason' | 'gap'
 
-/** Why Triunfo cancelled a policy, grouped as the office reads it (Bajas y anulaciones). */
+/** What a vehicle's coverage leaves out, or its insured sum to review (Mejora de coberturas). */
+export const COVERAGE_GAPS = ['robo', 'granizo', 'cristales', 'suma'] as const
+export type CoverageGap = (typeof COVERAGE_GAPS)[number]
+
+/** The products Venta cruzada offers to who does not have them. */
+export const CROSS_SELL_PRODUCTS = ['home', 'life', 'vehicle', 'commercial'] as const
+export type CrossSellProduct = (typeof CROSS_SELL_PRODUCTS)[number]
+
+export const GAP_LABELS: Record<CoverageGap | CrossSellProduct, string> = {
+  robo: 'Robo',
+  granizo: 'Granizo',
+  cristales: 'Cristales',
+  suma: 'Suma asegurada a revisar',
+  home: 'Hogar',
+  life: 'Vida y accidentes personales',
+  vehicle: 'Auto o moto',
+  commercial: 'Comercio',
+}
+
+/** Why a policy was lost, grouped as the office reads it (Bajas y anulaciones): Triunfo's cancellation, or it ran out unrenewed. */
 export const CANCELLATION_REASONS = [
   'falta_pago',
   'venta',
@@ -38,6 +66,7 @@ export const CANCELLATION_REASONS = [
   'cambio_compania',
   'siniestro',
   'rescision',
+  'no_renovada',
   'otros',
 ] as const
 export type CancellationReason = (typeof CANCELLATION_REASONS)[number]
@@ -50,6 +79,7 @@ export const CANCELLATION_REASON_LABELS: Record<CancellationReason, string> = {
   cambio_compania: 'Cambio de compañía',
   siniestro: 'Siniestro',
   rescision: 'Rescisión',
+  no_renovada: 'Venció y no se renovó',
   otros: 'Otros motivos',
 }
 
@@ -94,7 +124,8 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
     dbKind: SalesCampaignKind.COVERAGE_UPGRADE,
     feature: 'campaign_coverage_upgrade',
     label: 'Mejora de coberturas',
-    description: 'Autos y motos vigentes con una cobertura básica, para ofrecerles una más completa.',
+    description:
+      'Autos y motos vigentes con una cobertura básica o una suma asegurada baja, para ofrecerles una protección más completa.',
     templateSlug: 'campana_mejora_cobertura',
     placeholders: [NOMBRE, BIEN, PORCENTAJE],
     defaultBody:
@@ -104,19 +135,28 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         key: 'basicCoverages',
         label: 'Coberturas que cuentan como básicas',
         type: 'codes',
-        help: 'Códigos de cobertura separados por coma (por ejemplo A, B, B1).',
+        help: 'Códigos de cobertura separados por coma (por ejemplo A, B, B1). Sumá C y C1 para ofrecer granizo y cristales a quien no los tiene.',
+      },
+      {
+        key: 'reviewSumBelow',
+        label: 'Revisar sumas aseguradas menores a ($)',
+        type: 'number',
+        min: 0,
+        max: 999_999_999,
+        help: 'También aparecen los vehículos asegurados por menos de este importe, tengan la cobertura que tengan. 0 = no revisar sumas.',
       },
       COOLDOWN,
     ],
-    defaultSettings: { basicCoverages: ['A', 'B', 'B1'], cooldownDays: 90 },
-    filters: ['coverage'],
+    defaultSettings: { basicCoverages: ['A', 'B', 'B1'], reviewSumBelow: 0, cooldownDays: 90 },
+    filters: ['coverage', 'gap'],
   },
   quote_followup: {
     kind: 'quote_followup',
     dbKind: SalesCampaignKind.QUOTE_FOLLOWUP,
     feature: 'campaign_quote_followup',
     label: 'Cotizaciones sin cerrar',
-    description: 'Personas que cotizaron con el bot y no siguieron con la contratación.',
+    description:
+      'Personas que cotizaron con el bot, o pidieron contratar desde la web o el bot, y no terminaron con una póliza.',
     templateSlug: 'campana_cotizacion_sin_cerrar',
     placeholders: [NOMBRE, BIEN, PORCENTAJE],
     defaultBody:
@@ -138,9 +178,17 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         max: 180,
         help: 'Después de estos días la cotización ya no aparece.',
       },
+      {
+        key: 'secondContactDays',
+        label: 'Segundo contacto si no responde (días)',
+        type: 'number',
+        min: 0,
+        max: 60,
+        help: 'A quien no respondió el primer mensaje se lo vuelve a ofrecer una sola vez, pasados estos días. 0 = sin segundo contacto.',
+      },
       COOLDOWN,
     ],
-    defaultSettings: { afterDays: 2, withinDays: 30, cooldownDays: 30 },
+    defaultSettings: { afterDays: 2, withinDays: 30, secondContactDays: 5, cooldownDays: 30 },
     filters: [],
   },
   renewal: {
@@ -162,9 +210,17 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
         max: 90,
         help: 'Aparecen las pólizas que vencen dentro de estos días.',
       },
+      {
+        key: 'reminderDays',
+        label: 'Recordar de nuevo cuando falten (días)',
+        type: 'days',
+        min: 1,
+        max: 89,
+        help: 'A quien no respondió se lo vuelve a ofrecer cuando falten estos días para el vencimiento (por ejemplo 15, 7). Vacío = un solo aviso.',
+      },
       COOLDOWN,
     ],
-    defaultSettings: { daysBefore: 30, cooldownDays: 60 },
+    defaultSettings: { daysBefore: 30, reminderDays: [15, 7], cooldownDays: 60 },
     filters: [],
   },
   winback: {
@@ -172,7 +228,8 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
     dbKind: SalesCampaignKind.WINBACK,
     feature: 'campaign_winback',
     label: 'Bajas y anulaciones',
-    description: 'Pólizas anuladas o dadas de baja de clientes que no tienen otra vigente por el mismo bien.',
+    description:
+      'Pólizas anuladas, dadas de baja o vencidas sin renovar de clientes que no tienen otra vigente por el mismo bien.',
     templateSlug: 'campana_recuperacion',
     placeholders: [NOMBRE, BIEN, PORCENTAJE],
     defaultBody:
@@ -180,11 +237,11 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
     settingFields: [
       {
         key: 'withinDays',
-        label: 'Anuladas en los últimos (días)',
+        label: 'Anuladas o vencidas en los últimos (días)',
         type: 'number',
         min: 7,
         max: 365,
-        help: 'Aparecen las pólizas anuladas dentro de estos días.',
+        help: 'Aparecen las pólizas anuladas, o vencidas sin renovar, dentro de estos días.',
       },
       COOLDOWN,
     ],
@@ -196,14 +253,23 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
     dbKind: SalesCampaignKind.CROSS_SELL,
     feature: 'campaign_cross_sell',
     label: 'Venta cruzada',
-    description: 'Clientes con el seguro de un auto o una moto vigente y sin seguro de hogar.',
+    description: 'Clientes con un seguro vigente a los que les falta otro de los productos que ofrecés.',
     templateSlug: 'campana_venta_cruzada',
     placeholders: [NOMBRE, PORCENTAJE],
     defaultBody:
       '¡Hola, {nombre}! Además de tu seguro actual, tenemos alternativas para proteger otras cosas importantes, como tu hogar o tu familia. Por ser cliente, podemos prepararte una cotización y consultar si corresponde un beneficio del {porcentaje}%. ¿Te gustaría conocer las opciones?',
-    settingFields: [COOLDOWN],
-    defaultSettings: { cooldownDays: 120 },
-    filters: ['coverage'],
+    settingFields: [
+      {
+        key: 'offer',
+        label: 'Productos para ofrecer',
+        type: 'options',
+        options: CROSS_SELL_PRODUCTS.map(value => ({ value, label: GAP_LABELS[value] })),
+        help: 'Aparecen los clientes con un seguro vigente a los que les falta alguno de estos productos.',
+      },
+      COOLDOWN,
+    ],
+    defaultSettings: { offer: ['home', 'life', 'vehicle'], cooldownDays: 120 },
+    filters: ['coverage', 'gap'],
   },
 }
 
@@ -285,6 +351,11 @@ export function settingsOf(definition: CampaignDefinition, stored: unknown): Cam
     const value = map[field.key]
     if (field.type === 'number' && typeof value === 'number') result[field.key] = value
     if (field.type === 'codes' && Array.isArray(value)) result[field.key] = value.filter(v => typeof v === 'string')
+    if (field.type === 'days' && Array.isArray(value)) result[field.key] = value.filter(v => typeof v === 'number')
+    if (field.type === 'options' && Array.isArray(value)) {
+      const known = value.filter(v => field.options?.some(o => o.value === v))
+      if (known.length) result[field.key] = known as string[]
+    }
   }
   return result
 }
@@ -307,6 +378,23 @@ export function withSettings(
         throw new BadRequestException(`${field.label}: tiene que estar entre ${field.min} y ${field.max}.`)
       }
       result[key] = value
+    } else if (field.type === 'days') {
+      const days = Array.isArray(value) ? value : []
+      if (days.length > 5 || days.some(d => typeof d !== 'number' || !Number.isInteger(d))) {
+        throw new BadRequestException(`${field.label}: escribí hasta 5 números enteros de días, separados por coma.`)
+      }
+      const clean = [...new Set(days as number[])].sort((a, b) => b - a)
+      if (clean.some(d => (field.min !== undefined && d < field.min) || (field.max !== undefined && d > field.max))) {
+        throw new BadRequestException(`${field.label}: cada uno tiene que estar entre ${field.min} y ${field.max}.`)
+      }
+      result[key] = clean
+    } else if (field.type === 'options') {
+      const picked = Array.isArray(value) ? value : []
+      const clean = (field.options ?? []).map(o => o.value).filter(v => picked.includes(v))
+      if (!clean.length || clean.length !== new Set(picked).size) {
+        throw new BadRequestException(`${field.label}: elegí al menos una de las opciones.`)
+      }
+      result[key] = clean
     } else {
       const codes = Array.isArray(value) ? value : []
       const clean = [...new Set(codes.map(c => (typeof c === 'string' ? c.trim().toUpperCase() : '')))].filter(Boolean)
@@ -334,5 +422,10 @@ export function numberSetting(settings: CampaignSettings, key: string): number {
 
 export function codesSetting(settings: CampaignSettings, key: string): string[] {
   const value = settings[key]
-  return Array.isArray(value) ? value : []
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+}
+
+export function daysSetting(settings: CampaignSettings, key: string): number[] {
+  const value = settings[key]
+  return Array.isArray(value) ? value.filter((v): v is number => typeof v === 'number') : []
 }

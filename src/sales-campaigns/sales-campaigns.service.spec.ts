@@ -10,6 +10,7 @@ import type { CampaignTemplatesService } from './campaign-templates.service'
 import { CampaignTemplatesService as RealTemplates } from './campaign-templates.service'
 import { SalesCampaignsService } from './sales-campaigns.service'
 import type { SalesOpportunitiesService } from './sales-opportunities.service'
+import type { TasksService } from '../tasks/tasks.service'
 
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
 const NOW = new Date('2026-11-04T15:00:00Z')
@@ -37,6 +38,9 @@ function target(overrides: Partial<CampaignTarget> = {}): CampaignTarget {
     sortDate: new Date('2026-11-20T12:00:00Z'),
     coverages: ['B1'],
     reason: null,
+    gaps: [],
+    amount: null,
+    company: null,
     producerCodeId: 3,
     producerCode: { id: 3, code: '11425' },
     ...overrides,
@@ -86,7 +90,11 @@ function setup({ row = {}, targets = [target()], messages = [] as unknown[], opt
         discountPercent: 20,
       }),
     },
-    salesCampaignOptOut: { findMany: jest.fn().mockResolvedValue(optOuts), upsert: jest.fn() },
+    salesCampaignOptOut: {
+      findMany: jest.fn().mockResolvedValue(optOuts),
+      upsert: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   }
   const finder = { find: jest.fn().mockResolvedValue(targets) }
   const templates = {
@@ -122,7 +130,9 @@ function setup({ row = {}, targets = [target()], messages = [] as unknown[], opt
     assign: jest.fn().mockResolvedValue({ assigned: 1 }),
     update: jest.fn(),
     results: jest.fn(),
+    track: jest.fn().mockResolvedValue(0),
   }
+  const tasks = { create: jest.fn().mockResolvedValue({ id: 70 }) }
   const service = new SalesCampaignsService(
     prisma as unknown as PrismaService,
     finder as unknown as CampaignFinderService,
@@ -131,8 +141,9 @@ function setup({ row = {}, targets = [target()], messages = [] as unknown[], opt
     delivery as unknown as NoticeDeliveryService,
     botNotifier as unknown as BotNotifierService,
     opportunities as unknown as SalesOpportunitiesService,
+    tasks as unknown as TasksService,
   )
-  return { service, prisma, finder, templates, planFeatures, delivery, botNotifier, opportunities }
+  return { service, prisma, finder, templates, planFeatures, delivery, botNotifier, opportunities, tasks }
 }
 
 const flush = () => new Promise(resolve => setTimeout(resolve, 0))
@@ -199,6 +210,35 @@ describe('SalesCampaignsService.send', () => {
         { id: 3, reason: 'NO_PHONE' },
       ],
     })
+    expect(prisma.salesCampaignMessage.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes again inside the cooldown when the follow-up is due, but not to who already answered', async () => {
+    const first = (clientId: number) => ({
+      status: 'SENT',
+      sentAt: new Date('2026-10-25T15:00:00Z'),
+      createdAt: new Date('2026-10-25T15:00:00Z'),
+      clientId,
+      waId: null,
+      policyId: clientId,
+      quoteId: null,
+      error: null,
+    })
+    const ends = new Date('2026-11-14T15:00:00Z')
+    const { service, prisma, opportunities } = setup({
+      targets: [
+        target({ id: 61, clientId: 61, date: ends, phone: '341159990061' }),
+        target({ id: 62, clientId: 62, date: ends, phone: '341159990062' }),
+      ],
+      messages: [first(61), first(62)],
+    })
+    opportunities.forCampaign.mockResolvedValue(new Map([['policy:62', { status: 'REPLIED' }]]))
+
+    const result = await service.send(mili, 'renewal', scopeOf([3]), [61, 62], NOW)
+
+    // The chats are read first: a reply of ten minutes ago must stop the reminder.
+    expect(opportunities.track).toHaveBeenCalledWith(7, NOW)
+    expect(result).toEqual({ sent: 1, skipped: [{ id: 62, reason: 'ALREADY_SENT' }] })
     expect(prisma.salesCampaignMessage.create).toHaveBeenCalledTimes(1)
   })
 
@@ -397,8 +437,63 @@ describe('SalesCampaignsService.candidates', () => {
         { value: 'B1', count: 1 },
         { value: 'C2 Full', count: 1 },
       ],
+      gaps: [],
       reasons: null,
     })
+  })
+
+  it('narrows by what the client lacks and says how many lack each thing', async () => {
+    const targets = [
+      target({ id: 1, gaps: ['home', 'life'] }),
+      target({ id: 2, gaps: ['life'] }),
+      target({ id: 3, gaps: ['vehicle'] }),
+    ]
+    const { service } = setup({ targets })
+
+    const result = await service.candidates(mili, 'cross_sell', scopeOf([3]), { gap: 'life' }, NOW)
+
+    expect(result.data.map(r => r.id).sort()).toEqual([1, 2])
+    expect(result.data[0].gaps).toContainEqual({ value: 'life', label: 'Vida y accidentes personales' })
+    expect(result.filters.gaps).toEqual([
+      { value: 'home', label: 'Hogar', count: 1 },
+      { value: 'life', label: 'Vida y accidentes personales', count: 2 },
+      { value: 'vehicle', label: 'Auto o moto', count: 1 },
+    ])
+  })
+
+  it('puts a renewal back on the to-do when its next reminder is due, and says who took themselves off', async () => {
+    const sent = (clientId: number, at: string) => ({
+      status: 'SENT',
+      sentAt: new Date(at),
+      createdAt: new Date(at),
+      clientId,
+      waId: null,
+      policyId: clientId,
+      quoteId: null,
+      error: null,
+    })
+    const { service } = setup({
+      targets: [
+        // Ends in 10 days: the 15-day reminder is due (written to 20 days before the end).
+        target({ id: 61, clientId: 61, date: new Date('2026-11-14T15:00:00Z'), phone: '341159990061' }),
+        // Ends in 20 days and written to 5 days ago: nothing to do until 15 days are left.
+        target({ id: 62, clientId: 62, date: new Date('2026-11-24T15:00:00Z'), phone: '341159990062' }),
+        target({ id: 63, clientId: 63, phone: '341159990002' }),
+      ],
+      messages: [sent(61, '2026-10-25T15:00:00Z'), sent(62, '2026-10-30T15:00:00Z')],
+      optOuts: [{ waId: '5493419990002', createdById: null }],
+    })
+
+    const all = await service.candidates(mili, 'renewal', scopeOf([3]), {}, NOW)
+    const byId = new Map(all.data.map(r => [r.id, r]))
+    expect(byId.get(61)?.followUp).toEqual({ step: 2, of: 3, due: true, label: 'Recordatorio: faltan 10 días' })
+    expect(byId.get(62)?.followUp).toBeNull()
+    expect(byId.get(63)).toEqual(expect.objectContaining({ optedOut: true, optedOutBy: 'client' }))
+    // The due reminder goes first: it is the only thing to do now.
+    expect(all.data[0].id).toBe(61)
+
+    const due = await service.candidates(mili, 'renewal', scopeOf([3]), { due: 'true' }, NOW)
+    expect(due.data.map(r => r.id)).toEqual([61])
   })
 
   it('narrows the winback list by why the policy was cancelled', async () => {
@@ -413,10 +508,57 @@ describe('SalesCampaignsService.candidates', () => {
     expect(result.data.map(r => r.id)).toEqual([2])
     expect(result.filters).toEqual({
       coverages: null,
+      gaps: null,
       reasons: [
         { value: 'falta_pago', label: 'Falta de pago', count: 2 },
         { value: 'venta', label: 'Venta del bien', count: 1 },
       ],
     })
+  })
+})
+
+describe('SalesCampaignsService.createTasks', () => {
+  it('creates one task per client for the person, with who to call, and gives them the opportunities', async () => {
+    const targets = [target({ id: 1 }), target({ id: 2, name: 'Ana Gomez', phone: null, waId: '5493419990009' })]
+    const { service, tasks, opportunities } = setup({ targets })
+
+    const result = await service.createTasks(
+      mili,
+      'renewal',
+      scopeOf([3]),
+      { ids: [1, 2], assignedToId: 9, dueDate: '2026-11-12', note: 'Revisar precio y cobertura' },
+      NOW,
+    )
+
+    expect(result).toEqual({ created: 2 })
+    expect(tasks.create).toHaveBeenCalledWith(
+      { id: 2, producerId: 7, role: Role.ADMIN },
+      {
+        title: 'Renovaciones: Juan Perez',
+        description: 'Ford Ka 2015 · AB123CD\nVence el 20/11/2026\nRevisar precio y cobertura',
+        assignedToUserId: 9,
+        dueDate: '2026-11-12',
+        contactName: 'Juan Perez',
+        contactPhone: '341159990001',
+      },
+    )
+    expect(tasks.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ title: 'Renovaciones: Ana Gomez', contactPhone: '+5493419990009' }),
+    )
+    expect(opportunities.assign).toHaveBeenCalledWith(mili, 5, expect.anything(), targets, 9, NOW)
+  })
+})
+
+describe('SalesCampaignsService.optIn', () => {
+  it('takes the ticked people off the do-not-write list by every reading of their phone', async () => {
+    const { service, prisma } = setup({ targets: [target({ phone: '341159990002' })] })
+
+    await expect(service.optIn(mili, 'renewal', scopeOf([3]), [100], NOW)).resolves.toEqual({ restored: 1 })
+
+    const { where, data } = prisma.salesCampaignOptOut.updateMany.mock.calls[0][0]
+    expect(where).toEqual(expect.objectContaining({ producerId: 7, deletedAt: null }))
+    expect(where.waId.in).toContain('5493419990002')
+    expect(data).toEqual({ deletedAt: NOW })
   })
 })

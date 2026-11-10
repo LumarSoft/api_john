@@ -9,7 +9,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
-import { Prisma, SalesCampaignMessageStatus } from 'generated/prisma/client'
+import { Prisma, SalesCampaignMessageStatus, SalesOpportunityStatus } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeUser } from '../common/scope/scope.service'
 import { whatsAppIds } from '../common/phone-match'
@@ -18,14 +18,17 @@ import { describeFailure, pickSender, pickWhatsApp, SEND_GAP_MS, Sender, sleep }
 import { NoticeDeliveryService } from '../notices/notice-delivery.service'
 import { FEATURE_NOT_FOR_ROLE, FEATURE_NOT_IN_PLAN } from '../plan-features/plan-features'
 import { PlanFeaturesService } from '../plan-features/plan-features.service'
+import { TasksService } from '../tasks/tasks.service'
 import {
   CAMPAIGNS,
   CANCELLATION_REASON_LABELS,
   CANCELLATION_REASONS,
   CampaignDefinition,
+  CampaignSettings,
   campaignOf,
   campaignOfDbKind,
   exampleValues,
+  GAP_LABELS,
   numberSetting,
   renderBody,
   settingsOf,
@@ -34,9 +37,11 @@ import {
   withSettings,
 } from './campaign-catalog'
 import { CampaignFinderService, CampaignScope, CampaignTarget, formatDay } from './campaign-finder.service'
-import { opportunityView, SalesOpportunitiesService, targetKeyOf } from './sales-opportunities.service'
+import { followUpOf, FollowUp } from './campaign-follow-up'
+import { OpportunityRow, opportunityView, SalesOpportunitiesService, targetKeyOf } from './sales-opportunities.service'
 import type { AssignOpportunitiesDto } from './dto/assign-opportunities.dto'
 import type { CampaignResultsDto } from './dto/campaign-results.dto'
+import type { CreateCampaignTasksDto } from './dto/create-campaign-tasks.dto'
 import type { UpdateOpportunityDto } from './dto/update-opportunity.dto'
 import { CampaignTemplatesService, StoredTemplates } from './campaign-templates.service'
 import { CampaignSortField, ListCampaignCandidatesDto, SortOrder } from './dto/list-campaign-candidates.dto'
@@ -91,6 +96,7 @@ export class SalesCampaignsService implements OnModuleInit {
     private readonly delivery: NoticeDeliveryService,
     private readonly botNotifier: BotNotifierService,
     private readonly opportunities: SalesOpportunitiesService,
+    private readonly tasks: TasksService,
   ) {}
 
   /** A restart in the middle of a send leaves messages in SENDING forever. */
@@ -241,7 +247,7 @@ export class SalesCampaignsService implements OnModuleInit {
     const [messages, optedOut, opportunities, customerReasons] = await Promise.all([
       row ? this.recentMessages(row.id, now) : Promise.resolve([]),
       this.optedOutWaIds(user.producerId),
-      row ? this.opportunities.forCampaign(row.id) : Promise.resolve(new Map()),
+      row ? this.opportunities.forCampaign(row.id) : Promise.resolve(new Map<string, OpportunityRow>()),
       // Bajas y anulaciones: what the client told the bot when asking to cancel.
       definition.kind === 'winback'
         ? this.opportunities.customerReasons(
@@ -258,6 +264,7 @@ export class SalesCampaignsService implements OnModuleInit {
       .filter(t => !search || [t.name, t.dni, t.item, t.detail].some(v => v?.toLowerCase().includes(search)))
       .filter(t => !coverage || t.coverages.some(c => c.toUpperCase() === coverage))
       .filter(t => !query.reason || t.reason === query.reason)
+      .filter(t => !query.gap || t.gaps.includes(query.gap))
       .filter(t => {
         if (!query.status) return true
         const status = opportunityOf(t)?.status ?? 'NEW'
@@ -267,6 +274,8 @@ export class SalesCampaignsService implements OnModuleInit {
       .map(t => {
         const last = this.lastMessageFor(t, definition, messages)
         const opportunity = opportunityOf(t)
+        const followUp = this.followUpFor(definition, settings, t, messages, opportunity?.status ?? null, now)
+        const optOut = this.optOutOf(t, optedOut)
         const row = {
           id: t.id,
           client: { id: t.clientId, name: t.name, dni: t.dni, phone: t.phone ?? (t.waId ? `+${t.waId}` : null) },
@@ -284,24 +293,36 @@ export class SalesCampaignsService implements OnModuleInit {
                 error: last.error,
               }
             : null,
-          optedOut: this.isOptedOut(t, optedOut),
+          optedOut: optOut !== null,
+          // Who said so: the client in the chat (the tracker read it) or the office by hand.
+          optedOutBy: optOut,
+          // The next contact of a campaign that writes more than once, and whether it is due now.
+          followUp,
+          // What the client lacks (a protection, a product) and, for a quote, its price and company.
+          gaps: t.gaps.map(value => ({ value, label: GAP_LABELS[value as keyof typeof GAP_LABELS] ?? value })),
+          amount: t.amount,
+          company: t.company,
           // Who follows it and where it stands; null until somebody contacts or assigns it.
           opportunity: opportunity ? opportunityView(opportunity) : null,
           // Bajas y anulaciones: the reason the client gave the bot, besides Triunfo's.
           customerReason: t.clientId != null ? (customerReasons.get(t.clientId) ?? null) : null,
         }
         const lastAt = last ? (last.sentAt ?? last.createdAt).getTime() : null
-        return { row, sortDate: t.sortDate?.getTime() ?? 0, lastAt }
+        // Nothing to do with them now: written to (and no follow-up due) or they said no.
+        const done = optOut !== null || (last !== undefined && !followUp?.due)
+        return { row, sortDate: t.sortDate?.getTime() ?? 0, lastAt, done }
       })
+      // "Para escribir ahora": never contacted, or with a follow-up due.
+      .filter(l => query.due !== 'true' || !l.done)
 
     // Who was already written to (or said no) goes after the rest, so the list
-    // works as a to-do, unless the office sorts by the last message itself.
+    // works as a to-do, unless the office sorts by the last message itself. A
+    // follow-up that is due counts as still to do.
     const sort = this.sortOf(definition, query)
     const sign = sort.order === 'asc' ? 1 : -1
     listed.sort((a, b) => {
       if (sort.by !== 'lastMessage') {
-        const contacted =
-          Number(a.row.lastMessage !== null || a.row.optedOut) - Number(b.row.lastMessage !== null || b.row.optedOut)
+        const contacted = Number(a.done) - Number(b.done)
         if (contacted) return contacted
       }
       return sign * compareBy(sort.by, a, b) || b.row.id - a.row.id
@@ -357,6 +378,11 @@ export class SalesCampaignsService implements OnModuleInit {
       coverages: definition.filters.includes('coverage')
         ? [...coverages.values()].sort((a, b) => a.value.localeCompare(b.value, 'es', { numeric: true }))
         : null,
+      gaps: definition.filters.includes('gap')
+        ? Object.entries(GAP_LABELS)
+            .map(([value, label]) => ({ value, label, count: targets.filter(t => t.gaps.includes(value)).length }))
+            .filter(option => option.count > 0)
+        : null,
       reasons: definition.filters.includes('reason')
         ? CANCELLATION_REASONS.map(value => ({
             value,
@@ -372,7 +398,9 @@ export class SalesCampaignsService implements OnModuleInit {
   /**
    * Writes to the ticked clients one by one in the background (the panel polls
    * the list while any is SENDING). Someone without WhatsApp, written to within
-   * the cooldown, still going out or who asked not to get these is left out.
+   * the cooldown (unless their follow-up is due: the second contact of a quote,
+   * the next reminder of a renewal), still going out or who asked not to get
+   * these is left out.
    */
   async send(user: ScopeUser, kind: string, scope: CampaignScope, ids: number[], now = new Date()) {
     const definition = campaignOf(kind)
@@ -396,9 +424,14 @@ export class SalesCampaignsService implements OnModuleInit {
 
     const settings = settingsOf(definition, row.settings)
     const targets = await this.finder.find(definition, settings, user.producerId, scope, now, ids)
-    const [messages, optedOut] = await Promise.all([
+    // A follow-up only goes to who has not answered: read the chats before deciding.
+    await this.opportunities
+      .track(user.producerId, now)
+      .catch(error => this.logger.warn(`Opportunity tracking before a send failed: ${(error as Error).message}`))
+    const [messages, optedOut, opportunities] = await Promise.all([
       this.recentMessages(row.id, now),
       this.optedOutWaIds(user.producerId),
+      this.opportunities.forCampaign(row.id),
     ])
     const known = await this.delivery.knownWaIds(
       user.producerId,
@@ -412,12 +445,14 @@ export class SalesCampaignsService implements OnModuleInit {
     for (const target of targets) {
       const last = this.lastMessageFor(target, definition, messages)
       const waId = target.waId ?? pickWhatsApp([target.phone], known)?.waId ?? null
+      const status = opportunities.get(targetKeyOf(definition, target.id))?.status ?? null
+      const followUpDue = this.followUpFor(definition, settings, target, messages, status, now)?.due === true
       const reason: CampaignSkip | null =
         last?.status === SENDING
           ? CAMPAIGN_SKIP.SENDING
-          : last && (last.status === SENT || last.status === MARKED) && last.createdAt >= cooldownFrom
+          : last && (last.status === SENT || last.status === MARKED) && last.createdAt >= cooldownFrom && !followUpDue
             ? CAMPAIGN_SKIP.ALREADY_SENT
-            : this.isOptedOut(target, optedOut)
+            : this.optOutOf(target, optedOut) !== null
               ? CAMPAIGN_SKIP.OPTED_OUT
               : !waId
                 ? CAMPAIGN_SKIP.NO_PHONE
@@ -566,6 +601,70 @@ export class SalesCampaignsService implements OnModuleInit {
       })
     }
     return { optedOut: waIds.size }
+  }
+
+  /** "Volver a escribirle": takes these people off the do-not-write list (a mistake, or they changed their mind). */
+  async optIn(user: ScopeUser, kind: string, scope: CampaignScope, ids: number[], now = new Date()) {
+    const definition = campaignOf(kind)
+    await this.planFeatures.assertRole(user, definition.feature)
+    const row = await this.findRow(user.producerId, definition)
+    const targets = await this.finder.find(
+      definition,
+      settingsOf(definition, row?.settings),
+      user.producerId,
+      scope,
+      now,
+      ids,
+    )
+    const waIds = new Set<string>()
+    for (const t of targets) {
+      if (t.waId) waIds.add(t.waId)
+      else whatsAppIds(t.phone).forEach(id => waIds.add(id))
+    }
+    const { count } = await this.prisma.salesCampaignOptOut.updateMany({
+      where: { producerId: user.producerId, waId: { in: [...waIds] }, deletedAt: null },
+      data: { deletedAt: now },
+    })
+    return { restored: count }
+  }
+
+  /**
+   * "Crear tarea": one task per ticked client for someone of the office (review
+   * the price, the coverage and the alternatives before the renewal, call who
+   * cancelled…), who also gets the client's opportunity.
+   */
+  async createTasks(
+    user: ScopeUser,
+    kind: string,
+    scope: CampaignScope,
+    dto: CreateCampaignTasksDto,
+    now = new Date(),
+  ) {
+    const definition = campaignOf(kind)
+    await this.planFeatures.assertRole(user, definition.feature)
+    const row = await this.ensureRow(user, definition)
+    const targets = await this.finder.find(
+      definition,
+      settingsOf(definition, row.settings),
+      user.producerId,
+      scope,
+      now,
+      dto.ids,
+    )
+    if (!targets.length) throw new NotFoundException('Esos clientes ya no están en la campaña.')
+    const actor = { id: user.id, producerId: user.producerId, role: user.role }
+    for (const target of targets) {
+      await this.tasks.create(actor, {
+        title: `${definition.label}: ${target.name}`.slice(0, 200),
+        description: [target.item, target.detail, dto.note?.trim()].filter(Boolean).join('\n'),
+        assignedToUserId: dto.assignedToId,
+        dueDate: dto.dueDate ?? null,
+        contactName: target.name.slice(0, 120),
+        contactPhone: (target.phone ?? (target.waId ? `+${target.waId}` : undefined))?.slice(0, 40),
+      })
+    }
+    await this.opportunities.assign(user, row.id, definition, targets, dto.assignedToId, now)
+    return { created: targets.length }
   }
 
   private async deliverAll(
@@ -762,27 +861,56 @@ export class SalesCampaignsService implements OnModuleInit {
     })
   }
 
-  /** The person's latest message of the campaign: by client (any of their policies) or by WhatsApp. */
-  private lastMessageFor(target: CampaignTarget, definition: CampaignDefinition, messages: MessageSummary[]) {
-    return messages.find(m =>
+  /** The person's messages of the campaign, newest first: by client (any of their policies) or by WhatsApp. */
+  private messagesFor(target: CampaignTarget, definition: CampaignDefinition, messages: MessageSummary[]) {
+    return messages.filter(m =>
       definition.kind === 'quote_followup'
         ? m.quoteId === target.id || (target.waId != null && m.waId === target.waId)
         : m.policyId === target.id || (target.clientId != null && m.clientId === target.clientId),
     )
   }
 
-  private async optedOutWaIds(producerId: number): Promise<Set<string>> {
-    const rows = await this.prisma.salesCampaignOptOut.findMany({
-      where: { producerId, deletedAt: null },
-      select: { waId: true },
-    })
-    return new Set(rows.map(r => r.waId))
+  private lastMessageFor(target: CampaignTarget, definition: CampaignDefinition, messages: MessageSummary[]) {
+    return this.messagesFor(target, definition, messages)[0]
   }
 
-  private isOptedOut(target: CampaignTarget, optedOut: Set<string>): boolean {
-    if (!optedOut.size) return false
-    if (target.waId) return optedOut.has(target.waId)
-    return whatsAppIds(target.phone).some(id => optedOut.has(id))
+  /** The client's next contact in a campaign that writes more than once (campaign-follow-up.ts). */
+  private followUpFor(
+    definition: CampaignDefinition,
+    settings: CampaignSettings,
+    target: CampaignTarget,
+    messages: MessageSummary[],
+    status: SalesOpportunityStatus | null,
+    now: Date,
+  ): FollowUp | null {
+    const contacts = this.messagesFor(target, definition, messages)
+      .filter(m => m.status === SENT || m.status === MARKED)
+      .map(m => m.sentAt ?? m.createdAt)
+    return followUpOf(
+      definition,
+      settings,
+      { contacts, status, endsAt: definition.kind === 'renewal' ? target.date : null },
+      now,
+    )
+  }
+
+  /** Who asked not to get campaign messages, by WhatsApp id: the client in the chat, or the office for them. */
+  private async optedOutWaIds(producerId: number): Promise<Map<string, 'client' | 'office'>> {
+    const rows = await this.prisma.salesCampaignOptOut.findMany({
+      where: { producerId, deletedAt: null },
+      select: { waId: true, createdById: true },
+    })
+    return new Map(rows.map(r => [r.waId, r.createdById == null ? 'client' : 'office']))
+  }
+
+  private optOutOf(target: CampaignTarget, optedOut: Map<string, 'client' | 'office'>): 'client' | 'office' | null {
+    if (!optedOut.size) return null
+    const ids = target.waId ? [target.waId] : whatsAppIds(target.phone)
+    for (const id of ids) {
+      const by = optedOut.get(id)
+      if (by) return by
+    }
+    return null
   }
 
   /** Campaigns waiting for Meta, refreshed in the background when the panel opens. */
@@ -817,6 +945,8 @@ function metaSafe(value: string): string {
 interface SortableRow {
   row: { client: { name: string }; item: string }
   sortDate: number
+  /** Nothing to do with them now (written to without a follow-up due, or opted out). */
+  done: boolean
   /** When the campaign last wrote to them; null = never. */
   lastAt: number | null
 }

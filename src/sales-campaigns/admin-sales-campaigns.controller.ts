@@ -9,6 +9,7 @@ import { AssignOpportunitiesDto } from './dto/assign-opportunities.dto'
 import { CampaignIdsDto } from './dto/campaign-ids.dto'
 import { CampaignKindParamDto } from './dto/campaign-kind-param.dto'
 import { CampaignResultsDto } from './dto/campaign-results.dto'
+import { CreateCampaignTasksDto } from './dto/create-campaign-tasks.dto'
 import { ListCampaignCandidatesDto } from './dto/list-campaign-candidates.dto'
 import { OpportunityTargetParamDto } from './dto/opportunity-target-param.dto'
 import { UpdateOpportunityDto } from './dto/update-opportunity.dto'
@@ -127,5 +128,25 @@ export class AdminSalesCampaignsController {
   ) {
     const scope = await this.scopeOf(req)
     return this.campaigns.optOut(req.user, params.kind, scope, body.ids)
+  }
+
+  @Post(':kind/opt-in')
+  async optIn(
+    @Param() params: CampaignKindParamDto,
+    @Body() body: CampaignIdsDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const scope = await this.scopeOf(req)
+    return this.campaigns.optIn(req.user, params.kind, scope, body.ids)
+  }
+
+  @Post(':kind/tasks')
+  async createTasks(
+    @Param() params: CampaignKindParamDto,
+    @Body() body: CreateCampaignTasksDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const scope = await this.scopeOf(req)
+    return this.campaigns.createTasks(req.user, params.kind, scope, body)
   }
 }

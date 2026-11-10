@@ -3,8 +3,18 @@ import { Cron, CronExpression } from '@nestjs/schedule'
 import { Prisma, Role, SalesOpportunityLostReason, SalesOpportunityStatus } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeUser } from '../common/scope/scope.service'
-import { CAMPAIGNS, CampaignDefinition, CampaignSettings, campaignOfDbKind, settingsOf } from './campaign-catalog'
-import { CampaignFinderService, CampaignScope, CampaignTarget } from './campaign-finder.service'
+import { notCancelledPolizaWhere } from '../common/poliza-vigencia'
+import {
+  CAMPAIGNS,
+  CampaignDefinition,
+  CampaignSettings,
+  campaignOfDbKind,
+  codesSetting,
+  CrossSellProduct,
+  settingsOf,
+} from './campaign-catalog'
+import { CampaignFinderService, CampaignScope, CampaignTarget, PRODUCT_RISKS } from './campaign-finder.service'
+import { isOptOutRequest } from './campaign-follow-up'
 import type { CampaignResultsDto } from './dto/campaign-results.dto'
 import type { UpdateOpportunityDto } from './dto/update-opportunity.dto'
 
@@ -20,6 +30,9 @@ const TRACK_BATCH = 500
 /** The renewal is the policy that starts within this many days of the old one's end. */
 const RENEWAL_WINDOW_DAYS = 45
 const DEFAULT_RESULTS_DAYS = 90
+/** A "no me escriban más" is read in the customer's first messages after the contact, for this long. */
+const OPT_OUT_WINDOW_DAYS = 14
+const OPT_OUT_MESSAGES = 10
 
 export const LOST_REASON_LABELS: Record<SalesOpportunityLostReason, string> = {
   PRICE: 'Precio',
@@ -386,8 +399,10 @@ export class SalesOpportunitiesService {
    * Looks, for every open opportunity, at what happened since the contact: a
    * reply of the customer in the chat the message went to, a quote asked
    * there, and a new policy of the client in the cartera that answers the
-   * campaign (the renewal, a better coverage, a home policy, a policy for the
-   * cancelled bien). Every 10 minutes, and before the results when stale.
+   * campaign (the renewal, a better coverage, a product they lacked, a policy
+   * for the cancelled bien). A reply asking not to be written to again puts
+   * the person on the do-not-write list and closes the opportunity. Every 10
+   * minutes, and before the results and the sends.
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
   async trackAll(): Promise<void> {
@@ -465,6 +480,22 @@ export class SalesOpportunitiesService {
     const higher = (next: SalesOpportunityStatus) => {
       if (RANK[next] > RANK[status]) status = next
     }
+    if (conversationId != null) {
+      const optOut = await this.optOutRequest(row.producerId, conversationId, since)
+      if (optOut) {
+        await this.prisma.salesOpportunity.update({
+          where: { id: row.id },
+          data: {
+            status: LOST,
+            lostAt: optOut.at,
+            lostReason: SalesOpportunityLostReason.OTHER,
+            note: `Pidió no recibir más mensajes: «${optOut.text.slice(0, 200)}»`,
+            repliedAt: row.repliedAt ?? optOut.at,
+          },
+        })
+        return true
+      }
+    }
     if (conversationId != null && !row.repliedAt) {
       const reply = await this.prisma.message.findFirst({
         where: { conversationId, role: 'user', deletedAt: null, createdAt: { gt: since } },
@@ -508,6 +539,47 @@ export class SalesOpportunitiesService {
     return status !== row.status
   }
 
+  /**
+   * The customer's "no me escriban más" after the contact, if any: their
+   * WhatsApp goes on the organization's do-not-write list (no campaign offers
+   * them again) unless the office already took them off it after that message.
+   */
+  private async optOutRequest(
+    producerId: number,
+    conversationId: number,
+    since: Date,
+  ): Promise<{ at: Date; text: string } | null> {
+    const replies = await this.prisma.message.findMany({
+      where: {
+        conversationId,
+        role: 'user',
+        deletedAt: null,
+        createdAt: { gt: since, lte: new Date(since.getTime() + OPT_OUT_WINDOW_DAYS * DAY_MS) },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: OPT_OUT_MESSAGES,
+      select: { content: true, createdAt: true },
+    })
+    const request = replies.find(r => isOptOutRequest(r.content))
+    if (!request) return null
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { waId: true },
+    })
+    if (!conversation?.waId) return null
+    const where = { producerId_waId: { producerId, waId: conversation.waId } }
+    const existing = await this.prisma.salesCampaignOptOut.findUnique({ where, select: { deletedAt: true } })
+    // "Volver a escribirle" after this message: the office read it and decided otherwise.
+    if (existing?.deletedAt && existing.deletedAt >= request.createdAt) return null
+    await this.prisma.salesCampaignOptOut.upsert({
+      where,
+      create: { producerId, waId: conversation.waId },
+      update: { deletedAt: null, createdById: null },
+    })
+    this.logger.log(`Conversation ${conversationId} asked not to get campaign messages`)
+    return { at: request.createdAt, text: request.content.replace(/\s+/g, ' ').trim() }
+  }
+
   /** The client's policy that answers the campaign, among those the cartera brought after the contact. */
   private async wonPolicy(
     definition: CampaignDefinition,
@@ -547,6 +619,27 @@ export class SalesOpportunitiesService {
         vehicle: { select: { licensePlate: true, coverage: true } },
       },
     })
+    // Venta cruzada: a product the campaign offers that the client did not have when contacted.
+    const lacked = new Set<string>()
+    if (definition.kind === 'cross_sell' && policies.length) {
+      const had = await this.prisma.policy.findMany({
+        where: {
+          producerId: row.producerId,
+          clientId,
+          deletedAt: null,
+          createdAt: { lte: since },
+          validTo: { gte: since },
+          ...notCancelledPolizaWhere(),
+        },
+        select: { riskType: true },
+      })
+      const hadRisks = new Set<string>(had.map(p => p.riskType))
+      for (const product of codesSetting(settings, 'offer') as CrossSellProduct[]) {
+        if (!PRODUCT_RISKS[product].some(risk => hadRisks.has(risk))) {
+          PRODUCT_RISKS[product].forEach(risk => lacked.add(risk))
+        }
+      }
+    }
     const sameBien = (p: (typeof policies)[number]) =>
       targetPlate ? plateOf(p.vehicle?.licensePlate) === targetPlate : target ? p.riskType === target.riskType : true
     const won = policies.find(p => {
@@ -563,7 +656,7 @@ export class SalesOpportunitiesService {
           return sameBien(p) && !!p.vehicle?.coverage && !basic.includes(p.vehicle.coverage.toUpperCase())
         }
         case 'cross_sell':
-          return p.riskType === 'home'
+          return lacked.has(p.riskType)
         case 'quote_followup':
           return true
       }

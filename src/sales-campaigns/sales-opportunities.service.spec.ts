@@ -32,6 +32,9 @@ function target(overrides: Partial<CampaignTarget> = {}): CampaignTarget {
     sortDate: null,
     coverages: [],
     reason: null,
+    gaps: [],
+    amount: null,
+    company: null,
     producerCodeId: 3,
     producerCode: { id: 3, code: '11425' },
     ...overrides,
@@ -119,7 +122,8 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
     },
     conversation: { findUnique: jest.fn().mockResolvedValue({ clientId: 60 }) },
-    message: { findFirst: jest.fn().mockResolvedValue(null) },
+    message: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    salesCampaignOptOut: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn().mockResolvedValue({}) },
     quote: { findFirst: jest.fn().mockResolvedValue(null) },
     policy: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn().mockResolvedValue(null) },
     notification: { findMany: jest.fn().mockResolvedValue([]) },
@@ -232,11 +236,58 @@ describe('SalesOpportunitiesService.track', () => {
     })
   })
 
+  it('puts on the do-not-write list who answers "no me escriban más", and closes the opportunity', async () => {
+    const { service, prisma } = setup()
+    const at = new Date('2026-11-08T12:00:00Z')
+    prisma.salesOpportunity.findMany.mockResolvedValue([open()])
+    prisma.message.findMany.mockResolvedValue([{ content: 'Por favor  no me escriban más', createdAt: at }])
+    prisma.conversation.findUnique.mockResolvedValue({ clientId: 60, waId: '5493419990001' })
+
+    await expect(service.track(7, NOW)).resolves.toBe(1)
+
+    expect(prisma.salesCampaignOptOut.upsert).toHaveBeenCalledWith({
+      where: { producerId_waId: { producerId: 7, waId: '5493419990001' } },
+      create: { producerId: 7, waId: '5493419990001' },
+      update: { deletedAt: null, createdById: null },
+    })
+    expect(prisma.salesOpportunity.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        status: 'LOST',
+        lostAt: at,
+        lostReason: 'OTHER',
+        note: 'Pidió no recibir más mensajes: «Por favor no me escriban más»',
+        repliedAt: at,
+      },
+    })
+  })
+
+  it('does not opt out again who the office put back after reading that message', async () => {
+    const { service, prisma } = setup()
+    prisma.salesOpportunity.findMany.mockResolvedValue([open()])
+    prisma.message.findMany.mockResolvedValue([
+      { content: 'no me molesten', createdAt: new Date('2026-11-08T12:00:00Z') },
+    ])
+    prisma.conversation.findUnique.mockResolvedValue({ clientId: 60, waId: '5493419990001' })
+    prisma.salesCampaignOptOut.findUnique.mockResolvedValue({ deletedAt: new Date('2026-11-08T15:00:00Z') })
+
+    await service.track(7, NOW)
+
+    expect(prisma.salesCampaignOptOut.upsert).not.toHaveBeenCalled()
+    expect(prisma.salesOpportunity.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'LOST' }) }),
+    )
+  })
+
   it('moves to QUOTED on a quote asked in that chat, and to WON when the cartera brings the home policy', async () => {
     const { service, prisma } = setup()
     prisma.salesOpportunity.findMany.mockResolvedValue([open()])
     prisma.quote.findFirst.mockResolvedValue({ id: 77, createdAt: new Date('2026-11-08T13:00:00Z') })
-    prisma.policy.findMany.mockResolvedValue([
+    // What the client had when contacted (a car), then what the cartera brought since.
+    prisma.policy.findMany.mockImplementation(({ where }: { where: { createdAt: { lte?: Date } } }) =>
+      Promise.resolve(where.createdAt.lte ? [{ riskType: 'auto' }] : NEW_POLICIES),
+    )
+    const NEW_POLICIES = [
       {
         id: 300,
         riskType: 'auto',
@@ -253,7 +304,7 @@ describe('SalesOpportunitiesService.track', () => {
         createdAt: new Date('2026-11-09T09:00:00Z'),
         vehicle: null,
       },
-    ])
+    ]
 
     await service.track(7, NOW)
 

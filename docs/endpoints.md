@@ -2581,13 +2581,17 @@ Nico's sales campaigns (2026-11-03). Each organization turns a campaign on, writ
 
 | `kind`             | Who it finds                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
-| `coverage_upgrade` | cars and motorbikes in force on a basic coverage (setting `basicCoverages`, default A, B, B1)       |
-| `quote_followup`   | bot quotes between `afterDays` and `withinDays` old, without a request, whose chat got no policy after them; one per chat |
+| `coverage_upgrade` | cars and motorbikes in force on a basic coverage (setting `basicCoverages`, default A, B, B1) or, when `reviewSumBelow` is over 0, insured for less than that many pesos; each row says what its coverage leaves out (`gaps`: `robo`, `granizo`, `cristales`, read from Triunfo's product manual; `suma` for a low insured sum) |
+| `quote_followup`   | quotes between `afterDays` and `withinDays` old that got no policy: a bot quote nobody asked to contract, or a quote (the bot's or the web's) whose request to contract the office has not closed (`QuoteRequest.status` other than `CLOSED`); one per chat or, without a chat, per document. Each row carries `amount` (the lowest instalment quoted) and `company` |
 | `renewal`          | policies in force ending within `daysBefore` days without the next policy issued                  |
-| `winback`          | policies cancelled within `withinDays` (not replaced, not by mistake) with nothing running on the same vehicle or risk |
-| `cross_sell`       | clients with a car or motorbike in force and no home policy in force; one per client             |
+| `winback`          | policies cancelled within `withinDays` (not replaced, not by mistake), or that ran out in that time without a renewal and were not hidden from "pólizas vencidas" (`reason: no_renovada`), with nothing running on the same vehicle or risk |
+| `cross_sell`       | clients with a policy in force who lack one of the products the organization offers (setting `offer`: `home`, `life`, `vehicle`, `commercial`; default the first three), counting what they have in the whole organization; one per client, with what they lack in `gaps` |
 
-Every campaign has `cooldownDays`: someone written to (or marked) is not offered again until then. People who asked not to get these (`opt-out`) are left out of every campaign.
+Every campaign has `cooldownDays`: someone written to (or marked) is not offered again until then. People who asked not to get these (`opt-out`) are left out of every campaign; a client who answers a campaign message asking not to be written to again ("no me escriban más", "no quiero recibir publicidad", "STOP") is put on that list by the platform, their opportunity closed as lost, and `opt-in` takes them off it.
+
+**Follow-ups** (2026-11-10). Two campaigns write more than once to who does not answer, always sent by the office: `quote_followup` offers one second contact `secondContactDays` after the first (default 5; 0 = never), and `renewal` one reminder each time the days left reach one of `reminderDays` (default `[15, 7]`, after the first notice at `daysBefore`; empty = one notice). Each candidate carries `followUp` — `{ step, of, due, label }`, `null` for a first contact — and one whose follow-up is `due` goes back to the top of the list and may be sent inside the cooldown. A reply, a quote, a sale or the office closing the opportunity ends the series.
+
+`settingFields[].type`: `number` (whole number: days or pesos), `codes` (coverage codes), `days` (up to 5 whole days, stored longest first; may be empty) and `options` (some of the field's `options`, at least one).
 
 **Messages and Meta.** A business can only start a WhatsApp chat with an approved template, and a template lives in one WhatsApp Business account. So every text of a campaign is submitted (category MARKETING, `es_AR`) to each account of the organization with an active number, as `campana_<slug>_v<n>`: a new text is a new version and goes back to review; the discount is a variable and changing it needs no review. A campaign sends only from numbers whose plan includes it (`campaign_<kind>` of the plan functions) and whose account has the current version APPROVED. The office writes placeholders between braces: `{nombre}` (first name), `{bien}` (vehicle as a person says it, or the product), `{vencimiento}` (renewal only) and `{porcentaje}`. Each message lands in the client's chat as the office's (`rawData.notice = "sales_campaign"`), so the bot hands their answer to the office like a reply to a rechazo. Template reviews still pending are asked again every 30 minutes and when the panel opens.
 
@@ -2624,7 +2628,7 @@ The five campaigns of the organization, configured or not (an unconfigured one i
 }
 ```
 
-`filters`: what the candidates list can be narrowed by besides the scope and the search: `coverage` (`coverage_upgrade`, `cross_sell`) or `reason` (`winback`).
+`filters`: what the candidates list can be narrowed by besides the scope and the search: `coverage` (`coverage_upgrade`, `cross_sell`), `gap` (what the client lacks: `coverage_upgrade`, `cross_sell`) or `reason` (`winback`).
 
 `templates[].status`: `PENDING` (in Meta's review), `APPROVED`, `REJECTED` (with Meta's reason), `NOT_SUBMITTED` (an account connected after the last text: `POST …/templates/refresh` submits it) or `ERROR` (Meta could not be reached or refused the request).
 
@@ -2665,7 +2669,7 @@ Asks Meta again for the review of the campaign's templates, and submits the curr
 
 ### GET /admin/campaigns/:kind/candidates
 
-Who the campaign finds, in the user's codes and numbers (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas; see **Scope by branch** above). Never-contacted (and not opted out) first, unless sorted by `lastMessage`; within each group, by `sort` and `order`. `sort`: `date` (default; the campaign's date: when the policy started in `coverage_upgrade` and `cross_sell`, when it ends in `renewal`, the cancellation in `winback`, the quote in `quote_followup`), `name`, `item` or `lastMessage` (never contacted counts as the oldest); `recent` and `oldest` still mean `date` desc and asc. `order`: `asc` or `desc`; by default `desc` for `date` and `lastMessage` (newest first), `asc` for `name` and `item`, and `asc` for `date` in `renewal` (the soonest to end first). Query: `search` (name, DNI, vehicle, reason), `sort`, `order`, `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`, and the campaign's own filters (its `filters` in `GET /admin/campaigns`): `coverage` (a coverage code, `coverage_upgrade` and `cross_sell`; in `cross_sell` any of the client's cars or motorbikes in force counts) and `reason` (`winback`: `falta_pago`, `venta`, `desistimiento`, `costo`, `cambio_compania`, `siniestro`, `rescision`, `otros`).
+Who the campaign finds, in the user's codes and numbers (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas; see **Scope by branch** above). Never-contacted (and not opted out) first, unless sorted by `lastMessage`; within each group, by `sort` and `order`. `sort`: `date` (default; the campaign's date: when the policy started in `coverage_upgrade` and `cross_sell`, when it ends in `renewal`, the cancellation in `winback`, the quote in `quote_followup`), `name`, `item` or `lastMessage` (never contacted counts as the oldest); `recent` and `oldest` still mean `date` desc and asc. `order`: `asc` or `desc`; by default `desc` for `date` and `lastMessage` (newest first), `asc` for `name` and `item`, and `asc` for `date` in `renewal` (the soonest to end first). Query: `search` (name, DNI, vehicle, reason), `sort`, `order`, `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`, and the campaign's own filters (its `filters` in `GET /admin/campaigns`): `coverage` (a coverage code, `coverage_upgrade` and `cross_sell`; in `cross_sell` any of the client's cars or motorbikes in force counts) `gap` (`coverage_upgrade`: `robo`, `granizo`, `cristales`, `suma`; `cross_sell`: `home`, `life`, `vehicle`, `commercial`) and `reason` (`winback`: `falta_pago`, `venta`, `desistimiento`, `costo`, `cambio_compania`, `siniestro`, `rescision`, `no_renovada`, `otros`). `due=true` leaves only who can be written to now: never contacted, or with a follow-up due. Someone whose follow-up is due counts as not contacted for the order.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -2683,7 +2687,12 @@ Who the campaign finds, in the user's codes and numbers (or the `producerCodeId`
       "producerCode": { "id": 3, "code": "11425" },
       "values": { "nombre": "Juan", "bien": "Ford Ka", "vencimiento": "20/11/2026" },
       "lastMessage": null,
-      "optedOut": false
+      "optedOut": false,
+      "optedOutBy": null,
+      "followUp": null,
+      "gaps": [],
+      "amount": null,
+      "company": null
     }
   ],
   "total": 42,
@@ -2696,20 +2705,21 @@ Who the campaign finds, in the user's codes and numbers (or the `producerCodeId`
       { "value": "A", "count": 30 },
       { "value": "B1", "count": 12 }
     ],
+    "gaps": null,
     "reasons": null
   }
 }
 ```
 
-`sort` is the column and direction applied (the default when none was asked). `filters` lists the choices of the campaign's filters, from everyone it finds in the scope (whatever the search or the filter picked), with how many each has; `null` when the campaign has no such filter (`coverages` in `coverage_upgrade` and `cross_sell`, `reasons` in `winback`, as `{ value, label, count }`).
+`sort` is the column and direction applied (the default when none was asked). `filters` lists the choices of the campaign's filters, from everyone it finds in the scope (whatever the search or the filter picked), with how many each has; `null` when the campaign has no such filter (`coverages` in `coverage_upgrade` and `cross_sell`; `gaps` in the same two and `reasons` in `winback`, as `{ value, label, count }`).
 
-`id` is the policy (the quote for `quote_followup`): what `send`, `mark` and `opt-out` take. `values` are what the message fills in for that person. `lastMessage.status`: `SENDING`, `SENT`, `FAILED`, `MARKED`.
+`id` is the policy (the quote for `quote_followup`): what `send`, `mark`, `opt-out`, `opt-in` and `tasks` take. `values` are what the message fills in for that person. `lastMessage.status`: `SENDING`, `SENT`, `FAILED`, `MARKED`. `optedOutBy`: `client` (they said so in the chat) or `office` (marked by hand); `null` when not opted out. `followUp`: the next contact of a campaign that writes more than once (see **Follow-ups**), e.g. `{ "step": 2, "of": 3, "due": true, "label": "Recordatorio: faltan 10 días" }`. `gaps`: what the client lacks, as `{ value, label }`. `amount` and `company`: the lowest instalment and the insurer of a quote (`quote_followup`).
 
 ---
 
 ### POST /admin/campaigns/:kind/send
 
-Writes to the chosen people one by one in the background (1.5 s apart); poll the candidates while any `lastMessage.status` is `SENDING`. Someone still going out (`SENDING`), written to or marked within `cooldownDays` (`ALREADY_SENT`), who asked not to get these (`OPTED_OUT`) or without a usable WhatsApp (`NO_PHONE`) is left out and reported.
+Writes to the chosen people one by one in the background (1.5 s apart); poll the candidates while any `lastMessage.status` is `SENDING`. Someone still going out (`SENDING`), written to or marked within `cooldownDays` (`ALREADY_SENT`; unless their follow-up is due — the open opportunities are tracked first, so a reply of minutes ago stops it), who asked not to get these (`OPTED_OUT`) or without a usable WhatsApp (`NO_PHONE`) is left out and reported.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -2763,9 +2773,52 @@ These people asked not to get campaign messages: no campaign of the organization
 { "optedOut": 2 }
 ```
 
+---
+
+### POST /admin/campaigns/:kind/opt-in
+
+Takes these people off the do-not-write list: the office marked them by mistake, the platform misread a reply, or they changed their mind. A reply the platform had read as an opt-out is not read again.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body:** as `send`.
+
+`201 Created`
+
+```json
+{ "restored": 1 }
+```
+
+---
+
+### POST /admin/campaigns/:kind/tasks
+
+One task (as in `POST /admin/tasks`) per chosen client for a person of the office — "Renovaciones: Juan Perez", with the vehicle, the campaign's reason and who to call — and that person gets the clients' opportunities.
+
+**Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
+
+**Request body**
+
+| Field        | Type     | Required | Constraints                               |
+| ------------ | -------- | -------- | ----------------------------------------- |
+| ids          | number[] | Yes      | 1–50 ids from the candidates list         |
+| assignedToId | number   | Yes      | a user of the same office (not the owner) |
+| dueDate      | string   | No       | `YYYY-MM-DD`                              |
+| note         | string   | No       | ≤ 1000 chars, added to each task          |
+
+`201 Created`
+
+```json
+{ "created": 2 }
+```
+
+`400 Bad Request` — `"That person is not part of this office"`
+
+`404 Not Found` — `"Esos clientes ya no están en la campaña."`
+
 ### Opportunities (following each client)
 
-Each client a campaign writes to (`send`) or marks contacted (`mark`) becomes an **opportunity**: assigned to whoever did it unless somebody already follows it, and moved forward by the platform when it can tell what happened — `REPLIED` when the customer answers in the chat the message went to, `QUOTED` when a quote is asked there after the contact, `WON` when the cartera sync brings a policy of the client that answers the campaign (Renovaciones: the same vehicle starting within 45 days of the old end; Mejora de coberturas: the same vehicle with a coverage outside the campaign's basic ones, or the same policy upgraded; Bajas y anulaciones: a policy for the same vehicle or risk; Venta cruzada: a home policy; Cotizaciones sin cerrar: any policy of the client). Checked every 10 minutes and before the results. The office closes it as `LOST` (with a reason) or `WON` by hand, reopens it, writes a note and reassigns it. `GET /admin/campaigns/:kind/candidates` carries each row's `opportunity` (`null` until contacted or assigned) and, in `winback`, `customerReason`: what the client told the bot when asking to cancel; it takes `status` (`none`, `NEW`, `CONTACTED`, `REPLIED`, `QUOTED`, `WON`, `LOST`), `assignedToId` and `mine=true`.
+Each client a campaign writes to (`send`) or marks contacted (`mark`) becomes an **opportunity**: assigned to whoever did it unless somebody already follows it, and moved forward by the platform when it can tell what happened — `REPLIED` when the customer answers in the chat the message went to, `QUOTED` when a quote is asked there after the contact, `WON` when the cartera sync brings a policy of the client that answers the campaign (Renovaciones: the same vehicle starting within 45 days of the old end; Mejora de coberturas: the same vehicle with a coverage outside the campaign's basic ones, or the same policy upgraded; Bajas y anulaciones: a policy for the same vehicle or risk; Venta cruzada: a policy of a product the campaign offers that the client did not have when contacted; Cotizaciones sin cerrar: any policy of the client). A reply asking not to be written to again, within 14 days of the contact, closes it as `LOST` (`OTHER`, with the customer's words in `note`) and opts the person out. Checked every 10 minutes, and before the results and each send. The office closes it as `LOST` (with a reason) or `WON` by hand, reopens it, writes a note and reassigns it. `GET /admin/campaigns/:kind/candidates` carries each row's `opportunity` (`null` until contacted or assigned) and, in `winback`, `customerReason`: what the client told the bot when asking to cancel; it takes `status` (`none`, `NEW`, `CONTACTED`, `REPLIED`, `QUOTED`, `WON`, `LOST`), `assignedToId` and `mine=true`.
 
 ```json
 "opportunity": {

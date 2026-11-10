@@ -2,7 +2,7 @@ import { Type } from 'class-transformer'
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator'
 import { SalesOpportunityStatus } from 'generated/prisma/client'
 import { CobranzasScopeDto } from '../../clients/dto/list-cobranzas.dto'
-import { CANCELLATION_REASONS, type CancellationReason } from '../campaign-catalog'
+import { CANCELLATION_REASONS, COVERAGE_GAPS, CROSS_SELL_PRODUCTS, type CancellationReason } from '../campaign-catalog'
 
 /** Where the opportunity stands, or `none`: nobody contacted or assigned yet. */
 export const OPPORTUNITY_FILTERS = ['none', ...Object.values(SalesOpportunityStatus)] as const
@@ -37,6 +37,19 @@ export class ListCampaignCandidatesDto extends CobranzasScopeDto {
   @IsOptional()
   @IsIn(CANCELLATION_REASONS)
   reason?: CancellationReason
+
+  /**
+   * What the client lacks: a protection or the insured sum (Mejora de
+   * coberturas), a product (Venta cruzada).
+   */
+  @IsOptional()
+  @IsIn([...COVERAGE_GAPS, ...CROSS_SELL_PRODUCTS])
+  gap?: string
+
+  /** `true`: only who can be written to now (never contacted, or with a follow-up due). */
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  due?: 'true' | 'false'
 
   /** Where the opportunity stands (CONTACTED, WON…), or `none` for those nobody touched. */
   @IsOptional()
