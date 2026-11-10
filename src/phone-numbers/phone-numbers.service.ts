@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UsageService, acceptedBlocks, currentPeriod, pausedIn } from '../usage/usage.service'
+import { pricedFor } from '../usage/plan-prices'
 import { parseSchedule, validateSchedule } from '../business-hours/schedule'
 import { mergeBotProfile, parseBotProfile } from '../common/bot-profile'
 import { normalizeCoverageOverrides, parseCoverageOverrides } from '../common/coverage-overrides'
@@ -180,11 +181,12 @@ export class PhoneNumbersService {
           period,
           // What the organization pays for: the messages sent, on the plan that covers the month.
           messages: bill.messages,
-          assignedPlan: bill.assignedPlan,
-          plan: bill.plan,
+          // Plan prices and what the month is billed are the owner's: the organization sees plans by messages.
+          assignedPlan: pricedFor(bill.assignedPlan, isOwner),
+          plan: pricedFor(bill.plan, isOwner),
           upgraded: bill.upgraded,
           // The whole plan: the calendar month is always charged whole.
-          billedUsd: bill.billedUsd,
+          ...(isOwner ? { billedUsd: bill.billedUsd } : {}),
           // Its assistant is paused this month for reaching the plan.
           planPaused: period === currentPeriod() && pausedIn(n.planPausedAt, period),
           ...(seesActivity

@@ -614,7 +614,7 @@ export class UsageService {
       `asistente dejó de responder. Los mensajes se siguen guardando y la oficina puede contestar desde el panel. ` +
       (next
         ? `Para que vuelva a responder, elegí en Inicio o en Facturación pasar a ${next.name} ` +
-          `(${int(next.messages)} mensajes, USD ${next.priceUsd.toLocaleString('es-AR')} por mes). `
+          `(${int(next.messages)} mensajes por mes). `
         : '') +
       `Si no, vuelve a responder solo el ${resumes}.`
     await this.prisma.notification.create({
