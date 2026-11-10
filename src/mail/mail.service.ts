@@ -15,7 +15,7 @@ export interface SiniestroNotification {
   descripcion: string
   fecha: Date
   cliente: { firstName: string; lastName: string; dni: string; email: string | null }
-  poliza: { certificateNumber: string; company: string }
+  poliza: { certificateNumber: string; company: string; licensePlate?: string | null }
   adjuntosCount: number
 }
 
@@ -145,7 +145,17 @@ export class MailService {
   }
 
   private buildHtml(data: SiniestroNotification): string {
-    const fecha = data.fecha.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    // The day of the incident is a calendar date stored at midnight UTC: read in
+    // the server's Argentine time zone it would be the day before.
+    const fecha = data.fecha.toLocaleDateString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      timeZone: 'UTC',
+    })
+    const patente = data.poliza.licensePlate
+      ? `<tr><td style="padding: 6px 0; color: #888;">Patente</td><td style="padding: 6px 0;">${data.poliza.licensePlate}</td></tr>`
+      : ''
     return `
       <div style="font-family: Arial, sans-serif; color: #1a1a1a; max-width: 560px;">
         <h2 style="margin: 0 0 12px;">Nueva denuncia de siniestro</h2>
@@ -157,6 +167,7 @@ export class MailService {
           <tr><td style="padding: 6px 0; color: #888;">Cliente</td><td style="padding: 6px 0;">${data.cliente.lastName}, ${data.cliente.firstName} (DNI ${data.cliente.dni})</td></tr>
           <tr><td style="padding: 6px 0; color: #888;">Email cliente</td><td style="padding: 6px 0;">${data.cliente.email ?? '—'}</td></tr>
           <tr><td style="padding: 6px 0; color: #888;">Póliza</td><td style="padding: 6px 0;">${data.poliza.certificateNumber} (${data.poliza.company})</td></tr>
+          ${patente}
           <tr><td style="padding: 6px 0; color: #888;">Adjuntos</td><td style="padding: 6px 0;">${data.adjuntosCount}</td></tr>
         </table>
         <div style="margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 8px;">

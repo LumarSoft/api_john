@@ -69,7 +69,13 @@ export class SiniestrosService {
     // The policy must belong to the authenticated client in this tenant.
     const poliza = await this.prisma.policy.findFirst({
       where: { id: dto.policyId, clientId, producerId, deletedAt: null },
-      select: { id: true, certificateNumber: true, company: true, producerCodeId: true },
+      select: {
+        id: true,
+        certificateNumber: true,
+        company: true,
+        producerCodeId: true,
+        vehicle: { select: { licensePlate: true } },
+      },
     })
     if (!poliza) {
       throw new NotFoundException(`Policy ${dto.policyId} not found`)
@@ -216,6 +222,7 @@ export class SiniestrosService {
         { client: { lastName: { contains: search } } },
         { client: { dni: { contains: search } } },
         { policy: { certificateNumber: { contains: search } } },
+        { policy: { vehicle: { licensePlate: { contains: search.replace(/[\s-]/g, '') } } } },
         { insurerClaimNumber: { contains: search } },
       ]
     }
@@ -228,7 +235,7 @@ export class SiniestrosService {
     clientId: number,
     producerId: number,
     dto: CreateSiniestroDto,
-    poliza: { certificateNumber: string; company: string },
+    poliza: { certificateNumber: string; company: string; vehicle: { licensePlate: string | null } | null },
     adjuntosCount: number,
   ): Promise<void> {
     const client = await this.prisma.client.findUnique({
@@ -244,7 +251,11 @@ export class SiniestrosService {
       descripcion: dto.description,
       fecha: new Date(dto.occurredAt),
       cliente: client,
-      poliza: { certificateNumber: poliza.certificateNumber, company: poliza.company },
+      poliza: {
+        certificateNumber: poliza.certificateNumber,
+        company: poliza.company,
+        licensePlate: poliza.vehicle?.licensePlate,
+      },
       adjuntosCount,
     })
   }

@@ -1063,7 +1063,13 @@ export class BotService {
 
     const poliza = await this.prisma.policy.findFirst({
       where: { AND: [this.polizaRefWhere(dto.policyId, clientId, producerId, codeIds), inForcePolizaWhere()] },
-      select: { id: true, certificateNumber: true, company: true, producerCodeId: true },
+      select: {
+        id: true,
+        certificateNumber: true,
+        company: true,
+        producerCodeId: true,
+        vehicle: { select: { licensePlate: true } },
+      },
     })
     if (!poliza) throw new NotFoundException(`Policy ${dto.policyId} not found or not in force`)
 
@@ -1099,7 +1105,11 @@ export class BotService {
       descripcion: siniestro.description,
       fecha: siniestro.occurredAt,
       cliente: { firstName: client.firstName, lastName: client.lastName, dni: client.dni, email: client.email },
-      poliza: { certificateNumber: poliza.certificateNumber, company: poliza.company },
+      poliza: {
+        certificateNumber: poliza.certificateNumber,
+        company: poliza.company,
+        licensePlate: poliza.vehicle?.licensePlate,
+      },
       adjuntosCount: 0,
     })
 
