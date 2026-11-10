@@ -2,11 +2,17 @@ import { BadRequestException } from '@nestjs/common'
 import { Prisma, Role, SalesCampaignKind } from 'generated/prisma/client'
 import type { PrismaService } from '../prisma/prisma.service'
 import { CAMPAIGNS } from './campaign-catalog'
-import type { CampaignTarget } from './campaign-finder.service'
+import type { CampaignFinderService, CampaignTarget } from './campaign-finder.service'
 import { SalesOpportunitiesService, targetKeyOf } from './sales-opportunities.service'
 
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
 const NOW = new Date('2026-11-09T15:00:00Z')
+
+/** Mili's scope: code 3 of the office, whose only number is `meta-office` (fictitious). */
+function scopeOf(codeIds: number[]) {
+  return { codeIds, chats: { codeIds, ownNumbers: ['meta-office'], defaultNumber: 'meta-office' } }
+}
+
 const CONTACT = new Date('2026-11-07T19:46:00Z')
 
 function target(overrides: Partial<CampaignTarget> = {}): CampaignTarget {
@@ -119,8 +125,14 @@ function setup() {
     notification: { findMany: jest.fn().mockResolvedValue([]) },
     user: { findFirst: jest.fn().mockResolvedValue({ id: 9 }) },
   }
-  const service = new SalesOpportunitiesService(prisma as unknown as PrismaService)
-  return { service, prisma }
+  const finder = {
+    quoteOrigin: jest.fn().mockResolvedValue({ OR: [{ phoneNumberId: { in: ['meta-office'] } }] }),
+  }
+  const service = new SalesOpportunitiesService(
+    prisma as unknown as PrismaService,
+    finder as unknown as CampaignFinderService,
+  )
+  return { service, prisma, finder }
 }
 
 describe('targetKeyOf', () => {
@@ -359,7 +371,7 @@ describe('SalesOpportunitiesService.results', () => {
       { campaignId: 5, status: 'MARKED' },
     ])
 
-    const result = await service.results(mili, [3], { from: '2026-10-01', to: '2026-11-09' }, NOW)
+    const result = await service.results(mili, scopeOf([3]), { from: '2026-10-01', to: '2026-11-09' }, NOW)
 
     // The tracker ran first.
     expect(prisma.salesOpportunity.findMany).toHaveBeenCalledWith(
@@ -389,15 +401,26 @@ describe('SalesOpportunitiesService.results', () => {
     expect(result.from).toBe('2026-10-01T03:00:00.000Z')
   })
 
-  it('scopes to the user’s codes and the person asked for', async () => {
-    const { service, prisma } = setup()
+  it('scopes policies to the user’s codes, quotes to their numbers, and to the person asked for', async () => {
+    const { service, prisma, finder } = setup()
 
-    await service.results(mili, [3, 9], { assignedToId: 4 }, NOW)
+    await service.results(mili, scopeOf([3, 9]), { assignedToId: 4 }, NOW)
 
+    expect(finder.quoteOrigin).toHaveBeenCalledWith(7, scopeOf([3, 9]))
     expect(prisma.salesOpportunity.findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ producerCodeId: { in: [3, 9] }, assignedToId: 4, status: { not: 'NEW' } }),
+        where: expect.objectContaining({
+          OR: [
+            { quoteId: null, producerCodeId: { in: [3, 9] } },
+            { quote: { OR: [{ phoneNumberId: { in: ['meta-office'] } }] } },
+          ],
+          assignedToId: 4,
+          status: { not: 'NEW' },
+        }),
       }),
+    )
+    expect(prisma.salesCampaignMessage.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ OR: expect.any(Array), sentById: 4 }) }),
     )
   })
 })

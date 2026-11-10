@@ -2577,6 +2577,8 @@ Discards a pending proposal; one that already ran, failed or expired is returned
 
 Nico's sales campaigns (2026-11-03). Each organization turns a campaign on, writes its message and its discount; the panel lists who the campaign finds in the portfolio (or, for `quote_followup`, in the bot's quotes) and the office ticks who to write to. Nothing goes out on its own.
 
+**Scope by branch** (2026-11-09). Every list, count, send, mark, assignment and result works within the user's codes (an admin's grants, or the `producerCodeId` filtered) and, for what came through WhatsApp, their numbers: the policy campaigns take the policies of those codes; `quote_followup` takes only the quotes asked through a number of those codes that the user may see — an admin, their own numbers; the SuperAdmin every number, or the `phoneNumberId` filtered. The quote's code never counts (the bot credits every quote to the organization's master code), so a branch never sees, writes to or counts the people who talked to another branch's number. A quote without a number takes its chat's; the organization's default number also brings the quotes of chats that came through no number.
+
 | `kind`             | Who it finds                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
 | `coverage_upgrade` | cars and motorbikes in force on a basic coverage (setting `basicCoverages`, default A, B, B1)       |
@@ -2663,7 +2665,7 @@ Asks Meta again for the review of the campaign's templates, and submits the curr
 
 ### GET /admin/campaigns/:kind/candidates
 
-Who the campaign finds, in the user's codes (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas). Never-contacted (and not opted out) first, unless sorted by `lastMessage`; within each group, by `sort` and `order`. `sort`: `date` (default; the campaign's date: when the policy started in `coverage_upgrade` and `cross_sell`, when it ends in `renewal`, the cancellation in `winback`, the quote in `quote_followup`), `name`, `item` or `lastMessage` (never contacted counts as the oldest); `recent` and `oldest` still mean `date` desc and asc. `order`: `asc` or `desc`; by default `desc` for `date` and `lastMessage` (newest first), `asc` for `name` and `item`, and `asc` for `date` in `renewal` (the soonest to end first). Query: `search` (name, DNI, vehicle, reason), `sort`, `order`, `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`, and the campaign's own filters (its `filters` in `GET /admin/campaigns`): `coverage` (a coverage code, `coverage_upgrade` and `cross_sell`; in `cross_sell` any of the client's cars or motorbikes in force counts) and `reason` (`winback`: `falta_pago`, `venta`, `desistimiento`, `costo`, `cambio_compania`, `siniestro`, `rescision`, `otros`).
+Who the campaign finds, in the user's codes and numbers (or the `producerCodeId` / `phoneNumberId` picked, as in Cobranzas; see **Scope by branch** above). Never-contacted (and not opted out) first, unless sorted by `lastMessage`; within each group, by `sort` and `order`. `sort`: `date` (default; the campaign's date: when the policy started in `coverage_upgrade` and `cross_sell`, when it ends in `renewal`, the cancellation in `winback`, the quote in `quote_followup`), `name`, `item` or `lastMessage` (never contacted counts as the oldest); `recent` and `oldest` still mean `date` desc and asc. `order`: `asc` or `desc`; by default `desc` for `date` and `lastMessage` (newest first), `asc` for `name` and `item`, and `asc` for `date` in `renewal` (the soonest to end first). Query: `search` (name, DNI, vehicle, reason), `sort`, `order`, `page`, `pageSize` (≤ 100), `producerCodeId`, `phoneNumberId`, and the campaign's own filters (its `filters` in `GET /admin/campaigns`): `coverage` (a coverage code, `coverage_upgrade` and `cross_sell`; in `cross_sell` any of the client's cars or motorbikes in force counts) and `reason` (`winback`: `falta_pago`, `venta`, `desistimiento`, `costo`, `cambio_compania`, `siniestro`, `rescision`, `otros`).
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -2817,7 +2819,7 @@ What the office says about one client's opportunity (`targetId` is the row's `id
 
 ### GET /admin/campaigns/results
 
-How the campaigns did in a period, in the user's scope (`producerCodeId` / `phoneNumberId` as the other lists): what went out, how many answered, got a quote, bought or were lost, and the premium of what was sold; by campaign and by person. An opportunity belongs to the period it was contacted in. Query: `kind` (one campaign; default all), `from`, `to` (ISO day or instant; a day covers the whole day in Argentina; default the last 90 days), `assignedToId`.
+How the campaigns did in a period, in the user's codes and numbers (`producerCodeId` / `phoneNumberId` as the other lists; a policy's opportunity belongs to its code, a quote's to the number the person wrote to): what went out, how many answered, got a quote, bought or were lost, and the premium of what was sold; by campaign and by person. An opportunity belongs to the period it was contacted in. Query: `kind` (one campaign; default all), `from`, `to` (ISO day or instant; a day covers the whole day in Argentina; default the last 90 days), `assignedToId`.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -4734,6 +4736,59 @@ Borra (soft delete) la carga y sus filas. Los avisos ya enviados siguen en los c
 `404 Not Found` — Rejection import not found
 
 `409 Conflict` — `Esperá a que terminen de enviarse los avisos antes de borrar la carga.`
+
+## Owner — Usuarios de una organización
+
+`/users/*` only reaches the caller's own organization; these let the owner manage the users of any. The users of
+`GET /owner/organizations/:id` and every response below carry `codes`: the producer codes granted to an ADMIN (always
+empty for a SUPERADMIN, who sees every code of the organization).
+
+### POST /owner/organizations/:id/users
+
+Creates a SUPERADMIN or an ADMIN in the organization. An ADMIN is granted `producerCodeIds` in the same write, so it
+sees its cartera from the first login; without them it sees nothing until a SuperAdmin grants some in Usuarios.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| email | string | Yes | Valid e-mail, not used by any other user |
+| password | string | Yes | At least 6 characters |
+| role | string | Yes | `SUPERADMIN` or `ADMIN` |
+| producerCodeIds | number[] | No | Ids of codes of this organization, no repeats. Ignored for a `SUPERADMIN` |
+
+```json
+{ "email": "ana@norte.com", "password": "secret1", "role": "ADMIN", "producerCodeIds": [31, 32] }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{
+  "id": 9,
+  "email": "ana@norte.com",
+  "role": "ADMIN",
+  "createdAt": "2026-11-09T12:00:00.000Z",
+  "codes": [
+    { "id": 31, "code": "8074", "holderName": "Ana" },
+    { "id": 32, "code": "14831", "holderName": null }
+  ]
+}
+```
+
+`400 Bad Request` — a code is not of this organization
+```json
+{ "statusCode": 400, "message": "One or more producer codes do not belong to this organization", "error": "Bad Request" }
+```
+
+`404 Not Found` — `Organization 7 not found`
+
+`409 Conflict` — `Email already in use`
+
+---
 
 ## Owner — Integración Triunfo
 

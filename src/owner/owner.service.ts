@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import * as bcrypt from 'bcrypt'
-import { Role } from 'generated/prisma/client'
+import { Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { CreateOrganizationDto } from './dto/create-organization.dto'
 import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
@@ -19,6 +19,25 @@ const EMPTY_CODE_METRICS = {
   policies: 0,
   claims: 0,
   lastCarteraSyncAt: null as Date | null,
+}
+
+// What the owner's screen shows of an organization's user (never the password).
+const ORG_USER_SELECT = {
+  id: true,
+  email: true,
+  role: true,
+  createdAt: true,
+  producerCodes: {
+    where: { producerCode: { deletedAt: null } },
+    select: { producerCode: { select: { id: true, code: true, holderName: true } } },
+  },
+} as const
+
+type OrgUserRow = Prisma.UserGetPayload<{ select: typeof ORG_USER_SELECT }>
+
+/** `codes` are the ones granted to an ADMIN; a SUPERADMIN sees every code without grants. */
+function toOrgUser({ producerCodes, ...user }: OrgUserRow) {
+  return { ...user, codes: user.role === Role.ADMIN ? producerCodes.map(grant => grant.producerCode) : [] }
 }
 
 // Friendly default tone for a freshly provisioned organization's bot. The owner
@@ -112,7 +131,7 @@ export class OwnerService {
       this.prisma.user.findMany({
         where: { producerId: id, deletedAt: null, role: { not: Role.OWNER } },
         orderBy: { createdAt: 'asc' },
-        select: { id: true, email: true, role: true, createdAt: true },
+        select: ORG_USER_SELECT,
       }),
     ])
 
@@ -142,7 +161,7 @@ export class OwnerService {
     return {
       ...org,
       codes: codesWithMetrics,
-      users,
+      users: users.map(toOrgUser),
       numbers,
       billing: {
         period: currentPeriod(),
@@ -428,43 +447,54 @@ export class OwnerService {
     const password = await bcrypt.hash(dto.password, 10)
     const user = await this.prisma.user.create({
       data: { email: dto.email, password, role: Role.SUPERADMIN, producerId },
-      select: { id: true, email: true, role: true, createdAt: true },
+      select: ORG_USER_SELECT,
     })
-    return user
+    return toOrgUser(user)
   }
 
   // ── user management (any organization) ──────────────────
   // The tenant-facing /users endpoints are scoped to the caller's own producerId,
   // so the OWNER needs these to operate on an arbitrary organization.
 
-  /** Creates a SUPERADMIN or ADMIN inside an organization. */
+  /**
+   * Creates a SUPERADMIN or ADMIN inside an organization. An ADMIN is granted
+   * the codes sent with it, so it sees its cartera from the first login; without
+   * them it sees nothing until a SuperAdmin of the organization grants some.
+   */
   async addUser(producerId: number, dto: CreateOrgUserDto) {
     await this.assertOrganizationExists(producerId)
     await this.ensureEmailIsFree(dto.email)
+    // A SUPERADMIN sees every code of its organization: it gets no grants.
+    const codeIds = dto.role === Role.ADMIN ? (dto.producerCodeIds ?? []) : []
+    await this.assertCodesBelongToOrg(codeIds, producerId)
 
-    return this.prisma.user.create({
+    // One statement: the user never exists without the grants it was created with.
+    const user = await this.prisma.user.create({
       data: {
         email: dto.email,
         password: await bcrypt.hash(dto.password, 10),
         role: dto.role,
         producerId,
+        producerCodes: { create: codeIds.map(producerCodeId => ({ producerCodeId })) },
       },
-      select: { id: true, email: true, role: true, createdAt: true },
+      select: ORG_USER_SELECT,
     })
+    return toOrgUser(user)
   }
 
   /** Changes a user's role and/or password. */
   async updateUser(producerId: number, userId: number, dto: UpdateOrgUserDto) {
     await this.assertUserBelongsToOrg(producerId, userId)
 
-    return this.prisma.user.update({
+    const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
         ...(dto.role ? { role: dto.role } : {}),
         ...(dto.password ? { password: await bcrypt.hash(dto.password, 10) } : {}),
       },
-      select: { id: true, email: true, role: true, createdAt: true },
+      select: ORG_USER_SELECT,
     })
+    return toOrgUser(user)
   }
 
   /** Soft-deletes a user (the codebase never hard-deletes). */
@@ -518,5 +548,16 @@ export class OwnerService {
       select: { id: true },
     })
     if (!code) throw new BadRequestException('Code does not belong to this organization')
+  }
+
+  /** Every code granted to a user has to be of the user's own organization. */
+  private async assertCodesBelongToOrg(codeIds: number[], producerId: number) {
+    if (!codeIds.length) return
+    const count = await this.prisma.producerCode.count({
+      where: { id: { in: codeIds }, producerId, deletedAt: null },
+    })
+    if (count !== codeIds.length) {
+      throw new BadRequestException('One or more producer codes do not belong to this organization')
+    }
   }
 }

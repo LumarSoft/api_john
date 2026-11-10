@@ -4,6 +4,11 @@ import { CampaignFinderService } from './campaign-finder.service'
 
 const NOW = new Date('2026-11-04T15:00:00Z')
 
+/** Mili's scope: code 3 of the office, whose only number is `meta-office` (fictitious). */
+function scopeOf(codeIds: number[]) {
+  return { codeIds, chats: { codeIds, ownNumbers: ['meta-office'], defaultNumber: 'meta-office' } }
+}
+
 /** A policy row as the finder selects it (fictitious data). */
 function policy(overrides: Record<string, unknown> = {}) {
   return {
@@ -41,7 +46,7 @@ describe('CampaignFinderService', () => {
       CAMPAIGNS.coverage_upgrade,
       settingsOf(CAMPAIGNS.coverage_upgrade, null),
       7,
-      [3],
+      scopeOf([3]),
       NOW,
     )
 
@@ -89,7 +94,7 @@ describe('CampaignFinderService', () => {
       ])
     const finder = setup({ policy: { findMany } })
 
-    const found = await finder.find(CAMPAIGNS.renewal, settingsOf(CAMPAIGNS.renewal, null), 7, [3], NOW)
+    const found = await finder.find(CAMPAIGNS.renewal, settingsOf(CAMPAIGNS.renewal, null), 7, scopeOf([3]), NOW)
 
     expect(found.map(f => f.id)).toEqual([101])
     expect(found[0].detail).toBe('Vence el 20/11/2026')
@@ -114,7 +119,7 @@ describe('CampaignFinderService', () => {
       ])
     const finder = setup({ policy: { findMany } })
 
-    const found = await finder.find(CAMPAIGNS.winback, settingsOf(CAMPAIGNS.winback, null), 7, [3], NOW)
+    const found = await finder.find(CAMPAIGNS.winback, settingsOf(CAMPAIGNS.winback, null), 7, scopeOf([3]), NOW)
 
     expect(found.map(f => [f.id, f.detail])).toEqual([[1, 'Anulada el 10/09/2026 (por falta de pago)']])
   })
@@ -135,7 +140,7 @@ describe('CampaignFinderService', () => {
       .mockResolvedValueOnce([])
     const finder = setup({ policy: { findMany } })
 
-    const found = await finder.find(CAMPAIGNS.winback, settingsOf(CAMPAIGNS.winback, null), 7, [3], NOW)
+    const found = await finder.find(CAMPAIGNS.winback, settingsOf(CAMPAIGNS.winback, null), 7, scopeOf([3]), NOW)
 
     expect(found.map(f => [f.id, f.reason, f.sortDate?.toISOString().slice(0, 10)])).toEqual([
       [1, 'falta_pago', '2026-09-10'],
@@ -154,7 +159,7 @@ describe('CampaignFinderService', () => {
       CAMPAIGNS.coverage_upgrade,
       settingsOf(CAMPAIGNS.coverage_upgrade, null),
       7,
-      [3],
+      scopeOf([3]),
       NOW,
     )
 
@@ -178,7 +183,7 @@ describe('CampaignFinderService', () => {
       .mockResolvedValueOnce([])
     const finder = setup({ policy: { findMany } })
 
-    const found = await finder.find(CAMPAIGNS.cross_sell, settingsOf(CAMPAIGNS.cross_sell, null), 7, [3], NOW)
+    const found = await finder.find(CAMPAIGNS.cross_sell, settingsOf(CAMPAIGNS.cross_sell, null), 7, scopeOf([3]), NOW)
 
     expect(found).toHaveLength(1)
     expect(found[0].id).toBe(2)
@@ -221,7 +226,22 @@ describe('CampaignFinderService', () => {
       },
     })
 
-    const found = await finder.find(CAMPAIGNS.quote_followup, settingsOf(CAMPAIGNS.quote_followup, null), 7, [3], NOW)
+    const found = await finder.find(
+      CAMPAIGNS.quote_followup,
+      settingsOf(CAMPAIGNS.quote_followup, null),
+      7,
+      scopeOf([3]),
+      NOW,
+    )
+
+    // By the number the person wrote to, never by the quote's code (the bot credits every quote to the master code).
+    const where = (finder['prisma'].quote.findMany as jest.Mock).mock.calls[0][0].where
+    expect(where.OR).toEqual([
+      { phoneNumberId: { in: ['meta-office'] } },
+      { phoneNumberId: null, conversation: { phoneNumberId: { in: ['meta-office'] } } },
+      { phoneNumberId: null, conversation: { phoneNumberId: null } },
+    ])
+    expect(where.producerCodeId).toBeUndefined()
 
     expect(found).toEqual([
       expect.objectContaining({
@@ -233,5 +253,47 @@ describe('CampaignFinderService', () => {
         detail: 'Cotizó el 01/11/2026',
       }),
     ])
+  })
+
+  describe('quoteOrigin', () => {
+    const numbers = [{ phoneNumberId: 'meta-office' }, { phoneNumberId: 'meta-pe' }]
+
+    it('keeps a branch admin to the quotes asked through their own numbers', async () => {
+      const finder = setup({ phoneNumber: { findMany: jest.fn().mockResolvedValue(numbers) } })
+
+      const where = await finder.quoteOrigin(7, {
+        codeIds: [3, 9],
+        chats: { codeIds: [3, 9], ownNumbers: ['meta-pe'], defaultNumber: 'meta-office' },
+      })
+
+      expect(where.OR).toEqual([
+        { phoneNumberId: { in: ['meta-pe'] } },
+        { phoneNumberId: null, conversation: { phoneNumberId: { in: ['meta-pe'] } } },
+      ])
+    })
+
+    it('gives the SuperAdmin every number of the codes, or only the one filtered by', async () => {
+      const finder = setup({ phoneNumber: { findMany: jest.fn().mockResolvedValue(numbers) } })
+
+      const all = await finder.quoteOrigin(7, { codeIds: [3, 9], chats: { codeIds: [3, 9], ownNumbers: null } })
+      expect(all.OR?.[0]).toEqual({ phoneNumberId: { in: ['meta-office', 'meta-pe'] } })
+
+      const one = await finder.quoteOrigin(7, {
+        codeIds: [3, 9],
+        chats: { codeIds: [3, 9], ownNumbers: null, filterNumber: 'meta-pe', defaultNumber: 'meta-office' },
+      })
+      expect(one.OR).toEqual([
+        { phoneNumberId: { in: ['meta-pe'] } },
+        { phoneNumberId: null, conversation: { phoneNumberId: { in: ['meta-pe'] } } },
+      ])
+    })
+
+    it('shows nothing to an admin without a number of their own', async () => {
+      const finder = setup({ phoneNumber: { findMany: jest.fn().mockResolvedValue(numbers) } })
+
+      const where = await finder.quoteOrigin(7, { codeIds: [3], chats: { codeIds: [3], ownNumbers: [] } })
+
+      expect(where.OR?.[0]).toEqual({ phoneNumberId: { in: [] } })
+    })
   })
 })

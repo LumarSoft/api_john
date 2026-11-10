@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma, RiskType } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { ChatScope, visibleNumbers } from '../common/scope/scope.service'
 import { inForcePolizaWhere, notCancelledPolizaWhere } from '../common/poliza-vigencia'
 import { productNameOf } from '../common/poliza-detail'
 import {
@@ -12,6 +13,17 @@ import {
 } from './campaign-catalog'
 
 const DAY_MS = 86_400_000
+
+/**
+ * Whose clients a user works in the campaigns: the policies of their codes
+ * and, for what came through WhatsApp (the bot's quotes), only the chats of
+ * their own numbers (`chats`, see ChatScope). A branch never sees, writes to
+ * or counts the people who talked to another branch's number.
+ */
+export interface CampaignScope {
+  codeIds: number[]
+  chats: ChatScope
+}
 
 /** Someone a campaign would write to, with what the message and the panel need. */
 export interface CampaignTarget {
@@ -107,21 +119,46 @@ export class CampaignFinderService {
     definition: CampaignDefinition,
     settings: CampaignSettings,
     producerId: number,
-    codeIds: number[],
+    scope: CampaignScope,
     now = new Date(),
     ids?: number[],
   ): Promise<CampaignTarget[]> {
+    const codeIds = scope.codeIds
     switch (definition.kind) {
       case 'coverage_upgrade':
         return this.coverageUpgrade(settings, producerId, codeIds, now, ids)
       case 'quote_followup':
-        return this.quoteFollowup(settings, producerId, codeIds, now, ids)
+        return this.quoteFollowup(settings, producerId, scope, now, ids)
       case 'renewal':
         return this.renewal(settings, producerId, codeIds, now, ids)
       case 'winback':
         return this.winback(settings, producerId, codeIds, now, ids)
       case 'cross_sell':
         return this.crossSell(producerId, codeIds, now, ids)
+    }
+  }
+
+  /**
+   * The bot quotes a user sees: those asked through one of the numbers of
+   * their codes that they may see (an admin, their own numbers; the SuperAdmin,
+   * every number or the one they filtered by). The number is the quote's own;
+   * an older quote without one takes its chat's. The organization's default
+   * number also brings the quotes of chats that came through no number.
+   */
+  async quoteOrigin(producerId: number, scope: CampaignScope): Promise<Prisma.QuoteWhereInput> {
+    const numbers = await this.prisma.phoneNumber.findMany({
+      where: { producerId, deletedAt: null, responsibleProducerCodeId: { in: scope.codeIds } },
+      select: { phoneNumberId: true },
+    })
+    const visible = visibleNumbers(scope.chats)
+    const metaIds = numbers.map(n => n.phoneNumberId).filter(id => visible === null || visible.includes(id))
+    const withNone = scope.chats.defaultNumber != null && metaIds.includes(scope.chats.defaultNumber)
+    return {
+      OR: [
+        { phoneNumberId: { in: metaIds } },
+        { phoneNumberId: null, conversation: { phoneNumberId: { in: metaIds } } },
+        ...(withNone ? [{ phoneNumberId: null, conversation: { phoneNumberId: null } }] : []),
+      ],
     }
   }
 
@@ -275,14 +312,13 @@ export class CampaignFinderService {
   private async quoteFollowup(
     settings: CampaignSettings,
     producerId: number,
-    codeIds: number[],
+    scope: CampaignScope,
     now: Date,
     ids?: number[],
   ): Promise<CampaignTarget[]> {
-    const numbersInScope = await this.prisma.phoneNumber.findMany({
-      where: { producerId, deletedAt: null, responsibleProducerCodeId: { in: codeIds } },
-      select: { phoneNumberId: true },
-    })
+    // By the number the person wrote to, never by the quote's code: the bot
+    // credits every quote to the organization's master code, whatever the branch.
+    const origin = await this.quoteOrigin(producerId, scope)
     const quotes = await this.prisma.quote.findMany({
       where: {
         producerId,
@@ -293,7 +329,7 @@ export class CampaignFinderService {
           gte: new Date(now.getTime() - numberSetting(settings, 'withinDays') * DAY_MS),
           lte: new Date(now.getTime() - numberSetting(settings, 'afterDays') * DAY_MS),
         },
-        OR: [{ producerCodeId: { in: codeIds } }, { phoneNumberId: { in: numbersInScope.map(n => n.phoneNumberId) } }],
+        ...origin,
         ...(ids ? { id: { in: ids } } : {}),
       },
       orderBy: { createdAt: 'desc' },

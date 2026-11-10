@@ -14,6 +14,11 @@ import type { SalesOpportunitiesService } from './sales-opportunities.service'
 const mili = { id: 2, producerId: 7, role: Role.ADMIN }
 const NOW = new Date('2026-11-04T15:00:00Z')
 
+/** Mili's scope: code 3 of the office, whose only number is `meta-office` (fictitious). */
+function scopeOf(codeIds: number[]) {
+  return { codeIds, chats: { codeIds, ownNumbers: ['meta-office'], defaultNumber: 'meta-office' } }
+}
+
 /** Someone the renewal campaign finds (fictitious data). */
 function target(overrides: Partial<CampaignTarget> = {}): CampaignTarget {
   return {
@@ -136,7 +141,7 @@ describe('SalesCampaignsService.send', () => {
   it('writes with the template of the sender’s account, the values in order, and leaves it in the chat', async () => {
     const { service, delivery, botNotifier, prisma } = setup()
 
-    await expect(service.send(mili, 'renewal', [3], [100], NOW)).resolves.toEqual({ sent: 1, skipped: [] })
+    await expect(service.send(mili, 'renewal', scopeOf([3]), [100], NOW)).resolves.toEqual({ sent: 1, skipped: [] })
     await flush()
 
     // Only numbers whose plan includes the campaign...
@@ -184,7 +189,7 @@ describe('SalesCampaignsService.send', () => {
       optOuts: [{ waId: '5493419990002' }],
     })
 
-    const result = await service.send(mili, 'renewal', [3], [1, 2, 3, 4], NOW)
+    const result = await service.send(mili, 'renewal', scopeOf([3]), [1, 2, 3, 4], NOW)
 
     expect(result).toEqual({
       sent: 1,
@@ -199,10 +204,10 @@ describe('SalesCampaignsService.send', () => {
 
   it('does not send while the campaign is off or Meta has not approved its message', async () => {
     const off = setup({ row: { enabled: false } })
-    await expect(off.service.send(mili, 'renewal', [3], [100], NOW)).rejects.toThrow(ConflictException)
+    await expect(off.service.send(mili, 'renewal', scopeOf([3]), [100], NOW)).rejects.toThrow(ConflictException)
 
     const pending = setup({ row: { templates: { '6': { ...APPROVED['6'], status: 'PENDING' } } } })
-    await expect(pending.service.send(mili, 'renewal', [3], [100], NOW)).rejects.toThrow('aprobó')
+    await expect(pending.service.send(mili, 'renewal', scopeOf([3]), [100], NOW)).rejects.toThrow('aprobó')
     expect(pending.prisma.salesCampaignMessage.create).not.toHaveBeenCalled()
   })
 })
@@ -211,7 +216,7 @@ describe('SalesCampaignsService.update', () => {
   it('sends a new text to Meta as a new version, and keeps the template when only the percentage changes', async () => {
     const { service, templates, prisma } = setup()
 
-    await service.update(mili, 'renewal', { body: 'Hola {nombre}, tu {bien} vence pronto. ¿Lo vemos?' }, [3])
+    await service.update(mili, 'renewal', { body: 'Hola {nombre}, tu {bien} vence pronto. ¿Lo vemos?' }, scopeOf([3]))
     expect(templates.submit).toHaveBeenCalledWith(
       7,
       expect.objectContaining({ kind: 'renewal' }),
@@ -223,7 +228,7 @@ describe('SalesCampaignsService.update', () => {
     )
 
     templates.submit.mockClear()
-    await service.update(mili, 'renewal', { discountPercent: 10 }, [3])
+    await service.update(mili, 'renewal', { discountPercent: 10 }, scopeOf([3]))
     expect(templates.submit).not.toHaveBeenCalled()
   })
 
@@ -235,7 +240,7 @@ describe('SalesCampaignsService.update', () => {
       blockedByRole: [],
     })
 
-    await expect(service.update(mili, 'renewal', { enabled: true }, [3])).rejects.toThrow(ForbiddenException)
+    await expect(service.update(mili, 'renewal', { enabled: true }, scopeOf([3]))).rejects.toThrow(ForbiddenException)
   })
 })
 
@@ -301,13 +306,13 @@ describe('SalesCampaignsService.candidates', () => {
     ]
     const { service } = setup({ targets })
 
-    const recent = await service.candidates(mili, 'coverage_upgrade', [3], {}, NOW)
+    const recent = await service.candidates(mili, 'coverage_upgrade', scopeOf([3]), {}, NOW)
     expect(recent.data.map(r => r.id)).toEqual([2, 3, 1])
 
     expect(recent.sort).toEqual({ by: 'date', order: 'desc' })
 
     // What the panels sent before the headers could sort.
-    const oldest = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'oldest' }, NOW)
+    const oldest = await service.candidates(mili, 'coverage_upgrade', scopeOf([3]), { sort: 'oldest' }, NOW)
     expect(oldest.data.map(r => r.id)).toEqual([1, 3, 2])
     expect(oldest.sort).toEqual({ by: 'date', order: 'asc' })
   })
@@ -320,7 +325,7 @@ describe('SalesCampaignsService.candidates', () => {
     ]
     const { service } = setup({ targets })
 
-    const result = await service.candidates(mili, 'renewal', [3], {}, NOW)
+    const result = await service.candidates(mili, 'renewal', scopeOf([3]), {}, NOW)
     expect(result.data.map(r => r.id)).toEqual([2, 3, 1])
     expect(result.sort).toEqual({ by: 'date', order: 'asc' })
   })
@@ -333,11 +338,11 @@ describe('SalesCampaignsService.candidates', () => {
     ]
     const { service } = setup({ targets })
 
-    const az = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'name' }, NOW)
+    const az = await service.candidates(mili, 'coverage_upgrade', scopeOf([3]), { sort: 'name' }, NOW)
     expect(az.data.map(r => r.id)).toEqual([2, 3, 1])
     expect(az.sort).toEqual({ by: 'name', order: 'asc' })
 
-    const za = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'name', order: 'desc' }, NOW)
+    const za = await service.candidates(mili, 'coverage_upgrade', scopeOf([3]), { sort: 'name', order: 'desc' }, NOW)
     expect(za.data.map(r => r.id)).toEqual([1, 3, 2])
   })
 
@@ -350,10 +355,16 @@ describe('SalesCampaignsService.candidates', () => {
     ]
     const { service } = setup({ targets, messages })
 
-    const latest = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'lastMessage' }, NOW)
+    const latest = await service.candidates(mili, 'coverage_upgrade', scopeOf([3]), { sort: 'lastMessage' }, NOW)
     expect(latest.data.map(r => r.id)).toEqual([1, 3, 2])
 
-    const never = await service.candidates(mili, 'coverage_upgrade', [3], { sort: 'lastMessage', order: 'asc' }, NOW)
+    const never = await service.candidates(
+      mili,
+      'coverage_upgrade',
+      scopeOf([3]),
+      { sort: 'lastMessage', order: 'asc' },
+      NOW,
+    )
     expect(never.data.map(r => r.id)).toEqual([2, 3, 1])
   })
 
@@ -365,7 +376,7 @@ describe('SalesCampaignsService.candidates', () => {
     const messages = [{ status: 'SENT', sentAt: NOW, createdAt: NOW, error: null, clientId: 62, policyId: 2 }]
     const { service } = setup({ targets, messages })
 
-    const result = await service.candidates(mili, 'coverage_upgrade', [3], {}, NOW)
+    const result = await service.candidates(mili, 'coverage_upgrade', scopeOf([3]), {}, NOW)
     expect(result.data.map(r => r.id)).toEqual([1, 2])
   })
 
@@ -377,7 +388,7 @@ describe('SalesCampaignsService.candidates', () => {
     ]
     const { service } = setup({ targets })
 
-    const result = await service.candidates(mili, 'cross_sell', [3], { coverage: 'a' }, NOW)
+    const result = await service.candidates(mili, 'cross_sell', scopeOf([3]), { coverage: 'a' }, NOW)
     expect(result.data.map(r => r.id).sort()).toEqual([1, 3])
     expect(result.total).toBe(2)
     expect(result.filters).toEqual({
@@ -398,7 +409,7 @@ describe('SalesCampaignsService.candidates', () => {
     ]
     const { service } = setup({ targets })
 
-    const result = await service.candidates(mili, 'winback', [3], { reason: 'venta' }, NOW)
+    const result = await service.candidates(mili, 'winback', scopeOf([3]), { reason: 'venta' }, NOW)
     expect(result.data.map(r => r.id)).toEqual([2])
     expect(result.filters).toEqual({
       coverages: null,
