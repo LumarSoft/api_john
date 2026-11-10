@@ -188,3 +188,80 @@ export interface SancorQuotation {
   relationQuotationCode?: number
   plans: SancorQuotationPlan[]
 }
+
+// GET /modules/{product}: the coverage modules (offeringCode) the intermediary may quote.
+export type SancorModuleProduct =
+  | 'automotive'
+  | 'motorcycle'
+  | 'bicycle'
+  | 'bag'
+  | 'technology'
+  | 'homeProtected'
+  | 'accidentespersonales/24'
+
+export interface SancorModule {
+  id: number
+  // "Plan 2000", "Plan 1 - AGOSTO 2026", "Módulo $8.000.000"… trimmed.
+  description: string
+}
+
+// GET /localities: Sancor's own city ids, which every quotation asks for.
+export interface SancorLocality {
+  cityId: number
+  cityName: string
+  zipCode: number
+  stateName?: string
+}
+
+export interface SancorLocation {
+  cityId: number
+  zipCode: number
+}
+
+// One line of a quoted plan: a coverage, a commercial surcharge or a tax.
+export interface SancorQuoteLine {
+  description: string
+  capital: number
+  monthlyPremium: number
+  termPremium: number
+  // "Cobertura", "RecargosComerciales" or "Impuesto"
+  type: string
+}
+
+// A quoted plan of the products other than cars and motorcycles, the same
+// whatever spelling each Sancor API uses (premiumMonthly, premioMensual…).
+export interface SancorProductPlan {
+  // The coverage module (offeringCode) priced.
+  module: number
+  // Per month and for the whole term, surcharges and taxes included.
+  monthlyPremium: number
+  termPremium: number
+  // Only the lines of type "Cobertura": what the plan covers and up to how much.
+  coverages: SancorQuoteLine[]
+  lines: SancorQuoteLine[]
+}
+
+export interface SancorProductQuotation {
+  quotationId?: number
+  relationQuotationId?: number
+  plans: SancorProductPlan[]
+}
+
+// An extra of Hogar Protegido and the capital option chosen for it.
+export interface SancorHomeAdditional {
+  id: number
+  option: number
+}
+
+export type SancorAccidentAgeRange = '16-70' | '71-75' | '76+'
+
+export interface SancorAccidentQuotationInput {
+  location: SancorLocation
+  // A module of GET /modules/accidentespersonales/24: it sets the insured capital.
+  module: number
+  // Sancor does not quote personal accidents without the client's document.
+  document: { number: number; type: 'D' | 'C' | 'L' | 'I' | 'J' }
+  ageRange?: SancorAccidentAgeRange
+  // Two insured people (a married couple) instead of one.
+  couple?: boolean
+}

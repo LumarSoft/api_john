@@ -73,8 +73,12 @@ número entre paréntesis es el de la API en el portal y en `docs/sancor/specs/`
 | Api detalles de Siniestros (171) | `GET /intermediaries/{producerCode}/claims/{claimNumber}` | Detalle de un siniestro | Sí (`getClaim`) |
 | Api Consulta Reclamos Siniestro (615) | `POST /claims/searchexposure/status` | Estado de reclamos | No |
 | API de Parametrización de Siniestros (1157) | `GET /parameters/claims/...` | Tablas para denunciar (causas, tipos de vehículo, puntos de impacto…) | No |
-| Api Consulta de Localidades (142) | `GET /localities` | Localidad a partir del CP | No |
-| Api de Consulta de Módulos (176) | `GET /modules/{producto}` | Módulos (coberturas) válidos para el productor | No |
+| Api Consulta de Localidades (142) | `GET /localities` | Localidad a partir del CP | Sí (`getLocalities`, `resolveLocation`) |
+| Api de Consulta de Módulos (176) | `GET /modules/{producto}` | Módulos (coberturas) válidos para el productor | Sí (`getModules`) |
+| Cotización Robo Bolso Protegido (168) | `POST /quotations/theft/protectedbag` | Cotizar bolso protegido | Sí (`quoteBag`) |
+| Cotización Robo Bicicleta (554) | `POST /quotations/theft/bicycle` | Cotizar robo de bicicleta | Sí (`quoteBicycle`) |
+| Cotización Combinado Familiar Hogar Protegido (146) | `POST /quotations/familyCombined/homeProtected` | Cotizar hogar por plan | Sí (`quoteHomeProtected`) |
+| Cotización AP 24hs (178) | `POST /quotations/personalAccident/AP24Modulate` | Cotizar accidentes personales | Sí (`quotePersonalAccident`) |
 | Emisión Automotores (144) | `POST /vehicle/automotive/issuance/single` | **Emitir** una póliza de auto | No: emite una póliza real |
 | Emisión Motovehículos (158) | `POST /policies/vehicle/motorcycle` | **Emitir** una póliza de moto | No: emite una póliza real |
 | Siniestros Automotores (152) | `POST /claims/vehicle/data` | **Denunciar** un siniestro de auto | No: crea una denuncia real |
@@ -322,6 +326,55 @@ Están documentados en las specs y en la colección de Postman (marcados
   denunciante, vehículos involucrados y datos de la póliza.
 - **Anulación** (151): `DELETE /policies/annulment/certificate` con ramo, número
   y causa (`4` = decisión del tomador/asegurado).
+
+## Cotizaciones de bolso, bicicleta, hogar y accidentes personales
+
+`SancorService` las cotiza y devuelve todas con la misma forma
+(`SancorProductQuotation`): `quotationId`, `relationQuotationId` y una lista de
+planes con `module` (el `offeringCode`), `monthlyPremium` y `termPremium`
+(con recargos e impuestos), `coverages` (solo las líneas de tipo "Cobertura",
+con su capital) y `lines` (todas). Cada API de Sancor nombra los totales a su
+manera (`premiumMonthly`/`premiumVigency`, `premioMensual`/`premioSegunVigencia`,
+importes como texto en AP); el servicio los unifica.
+
+Todo lo de esta sección se probó contra preproducción el 9/11/2026 con el
+código del servicio, y no coincide del todo con las specs del portal:
+
+- **Fecha de inicio:** siempre la de hoy **en UTC** (`sancorToday()`); después
+  de las 21 de Argentina ya es mañana. Bolso, bicicleta y hogar la toman como
+  `YYYY-MM-DD`; AP la exige con hora (`YYYY-MM-DDT00:00:00.000Z`) y rechaza la
+  fecha sola ("is not a valid value for the dateTime datatype").
+- **Localidad:** todas piden `locationRisk { cityId, zipCode }`. `cityId` es el
+  de Sancor: `resolveLocation(cp, nombre)` lo busca con `GET /localities` y, si
+  varias ciudades comparten el CP (2000 es Rosario y sus barrios), elige la del
+  nombre o la primera. Rosario = 1240.
+- **Planes:** `getModules(producto)` devuelve los que el productor puede vender
+  (`/modules/bag`, `/bicycle`, `/homeProtected`, `/accidentespersonales/24`).
+  Localidades y módulos se guardan 6 horas en memoria: los planes de cada
+  producto permiten 100 llamadas por hora.
+- **Bolso (`quoteBag`):** varios planes en una llamada (`offeringCode` "1,2,3";
+  sin plan contesta 415). El organizador va como texto.
+- **Bicicleta (`quoteBicycle`):** **no** acepta plan: con `offeringCode`
+  contesta 500 "The complex type of element CoverModuleCodes … must not have a
+  value". Sin él devuelve los planes estándar (Plan 25.000 a Plan 100.000).
+- **Hogar Protegido (`quoteHomeProtected`):** exige al menos un adicional; sin
+  `aditionals` contesta 415 "Faltan parámetros de entrada obligatorios
+  (undefined)". `{ id: 0, option: 0 }` cotiza el plan solo (7.630 por mes el
+  plan 70, contra 9.120 con el adicional 1 opción 3). De los 9 planes que lista
+  Sancor, John tiene habilitados los primeros cuatro (módulos 70 a 73): pidiendo
+  todos devuelve esos; pidiendo solo uno no habilitado contesta 500 "El producto
+  no tiene módulos habilitados para cotizar". Hogar Premium no está: pide datos
+  de la construcción que el bot no junta.
+- **Accidentes personales (`quotePersonalAccident`):** individual, anual en 12
+  cuotas. **Exige el documento del cliente** (`clientIdentify`): sin él Sancor
+  falla armando su pedido ("Exception during creation of SOAP envelope"). El
+  módulo define el capital de muerte e invalidez (47 = $8.000.000); el
+  `deathCoverAmount` se ignora. Pareja (`couple`) cuesta el doble. Mandar
+  `statisticCodeIds: 0` agrega la advertencia "El grupo estadístico es
+  inexistente": no se manda.
+- **Errores:** el motivo de un rechazo viene en el `help` del mensaje de Sancor
+  y el servicio lo incluye en el error.
+- Los importes de preproducción no son los de venta.
 
 ## Catálogo completo del portal (9/11/2026)
 
