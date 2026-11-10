@@ -230,6 +230,26 @@ describe('message plans', () => {
     expect(prisma.messagePlan.findFirst.mock.calls[0][0].where).toMatchObject({ producerId: null, isTrial: true })
   })
 
+  it('starts numbers on the plan the owner put the organization on, while the catalog offers it', async () => {
+    const { service, prisma } = setup()
+    const organization = (plan: object) => ({ createdAt: new Date('2026-11-01T00:00:00Z'), plan })
+    prisma.producer.findUnique.mockResolvedValue(
+      organization({ id: 5, isActive: true, deletedAt: null, producerId: null }),
+    )
+    await expect(service.initialPlanIdFor(2)).resolves.toBe(5)
+    expect(prisma.messagePlan.findFirst).not.toHaveBeenCalled()
+
+    // A plan the owner switched off or deleted since: back to the automatic one (the trial here).
+    prisma.producer.findUnique.mockResolvedValue(
+      organization({ id: 5, isActive: false, deletedAt: null, producerId: null }),
+    )
+    await expect(service.initialPlanIdFor(2)).resolves.toBe(9)
+    prisma.producer.findUnique.mockResolvedValue(
+      organization({ id: 5, isActive: true, deletedAt: new Date(), producerId: null }),
+    )
+    await expect(service.initialPlanIdFor(2)).resolves.toBe(9)
+  })
+
   it("reads the catalog of the platform only, never an organization's old plans", async () => {
     const { service, prisma } = setup()
     await service.catalog()

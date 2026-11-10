@@ -19,29 +19,29 @@ datasource db {
 // (Kept the name `Producer` to avoid a destabilizing rename — see CONTEXT.md.)
 
 model Producer {
-  id            Int       @id @default(autoincrement())
-  name          String
-  slug          String    @unique
+  id                   Int       @id @default(autoincrement())
+  name                 String
+  slug                 String    @unique
   // The organization's principal Triunfo code (e.g. "11425"). The cartera of every
   // dependent code rolls up to this org. Informational/anchor for the master code.
-  masterCode    String?   @db.VarChar(20)
+  masterCode           String?   @db.VarChar(20)
   // Display name the WhatsApp bot uses to introduce itself (per branch/tenant).
   // Null/empty → the bot introduces itself as "el asistente de <org>".
-  botName       String?   @db.VarChar(60)
+  botName              String?   @db.VarChar(60)
   // First names of the office people customers write to by name ("Mili,
   // Milagros"), comma separated. A message that names one of them alerts the
   // office, and the bot keeps attending the customer.
-  staffNames    String?   @db.VarChar(255)
+  staffNames           String?   @db.VarChar(255)
   // Weekly business hours (Mon–Sun) shown across every channel (WhatsApp bot and
   // the public web) and used to compute "open now". Single source of truth edited
   // from the admin "Horarios" screen. JSON shape: { mon: [{from,to}], ..., sun: [] }
   // where each day holds zero or more HH:mm ranges ([] = closed). Null → app default.
-  businessHours Json?
+  businessHours        Json?
   // How the bot names the organization and what it tells customers about
   // assistance and payments (grúa line, claims line, transfer account, where to
   // pay cash), edited from "Configuración". Flat JSON, see
   // src/common/bot-profile.ts. Null → the bot's own defaults.
-  botProfile    Json?
+  botProfile           Json?
   // Which coverages of the fixed motorcycle catalog (A, B4, B1, B) the
   // organization offers: { "<code>": boolean }, only the ones it changed. Kept
   // apart from CoverageSetting because the same letters are other products on a
@@ -50,12 +50,12 @@ model Producer {
   // The organization's logo, served from /uploads/logos (a square WebP). The
   // panel shows it after login and on the printable policy card; null = its
   // initials.
-  logoUrl       String?   @db.VarChar(255)
-  systemPrompt  String    @db.Text
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  logoUrl              String?   @db.VarChar(255)
+  systemPrompt         String    @db.Text
+  isActive             Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
 
   producerCodes           ProducerCode[]
   phoneNumbers            PhoneNumber[]
@@ -69,7 +69,7 @@ model Producer {
   notifications           Notification[]
   contactLeads            ContactLead[]
   productPlans            ProductPlan[]
-  messagePlans            MessagePlan[]
+  messagePlans            MessagePlan[]            @relation("producer_legacy_plans")
   businessClosures        BusinessClosure[]
   usageMonthly            UsageMonthly[]
   monthlyCloses           MonthlyClose[]
@@ -96,6 +96,14 @@ model Producer {
   activityLogs            ActivityLog[]
   assistantConversations  AssistantConversation[]
   assistantActions        AssistantAction[]
+  // The plan the owner put the organization on. It is the plan an organization
+  // with no number yet has (which panel functions it may use) and the plan each
+  // of its new numbers starts on. Null = the trial plan for a new account, else
+  // the smallest paid plan. Nothing is invoiced from it: billing is per number.
+  planId                  Int?
+  plan                    MessagePlan?             @relation("producer_plan", fields: [planId], references: [id], onDelete: SetNull)
+
+  @@index([planId])
 }
 
 // ─── BOT STATUS AUDIT ────────────────────────────────────
@@ -1622,9 +1630,11 @@ model MessagePlan {
   /// Legacy (billing before 2026-10-30): each organization had its own catalog.
   /// Null for every plan of the platform's catalog; old rows are retired.
   producerId Int?
-  producer   Producer? @relation(fields: [producerId], references: [id])
+  producer   Producer? @relation("producer_legacy_plans", fields: [producerId], references: [id])
 
-  phoneNumbers PhoneNumber[]
+  phoneNumbers  PhoneNumber[]
+  /// Organizations the owner put on this plan (Producer.planId).
+  organizations Producer[]    @relation("producer_plan")
 
   @@index([producerId, isActive, sortOrder])
   @@index([isActive, sortOrder])

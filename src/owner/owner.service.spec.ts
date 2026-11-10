@@ -95,3 +95,71 @@ describe('OwnerService addUser', () => {
     )
   })
 })
+
+describe('OwnerService setOrganizationPlan', () => {
+  const CATALOG = [
+    { id: 3, name: 'Prueba', messages: 100, priceUsd: 0, isTrial: true, isActive: true },
+    { id: 4, name: 'Inicial', messages: 500, priceUsd: 25, isTrial: false, isActive: true },
+    { id: 5, name: 'Profesional', messages: 1000, priceUsd: 50, isTrial: false, isActive: true },
+    { id: 7, name: 'Viejo', messages: 800, priceUsd: 40, isTrial: false, isActive: false },
+  ]
+
+  const createService = ({ exists = true } = {}) => {
+    let planId: number | null = null
+    const prisma = {
+      producer: {
+        findFirst: jest.fn().mockResolvedValue(exists ? { id: 3 } : null),
+        update: jest.fn().mockImplementation(({ data }: { data: { planId: number | null } }) => {
+          planId = data.planId
+          return Promise.resolve({ id: 3 })
+        }),
+      },
+    }
+    const usage = {
+      catalog: jest.fn().mockResolvedValue(CATALOG),
+      // The organization's plan, else the trial (a new account).
+      initialPlanIdFor: jest.fn().mockImplementation(() => Promise.resolve(planId ?? 3)),
+      assignedPlanFor: jest.fn((id: number | null) => {
+        const plan = CATALOG.find(p => p.id === id)
+        return plan ? { id: plan.id, name: plan.name, trial: plan.isTrial } : null
+      }),
+    }
+    return {
+      prisma,
+      service: new OwnerService(prisma as unknown as PrismaService, usage as unknown as UsageService),
+    }
+  }
+
+  it('puts an organization with no number on a plan of the catalog', async () => {
+    const { prisma, service } = createService()
+
+    await expect(service.setOrganizationPlan(3, 5)).resolves.toEqual({
+      id: 3,
+      planId: 5,
+      startingPlan: { id: 5, name: 'Profesional', trial: false },
+    })
+    expect(prisma.producer.update).toHaveBeenCalledWith({ where: { id: 3 }, data: { planId: 5 } })
+  })
+
+  it('takes the plan off with null: back to the automatic one', async () => {
+    const { prisma, service } = createService()
+
+    await expect(service.setOrganizationPlan(3, null)).resolves.toEqual({
+      id: 3,
+      planId: null,
+      startingPlan: { id: 3, name: 'Prueba', trial: true },
+    })
+    expect(prisma.producer.update).toHaveBeenCalledWith({ where: { id: 3 }, data: { planId: null } })
+  })
+
+  it('refuses a plan the catalog does not have or has switched off, and an unknown organization', async () => {
+    const { prisma, service } = createService()
+
+    await expect(service.setOrganizationPlan(3, 99)).rejects.toMatchObject({ status: 404 })
+    await expect(service.setOrganizationPlan(3, 7)).rejects.toMatchObject({ status: 400 })
+    expect(prisma.producer.update).not.toHaveBeenCalled()
+
+    const missing = createService({ exists: false })
+    await expect(missing.service.setOrganizationPlan(8, 5)).rejects.toMatchObject({ status: 404 })
+  })
+})

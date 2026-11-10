@@ -9,6 +9,7 @@ import { CreateProducerCodeDto } from './dto/create-producer-code.dto'
 import { UpdateProducerCodeDto } from './dto/update-producer-code.dto'
 import { CreateSuperAdminDto } from './dto/create-superadmin.dto'
 import { CreateOrgUserDto, UpdateOrgUserDto } from './dto/manage-user.dto'
+import { SetOrganizationPlanDto } from './dto/set-organization-plan.dto'
 
 /**
  * Platform OWNER (Lumar) endpoints. The owner uses the same admin login as any
@@ -39,6 +40,12 @@ export class OwnerController {
   @Patch(':id')
   setActive(@Param('id', ParseIntPipe) id: number, @Body('isActive') isActive: boolean) {
     return this.owner.setOrganizationActive(id, isActive)
+  }
+
+  /** The plan the organization has with no number and its new numbers start on. */
+  @Patch(':id/plan')
+  setPlan(@Param('id', ParseIntPipe) id: number, @Body() dto: SetOrganizationPlanDto) {
+    return this.owner.setOrganizationPlan(id, dto.planId)
   }
 
   @Post(':id/codes')
