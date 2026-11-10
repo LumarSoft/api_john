@@ -13,7 +13,7 @@ const plans = [
   { id: 2, name: 'Profesional', messages: 1000, priceUsd: 50, isTrial: false, isActive: true, sortOrder: 2 },
 ]
 
-function setup(numbers: unknown[] = []) {
+function setup(numbers: unknown[] = [], env: Record<string, string> = {}) {
   const prisma = {
     messagePlan: {
       findMany: jest.fn().mockResolvedValue(plans),
@@ -36,7 +36,7 @@ function setup(numbers: unknown[] = []) {
     monthlyClose: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn().mockResolvedValue([]),
   }
-  const config = { get: () => undefined } as unknown as ConfigService
+  const config = { get: (key: string) => env[key] } as unknown as ConfigService
   const usage = new UsageService(prisma as unknown as PrismaService, config, { sendAlert: jest.fn() } as never)
   const scope = { resolveAccessibleProducerCodeIds: jest.fn().mockResolvedValue([7]) }
   const closes = new MonthlyCloseService(prisma as unknown as PrismaService, usage, config)
@@ -179,7 +179,7 @@ describe('the month of each number', () => {
   it('shows the plan, how far into it the month is and where it goes next', async () => {
     const { service } = setup([number()])
     const result = await service.overview(superadmin, '2026-10')
-    expect(result).toMatchObject({ period: '2026-10', blockMessages: 1000, totalBilledUsd: 25 })
+    expect(result).toMatchObject({ period: '2026-10', blockMessages: 1000 })
     expect(result.plans.map(p => p.name)).toEqual(['Prueba', 'Inicial', 'Profesional'])
     expect(result.numbers[0]).toMatchObject({
       assignedPlan: { id: 1, name: 'Inicial' },
@@ -189,6 +189,28 @@ describe('the month of each number', () => {
       includedMessages: 500,
       remainingMessages: 380,
       percentUsed: 24,
+      nextPlan: { name: 'Profesional', messages: 1000 },
+    })
+  })
+
+  it('keeps every price to the owner: the organization sees its plans by messages only', async () => {
+    const { service } = setup([number()])
+    for (const user of [superadmin, admin]) {
+      const result = await service.overview(user, '2026-10')
+      expect(result).not.toHaveProperty('totalBilledUsd')
+      for (const plan of result.plans) expect(plan).not.toHaveProperty('priceUsd')
+      const [row] = result.numbers
+      expect(row).not.toHaveProperty('billedUsd')
+      expect(row.plan).not.toHaveProperty('priceUsd')
+      expect(row.assignedPlan).not.toHaveProperty('priceUsd')
+      expect(row.nextPlan).not.toHaveProperty('priceUsd')
+    }
+    const forOwner = await service.overview(owner, '2026-10')
+    expect(forOwner).toMatchObject({ totalBilledUsd: 25 })
+    expect(forOwner.plans.map(p => (p as { priceUsd: number }).priceUsd)).toEqual([0, 25, 50])
+    expect(forOwner.numbers[0]).toMatchObject({
+      plan: { priceUsd: 25 },
+      assignedPlan: { priceUsd: 25 },
       nextPlan: { name: 'Profesional', messages: 1000, priceUsd: 50 },
       billedUsd: 25,
     })
@@ -209,7 +231,7 @@ describe('the month of each number', () => {
       { phoneNumberId: 8, _min: { period: '2026-09' } },
       { phoneNumberId: 9, _min: { period: '2026-09' } },
     ])
-    const [atLimit, beyond] = (await service.overview(superadmin, '2026-10')).numbers
+    const [atLimit, beyond] = (await service.overview(owner, '2026-10')).numbers
     expect(atLimit).toMatchObject({
       plan: { name: 'Inicial' },
       upgraded: false,
@@ -233,14 +255,10 @@ describe('the month of each number', () => {
     prisma.usageEvent.groupBy.mockResolvedValue([
       { phoneNumberId: 8, _min: { deliveredAt: new Date('2026-10-21T13:00:00Z') } },
     ])
-    const forSuperadmin = await service.overview(superadmin, '2026-10')
-    expect(forSuperadmin.numbers[0]).toMatchObject({ billedUsd: 25 })
-    expect(forSuperadmin.numbers[0]).not.toHaveProperty('prorated')
-    expect(forSuperadmin.totalBilledUsd).toBe(25)
-    expect((await service.overview(admin, '2026-10')).numbers[0]).toMatchObject({ billedUsd: 25 })
     const forOwner = await service.overview(owner, '2026-10')
     expect(forOwner.numbers[0]).toMatchObject({ billedUsd: 25 })
     expect(forOwner.numbers[0]).not.toHaveProperty('prorated')
+    expect(forOwner.totalBilledUsd).toBe(25)
   })
 
   it('still shows a number that moved up on its own this month as moved up', async () => {
@@ -257,7 +275,7 @@ describe('the month of each number', () => {
     expect(before).toMatchObject({ upgraded: false, movedUpAt: null })
   })
 
-  it('limits an admin to the numbers billed to their codes and keeps the total to the SuperAdmin', async () => {
+  it('limits an admin to the numbers billed to their codes', async () => {
     const { service, prisma } = setup([number()])
     const result = await service.overview(admin, '2026-10')
     expect(prisma.phoneNumber.findMany.mock.calls[0][0].where).toMatchObject({
@@ -397,6 +415,76 @@ describe("the owner's dashboard", () => {
     })
   })
 
+  it('costs a campaign message twice what any other costs, and shows what the plan leaves over that', async () => {
+    const { service, prisma } = setup([], { PARTNER_COST_PER_MESSAGE_USD: '0.03', PARTNER_PROFIT_SHARE: '0.5' })
+    prisma.producer.findMany.mockResolvedValue([
+      {
+        id: 1,
+        name: 'JPMG',
+        isActive: true,
+        phoneNumbers: [
+          {
+            id: 8,
+            number: '+54 9 341 275-7294',
+            isActive: true,
+            planId: 2,
+            responsibleProducerCode: { code: '11425', holderName: null },
+            // 700 sent: 600 of the bot, the office and notices, 100 of a campaign.
+            usageMonthly: [{ metaMessages: 700, metaBillableMessages: 100, metaCostUsd: 6.18, openaiCostUsd: 1 }],
+          },
+        ],
+      },
+    ])
+    prisma.usageMonthly.groupBy.mockResolvedValue([{ phoneNumberId: 8, _min: { period: '2026-09' } }])
+    prisma.usageEvent.groupBy.mockImplementation((args: { _count?: unknown }) =>
+      Promise.resolve(args._count ? [{ phoneNumberId: 8, _count: { _all: 100 } }] : []),
+    )
+    const result = await service.ownerDashboard('2026-11')
+    const campaignQuery = prisma.usageEvent.groupBy.mock.calls.find(([args]) => args._count)![0]
+    expect(campaignQuery.where).toEqual({
+      phoneNumberId: { in: [8] },
+      period: '2026-11',
+      provider: 'meta',
+      category: { in: ['marketing', 'marketing_lite'] },
+    })
+    expect(result.messageCost).toEqual({ messageUsd: 0.03, campaignMessageUsd: 0.06 })
+    // Illustrative rate. 600 × 0.03 + 100 × 0.06 = 24; Profesional bills 50, so 26 is left.
+    expect(result.organizations[0].numbers[0]).toMatchObject({
+      sentMessages: 700,
+      botMessages: 600,
+      campaignMessages: 100,
+      billedUsd: 50,
+      messageCostUsd: 24,
+      marginUsd: 26,
+      metaCostUsd: 6.18,
+    })
+    expect(result.totals).toMatchObject({ botMessages: 600, campaignMessages: 100, messageCostUsd: 24, marginUsd: 26 })
+  })
+
+  it('leaves the message cost out when its rate is not configured', async () => {
+    const { service, prisma } = setup()
+    prisma.producer.findMany.mockResolvedValue([
+      {
+        id: 1,
+        name: 'JPMG',
+        isActive: true,
+        phoneNumbers: [
+          {
+            id: 8,
+            number: '+54 9 341 275-7294',
+            isActive: true,
+            planId: 1,
+            responsibleProducerCode: null,
+            usageMonthly: [{ metaMessages: 10, metaBillableMessages: 0, metaCostUsd: 0, openaiCostUsd: 0 }],
+          },
+        ],
+      },
+    ])
+    const result = await service.ownerDashboard('2026-11')
+    expect(result.messageCost).toBeNull()
+    expect(result.totals).toMatchObject({ botMessages: 10, campaignMessages: 0, messageCostUsd: 0 })
+  })
+
   it('reads a closed month as it was frozen, not with the plans of today', async () => {
     const { service, prisma } = setup()
     prisma.monthlyClose.findMany.mockResolvedValue([
@@ -423,7 +511,7 @@ describe("the owner's dashboard", () => {
         metaCostUsd: 1.24,
         openaiCostUsd: 0.75,
         billedUsd: 25,
-        // Illustrative settlement rates (the Tablero does not read them).
+        // Illustrative settlement rates: the Tablero reads only the cost per message.
         costPerMessageUsd: 0.03,
         serviceCostUsd: 9.6,
         remainderUsd: 15.4,
@@ -446,7 +534,13 @@ describe("the owner's dashboard", () => {
       billedUsd: 25,
       profitUsd: 23.76,
       paused: false,
+      // The rate the month was closed with: 300 × 0.03.
+      botMessages: 300,
+      campaignMessages: 0,
+      messageCostUsd: 9,
+      marginUsd: 16,
     })
+    expect(result.messageCost).toEqual({ messageUsd: 0.03, campaignMessageUsd: 0.06 })
     // Nothing was recomputed: the numbers of today are not read.
     expect(prisma.phoneNumber.findMany).not.toHaveBeenCalled()
     expect(prisma.messagePlan.findMany).not.toHaveBeenCalled()

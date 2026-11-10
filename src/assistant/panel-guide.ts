@@ -110,7 +110,7 @@ export const PANEL_GUIDE =
 ## Inicio
 - Es un resumen en vivo con cuatro tarjetas: Asegurados, Solicitudes nuevas, Deuda por cobrar (con la cantidad de cuotas vencidas) y Siniestros abiertos.
 - Tiene estos gráficos: Próximas renovaciones (6 meses, con la prima en riesgo), Cartera de clientes, Solicitudes por estado, Cobranzas y Siniestros.
-- Si el asistente de un número se pausó por llegar al límite del plan, aparece un aviso con dos botones: "Pasar a <plan> · USD … por mes" o "Dejarlo en pausa hasta el <día>". Mientras está en pausa los mensajes se guardan y se puede contestar desde Whatsapp.
+- Si el asistente de un número se pausó por llegar al límite del plan, aparece un aviso con dos botones: "Pasar a <plan> · <mensajes> mensajes por mes" o "Dejarlo en pausa hasta el <día>". Mientras está en pausa los mensajes se guardan y se puede contestar desde Whatsapp.
 
 ## Asuntos pendientes
 - Junta lo que necesita atención del equipo: clientes que pidieron un asesor, pedidos de baja, siniestros, solicitudes, avisos de plan y caídas de Triunfo. Leer la conversación no resuelve el asunto: hay que cambiarle el estado.
@@ -192,7 +192,7 @@ export const PANEL_GUIDE =
 
 ## Facturación
 - Cada número tiene un plan de mensajes por mes, que cuenta lo que mandan el asistente, la oficina y los avisos. Se factura a mes vencido y los planes los define el soporte de la plataforma.
-- Cada tarjeta muestra el plan del mes, los mensajes usados y los que quedan, y el precio. El selector "Mes" muestra meses anteriores.
+- Cada tarjeta muestra el plan del mes, los mensajes usados y los que quedan. Los precios de los planes no se ven en el panel: los informa el soporte de la plataforma. El selector "Mes" muestra meses anteriores.
 - Al llegar al límite del plan: "Pasar a <plan>" o "Dejarlo en pausa hasta el <día>".
 - El SuperAdmin tiene la pestaña "Consumo", donde elige el plan de cada número en "Plan asignado" (solo para el mes actual), y la pestaña "Planes", con el catálogo para leer. El administrador no puede cambiar el plan.
 - Qué funciones incluye cada plan (avisos, campañas, este asistente) lo define el soporte de la plataforma. Si una función está bloqueada, el panel dice desde qué plan está.

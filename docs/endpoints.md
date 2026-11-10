@@ -1368,11 +1368,11 @@ The office told these clients by other means (a call, in person): a `MARKED` not
 
 ## Facturación (planes de mensajes)
 
-Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends, notices); only a **campaign** message (Meta pricing category `marketing`) delivered from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on (default 2026-12-01) consumes **2**. Every other message consumes 1: replies (`service`, `referral_conversion`), `utility` templates (rejection and expiry notices, quote follow-ups) and `authentication`. Every figure the organization sees (`messages`, `messagesUsed`, the bar, the limit) is that consumed count; the weight, the raw counts and the categories are the OWNER's only. The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). A number never moves up on its own: when its consumed messages reach its plan, its assistant **pauses**; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and an e-mail, and chooses to continue on the next plan (`POST /admin/billing/numbers/:id/limit`) or to wait for next month. Past the largest plan, continuing adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message. The billing cycle is the calendar month (from the 1st to the last day) and it is always charged whole: an active number pays its whole plan, also in the month it went live, whatever day that was. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost; the profit is billed − Meta (OpenAI is prepaid). Rules and examples: `docs/message-plans-october-2026.md`.
+Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends, notices); only a **campaign** message (Meta pricing category `marketing`) delivered from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on (default 2026-12-01) consumes **2**. Every other message consumes 1: replies (`service`, `referral_conversion`), `utility` templates (rejection and expiry notices, quote follow-ups) and `authentication`. Every figure the organization sees (`messages`, `messagesUsed`, the bar, the limit) is that consumed count; the weight, the raw counts and the categories are the OWNER's only. The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). **Prices are the OWNER's only**: no endpoint gives an ADMIN or a SUPERADMIN a plan's price, what a number is billed or the month's total (`priceUsd`, `billedUsd`, `totalBilledUsd`); they see plans by name and messages, and the plan-limit notice and e-mail name the next plan by its messages. The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). A number never moves up on its own: when its consumed messages reach its plan, its assistant **pauses**; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and an e-mail, and chooses to continue on the next plan (`POST /admin/billing/numbers/:id/limit`) or to wait for next month. Past the largest plan, continuing adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message. The billing cycle is the calendar month (from the 1st to the last day) and it is always charged whole: an active number pays its whole plan, also in the month it went live, whatever day that was. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost, and the cost per message it works with: `PARTNER_COST_PER_MESSAGE_USD` (set only in the server's `.env`) for each message of the bot, the office or a notice and twice that for each campaign message (`GET /owner/billing`). Rules and examples: `docs/message-plans-october-2026.md`.
 
 ### GET /admin/billing
 
-The month of every number in scope: its assigned plan, the plan the month is billed on, how far into it the number is (the consumption bar) and the plan it moves to next. ADMIN sees the numbers billed to its codes; SUPERADMIN (and OWNER) every number of the organization plus the month's total.
+The month of every number in scope: its assigned plan, the plan the month is billed on, how far into it the number is (the consumption bar) and the plan it moves to next. ADMIN sees the numbers billed to its codes; SUPERADMIN (and OWNER) every number of the organization. Prices (`priceUsd` in `plans`, `assignedPlan`, `plan` and `nextPlan`, `billedUsd` and `totalBilledUsd`) come only for the OWNER.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -1384,7 +1384,7 @@ The month of every number in scope: its assigned plan, the plan the month is bil
 
 **Responses**
 
-`200 OK` — `upgraded` is true when the month's messages passed the assigned plan or the number already moved up on its own this month (`movedUpAt`). `plan.id` is null past the largest plan (`extraBlocks` > 0). `totalBilledUsd` comes only for SUPERADMIN and OWNER.
+`200 OK` — `upgraded` is true when the month's messages passed the assigned plan or the number already moved up on its own this month (`movedUpAt`). `plan.id` is null past the largest plan (`extraBlocks` > 0). The example is the OWNER's; an ADMIN or a SUPERADMIN gets the same without `priceUsd`, `billedUsd` and `totalBilledUsd`.
 ```json
 {
   "period": "2026-10",
@@ -1455,7 +1455,7 @@ puede responder por los números de sus códigos.
 
 En `GET /admin/billing` cada número trae `limit`: `reached` (sus mensajes llegaron al plan), `paused` (su asistente
 está en pausa este mes), `confirmed` (alguien eligió dejarlo en pausa), `pausedAt` y `resumesOn` (`YYYY-MM-01`).
-`nextPlan` es lo que da "continuar". `billedUsd` es el plan completo para todos los roles: el mes se cobra completo, también el mes en que el número salió.
+`nextPlan` es lo que da "continuar". `billedUsd` (solo para el OWNER) es el plan completo: el mes se cobra completo, también el mes en que el número salió.
 
 ### GET /admin/billing/features
 
@@ -1530,7 +1530,7 @@ Puts a number of the organization on a paid plan of the catalog. Clears the numb
 
 ### GET /owner/billing
 
-The platform's month: what each organization and number is billed, what Meta really charged, OpenAI apart, and the profit (billed − Meta). A **closed** month (see `POST /owner/billing/close`) is read as it was frozen: plan, messages, billed and costs of that day, never recomputed with today's plans; `assignedPlan` is `null` and `paused` `false` there. Only a month not closed yet (the running one, or a past one before its close) is computed with each number's current plan. `messages` is the plan messages consumed (a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on); `sentMessages` counts each message once and `templateMessages` the templates among them (every template, campaigns, notices and authentication alike).
+The platform's month: what each organization and number is billed against what its messages cost, plus what Meta really charged and OpenAI apart. **Message cost** = `botMessages` × `PARTNER_COST_PER_MESSAGE_USD` (every message of the bot, the office or a notice) + `campaignMessages` × twice that (campaign messages, Meta category `marketing`/`marketing_lite`), whatever the plan counted; `marginUsd` = billed − message cost (what selling a plan bigger than the messages leaves); `profitUsd` = billed − Meta. `messageCost` gives the rates used (a closed month uses the rate it was closed with) and is `null` when `PARTNER_COST_PER_MESSAGE_USD` is not configured (then `messageCostUsd` is 0). A **closed** month (see `POST /owner/billing/close`) is read as it was frozen: plan, messages, billed and costs of that day, never recomputed with today's plans; `assignedPlan` is `null` and `paused` `false` there. Only a month not closed yet (the running one, or a past one before its close) is computed with each number's current plan. `messages` is the plan messages consumed (a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on); `sentMessages` counts each message once and `templateMessages` the templates among them (every template, campaigns, notices and authentication alike).
 
 **Auth required:** Yes (OWNER)
 
@@ -1543,6 +1543,7 @@ The platform's month: what each organization and number is billed, what Meta rea
   "closed": true,
   "closedAt": "2026-11-01T03:00:00.000Z",
   "backfilled": false,
+  "messageCost": { "messageUsd": 0.03, "campaignMessageUsd": 0.06 },
   "organizations": [
     {
       "id": 1,
@@ -1561,14 +1562,18 @@ The platform's month: what each organization and number is billed, what Meta rea
           "messages": 502,
           "sentMessages": 502,
           "templateMessages": 2,
+          "botMessages": 500,
+          "campaignMessages": 2,
           "metaBillableMessages": 2,
           "billedUsd": 50,
+          "messageCostUsd": 15.12,
+          "marginUsd": 34.88,
           "metaCostUsd": 0.05,
           "openaiCostUsd": 1.4,
           "profitUsd": 49.95
         }
       ],
-      "totals": { "messages": 502, "sentMessages": 502, "templateMessages": 2, "metaBillableMessages": 2, "billedUsd": 50, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
+      "totals": { "messages": 502, "sentMessages": 502, "templateMessages": 2, "botMessages": 500, "campaignMessages": 2, "metaBillableMessages": 2, "billedUsd": 50, "messageCostUsd": 15.12, "marginUsd": 34.88, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
     }
   ],
   "totals": {
@@ -1579,8 +1584,12 @@ The platform's month: what each organization and number is billed, what Meta rea
     "messages": 502,
     "sentMessages": 502,
     "templateMessages": 2,
+    "botMessages": 500,
+    "campaignMessages": 2,
     "metaBillableMessages": 2,
     "billedUsd": 50,
+    "messageCostUsd": 15.12,
+    "marginUsd": 34.88,
     "metaCostUsd": 0.05,
     "openaiCostUsd": 1.4,
     "profitUsd": 49.95
@@ -3559,13 +3568,13 @@ for accounts never read. `null` until Meta was read.
 
 ### What each role gets from `GET /admin/phone-numbers`
 
-Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role; every role sees the plan's price, only the OWNER sees what Meta and OpenAI cost:
+Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role; only the OWNER sees plan prices, what the month is billed and what Meta and OpenAI cost (the organization sees its plans by name and messages):
 
 | Role       | `usage` fields                                                                                                                       | Number fields                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| ADMIN      | `period`, `messages` (plan messages consumed this month: a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on), `assignedPlan`, `plan` (the plan the month is billed on; its price, never its cost), `upgraded`, `billedUsd` (the plan's full price: the month is always charged whole), `planPaused` | no budget fields |
+| ADMIN      | `period`, `messages` (plan messages consumed this month: a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on), `assignedPlan`, `plan` (the plan the month is billed on, without `priceUsd`), `upgraded`, `planPaused` | no budget fields |
 | SUPERADMIN | plus `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
-| OWNER      | plus `metaMessages` (sent, one each) and `metaTemplateMessages` (of those, templates), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta) | `monthlyBudgetUsd`, `budgetExceededAt` |
+| OWNER      | plus `priceUsd` in `assignedPlan` and `plan`, `billedUsd` (the plan's full price: the month is always charged whole), `metaMessages` (sent, one each) and `metaTemplateMessages` (of those, templates), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta) | `monthlyBudgetUsd`, `budgetExceededAt` |
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 
