@@ -42,6 +42,11 @@ model Producer {
   // pay cash), edited from "Configuración". Flat JSON, see
   // src/common/bot-profile.ts. Null → the bot's own defaults.
   botProfile    Json?
+  // Which coverages of the fixed motorcycle catalog (A, B4, B1, B) the
+  // organization offers: { "<code>": boolean }, only the ones it changed. Kept
+  // apart from CoverageSetting because the same letters are other products on a
+  // moto. Null or a missing code = offered.
+  motoCoverageSettings Json?
   // The organization's logo, served from /uploads/logos (a square WebP). The
   // panel shows it after login and on the printable policy card; null = its
   // initials.
@@ -428,6 +433,9 @@ model PhoneNumber {
   // highlighted, sortOrder } } with only the fields it changes. Wording and
   // year windows stay the organization's. Null = offers them as the organization does.
   coverageSettings     Json?
+  // The number's own choice of motorcycle coverages: { "<code>": boolean } with
+  // only the ones it changes. Null or a missing code = as the organization.
+  motoCoverageSettings Json?
   botStatusChanges     BotStatusChange[]
   // The number's own holidays and closures: a branch's closure never closes
   // another branch. National holidays are loaded into each number.

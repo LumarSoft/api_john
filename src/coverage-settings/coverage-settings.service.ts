@@ -6,6 +6,7 @@ import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
 import { defaultCopyFor, motoCopyFor, MOTO_COVERAGE_CODES } from './coverage-defaults'
 import { VehicleType } from '../infoauto/infoauto.types'
 import type { CoverageOverrides } from '../common/coverage-overrides'
+import { parseMotoCoverageOffers, type MotoCoverageOffers } from './moto-coverage-offers'
 
 const SETTING_SELECT = {
   id: true,
@@ -209,19 +210,68 @@ export class CoverageSettingsService {
   }
 
   /**
-   * The motorcycle coverages an organization — or one of its numbers — offers.
-   * The moto catalog is fixed (Triunfo's names, benefits and order), but
-   * whether each code is offered follows the "Ofrecer" switch the panel shows
-   * for that code: an office that left B4 unticked was still getting "RC +
-   * incendio" on every moto quote (10/11). The car year windows do not apply.
+   * The motorcycle coverages to quote. The moto catalog is fixed (Triunfo's
+   * names, benefits and order), and which of its codes are offered is the
+   * office's choice, kept apart from the car coverages: the letters are the same
+   * but the products are not, and an office that does not sell "RC + incendio"
+   * on a moto was getting B4 on every quote (10/11). The number the quote came
+   * through decides first; what it leaves unset is the organization's, and what
+   * the organization never touched is offered.
    */
-  async offeredMotoCodes(producerId: number, overrides: CoverageOverrides | null = null): Promise<string[]> {
-    const settings = await this.prisma.coverageSetting.findMany({
-      where: { producerId, code: { in: [...MOTO_COVERAGE_CODES] }, deletedAt: null },
-      select: { code: true, isActive: true, isConfigured: true },
+  async offeredMotoCodes(producerId: number, phoneNumberId: string | null = null): Promise<string[]> {
+    const [producer, phone] = await Promise.all([
+      this.prisma.producer.findUnique({ where: { id: producerId }, select: { motoCoverageSettings: true } }),
+      phoneNumberId
+        ? this.prisma.phoneNumber.findFirst({
+            where: { phoneNumberId, producerId, deletedAt: null },
+            select: { motoCoverageSettings: true },
+          })
+        : null,
+    ])
+    const organization = parseMotoCoverageOffers(producer?.motoCoverageSettings)
+    const own = parseMotoCoverageOffers(phone?.motoCoverageSettings)
+    return MOTO_COVERAGE_CODES.filter(code => own[code] ?? organization[code] ?? motoCopyFor(code).offered)
+  }
+
+  /** The motorcycle catalog as the organization offers it, for the admin screen. */
+  async listMotoForAdmin(producerId: number) {
+    const producer = await this.prisma.producer.findUnique({
+      where: { id: producerId },
+      select: { motoCoverageSettings: true },
     })
-    const byCode = new Map(settings.map(s => [s.code, s]))
-    return MOTO_COVERAGE_CODES.filter(code => overrides?.[code]?.isActive ?? this.isOffered(code, byCode.get(code)))
+    return this.motoCatalog(parseMotoCoverageOffers(producer?.motoCoverageSettings))
+  }
+
+  /** Switches one motorcycle coverage on or off for the whole organization. */
+  async updateMoto(producerId: number, code: string, isActive: boolean) {
+    const known = MOTO_COVERAGE_CODES.find(c => c === code.trim().toUpperCase())
+    if (!known) throw new NotFoundException(`Cobertura de moto ${code} no encontrada`)
+    const producer = await this.prisma.producer.findUnique({
+      where: { id: producerId },
+      select: { motoCoverageSettings: true },
+    })
+    if (!producer) throw new NotFoundException(`Organización ${producerId} no encontrada`)
+    const offers: MotoCoverageOffers = { ...parseMotoCoverageOffers(producer.motoCoverageSettings), [known]: isActive }
+    await this.prisma.producer.update({
+      where: { id: producerId },
+      data: { motoCoverageSettings: offers as Prisma.InputJsonObject },
+      select: { id: true },
+    })
+    return this.motoCatalog(offers)
+  }
+
+  private motoCatalog(offers: MotoCoverageOffers) {
+    return MOTO_COVERAGE_CODES.map(code => {
+      const copy = motoCopyFor(code)
+      return {
+        code,
+        name: copy.name,
+        tagline: copy.tagline || null,
+        benefits: copy.benefits,
+        exclusions: copy.exclusions,
+        isActive: offers[code] ?? copy.offered,
+      }
+    })
   }
 
   /**
@@ -334,7 +384,7 @@ export class CoverageSettingsService {
    * what was stored when it was discovered predates the manual's descriptions
    * (every code was stored visible), so it is not a choice anyone made.
    */
-  private isOffered(code: string, setting?: Pick<SettingRow, 'isActive' | 'isConfigured'>): boolean {
+  private isOffered(code: string, setting?: SettingRow): boolean {
     return setting?.isConfigured ? setting.isActive : defaultCopyFor(code).offered
   }
 

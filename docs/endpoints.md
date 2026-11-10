@@ -69,7 +69,7 @@ The raw Triunfo response is persisted as `Quote` (with `vehicleType`); the endpo
 Two rules are applied on top of what Triunfo returns:
 
 - **Payment methods** — only `Débito Automático` (`1`) and `Plan de Pago` (`9`) are exposed. `Contado` (`6`) is quoted by Triunfo but never shown; see `src/common/payment-methods.ts`.
-- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see _Admin — Coberturas_). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes use a fixed catalog (A, B4, B1 and B) with fixed moto wording and order; of those, only the codes whose "Ofrecer" switch is on — for the organization, or for the number that quotes — are returned.
+- **Coverages** — filtered, ordered and captioned according to `CoverageSetting` (see _Admin — Coberturas_). A car coverage is only returned when its content is known: an admin configured it, or its code has office-confirmed default wording. New codes are registered so they show up in the admin screen. Motorcycle quotes use a fixed catalog (A, B4, B1 and B) with fixed moto wording and order; of those, only the ones the organization offers are returned (`GET /admin/coberturas/motos`, kept apart from the car coverages; a bot quote follows the number's own choice first).
 
 `Valor` is sent as `"0"` so Triunfo resolves the market value itself and returns it in `vehicleValue`; the InfoAuto valuation endpoints are not part of the current subscription.
 
@@ -2966,7 +2966,7 @@ Live hours (formatted week, open now, today's closure) of the number: its own we
 
 ### POST /bot/numbers/:phoneNumberId/cotizador/:vehicleType
 
-A quote the bot asks for on a number: same body and response as `POST /cotizador/:vehicleType`, but the quote belongs to the number's organization, goes out with that organization's Triunfo account and offers, recommends and orders the car coverages as the number configured them (`coverageSettings` of `PATCH /admin/phone-numbers/:id/assistant`), with the organization's wording.
+A quote the bot asks for on a number: same body and response as `POST /cotizador/:vehicleType`, but the quote belongs to the number's organization, goes out with that organization's Triunfo account and offers, recommends and orders the car coverages as the number configured them (`coverageSettings` of `PATCH /admin/phone-numbers/:id/assistant`), with the organization's wording. A moto quote returns the motorcycle coverages the number offers (`motoCoverageSettings`), and the organization's for the ones it leaves unset.
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -3601,7 +3601,8 @@ A number's own assistant next to its organization's. Whatever the number leaves 
       "...": null
     },
     "botEnabled": true,
-    "coverageSettings": { "C1": { "isActive": null, "highlighted": true, "sortOrder": 0 } }
+    "coverageSettings": { "C1": { "isActive": null, "highlighted": true, "sortOrder": 0 } },
+    "motoCoverageSettings": { "B4": false }
   },
   "organization": {
     "name": "Seguros Norte SRL",
@@ -3639,7 +3640,7 @@ A number's own assistant next to its organization's. Whatever the number leaves 
 
 The same `branchName` comes with each number of `GET /admin/billing`, `GET /admin/status` (`whatsapp` rows) and the owner's organization detail.
 
-`own.coverageSettings` is how this number offers the organization's coverages, keyed by Triunfo code and holding only the fields it changes (`isActive`: whether it offers it, `highlighted`: whether it recommends it, `sortOrder`: its place in the list); each `null` field is the organization's. `organization.coverages` are the coverages as the organization offers them (`GET /admin/coberturas` reduced), which the number's own settings start from. The wording, the year windows and the "nothing says what it includes" rule stay the organization's; moto quotes keep Triunfo's fixed catalog. `own.botEnabled` and `lastBotStatusChange` are the number's own bot switch and who last flipped it.
+`own.coverageSettings` is how this number offers the organization's coverages, keyed by Triunfo code and holding only the fields it changes (`isActive`: whether it offers it, `highlighted`: whether it recommends it, `sortOrder`: its place in the list); each `null` field is the organization's. `organization.coverages` are the coverages as the organization offers them (`GET /admin/coberturas` reduced), which the number's own settings start from. The wording, the year windows and the "nothing says what it includes" rule stay the organization's. `own.motoCoverageSettings` is the same choice for motorcycles, kept apart because the same letters are other products on a moto: `{ "<code>": boolean }` with only the codes of the moto catalog this number offers its own way, and `organization.motoCoverages` (`code`, `name`, `isActive`) is the catalog as the organization offers it (`GET /admin/coberturas/motos`); the names, texts and order of the moto catalog are Triunfo's. `own.botEnabled` and `lastBotStatusChange` are the number's own bot switch and who last flipped it.
 
 `404 Not Found` — the number is not of the caller's organization, or an admin asked for a number not billed to one of their codes
 
@@ -3659,6 +3660,7 @@ Changes a number's own assistant. Only the fields sent change; clearing one give
 | businessHours    | object \| null | No       | same shape and rules as `PATCH /admin/business-hours/schedule`; `null` = the organization's                                                                                                                                                                   |
 | botProfile       | object         | No       | same fields and limits as `PATCH /admin/config/profile`; an empty string = the organization's                                                                                                                                                                 |
 | coverageSettings | object \| null | No       | `{ "<code>": { "isActive"?: boolean \| null, "highlighted"?: boolean \| null, "sortOrder"?: 0–999 \| null } }` for codes of `organization.coverages`; a `null` field (or a code left out) = the organization's; `null` = every coverage as the organization's |
+| motoCoverageSettings | object \| null | No | `{ "<code>": boolean \| null }` for codes of the moto catalog (`A`, `B4`, `B1`, `B`): whether this number offers that coverage on a motorcycle; a `null` value (or a code left out) = the organization's; `null` = every moto coverage as the organization's |
 
 ```json
 {
@@ -4251,6 +4253,71 @@ Updates one coverage. Any edit sets `isConfigured` to `true`.
 `403 Forbidden` — The caller is not a SuperAdmin
 
 `404 Not Found` — The coverage does not exist for this producer
+
+### GET /admin/coberturas/motos
+
+The motorcycle coverages as the organization offers them. Motorcycles are quoted from a fixed catalog (A, B4, B1 and B) with Triunfo's own names, texts and order, so the only choice is whether each one is offered. They are kept apart from the car coverages: the letters are the same but the products are not (B1 on a moto is "RC + incendio + robo"). A coverage nobody switched off is offered.
+
+**Auth required:** Yes (any panel role)
+
+**Responses**
+
+`200 OK`
+
+```json
+[
+  {
+    "code": "A",
+    "name": "Responsabilidad civil",
+    "tagline": "La cobertura obligatoria para circular",
+    "benefits": ["Responsabilidad civil hacia terceros", "Asistencia jurídica"],
+    "exclusions": ["Robo, incendio o daños de tu propia moto"],
+    "isActive": true
+  },
+  {
+    "code": "B4",
+    "name": "Responsabilidad civil + incendio",
+    "tagline": "RC más incendio total",
+    "benefits": ["Todo lo de Responsabilidad civil", "Incendio total"],
+    "exclusions": ["Robo y/o hurto", "Daños a la moto por accidente"],
+    "isActive": false
+  }
+]
+```
+
+`401 Unauthorized` — Missing or invalid token
+
+### PATCH /admin/coberturas/motos/:code
+
+Switches one motorcycle coverage on or off for the whole organization: off, it is left out of every moto quote (web and bot), unless a number offers it its own way (`motoCoverageSettings` of `PATCH /admin/phone-numbers/:id/assistant`).
+
+**Auth required:** Yes (SuperAdmin; a branch's admin changes their number's own in `PATCH /admin/phone-numbers/:id/assistant`)
+
+**Request body**
+
+| Field    | Type    | Required | Constraints                          |
+| -------- | ------- | -------- | ------------------------------------ |
+| isActive | boolean | Yes      | Whether the organization offers it   |
+
+```json
+{ "isActive": false }
+```
+
+**Responses**
+
+`200 OK` — The whole moto catalog, as `GET /admin/coberturas/motos`.
+
+`400 Bad Request` — Validation error
+
+`401 Unauthorized` — Missing or invalid token
+
+`403 Forbidden` — The caller is not a SuperAdmin
+
+`404 Not Found` — The code is not in the motorcycle catalog
+
+```json
+{ "statusCode": 404, "message": "Cobertura de moto C2 no encontrada", "error": "Not Found" }
+```
 
 ### PATCH /admin/coberturas/orden
 

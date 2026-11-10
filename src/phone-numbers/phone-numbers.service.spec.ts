@@ -7,7 +7,10 @@ import { UsageService } from '../usage/usage.service'
 import type { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import type { BotStatusAlertService } from '../users/bot-status-alert.service'
 
-const noCoverages = { listForAdmin: jest.fn().mockResolvedValue([]) } as unknown as CoverageSettingsService
+const noCoverages = {
+  listForAdmin: jest.fn().mockResolvedValue([]),
+  listMotoForAdmin: jest.fn().mockResolvedValue([]),
+} as unknown as CoverageSettingsService
 const noAlerts = { notify: jest.fn().mockResolvedValue(undefined) } as unknown as BotStatusAlertService
 
 describe('monthly phone number report', () => {
@@ -483,6 +486,7 @@ describe("a number's own coverages", () => {
           botProfile: null,
           botEnabled: true,
           coverageSettings: { A: { isActive: false } },
+          motoCoverageSettings: { B4: false, C2: true },
           producer: {
             name: 'Seguros Norte SRL',
             botName: 'Nico',
@@ -516,6 +520,17 @@ describe("a number's own coverages", () => {
           highlighted: true,
           sortOrder: 300,
           needsReview: false,
+        },
+      ]),
+      listMotoForAdmin: jest.fn().mockResolvedValue([
+        { code: 'A', name: 'Responsabilidad civil', tagline: null, benefits: [], exclusions: [], isActive: true },
+        {
+          code: 'B4',
+          name: 'Responsabilidad civil + incendio',
+          tagline: null,
+          benefits: [],
+          exclusions: [],
+          isActive: true,
         },
       ]),
     }
@@ -555,6 +570,37 @@ describe("a number's own coverages", () => {
     await expect(
       service.updateAssistant(8, superAdmin, { coverageSettings: { Z9: { isActive: true } } }),
     ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  it("shows and saves the number's own motorcycle coverages apart from the car ones", async () => {
+    const { service, prisma } = setup()
+
+    const view = await service.getAssistant(8, superAdmin)
+    expect(view.own.motoCoverageSettings).toEqual({ B4: false })
+    expect(view.organization.motoCoverages).toEqual([
+      { code: 'A', name: 'Responsabilidad civil', isActive: true },
+      { code: 'B4', name: 'Responsabilidad civil + incendio', isActive: true },
+    ])
+
+    await service.updateAssistant(8, superAdmin, { motoCoverageSettings: { B4: false, B1: null } })
+    expect(prisma.phoneNumber.update).toHaveBeenLastCalledWith({
+      where: { id: 8 },
+      data: { motoCoverageSettings: { B4: false } },
+    })
+
+    await service.updateAssistant(8, superAdmin, { motoCoverageSettings: null })
+    expect(prisma.phoneNumber.update).toHaveBeenLastCalledWith({
+      where: { id: 8 },
+      data: { motoCoverageSettings: Prisma.DbNull },
+    })
+
+    // C2 is a car coverage: it is not in the moto catalog.
+    await expect(
+      service.updateAssistant(8, superAdmin, { motoCoverageSettings: { C2: false } }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    await expect(service.updateAssistant(8, superAdmin, { motoCoverageSettings: { B4: 'no' } })).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
   })
 
   it('gives the coverages back to the organization with null', async () => {

@@ -34,38 +34,69 @@ describe('motorcycle wording', () => {
 })
 
 describe('motorcycle offered coverages', () => {
-  function serviceWith(rows: unknown[]) {
-    const prisma = { coverageSetting: { findMany: jest.fn().mockResolvedValue(rows) } }
-    return new CoverageSettingsService(prisma as unknown as PrismaService)
+  function serviceWith(organization: unknown, own?: unknown) {
+    const prisma = {
+      producer: {
+        findUnique: jest.fn().mockResolvedValue({ motoCoverageSettings: organization }),
+        update: jest.fn().mockResolvedValue({ id: 1 }),
+      },
+      phoneNumber: { findFirst: jest.fn().mockResolvedValue(own === undefined ? null : { motoCoverageSettings: own }) },
+      coverageSetting: { findMany: jest.fn() },
+    }
+    return { prisma, service: new CoverageSettingsService(prisma as unknown as PrismaService) }
   }
 
-  it('leaves out B4 while nobody switched it on, as the panel shows it', async () => {
-    // Rows as they are stored when a quote discovers the code: visible, not configured.
-    const service = serviceWith([
-      { code: 'A', isActive: true, isConfigured: false },
-      { code: 'B4', isActive: true, isConfigured: false },
-    ])
+  it('offers the whole moto catalog while nobody changed it, whatever the car settings say', async () => {
+    const { service, prisma } = serviceWith(null)
+
+    expect(await service.offeredMotoCodes(1)).toEqual(['A', 'B4', 'B1', 'B'])
+    // The car rows of the same letters are never read: B4 is off for cars by default.
+    expect(prisma.coverageSetting.findMany).not.toHaveBeenCalled()
+    expect(prisma.phoneNumber.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('leaves out what the organization switched off', async () => {
+    const { service } = serviceWith({ B4: false, B1: true, C2: false, A: 'no' })
+
     expect(await service.offeredMotoCodes(1)).toEqual(['A', 'B1', 'B'])
   })
 
-  it('follows the switches an admin set, whatever the car year windows say', async () => {
-    const service = serviceWith([
-      { code: 'B4', isActive: true, isConfigured: true },
-      { code: 'B1', isActive: false, isConfigured: true },
-      { code: 'B', isActive: true, isConfigured: true, yearFrom: 2025, yearTo: null },
-    ])
-    expect(await service.offeredMotoCodes(1)).toEqual(['A', 'B4', 'B'])
+  it('lets the number the quote came through decide first', async () => {
+    const { service, prisma } = serviceWith({ B4: false, B: false }, { B4: true, B1: false })
+
+    expect(await service.offeredMotoCodes(1, '1109940228878973')).toEqual(['A', 'B4'])
+    expect(prisma.phoneNumber.findFirst).toHaveBeenCalledWith({
+      where: { phoneNumberId: '1109940228878973', producerId: 1, deletedAt: null },
+      select: { motoCoverageSettings: true },
+    })
   })
 
-  it("lets a number offer the organization's coverages its own way", async () => {
-    const service = serviceWith([{ code: 'B4', isActive: true, isConfigured: true }])
-    const own = { isActive: null, highlighted: null, sortOrder: null }
-    const overrides = {
-      B4: { ...own, isActive: false },
-      B: { ...own, isActive: false },
-      B1: { ...own, sortOrder: 1 },
-    }
-    expect(await service.offeredMotoCodes(1, overrides)).toEqual(['A', 'B1'])
+  it("lists the catalog for the admin screen with Triunfo's moto wording", async () => {
+    const { service } = serviceWith({ B4: false })
+
+    const list = await service.listMotoForAdmin(1)
+
+    expect(list.map(c => [c.code, c.name, c.isActive])).toEqual([
+      ['A', 'Responsabilidad civil', true],
+      ['B4', 'Responsabilidad civil + incendio', false],
+      ['B1', 'RC + incendio + robo', true],
+      ['B', 'Todo total', true],
+    ])
+    expect(list[2].benefits).toContain('Robo y/o hurto total')
+  })
+
+  it('switches one coverage and keeps what was already set', async () => {
+    const { service, prisma } = serviceWith({ B: false })
+
+    const list = await service.updateMoto(1, 'b4', false)
+
+    expect(prisma.producer.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { motoCoverageSettings: { B: false, B4: false } },
+      select: { id: true },
+    })
+    expect(list.filter(c => !c.isActive).map(c => c.code)).toEqual(['B4', 'B'])
+    await expect(service.updateMoto(1, 'C2', false)).rejects.toMatchObject({ status: 404 })
   })
 })
 

@@ -7,6 +7,8 @@ import { AuthenticatedRequest } from '../common/types/authenticated-request.type
 import { CoverageSettingsService } from './coverage-settings.service'
 import { UpdateCoverageSettingDto } from './dto/update-coverage-setting.dto'
 import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
+import { UpdateMotoCoverageDto } from './dto/update-moto-coverage.dto'
+import { MotoCoverageParamsDto } from './dto/moto-coverage-params.dto'
 
 /**
  * Coverage rows are never created or deleted by hand: they appear when Triunfo
@@ -14,6 +16,9 @@ import { ReorderCoverageSettingsDto } from './dto/reorder-coverage-settings.dto'
  * or off, renaming them and setting their order. They are what the whole
  * organization offers, so only the SuperAdmin changes them; a branch's admin
  * picks which ones their number offers in its assistant.
+ *
+ * Motorcycles have their own short list (`motos`): a fixed catalog with
+ * Triunfo's wording, where the only choice is whether each coverage is offered.
  */
 @UseGuards(UserAuthGuard, RolesGuard)
 @Controller('admin/coberturas')
@@ -23,6 +28,21 @@ export class AdminCoverageSettingsController {
   @Get()
   findAll(@Request() req: AuthenticatedRequest) {
     return this.coverageSettingsService.listForAdmin(req.user.producerId)
+  }
+
+  @Get('motos')
+  findMoto(@Request() req: AuthenticatedRequest) {
+    return this.coverageSettingsService.listMotoForAdmin(req.user.producerId)
+  }
+
+  @Patch('motos/:code')
+  @Roles(Role.SUPERADMIN)
+  updateMoto(
+    @Param() params: MotoCoverageParamsDto,
+    @Body() dto: UpdateMotoCoverageDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.coverageSettingsService.updateMoto(req.user.producerId, params.code, dto.isActive)
   }
 
   @Patch('orden')

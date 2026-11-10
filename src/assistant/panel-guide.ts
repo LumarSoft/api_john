@@ -212,7 +212,7 @@ export const PANEL_GUIDE =
 - Un número puede tener su propia cuenta para transferir (Números › "Asistente" › Pagos): si tiene aunque sea un dato de cuenta propio, usa solo su cuenta y nunca mezcla con la de la organización. Los campos vacíos del número muestran de gris lo que hereda de la organización.
 - "Logo" acepta PNG, JPG o WebP de hasta 2 MB. "Horarios" carga el horario de lunes a domingo, con hasta dos turnos por día; los feriados y pausas se cargan en cada número.
 - "Precios": los planes de Bolso protegido y Hogar, con "Coberturas del producto" y "Nuevo plan".
-- "Coberturas": las coberturas de auto que ve el cliente. Se ordenan, se muestran u ocultan y se edita su texto. Aparecen solas cuando Triunfo las cotiza y no se ofrecen hasta cargar qué incluyen. En motos se cotizan A, B4, B1 y B con los nombres y textos de Triunfo (no se editan), y de esas solo las que acá están visibles (o las que el número tiene en "Ofrecer"): una oculta, como la B4 mientras nadie la muestre, tampoco sale en la cotización de una moto.
+- "Coberturas": las coberturas de auto que ve el cliente. Se ordenan, se muestran u ocultan y se edita su texto. Aparecen solas cuando Triunfo las cotiza y no se ofrecen hasta cargar qué incluyen. Debajo está "Coberturas de motos": las cuatro que se cotizan en una moto (A, B4, B1 y B) con los nombres y textos de Triunfo, que no se editan; ahí solo se elige cuáles se ofrecen, aparte de las de auto (ocultar la B4 de motos no toca la de autos). Cada número puede ofrecer las suyas en Números › "Asistente" › "Coberturas de motos que ofrece este número".
 
 ## Menú de usuario
 - Se abre tocando tu correo, abajo a la izquierda.

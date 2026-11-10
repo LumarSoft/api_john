@@ -258,10 +258,11 @@ export class CotizadorService {
     // Motorcycles are offered from a fixed catalog, as Triunfo's own cotizador
     // does — RC (A), RC + incendio (B4) and RC + incendio + robo (B1) — plus B
     // ("todo total"), which Triunfo prices but hides on its web and the office
-    // sells (22/10). The ones the office switched off in the panel are left out.
+    // sells (22/10). The ones the office — or the number the quote came
+    // through — switched off in the panel are left out.
     const requiredCodes =
       vehicleType === VehicleType.MOTO
-        ? await this.coverageSettings.offeredMotoCodes(resolvedProducerId, coverageOverrides)
+        ? await this.coverageSettings.offeredMotoCodes(resolvedProducerId, originPhoneNumberId)
         : []
     const offered =
       vehicleType === VehicleType.MOTO ? quote.coverages.filter(c => requiredCodes.includes(c.code)) : quote.coverages

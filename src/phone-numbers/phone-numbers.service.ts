@@ -5,6 +5,7 @@ import { UsageService, acceptedBlocks, currentPeriod, pausedIn } from '../usage/
 import { parseSchedule, validateSchedule } from '../business-hours/schedule'
 import { mergeBotProfile, parseBotProfile } from '../common/bot-profile'
 import { normalizeCoverageOverrides, parseCoverageOverrides } from '../common/coverage-overrides'
+import { normalizeMotoCoverageOffers, parseMotoCoverageOffers } from '../coverage-settings/moto-coverage-offers'
 import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
 import { CoverageSettingsService } from '../coverage-settings/coverage-settings.service'
 import { BotStatusAlertService } from '../users/bot-status-alert.service'
@@ -312,6 +313,7 @@ export class PhoneNumbersService {
         responsibleProducerCodeId: true,
         botEnabled: true,
         coverageSettings: true,
+        motoCoverageSettings: true,
         ...ASSISTANT_SELECT,
         producer: { select: { name: true, ...ASSISTANT_SELECT } },
       },
@@ -320,8 +322,9 @@ export class PhoneNumbersService {
       throw new NotFoundException(`Phone number ${id} not found`)
     }
     const { producer } = phone
-    const [coverages, lastBotStatusChange, closures] = await Promise.all([
+    const [coverages, motoCoverages, lastBotStatusChange, closures] = await Promise.all([
       this.coverages.listForAdmin(user.producerId),
+      this.coverages.listMotoForAdmin(user.producerId),
       this.lastBotStatusChange(phone.id),
       this.upcomingClosures(phone.id),
     ])
@@ -342,6 +345,8 @@ export class PhoneNumbersService {
         botEnabled: phone.botEnabled,
         // Only what the number changes about each coverage, keyed by code.
         coverageSettings: parseCoverageOverrides(phone.coverageSettings),
+        // Which motorcycle coverages it offers its own way, keyed by code (the rest follow the organization).
+        motoCoverageSettings: parseMotoCoverageOffers(phone.motoCoverageSettings),
         // Its holidays and closures, upcoming or under way (national holidays included).
         closures,
       },
@@ -361,6 +366,8 @@ export class PhoneNumbersService {
           sortOrder: c.sortOrder,
           needsReview: c.needsReview,
         })),
+        // The motorcycle catalog as the organization offers it.
+        motoCoverages: motoCoverages.map(c => ({ code: c.code, name: c.name, isActive: c.isActive })),
       },
       lastBotStatusChange,
     }
@@ -464,6 +471,10 @@ export class PhoneNumbersService {
       const codes = (await this.coverages.listForAdmin(user.producerId)).map(c => c.code)
       const overrides = normalizeCoverageOverrides(dto.coverageSettings, codes)
       data.coverageSettings = overrides ? (overrides as unknown as Prisma.InputJsonObject) : Prisma.DbNull
+    }
+    if (dto.motoCoverageSettings !== undefined) {
+      const offers = normalizeMotoCoverageOffers(dto.motoCoverageSettings)
+      data.motoCoverageSettings = offers ? (offers as Prisma.InputJsonObject) : Prisma.DbNull
     }
     await this.prisma.phoneNumber.update({ where: { id }, data })
     return this.getAssistant(id, user)

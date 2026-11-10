@@ -43,4 +43,12 @@ export class UpdateNumberAssistantDto {
   @IsOptional()
   @IsObject()
   coverageSettings?: Record<string, unknown> | null
+
+  /**
+   * Which motorcycle coverages this number offers its own way: { "<code>": boolean } with the
+   * codes of the moto catalog it changes; checked in the service. null = as the organization.
+   */
+  @IsOptional()
+  @IsObject()
+  motoCoverageSettings?: Record<string, unknown> | null
 }
