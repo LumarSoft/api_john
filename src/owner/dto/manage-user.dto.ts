@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator'
+import { ArrayUnique, IsArray, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator'
 import { Role } from 'generated/prisma/client'
 
 /** Roles the OWNER may assign inside an organization. OWNER itself is excluded:
@@ -16,6 +16,14 @@ export class CreateOrgUserDto {
 
   @IsEnum(ASSIGNABLE, { message: 'role must be SUPERADMIN or ADMIN' })
   role: AssignableRole
+
+  // Producer codes of the organization this ADMIN may see. Ignored for a
+  // SUPERADMIN, who sees them all.
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsInt({ each: true })
+  producerCodeIds?: number[]
 }
 
 export class UpdateOrgUserDto {

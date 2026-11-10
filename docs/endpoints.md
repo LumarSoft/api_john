@@ -4737,6 +4737,59 @@ Borra (soft delete) la carga y sus filas. Los avisos ya enviados siguen en los c
 
 `409 Conflict` — `Esperá a que terminen de enviarse los avisos antes de borrar la carga.`
 
+## Owner — Usuarios de una organización
+
+`/users/*` only reaches the caller's own organization; these let the owner manage the users of any. The users of
+`GET /owner/organizations/:id` and every response below carry `codes`: the producer codes granted to an ADMIN (always
+empty for a SUPERADMIN, who sees every code of the organization).
+
+### POST /owner/organizations/:id/users
+
+Creates a SUPERADMIN or an ADMIN in the organization. An ADMIN is granted `producerCodeIds` in the same write, so it
+sees its cartera from the first login; without them it sees nothing until a SuperAdmin grants some in Usuarios.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| email | string | Yes | Valid e-mail, not used by any other user |
+| password | string | Yes | At least 6 characters |
+| role | string | Yes | `SUPERADMIN` or `ADMIN` |
+| producerCodeIds | number[] | No | Ids of codes of this organization, no repeats. Ignored for a `SUPERADMIN` |
+
+```json
+{ "email": "ana@norte.com", "password": "secret1", "role": "ADMIN", "producerCodeIds": [31, 32] }
+```
+
+**Responses**
+
+`201 Created`
+```json
+{
+  "id": 9,
+  "email": "ana@norte.com",
+  "role": "ADMIN",
+  "createdAt": "2026-11-09T12:00:00.000Z",
+  "codes": [
+    { "id": 31, "code": "8074", "holderName": "Ana" },
+    { "id": 32, "code": "14831", "holderName": null }
+  ]
+}
+```
+
+`400 Bad Request` — a code is not of this organization
+```json
+{ "statusCode": 400, "message": "One or more producer codes do not belong to this organization", "error": "Bad Request" }
+```
+
+`404 Not Found` — `Organization 7 not found`
+
+`409 Conflict` — `Email already in use`
+
+---
+
 ## Owner — Integración Triunfo
 
 Each organization quotes, syncs its cartera and downloads documents with its own Triunfo web-service user. The password is stored encrypted with `WABA_TOKEN_ENCRYPTION_KEY` and never returned. The default organization (`DEFAULT_PRODUCER_SLUG`) keeps working on `TRIUNFO_PRODUCTOR` / `TRIUNFO_USUARIO` / `TRIUNFO_PASSWORD` while it has none of its own; any other organization without credentials gets `503` on quotes and documents, and is skipped by the cartera sync.
