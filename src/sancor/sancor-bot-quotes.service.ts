@@ -170,8 +170,10 @@ export class SancorBotQuotesService {
     index: number,
   ): SancorBotPlan {
     const name = modules.find(m => m.id === plan.module)?.description || `Plan ${plan.module}`
-    // Coverages without a capital ("Asistencia en viaje a las Personas") go as a note.
-    const included = plan.coverages.filter(c => c.capital <= 0).map(c => c.description)
+    // Services go as a note: without a capital ("Asistencia en viaje a las
+    // Personas", hogar) or with a token 1 ("Llamando al Doctor", AP).
+    const isService = (capital: number) => capital <= 1
+    const included = plan.coverages.filter(c => isService(c.capital)).map(c => c.description)
     return {
       id: plan.module,
       productType,
@@ -179,7 +181,7 @@ export class SancorBotQuotesService {
       monthlyPrice: Math.round(plan.monthlyPremium),
       description: included.length ? `Incluye ${included.join(', ').toLowerCase()}` : null,
       coverageItems: plan.coverages
-        .filter(c => c.capital > 0)
+        .filter(c => !isService(c.capital))
         .map(c => ({ label: c.description, amount: Math.round(c.capital) })),
       isActive: true,
       sortOrder: index,

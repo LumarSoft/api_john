@@ -116,6 +116,7 @@ describe('SancorBotQuotesService.quote', () => {
         plan(70, 7630, [
           ['Incendio Edificio', 21_000_000],
           ['Asistencia en viaje a las Personas', 0],
+          ['Llamando al Doctor', 1],
         ]),
       ],
     })
@@ -127,7 +128,7 @@ describe('SancorBotQuotesService.quote', () => {
     expect(quote.plans).toEqual([
       expect.objectContaining({
         name: 'Plan 1',
-        description: 'Incluye asistencia en viaje a las personas',
+        description: 'Incluye asistencia en viaje a las personas, llamando al doctor',
         coverageItems: [{ label: 'Incendio Edificio', amount: 21_000_000 }],
       }),
     ])
