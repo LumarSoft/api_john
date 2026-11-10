@@ -45,9 +45,13 @@ describe('campaign messages', () => {
 
 describe('campaign settings', () => {
   it('fills what the office never set with the defaults', () => {
-    expect(settingsOf(upgrade, null)).toEqual({ basicCoverages: ['A', 'B', 'B1'], reviewSumBelow: 0, cooldownDays: 90 })
+    expect(settingsOf(upgrade, null)).toEqual({
+      basicCoverages: ['A', 'B', 'B1', 'C2', 'C2 Full'],
+      reviewSumBelow: 0,
+      cooldownDays: 90,
+    })
     expect(settingsOf(upgrade, { cooldownDays: 30 })).toEqual({
-      basicCoverages: ['A', 'B', 'B1'],
+      basicCoverages: ['A', 'B', 'B1', 'C2', 'C2 Full'],
       reviewSumBelow: 0,
       cooldownDays: 30,
     })

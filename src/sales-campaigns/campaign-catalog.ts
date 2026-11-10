@@ -125,7 +125,7 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
     feature: 'campaign_coverage_upgrade',
     label: 'Mejora de coberturas',
     description:
-      'Autos y motos vigentes con una cobertura básica o una suma asegurada baja, para ofrecerles una protección más completa.',
+      'Autos y motos vigentes con una cobertura que se puede mejorar o una suma asegurada baja, para ofrecerles una protección más completa.',
     templateSlug: 'campana_mejora_cobertura',
     placeholders: [NOMBRE, BIEN, PORCENTAJE],
     defaultBody:
@@ -133,9 +133,9 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
     settingFields: [
       {
         key: 'basicCoverages',
-        label: 'Coberturas que cuentan como básicas',
+        label: 'Coberturas a mejorar',
         type: 'codes',
-        help: 'Códigos de cobertura separados por coma (por ejemplo A, B, B1). Sumá C y C1 para ofrecer granizo y cristales a quien no los tiene.',
+        help: 'Códigos de cobertura separados por coma, como figuran en la cartera (A, B, B1, C2, C2 Full). A quien tiene una de estas se le ofrece la siguiente: por ejemplo C2 → C Full, C Full → Todo Riesgo (D3).',
       },
       {
         key: 'reviewSumBelow',
@@ -147,7 +147,8 @@ export const CAMPAIGNS: Record<CampaignKind, CampaignDefinition> = {
       },
       COOLDOWN,
     ],
-    defaultSettings: { basicCoverages: ['A', 'B', 'B1'], reviewSumBelow: 0, cooldownDays: 90 },
+    // C2 and C2 Full (the cartera's name for C7) since 2026-11-10: the office moves C2 to C Full and C Full to D3.
+    defaultSettings: { basicCoverages: ['A', 'B', 'B1', 'C2', 'C2 Full'], reviewSumBelow: 0, cooldownDays: 90 },
     filters: ['coverage', 'gap'],
   },
   quote_followup: {

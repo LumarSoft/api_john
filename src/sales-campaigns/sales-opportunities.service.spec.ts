@@ -365,7 +365,7 @@ describe('SalesOpportunitiesService.track', () => {
     })
   })
 
-  it('counts a better coverage on the same policy as the win of Mejora de coberturas', async () => {
+  it('counts a coverage outside the list on the same policy as the win, for an opportunity opened before coverageAtContact', async () => {
     const { service, prisma } = setup()
     prisma.salesOpportunity.findMany.mockResolvedValue([
       open({
@@ -374,7 +374,7 @@ describe('SalesOpportunitiesService.track', () => {
           riskType: 'auto',
           validTo: null,
           updatedAt: new Date('2026-11-09T06:00:00Z'),
-          vehicle: { licensePlate: 'AB123CD', coverage: 'C2 Full' },
+          vehicle: { licensePlate: 'AB123CD', coverage: 'D3' },
         },
       }),
     ])
@@ -389,6 +389,37 @@ describe('SalesOpportunitiesService.track', () => {
       where: { id: 1 },
       data: expect.objectContaining({ wonPolicyId: 100, wonPremium: new Prisma.Decimal(99000), status: 'WON' }),
     })
+  })
+
+  it('counts C2 → C2 Full as the win though the campaign lists both, and not a sideways or lower move', async () => {
+    const upgraded = (id: number, from: string, to: string) =>
+      open({
+        id,
+        coverageAtContact: from,
+        campaign: { kind: SalesCampaignKind.COVERAGE_UPGRADE, settings: null },
+        policy: {
+          riskType: 'auto',
+          validTo: null,
+          updatedAt: new Date('2026-11-09T06:00:00Z'),
+          vehicle: { licensePlate: 'AB123CD', coverage: to },
+        },
+      })
+    const { service, prisma } = setup()
+    prisma.salesOpportunity.findMany.mockResolvedValue([
+      upgraded(1, 'C2', 'C2 Full'),
+      upgraded(2, 'C2 Full', 'D3'),
+      upgraded(3, 'C2 Full', 'C2'),
+      upgraded(4, 'B', 'B'),
+    ])
+    prisma.policy.findUnique.mockResolvedValue({ premium: null, updatedAt: new Date('2026-11-09T06:00:00Z') })
+
+    await service.track(7, NOW)
+
+    const won = prisma.salesOpportunity.update.mock.calls
+      .map(([call]: [{ where: { id: number }; data: { status?: string } }]) => call)
+      .filter((call: { data: { status?: string } }) => call.data.status === 'WON')
+      .map((call: { where: { id: number } }) => call.where.id)
+    expect(won).toEqual([1, 2])
   })
 
   it('leaves it alone when nothing happened', async () => {

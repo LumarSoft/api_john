@@ -13,7 +13,7 @@ import {
   GAP_LABELS,
   numberSetting,
 } from './campaign-catalog'
-import { coverageGaps, lowestInstallment } from './coverage-gaps'
+import { coverageGaps, lowestInstallment, nextCoverageStep } from './coverage-gaps'
 
 const DAY_MS = 86_400_000
 
@@ -200,9 +200,10 @@ export class CampaignFinderService {
   }
 
   /**
-   * A car or motorbike in force on one of the coverages the organization counts
-   * as basic or, when it reviews insured sums, insured for less than its
-   * threshold. Each one says what its coverage leaves out.
+   * A car or motorbike in force on one of the coverages the organization wants
+   * to improve or, when it reviews insured sums, insured for less than its
+   * threshold. Each one says what its coverage leaves out and, when the office
+   * has a usual next step for it (C2 → C Full → D3), what to offer.
    */
   private async coverageUpgrade(
     settings: CampaignSettings,
@@ -238,7 +239,14 @@ export class CampaignFinderService {
       ]
         .filter(Boolean)
         .join(' ')
-      const detail = [coverage, lowSum ? `suma asegurada ${money(sum)}` : '', since(p)].filter(Boolean).join(' · ')
+      const detail = [
+        coverage,
+        nextCoverageStep(coverageOf(p), p.riskType === RiskType.moto) ?? '',
+        lowSum ? `suma asegurada ${money(sum)}` : '',
+        since(p),
+      ]
+        .filter(Boolean)
+        .join(' · ')
       return policyTarget(p, detail, p.validTo, {
         sortDate: p.validFrom,
         gaps: [...missing, ...(lowSum ? ['suma'] : [])],

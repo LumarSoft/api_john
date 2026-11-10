@@ -1895,20 +1895,22 @@ model SalesOpportunity {
   targetKey String                 @db.VarChar(40)
   status    SalesOpportunityStatus @default(NEW)
 
-  contactedAt DateTime?
-  repliedAt   DateTime?
-  quotedAt    DateTime?
-  wonAt       DateTime?
-  lostAt      DateTime?
-  lostReason  SalesOpportunityLostReason?
+  contactedAt       DateTime?
+  repliedAt         DateTime?
+  quotedAt          DateTime?
+  wonAt             DateTime?
+  lostAt            DateTime?
+  lostReason        SalesOpportunityLostReason?
   /// The office's note: what the client said, why it was lost…
-  note        String?                     @db.Text
+  note              String?                     @db.Text
   /// The premium of the policy that closed it, when known (Policy.premium), for the results.
-  wonPremium  Decimal?                    @db.Decimal(12, 2)
-  assignedAt  DateTime?
-  createdAt   DateTime                    @default(now())
-  updatedAt   DateTime                    @updatedAt
-  deletedAt   DateTime?
+  wonPremium        Decimal?                    @db.Decimal(12, 2)
+  /// COVERAGE_UPGRADE: the vehicle's coverage code when the opportunity opened, to tell a better one later.
+  coverageAtContact String?                     @db.VarChar(20)
+  assignedAt        DateTime?
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+  deletedAt         DateTime?
 
   campaignId     Int
   campaign       SalesCampaign @relation(fields: [campaignId], references: [id])

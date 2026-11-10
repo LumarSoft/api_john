@@ -24,7 +24,7 @@ describe('howItWorks', () => {
   it('names the coverages, the sum and the products of the settings', () => {
     const upgrade = CAMPAIGNS.coverage_upgrade
     expect(howItWorks(upgrade, settingsOf(upgrade, { reviewSumBelow: 5000000 }))[0]).toContain(
-      'con cobertura A, B o B1 o asegurados por menos de $ 5.000.000',
+      'con cobertura A, B, B1, C2 o C2 Full o asegurados por menos de $ 5.000.000',
     )
     const cross = CAMPAIGNS.cross_sell
     expect(howItWorks(cross, settingsOf(cross, { offer: ['home', 'commercial'] }))[0]).toContain(

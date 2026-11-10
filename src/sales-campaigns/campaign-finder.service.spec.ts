@@ -243,10 +243,29 @@ describe('CampaignFinderService', () => {
     )
 
     expect(findMany.mock.calls[0][0].where.vehicle).toEqual({
-      OR: [{ coverage: { in: ['A', 'B', 'B1'] } }, { sumInsured: { gt: 0, lt: 5000000 } }],
+      OR: [{ coverage: { in: ['A', 'B', 'B1', 'C2', 'C2 Full'] } }, { sumInsured: { gt: 0, lt: 5000000 } }],
     })
     expect(found.gaps).toEqual(['suma'])
-    expect(found.detail).toBe('Cobertura C2 · suma asegurada $ 3.200.000')
+    expect(found.detail).toBe('Cobertura C2 · se puede pasar a C Full · suma asegurada $ 3.200.000')
+  })
+
+  it('says what to offer a car on C Full, and nothing of the kind to a motorbike', async () => {
+    const vehicle = { licensePlate: 'AB123CD', brand: 'FORD', model: 'KA', year: 2015, coverage: 'C2 Full' }
+    const findMany = jest.fn().mockResolvedValue([policy({ vehicle }), policy({ id: 101, riskType: 'moto', vehicle })])
+    const finder = setup({ policy: { findMany } })
+
+    const found = await finder.find(
+      CAMPAIGNS.coverage_upgrade,
+      settingsOf(CAMPAIGNS.coverage_upgrade, null),
+      7,
+      scopeOf([3]),
+      NOW,
+    )
+
+    expect(found.map(f => f.detail)).toEqual([
+      'Cobertura C2 Full · se puede pasar a Todo Riesgo (D3)',
+      'Cobertura C2 Full',
+    ])
   })
 
   it('wins back a policy that ran out unrenewed, unless the office hid it or the vehicle is insured again', async () => {

@@ -36,7 +36,7 @@ function own(definition: CampaignDefinition, settings: CampaignSettings): string
         sum > 0 ? `asegurados por menos de ${pesos(sum)}` : '',
       ].filter(Boolean)
       return [
-        `Busca en la cartera los autos y las motos vigentes ${listOf(who, 'o')}. El motivo dice qué le falta a cada uno (robo, granizo, cristales) para que sepas qué ofrecerle.`,
+        `Busca en la cartera los autos y las motos vigentes ${listOf(who, 'o')}. El motivo dice qué le falta a cada uno (robo, granizo, cristales) o a qué cobertura se lo puede pasar, para que sepas qué ofrecerle.`,
         cooldown,
       ]
     }

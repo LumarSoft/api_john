@@ -15,6 +15,7 @@ import {
 } from './campaign-catalog'
 import { CampaignFinderService, CampaignScope, CampaignTarget, PRODUCT_RISKS } from './campaign-finder.service'
 import { isOptOutRequest } from './campaign-follow-up'
+import { coverageRank } from './coverage-gaps'
 import type { CampaignResultsDto } from './dto/campaign-results.dto'
 import type { UpdateOpportunityDto } from './dto/update-opportunity.dto'
 
@@ -166,6 +167,7 @@ type OpenRow = Prisma.SalesOpportunityGetPayload<{
     repliedAt: true
     quotedAt: true
     createdAt: true
+    coverageAtContact: true
     campaign: { select: { kind: true; settings: true } }
     policy: {
       select: {
@@ -381,6 +383,10 @@ export class SalesOpportunitiesService {
       producerCodeId: target.producerCodeId,
       clientId: target.clientId,
       ...(definition.kind === 'quote_followup' ? { quoteId: target.id } : { policyId: target.id }),
+      // Mejora de coberturas: what the vehicle had, to tell a better coverage later.
+      ...(definition.kind === 'coverage_upgrade'
+        ? { coverageAtContact: target.coverages[0]?.slice(0, 20) ?? null }
+        : {}),
     }
   }
 
@@ -430,6 +436,7 @@ export class SalesOpportunitiesService {
         repliedAt: true,
         quotedAt: true,
         createdAt: true,
+        coverageAtContact: true,
         campaign: { select: { kind: true, settings: true } },
         policy: {
           select: {
@@ -590,10 +597,19 @@ export class SalesOpportunitiesService {
   ): Promise<{ policyId: number; at: Date; premium: Prisma.Decimal | null } | null> {
     const target = row.policy
     const targetPlate = plateOf(target?.vehicle?.licensePlate)
-    // Mejora de coberturas: the same policy, now with a better coverage, counts too.
+    // Mejora de coberturas: a coverage that protects more than the one the vehicle
+    // had when contacted (C2 → C2 Full counts, though the campaign lists both). An
+    // opportunity older than that record: any coverage outside the campaign's list.
+    const isMoto = target?.riskType === 'moto'
+    const listed = codesSetting(settings, 'basicCoverages').map(c => c.toUpperCase())
+    const better = (coverage: string | null | undefined): boolean => {
+      if (!coverage) return false
+      if (!row.coverageAtContact) return !listed.includes(coverage.trim().toUpperCase())
+      return coverageRank(coverage, isMoto) > coverageRank(row.coverageAtContact, isMoto)
+    }
+    // The same policy, now with a better coverage, counts too.
     if (definition.kind === 'coverage_upgrade' && row.policyId != null && target?.vehicle?.coverage) {
-      const basic = (settings.basicCoverages as string[]).map(c => c.toUpperCase())
-      if (!basic.includes(target.vehicle.coverage.toUpperCase()) && target.updatedAt > since) {
+      if (better(target.vehicle.coverage) && target.updatedAt > since) {
         const policy = await this.prisma.policy.findUnique({
           where: { id: row.policyId },
           select: { premium: true, updatedAt: true },
@@ -651,10 +667,8 @@ export class SalesOpportunitiesService {
           if (!target?.validTo || !p.validFrom) return true
           return Math.abs(p.validFrom.getTime() - target.validTo.getTime()) <= RENEWAL_WINDOW_DAYS * DAY_MS
         }
-        case 'coverage_upgrade': {
-          const basic = (settings.basicCoverages as string[]).map(c => c.toUpperCase())
-          return sameBien(p) && !!p.vehicle?.coverage && !basic.includes(p.vehicle.coverage.toUpperCase())
-        }
+        case 'coverage_upgrade':
+          return sameBien(p) && better(p.vehicle?.coverage)
         case 'cross_sell':
           return lacked.has(p.riskType)
         case 'quote_followup':
