@@ -2,7 +2,15 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { Prisma, Role } from 'generated/prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../../common/scope/scope.service'
-import { BotProfile, parseBotProfile, TRANSFER_FIELDS } from '../../common/bot-profile'
+import {
+  BotProfile,
+  hasOwnTransfer,
+  mergeBotProfile,
+  parseBotProfile,
+  TRANSFER_BY_OFFICE,
+  TRANSFER_FIELDS,
+  TRANSFER_SETTINGS,
+} from '../../common/bot-profile'
 import { UsersService } from '../../users/users.service'
 import { UpdateBotProfileDto } from '../../users/dto/update-bot-profile.dto'
 import { UpdateConfigDto } from '../../users/dto/update-config.dto'
@@ -38,16 +46,18 @@ export interface ConfigToolDeps {
   actions: AssistantActionsService
 }
 
-type TransferField = 'transferAlias' | 'transferCbu' | 'transferHolder' | 'transferBank'
+type AccountField = 'transferAlias' | 'transferCbu' | 'transferHolder' | 'transferBank'
+type TransferField = AccountField | 'transferMode'
 
 const TRANSFER_LABELS: Record<TransferField, string> = {
+  transferMode: 'Datos para transferir',
   transferAlias: 'Alias',
   transferCbu: 'CBU / CVU',
   transferHolder: 'Titular',
   transferBank: 'Banco',
 }
 
-const TRANSFER_ARGS: Record<string, TransferField> = {
+const TRANSFER_ARGS: Record<string, AccountField> = {
   alias: 'transferAlias',
   cbu: 'transferCbu',
   titular: 'transferHolder',
@@ -137,11 +147,14 @@ function assertSaid(ctx: ToolContext, label: string, value: string | undefined, 
   )
 }
 
-function hasOwnAccount(profile: BotProfile): boolean {
-  return TRANSFER_FIELDS.some(field => profile[field] != null)
+/** How a transfer setting reads on the confirmation card. */
+function transferShown(field: TransferField, value: string | null | undefined): string | null {
+  if (field !== 'transferMode') return shown(value)
+  return value === TRANSFER_BY_OFFICE ? 'Los pasa la oficina por el chat' : 'Los da el bot'
 }
 
 function accountOf(profile: BotProfile) {
+  if (profile.transferMode === TRANSFER_BY_OFFICE) return { laOficinaPasaLosDatos: true }
   return {
     alias: profile.transferAlias,
     cbu: profile.transferCbu,
@@ -168,7 +181,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
       where: { producerId, deletedAt: null, isActive: true },
       select: { botProfile: true },
     })
-    return numbers.filter(n => !hasOwnAccount(parseBotProfile(n.botProfile))).length
+    return numbers.filter(n => !hasOwnTransfer(parseBotProfile(n.botProfile))).length
   }
 
   return {
@@ -177,7 +190,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
         name: 'ver_datos_de_pago',
         status: 'Revisando los datos de pago',
         description:
-          'Los datos que el bot les da a los clientes para pagar: la cuenta para transferir (alias, CBU, titular, banco) y dónde pagar en efectivo, de la organización y de cada número que maneja esta persona (si el número tiene cuenta propia o usa la de la organización). Usala siempre antes de proponer un cambio de cuenta.',
+          'Los datos que el bot les da a los clientes para pagar: la cuenta para transferir (alias, CBU, titular, banco) y dónde pagar en efectivo, de la organización y de cada número que maneja esta persona (si el número tiene cuenta propia, usa la de la organización o no da ninguna porque la oficina pasa los datos: laOficinaPasaLosDatos). Usala siempre antes de proponer un cambio de cuenta.',
         parameters: { type: 'object', additionalProperties: false, properties: {} },
         run: async ctx => {
           const [org, numbers, onOrg] = await Promise.all([
@@ -198,7 +211,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
                 id: n.id,
                 numero: numberLabel(n),
                 activo: n.isActive,
-                cuenta: hasOwnAccount(own) ? { propia: true, ...accountOf(own) } : { propia: false },
+                cuenta: hasOwnTransfer(own) ? { propia: true, ...accountOf(own) } : { propia: false },
               }
             }),
             dondeSeCambia:
@@ -211,7 +224,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
         status: 'Preparando el cambio de cuenta',
         proposes: true,
         description:
-          'Prepara el cambio de la cuenta para transferencias y le muestra a la persona una tarjeta para confirmarlo (no cambia nada hasta que toque Confirmar). alcance "organizacion" (solo un SuperAdmin) cambia la cuenta que usan todos los números sin cuenta propia; "numero" cambia la de un solo número (numero_id). Cada dato: un texto para cambiarlo, "" para borrarlo, sin pasarlo queda como está. Un número con cuenta propia usa solo sus cuatro datos, nunca mezcla con los de la organización. Para que un número vuelva a usar la cuenta de la organización: alcance "numero" y usar_cuenta_de_la_organizacion true.',
+          'Prepara el cambio de la cuenta para transferencias y le muestra a la persona una tarjeta para confirmarlo (no cambia nada hasta que toque Confirmar). alcance "organizacion" (solo un SuperAdmin) cambia la cuenta que usan todos los números sin cuenta propia; "numero" cambia la de un solo número (numero_id). Cada dato: un texto para cambiarlo, "" para borrarlo, sin pasarlo queda como está. Un número con cuenta propia usa solo sus cuatro datos, nunca mezcla con los de la organización. Para que un número vuelva a usar la cuenta de la organización: alcance "numero" y usar_cuenta_de_la_organizacion true. Para que el bot no dé ninguna cuenta (la oficina le pasa los datos al cliente por el chat, por ejemplo una sucursal que no da alias): la_oficina_pasa_los_datos true.',
         parameters: {
           type: 'object',
           additionalProperties: false,
@@ -227,6 +240,11 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
               type: 'boolean',
               description: 'Borra la cuenta propia del número para que vuelva a usar la de la organización.',
             },
+            la_oficina_pasa_los_datos: {
+              type: 'boolean',
+              description:
+                'El bot deja de dar alias y CBU: dice que la oficina le pasa los datos por el chat. Borra la cuenta cargada.',
+            },
           },
         },
         run: async (ctx, args) => {
@@ -236,7 +254,10 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
           const notes: string[] = []
 
           if (scope === 'number' && optionalBool(args, 'usar_cuenta_de_la_organizacion')) {
-            for (const field of Object.values(TRANSFER_ARGS)) changes[field] = ''
+            for (const field of TRANSFER_SETTINGS) changes[field as TransferField] = ''
+          } else if (optionalBool(args, 'la_oficina_pasa_los_datos')) {
+            for (const field of TRANSFER_FIELDS) changes[field as AccountField] = ''
+            changes.transferMode = TRANSFER_BY_OFFICE
           } else {
             for (const [arg, field] of Object.entries(TRANSFER_ARGS)) {
               const value = args[arg]
@@ -269,7 +290,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
             const number = await ownNumber(deps, ctx, numberId)
             const own = parseBotProfile(number.botProfile)
             target = numberLabel(number)
-            if (hasOwnAccount(own)) {
+            if (hasOwnTransfer(own)) {
               before = own
             } else {
               before = org
@@ -277,14 +298,14 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
               const missing = Object.entries(TRANSFER_ARGS)
                 .filter(([, field]) => changes[field] === undefined)
                 .map(([arg]) => arg)
-              if (missing.length && Object.values(changes).some(Boolean)) {
+              if (missing.length && changes.transferMode === undefined && Object.values(changes).some(Boolean)) {
                 notes.push(
                   `Con cuenta propia el número usa solo estos datos: ${missing.join(', ')} ${missing.length === 1 ? 'queda vacío' : 'quedan vacíos'}.`,
                 )
               }
             }
             if (Object.values(changes).every(v => v === '')) {
-              if (!hasOwnAccount(own)) throw new ToolError('Ese número ya usa la cuenta de la organización.')
+              if (!hasOwnTransfer(own)) throw new ToolError('Ese número ya usa la cuenta de la organización.')
               notes.push('El número vuelve a usar la cuenta de la organización.')
             }
           } else {
@@ -298,12 +319,13 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
 
           // A number that takes on its own account shows all four fields: the ones not given stay empty.
           const startsOwnAccount = scope === 'number' && before === org
-          const fields = (startsOwnAccount ? TRANSFER_FIELDS : Object.keys(changes)) as TransferField[]
-          const rows: ActionChange[] = fields
+          // What is stored after confirming: typing an account stops the office passing the data, and the other way around.
+          const after = mergeBotProfile(startsOwnAccount ? null : before, changes)
+          const rows: ActionChange[] = (TRANSFER_SETTINGS as TransferField[])
             .map(field => ({
               label: TRANSFER_LABELS[field],
-              before: shown(before[field]),
-              after: shown(changes[field]),
+              before: transferShown(field, before[field]),
+              after: transferShown(field, after[field]),
             }))
             .filter(row => row.before !== row.after)
           if (!rows.length) throw new ToolError('Esos datos ya son los que están cargados: no hay nada para cambiar.')
@@ -322,10 +344,10 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
             {
               scope,
               numberId,
-              // A number that took on its own account goes back to the organization's: its four fields empty.
-              changes: startsOwnAccount
-                ? Object.fromEntries(TRANSFER_FIELDS.map(field => [field, '']))
-                : Object.fromEntries(Object.keys(changes).map(field => [field, before[field as TransferField] ?? ''])),
+              // A number that took on its own account goes back to the organization's: its transfer settings empty.
+              changes: Object.fromEntries(
+                TRANSFER_SETTINGS.map(field => [field, startsOwnAccount ? '' : (before[field] ?? '')]),
+              ),
             },
           )
           return {
@@ -362,7 +384,7 @@ export function configTools(deps: ConfigToolDeps): ToolSet {
                 id: n.id,
                 numero: numberLabel(n),
                 datosPropios: overridden,
-                cuentaPropia: hasOwnAccount(own),
+                cuentaPropia: hasOwnTransfer(own),
                 horarioPropio: n.businessHours != null,
               }
             }),

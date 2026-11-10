@@ -666,6 +666,7 @@ What the bot says that is particular to the organization: how it names it, the g
   "towTruckPhone": "3415690470",
   "claimsPhone": "0810-666-0302",
   "cashPaymentPlaces": "Rapipago, Pago Fácil o Santa Fe Servicios",
+  "transferMode": null,
   "transferAlias": "TRUENO.VUELO.DELTA",
   "transferCbu": "0070081820000004432793",
   "transferHolder": "Triunfo Coop. de Seguros Ltda. (CUIT 30-50006577-6)",
@@ -674,6 +675,8 @@ What the bot says that is particular to the organization: how it names it, the g
   "quoteClosingNote": "Un asesor seguro te va a poder mejorar el precio con una bonificación"
 }
 ```
+
+`transferMode` is `"office"` when the bot gives no account at all and tells the customer the office passes the data in the chat (a branch that does not hand out an alias); then the four `transfer*` account fields are `null`. `null` = the bot gives the account, if there is one.
 
 `quoteClosingNote` is the line the bot adds at the end of every quote it gives; `null` leaves the quote as the model wrote it.
 
@@ -699,7 +702,8 @@ Changes the fields sent; an empty string clears one. The bot reads it on its nex
 | towTruckPhone     | string | No       | ≤ 40                                                |
 | claimsPhone       | string | No       | ≤ 40; empty → the bot gives Triunfo's line          |
 | cashPaymentPlaces | string | No       | ≤ 200; empty → "Rapipago o Pago Fácil"              |
-| transferAlias     | string | No       | ≤ 60                                                |
+| transferMode      | string | No       | `"office"` or empty; `"office"` clears the account  |
+| transferAlias     | string | No       | ≤ 60; a typed account empties `transferMode`        |
 | transferCbu       | string | No       | ≤ 30                                                |
 | transferHolder    | string | No       | ≤ 160                                               |
 | transferBank      | string | No       | ≤ 80                                                |
@@ -2951,7 +2955,7 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
 }
 ```
 
-`profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU, `quoteClosingNote` is the line the bot appends to every quote (`null` = none). It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
+`profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU or when `transferMode` is `"office"` (the bot then says the office passes the data), `quoteClosingNote` is the line the bot appends to every quote (`null` = none). It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
 
 `internalWaIds` are the organization's active WhatsApp lines (this number included) as digits, `54` + area + number without WhatsApp's mobile `9`. A message from one of them (a branch writing to the office from its bot number) is kept for the inbox and never answered by the bot, and the inactivity goodbye is not sent to it either.
 
@@ -3580,11 +3584,11 @@ Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers 
 
 Every number also carries `branchName` (the branch it belongs to, as the office calls it: `"27 de Febrero"`, or `null`; set when the number is connected, `branchName` in `POST /admin/whatsapp/onboard`, or registered by hand, `branchName` in `POST /admin/phone-numbers` (≤ 60 chars, trimmed); changed with `PATCH /admin/phone-numbers/:id` or `PATCH /admin/phone-numbers/:id/assistant`, where an empty string clears it; the panel shows it next to the number), `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization), `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own) and `botEnabled` (the number's own bot switch, see `PATCH /admin/phone-numbers/:id/bot-status`).
 
-Both `POST /admin/whatsapp/onboard` and `POST /admin/phone-numbers` also take the assistant the number starts with, which the panel asks for together with the branch name so a new branch never greets as another office: `botName` (≤ 60 chars), `presentationName` (≤ 120 chars: whose assistant the bot says it is, stored as the number's own `orgName`, `orgLegalName` and `orgShortName`), `transferAlias` (≤ 60 chars: the alias customers transfer to, stored as the number's own `transferAlias`; since the transfer account is the number's own as a whole once any field is set, CBU, holder and bank are completed with `PATCH /admin/phone-numbers/:id/assistant`), `staffNames` (up to 10 names of ≤ 30 chars) and `businessHours` (a weekly schedule as in `PATCH /admin/phone-numbers/:id/assistant`; invalid hours answer `400` before Meta's code is used). All optional for the API: a field not sent is left as it was. Only what changes is written: a field equal to what the number already uses (its own value, or the organization's when it has none) is left alone, so a reconnect that sends back the prefilled form keeps the number's assistant as it was and a value equal to the organization's keeps following the organization. `presentationName` and `transferAlias` are merged into the number's own profile, never replacing the rest (CBU, holder, bank, lines, closing note); typing the organization's alias (case-insensitive) drops the number's own account so it uses the organization's whole account. A field sent empty clears the number's own value, so the organization's applies again.
+Both `POST /admin/whatsapp/onboard` and `POST /admin/phone-numbers` also take the assistant the number starts with, which the panel asks for together with the branch name so a new branch never greets as another office: `botName` (≤ 60 chars), `presentationName` (≤ 120 chars: whose assistant the bot says it is, stored as the number's own `orgName`, `orgLegalName` and `orgShortName`), `transferAlias` (≤ 60 chars: the alias customers transfer to, stored as the number's own `transferAlias`; since the transfer account is the number's own as a whole once any field is set, CBU, holder and bank are completed with `PATCH /admin/phone-numbers/:id/assistant`), `transferMode` (`"office"` for a branch that gives no alias: stored as the number's own `transferMode`, its own account is dropped, the organization's is never given and `transferAlias` is ignored; `""` stops it), `staffNames` (up to 10 names of ≤ 30 chars) and `businessHours` (a weekly schedule as in `PATCH /admin/phone-numbers/:id/assistant`; invalid hours answer `400` before Meta's code is used). All optional for the API: a field not sent is left as it was. Only what changes is written: a field equal to what the number already uses (its own value, or the organization's when it has none) is left alone, so a reconnect that sends back the prefilled form keeps the number's assistant as it was and a value equal to the organization's keeps following the organization. `presentationName` and `transferAlias` are merged into the number's own profile, never replacing the rest (CBU, holder, bank, lines, closing note); typing the organization's alias (case-insensitive) drops the number's own account so it uses the organization's whole account. A field sent empty clears the number's own value, so the organization's applies again.
 
 ### GET /admin/phone-numbers/:id/assistant
 
-A number's own assistant next to its organization's. Whatever the number leaves empty (`null`, empty list, `null` field of `botProfile`) is the organization's: that is what the bot uses on this number (`GET /bot/context`, `GET /bot/numbers/:phoneNumberId/hours`, the inactivity notice, the takeover sweep and the claims e-mail). Holidays and closures are each number's own (`own.closures`, upcoming and under way, national holidays included with `holiday: true`): there are no organization-wide ones. The transfer account goes as a whole: a number with any `transfer*` field of its own uses only its own account fields, never the organization's alias with its own CBU or the other way around.
+A number's own assistant next to its organization's. Whatever the number leaves empty (`null`, empty list, `null` field of `botProfile`) is the organization's: that is what the bot uses on this number (`GET /bot/context`, `GET /bot/numbers/:phoneNumberId/hours`, the inactivity notice, the takeover sweep and the claims e-mail). Holidays and closures are each number's own (`own.closures`, upcoming and under way, national holidays included with `holiday: true`): there are no organization-wide ones. The transfer account goes as a whole: a number with any `transfer*` field of its own uses only its own account fields, never the organization's alias with its own CBU or the other way around. A number with `botProfile.transferMode` `"office"` gives no account at all, not even the organization's: the bot tells the customer the office passes the data in the chat. Set it with `PATCH /admin/phone-numbers/:id/assistant` and `{ "botProfile": { "transferMode": "office" } }` (it clears the number's own account); typing an account or sending `"transferMode": ""` gives one again.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
