@@ -4792,7 +4792,7 @@ sees its cartera from the first login; without them it sees nothing until a Supe
 
 ## Owner — Integración Triunfo
 
-Each organization quotes, syncs its cartera and downloads documents with its own Triunfo web-service user. The password is stored encrypted with `WABA_TOKEN_ENCRYPTION_KEY` and never returned. The default organization (`DEFAULT_PRODUCER_SLUG`) keeps working on `TRIUNFO_PRODUCTOR` / `TRIUNFO_USUARIO` / `TRIUNFO_PASSWORD` while it has none of its own; any other organization without credentials gets `503` on quotes and documents, and is skipped by the cartera sync.
+Each organization quotes, syncs its cartera and downloads documents with its own Triunfo web-service user. The password is stored encrypted with `WABA_TOKEN_ENCRYPTION_KEY` and never returned. The default organization (`DEFAULT_PRODUCER_SLUG`) keeps working on `TRIUNFO_PRODUCTOR` / `TRIUNFO_USUARIO` / `TRIUNFO_PASSWORD` while it has none of its own; any other organization without credentials gets `503` on quotes and documents, and is skipped by the cartera sync. The one exception is provisional and the owner's to switch on per organization: quoting with the default organization's account while its own is on the way (`PUT …/triunfo/quote-fallback`).
 
 **Cartera sync.** At 06:00 and 20:00 (Argentina) every active organization is synced, one after another: each of its active codes is asked to Triunfo (`RESTNovedadesCartera`) with the organization's own user, six months back the first time and three afterwards. Triunfo is never asked for two organizations at once, whoever asks: a request for an organization waits its turn, and one for an organization already waiting or running is skipped. An organization failing does not stop the next. Saving credentials Triunfo accepts (`PUT` below) starts the import of the codes that organization never synced right away, without waiting for the next run; an organization already synced is not asked again. Needs `TRIUNFO_CARTERA_SYNC_ENABLED=true`.
 
@@ -4814,7 +4814,8 @@ Every failed call to Triunfo (getTokenRest, RESTNovedadesCartera, RESTDocumentos
   "verifiedAt": "2026-10-27T13:00:00.000Z",
   "usesDefaultSettings": false,
   "failingSince": "2026-10-30T23:19:30.000Z",
-  "failureMessage": "Error Generando Token - Revisar los datos ingresados"
+  "failureMessage": "Error Generando Token - Revisar los datos ingresados",
+  "quoteFallback": false
 }
 ```
 
@@ -4865,6 +4866,34 @@ Asks Triunfo for a token with the credentials and saves them only if it accepts 
   "error": "Bad Gateway"
 }
 ```
+
+### PUT /owner/organizations/:id/triunfo/quote-fallback
+
+Provisional, for an organization still waiting for its Triunfo web-service user: while `enabled`, its auto and moto quotes (bot, panel) go out with the default organization's Triunfo account, so Triunfo records them under that account's producer code. Only quotes: its cartera is not synced and its documents still answer `503` until it has credentials of its own. Saving its own credentials (`PUT` above) turns it off, and removing them later does not turn it back on.
+
+**Auth required:** Yes (OWNER)
+
+**Request body**
+
+| Field   | Type    | Required | Constraints |
+| ------- | ------- | -------- | ----------- |
+| enabled | boolean | Yes      |             |
+
+```json
+{ "enabled": true }
+```
+
+**Responses**
+
+`200 OK` — as `GET /owner/organizations/:id/triunfo`, with the new `quoteFallback`
+
+`400 Bad Request` — enabling it for an organization that already quotes with its own account (its credentials, or the default organization itself)
+
+```json
+{ "statusCode": 400, "message": "La organización ya cotiza con su propia cuenta de Triunfo", "error": "Bad Request" }
+```
+
+`404 Not Found` — the organization does not exist
 
 ### DELETE /owner/organizations/:id/triunfo
 

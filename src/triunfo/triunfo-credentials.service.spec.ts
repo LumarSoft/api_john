@@ -10,9 +10,18 @@ const KEY_HEX = 'b'.repeat(64)
 const DTO = { productor: ' 20001 ', username: ' OTRAORG ', password: 'clave' }
 
 function setup(stored: Record<string, unknown> | null = null, slug = 'otra-org') {
+  let quoteFallback = false
   const prisma = {
     producer: {
-      findFirst: jest.fn().mockImplementation(() => Promise.resolve({ slug, triunfoCredential: stored })),
+      findFirst: jest
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve({ slug, triunfoCredential: stored, triunfoQuoteFallback: quoteFallback }),
+        ),
+      update: jest.fn().mockImplementation(({ data }: { data: { triunfoQuoteFallback: boolean } }) => {
+        quoteFallback = data.triunfoQuoteFallback
+        return Promise.resolve({})
+      }),
     },
     triunfoCredential: {
       upsert: jest.fn().mockImplementation(({ create }: { create: Record<string, unknown> }) => {
@@ -92,6 +101,27 @@ describe('TriunfoCredentialsService', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
+  it('lets an organization without credentials quote with the default account until it gets its own', async () => {
+    const { service } = setup()
+
+    await expect(service.setQuoteFallback(2, true)).resolves.toMatchObject({ configured: false, quoteFallback: true })
+    await expect(service.status(2)).resolves.toMatchObject({ quoteFallback: true })
+
+    // Its own credentials end the provisional account.
+    await expect(service.save(2, DTO)).resolves.toMatchObject({ configured: true, quoteFallback: false })
+  })
+
+  it('refuses the provisional account for an organization that already quotes with its own', async () => {
+    const own = setup({ productor: '20001', username: 'OTRAORG', verifiedAt: new Date(), deletedAt: null })
+    await expect(own.service.setQuoteFallback(2, true)).rejects.toBeInstanceOf(BadRequestException)
+    expect(own.prisma.producer.update).not.toHaveBeenCalled()
+
+    const defaultOrg = setup(null, 'john')
+    await expect(defaultOrg.service.setQuoteFallback(1, true)).rejects.toBeInstanceOf(BadRequestException)
+    // Turning it off is always possible.
+    await expect(defaultOrg.service.setQuoteFallback(1, false)).resolves.toMatchObject({ quoteFallback: false })
+  })
+
   it('does not end the outage when Triunfo refuses the new ones too', async () => {
     const { service, triunfo, errors } = setup()
     triunfo.verifyCredentials.mockRejectedValue(new UnauthorizedException('No se pudo obtener token de Triunfo'))
@@ -135,6 +165,7 @@ describe('TriunfoCredentialsService', () => {
       usesDefaultSettings: true,
       failingSince: null,
       failureMessage: null,
+      quoteFallback: false,
     })
     await expect(setup(null).service.status(2)).resolves.toMatchObject({ usesDefaultSettings: false })
   })

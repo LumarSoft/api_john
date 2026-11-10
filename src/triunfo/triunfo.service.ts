@@ -437,12 +437,32 @@ export class TriunfoService {
     return new Date(Date.now() + 60 * 60 * 1000)
   }
 
-  /** The Autenticacion block of a JWT call, with the organization's credentials. */
+  /**
+   * The Autenticacion block of a quote, with the organization's credentials.
+   * An organization without them quotes with the default organization's while
+   * the owner allows it (Producer.triunfoQuoteFallback): a provisional way to
+   * quote before Triunfo issues its web-service user. Only quotes: its cartera
+   * and documents are never asked for with another organization's account.
+   */
   async getAuth(producerId: number | null): Promise<{ Productor: string; JWT: string }> {
-    const credentials = await this.credentialsFor(producerId)
+    let credentials: TriunfoCredentials
+    // Whose credentials they are: a refusal is recorded against their owner.
+    let owner = producerId
+    try {
+      credentials = await this.credentialsFor(producerId)
+    } catch (err) {
+      if (!(err instanceof TriunfoNotConfiguredException) || producerId === null) throw err
+      const producer = await this.prisma.producer.findFirst({
+        where: { id: producerId, deletedAt: null },
+        select: { triunfoQuoteFallback: true },
+      })
+      if (!producer?.triunfoQuoteFallback) throw err
+      credentials = await this.credentialsFor(null)
+      owner = null
+    }
     return {
       Productor: credentials.productor,
-      JWT: await this.getToken(credentials, producerId),
+      JWT: await this.getToken(credentials, owner),
     }
   }
 

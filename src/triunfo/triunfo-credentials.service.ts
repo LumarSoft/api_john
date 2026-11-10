@@ -25,6 +25,8 @@ export interface TriunfoCredentialStatus {
   failingSince: Date | null
   /** What Triunfo answered when it refused them. */
   failureMessage: string | null
+  /** Provisional: without credentials of its own, its quotes go out with the default organization's. */
+  quoteFallback: boolean
 }
 
 /**
@@ -58,6 +60,7 @@ export class TriunfoCredentialsService {
       where: { id: producerId, deletedAt: null },
       select: {
         slug: true,
+        triunfoQuoteFallback: true,
         triunfoCredential: { select: { productor: true, username: true, verifiedAt: true, deletedAt: true } },
       },
     })
@@ -73,7 +76,22 @@ export class TriunfoCredentialsService {
       usesDefaultSettings: own === null && this.triunfo.hasEnvCredentialsFor(producer.slug),
       failingSince: health.failingSince,
       failureMessage: health.failureMessage,
+      quoteFallback: producer.triunfoQuoteFallback,
     }
+  }
+
+  /**
+   * Lets an organization without credentials quote with the default
+   * organization's Triunfo account, or stops it. Refused for an organization
+   * that already quotes with an account of its own.
+   */
+  async setQuoteFallback(producerId: number, enabled: boolean): Promise<TriunfoCredentialStatus> {
+    const status = await this.status(producerId)
+    if (enabled && (status.configured || status.usesDefaultSettings)) {
+      throw new BadRequestException('La organización ya cotiza con su propia cuenta de Triunfo')
+    }
+    await this.prisma.producer.update({ where: { id: producerId }, data: { triunfoQuoteFallback: enabled } })
+    return { ...status, quoteFallback: enabled }
   }
 
   async save(producerId: number, dto: SaveTriunfoCredentialDto): Promise<TriunfoCredentialStatus> {
@@ -100,6 +118,9 @@ export class TriunfoCredentialsService {
       create: { producerId, ...data },
       update: data,
     })
+    // Its own account from now on: the provisional one ends here, and does not
+    // come back by itself if these credentials are removed later.
+    await this.prisma.producer.update({ where: { id: producerId }, data: { triunfoQuoteFallback: false } })
     this.triunfo.forgetCredentials(producerId)
     // Triunfo just accepted them: an outage of the old ones is over.
     await this.errors.credentialsAccepted(producerId)

@@ -246,11 +246,12 @@ describe('TriunfoService per-organization credentials', () => {
   const TOKEN = (exp: number) => `x.${Buffer.from(JSON.stringify({ exp })).toString('base64')}.y`
 
   function setup(env: Record<string, string | undefined> = ENV) {
-    const producers: Record<number, { slug: string; triunfoCredential: unknown }> = {
+    const producers: Record<number, { slug: string; triunfoCredential: unknown; triunfoQuoteFallback?: boolean }> = {
       1: { slug: 'john', triunfoCredential: null },
       2: { slug: 'otra-org', triunfoCredential: { ...SECOND_ORG, deletedAt: null } },
       3: { slug: 'sin-triunfo', triunfoCredential: null },
       4: { slug: 'borrada', triunfoCredential: { ...SECOND_ORG, deletedAt: new Date() } },
+      5: { slug: 'esperando-triunfo', triunfoCredential: null, triunfoQuoteFallback: true },
     }
     const prisma = {
       producer: {
@@ -297,6 +298,30 @@ describe('TriunfoService per-organization credentials', () => {
     const { service } = setup()
     await expect(service.credentialsFor(3)).rejects.toBeInstanceOf(TriunfoNotConfiguredException)
     await expect(service.credentialsFor(4)).rejects.toBeInstanceOf(TriunfoNotConfiguredException)
+  })
+
+  it("quotes with the default organization's account for one the owner allowed, and nothing else does", async () => {
+    const { service, post } = setup()
+
+    const jpmg = await service.getAuth(1)
+    await expect(service.getAuth(5)).resolves.toEqual(jpmg)
+    expect(jpmg.Productor).toBe('10484')
+    // One token for the shared account, asked once.
+    expect(post).toHaveBeenCalledTimes(1)
+
+    // Its cartera and documents still wait for credentials of its own.
+    await expect(service.credentialsFor(5)).rejects.toBeInstanceOf(TriunfoNotConfiguredException)
+    // And an organization the owner did not allow does not quote at all.
+    await expect(service.getAuth(3)).rejects.toBeInstanceOf(TriunfoNotConfiguredException)
+  })
+
+  it('records a refusal of the shared account against its owner, not the organization borrowing it', async () => {
+    const { service } = setup()
+    const getToken = jest.spyOn(service, 'getToken').mockResolvedValue('jwt')
+
+    await service.getAuth(5)
+
+    expect(getToken).toHaveBeenCalledWith({ productor: '10484', usuario: 'USUARIO', password: 'md5' }, null)
   })
 
   it('reads the stored credentials once and again after they change', async () => {

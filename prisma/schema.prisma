@@ -81,6 +81,10 @@ model Producer {
   salesCampaignOptOuts    SalesCampaignOptOut[]
   salesOpportunities      SalesOpportunity[]
   triunfoCredential       TriunfoCredential?
+  // Provisional, set by the owner: while the organization has no Triunfo
+  // credentials of its own, its auto and moto quotes go out with the default
+  // organization's. Cartera and documents never do. Cleared when it gets its own.
+  triunfoQuoteFallback    Boolean                  @default(false)
   triunfoAuthStatus       TriunfoAuthStatus?
   triunfoErrors           TriunfoError[]
   monthlyBalances         MonthlyBalance[]

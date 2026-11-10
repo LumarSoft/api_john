@@ -6,6 +6,7 @@ import { Roles } from '../auth/roles.decorator'
 import { TriunfoCredentialsService } from './triunfo-credentials.service'
 import { TriunfoErrorsService } from './triunfo-errors.service'
 import { SaveTriunfoCredentialDto } from './dto/save-triunfo-credential.dto'
+import { SetQuoteFallbackDto } from './dto/set-quote-fallback.dto'
 
 /** Platform OWNER: each organization's own Triunfo web-service access, and how its calls are failing. */
 @UseGuards(UserAuthGuard, RolesGuard)
@@ -30,6 +31,11 @@ export class OwnerTriunfoController {
   @Put()
   save(@Param('id', ParseIntPipe) id: number, @Body() dto: SaveTriunfoCredentialDto) {
     return this.credentials.save(id, dto)
+  }
+
+  @Put('quote-fallback')
+  setQuoteFallback(@Param('id', ParseIntPipe) id: number, @Body() dto: SetQuoteFallbackDto) {
+    return this.credentials.setQuoteFallback(id, dto.enabled)
   }
 
   @Delete()
