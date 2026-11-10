@@ -13,6 +13,6 @@ import { IntegrationStatusModule } from '../integration-status/integration-statu
   imports: [HttpModule, ConfigModule, PrismaModule, IntegrationStatusModule],
   controllers: [OwnerTriunfoController, AdminTriunfoController],
   providers: [TriunfoService, TriunfoCredentialsService, TriunfoErrorsService],
-  exports: [TriunfoService, TriunfoErrorsService],
+  exports: [TriunfoService, TriunfoCredentialsService, TriunfoErrorsService],
 })
 export class TriunfoModule {}

@@ -4794,6 +4794,8 @@ sees its cartera from the first login; without them it sees nothing until a Supe
 
 Each organization quotes, syncs its cartera and downloads documents with its own Triunfo web-service user. The password is stored encrypted with `WABA_TOKEN_ENCRYPTION_KEY` and never returned. The default organization (`DEFAULT_PRODUCER_SLUG`) keeps working on `TRIUNFO_PRODUCTOR` / `TRIUNFO_USUARIO` / `TRIUNFO_PASSWORD` while it has none of its own; any other organization without credentials gets `503` on quotes and documents, and is skipped by the cartera sync.
 
+**Cartera sync.** At 06:00 and 20:00 (Argentina) every active organization is synced, one after another: each of its active codes is asked to Triunfo (`RESTNovedadesCartera`) with the organization's own user, six months back the first time and three afterwards. Triunfo is never asked for two organizations at once, whoever asks: a request for an organization waits its turn, and one for an organization already waiting or running is skipped. An organization failing does not stop the next. Saving credentials Triunfo accepts (`PUT` below) starts the import of the codes that organization never synced right away, without waiting for the next run; an organization already synced is not asked again. Needs `TRIUNFO_CARTERA_SYNC_ENABLED=true`.
+
 Every failed call to Triunfo (getTokenRest, RESTNovedadesCartera, RESTDocumentosV2, the PDF download and RESTCotizadorAutV2) is recorded, one row per distinct failure. A new one, or one back after a week, mails every OWNER user and `TRIUNFO_ALERT_EMAIL`. When Triunfo refuses the credentials in use, the organization gets a notice in Asuntos pendientes (type `triunfo`), its SuperAdmins and Lumarsoft get a mail (again once a day while it lasts and when it ends), and nothing asks Triunfo again with them for 15 minutes. Saving credentials Triunfo accepts ends the outage.
 
 ### GET /owner/organizations/:id/triunfo
@@ -4917,6 +4919,26 @@ Whether Triunfo is accepting the credentials of the user's organization, for the
   "failingSince": "2026-10-30T23:19:30.000Z",
   "failureMessage": "Error Generando Token - Revisar los datos ingresados"
 }
+```
+
+### POST /admin/cartera-sync
+
+Syncs the cartera of the user's own organization now, without waiting for 06:00 or 20:00. Never another organization's. It waits its turn if another organization is being synced, and the response comes when the run ends, which can take many minutes: a proxy timeout on the request does not stop the run.
+
+**Auth required:** Yes (SUPERADMIN, OWNER)
+
+**Responses**
+
+`201 Created`
+
+```json
+{ "codesProcessed": 24, "synced": 11056, "skipped": 0, "elapsedMs": 1026934 }
+```
+
+`201 Created` — the organization was already waiting or being synced; nothing new was started
+
+```json
+{ "codesProcessed": 0, "synced": 0, "skipped": 0, "skippedRun": true }
 ```
 
 ## Admin — Status

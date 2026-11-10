@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common'
@@ -33,12 +34,24 @@ export interface TriunfoCredentialStatus {
  */
 @Injectable()
 export class TriunfoCredentialsService {
+  private readonly logger = new Logger(TriunfoCredentialsService.name)
+  private readonly savedListeners: Array<(producerId: number) => void> = []
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly triunfo: TriunfoService,
     private readonly config: ConfigService,
     private readonly errors: TriunfoErrorsService,
   ) {}
+
+  /**
+   * Tells `listener` each time an organization gets credentials Triunfo accepts.
+   * The cartera sync uses it to start a new organization's first import; it
+   * lives in a module that already depends on this one.
+   */
+  onSaved(listener: (producerId: number) => void): void {
+    this.savedListeners.push(listener)
+  }
 
   async status(producerId: number): Promise<TriunfoCredentialStatus> {
     const producer = await this.prisma.producer.findFirst({
@@ -90,6 +103,14 @@ export class TriunfoCredentialsService {
     this.triunfo.forgetCredentials(producerId)
     // Triunfo just accepted them: an outage of the old ones is over.
     await this.errors.credentialsAccepted(producerId)
+    for (const listener of this.savedListeners) {
+      // A listener's trouble is never the owner's: the credentials are saved.
+      try {
+        listener(producerId)
+      } catch (err) {
+        this.logger.error(`Credentials listener failed: ${err instanceof Error ? err.message : err}`)
+      }
+    }
     return this.status(producerId)
   }
 

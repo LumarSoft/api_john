@@ -70,6 +70,28 @@ describe('TriunfoCredentialsService', () => {
     expect(errors.credentialsAccepted).toHaveBeenCalledWith(2)
   })
 
+  it('tells whoever listens that the organization has working credentials, and never fails because of them', async () => {
+    const { service } = setup()
+    const listener = jest.fn()
+    service.onSaved(() => {
+      throw new Error('listener broke')
+    })
+    service.onSaved(listener)
+
+    await expect(service.save(2, DTO)).resolves.toMatchObject({ configured: true })
+    expect(listener).toHaveBeenCalledWith(2)
+  })
+
+  it('tells nobody when Triunfo refuses the credentials', async () => {
+    const { service, triunfo } = setup()
+    const listener = jest.fn()
+    service.onSaved(listener)
+    triunfo.verifyCredentials.mockRejectedValue(new UnauthorizedException('No se pudo obtener token de Triunfo'))
+
+    await expect(service.save(2, DTO)).rejects.toBeInstanceOf(BadRequestException)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
   it('does not end the outage when Triunfo refuses the new ones too', async () => {
     const { service, triunfo, errors } = setup()
     triunfo.verifyCredentials.mockRejectedValue(new UnauthorizedException('No se pudo obtener token de Triunfo'))

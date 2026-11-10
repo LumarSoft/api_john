@@ -12,6 +12,7 @@ import {
   type TriunfoCuotaDato,
   type TriunfoVehiculoDato,
 } from '../triunfo/triunfo.service'
+import { TriunfoCredentialsService } from '../triunfo/triunfo-credentials.service'
 
 // ─── Helpers ─────────────────────────────────────────────
 
@@ -167,6 +168,14 @@ export interface CarteraSyncResult {
   skippedRun?: boolean
 }
 
+/** Which codes of the organization a run asks Triunfo for. */
+export interface CarteraSyncOptions {
+  /** Only the codes that were never synced (their six-month backfill). */
+  onlyNeverSynced?: boolean
+}
+
+const NOTHING_SYNCED: CarteraSyncResult = { codesProcessed: 0, synced: 0, skipped: 0 }
+
 @Injectable()
 export class CarteraSyncService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CarteraSyncService.name)
@@ -175,6 +184,7 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     private readonly prisma: PrismaService,
     private readonly triunfo: TriunfoService,
     private readonly config: ConfigService,
+    private readonly credentials: TriunfoCredentialsService,
   ) {}
 
   // Booting no longer syncs by default: every deploy or restart fired a full
@@ -186,6 +196,14 @@ export class CarteraSyncService implements OnApplicationBootstrap {
       this.logger.log('Cartera sync disabled (TRIUNFO_CARTERA_SYNC_ENABLED != true)')
       return
     }
+    // An organization that just got working credentials does not wait for
+    // 06:00 or 20:00: the codes it never synced are asked for right away. Saving
+    // a new password for an organization already synced asks Triunfo for nothing.
+    this.credentials.onSaved(producerId => {
+      void this.syncOrganization(producerId, { onlyNeverSynced: true }).catch(err =>
+        this.logger.error(`Producer ${producerId}: first cartera sync failed: ${err?.message ?? err}`),
+      )
+    })
     if (this.config.get<string>('TRIUNFO_CARTERA_SYNC_ON_BOOT') !== 'true') {
       this.logger.log('Cartera sync on boot skipped; next run at 06:00 or 20:00 (TRIUNFO_CARTERA_SYNC_ON_BOOT != true)')
       return
@@ -218,8 +236,8 @@ export class CarteraSyncService implements OnApplicationBootstrap {
   // Keeps policies/cuotas fresh in production. Runs at 06:00 and 20:00 Argentina
   // time — pinned to that zone explicitly because the server may well run on UTC,
   // in which case a bare "0 6,20 * * *" would fire at 03:00/17:00 local.
-  // Guarded against overlap so a long sync (many codes, several Triunfo calls
-  // each) never stacks on top of the previous one.
+  // Guarded against overlap so a long run (every organization, many codes,
+  // several Triunfo calls each) never stacks on top of the previous one.
   private syncing = false
 
   @Cron('0 6,20 * * *', { timeZone: 'America/Argentina/Buenos_Aires' })
@@ -228,11 +246,11 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     return this.runGuarded()
   }
 
-  /** Runs the sync unless one is already in flight (overlap guard). */
+  /** Runs the sync of every organization unless one is already in flight (overlap guard). */
   async runGuarded(): Promise<CarteraSyncResult> {
     if (this.syncing) {
       this.logger.warn('Cartera sync already running — skipping this run')
-      return { codesProcessed: 0, synced: 0, skipped: 0, skippedRun: true }
+      return { ...NOTHING_SYNCED, skippedRun: true }
     }
     this.syncing = true
     try {
@@ -242,16 +260,79 @@ export class CarteraSyncService implements OnApplicationBootstrap {
     }
   }
 
+  /** Every active organization, one after another, each with its own Triunfo credentials. */
   async syncCartera(): Promise<CarteraSyncResult> {
     const startedAt = Date.now()
     this.logger.log('Starting cartera sync')
 
-    // Iterate every active producer code of every active org. Triunfo returns
-    // each code's own cartera when we pass its `code` (same master credential,
-    // varying only Codigo — confirmed in Postman). So each client/poliza is
-    // attributed to the producerCodeId of the query it came from.
     const producers = await this.prisma.producer.findMany({
       where: { isActive: true, deletedAt: null },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    })
+
+    let synced = 0
+    let skipped = 0
+    let codesProcessed = 0
+
+    for (const producer of producers) {
+      // One organization failing (its Triunfo user, its data) never stops the next.
+      try {
+        const result = await this.syncOrganization(producer.id)
+        codesProcessed += result.codesProcessed
+        synced += result.synced
+        skipped += result.skipped
+      } catch (err) {
+        this.logger.warn(`Producer ${producer.id}: cartera sync failed — ${err instanceof Error ? err.message : err}`)
+      }
+    }
+
+    const elapsedMs = Date.now() - startedAt
+    const elapsed = formatDuration(elapsedMs)
+    this.logger.log(
+      `Cartera sync complete — ${codesProcessed} codes, ${synced} upserted, ${skipped} skipped in ${elapsed} (${elapsedMs} ms)`,
+    )
+    return { codesProcessed, synced, skipped, elapsedMs }
+  }
+
+  // Organizations waiting for their turn or being synced, and the turn itself.
+  // Whoever asks (the 06:00/20:00 run, a SuperAdmin's request, new credentials),
+  // Triunfo is asked for one organization at a time: it warned that many calls
+  // at once can get our IP blocked, and a sync slows its quotes down as it is.
+  private readonly inLine = new Set<number>()
+  private turn: Promise<unknown> = Promise.resolve()
+
+  /**
+   * Syncs one organization's cartera when its turn comes. Asking again for an
+   * organization that is already waiting or running is skipped.
+   */
+  syncOrganization(producerId: number, options: CarteraSyncOptions = {}): Promise<CarteraSyncResult> {
+    if (this.inLine.has(producerId)) {
+      this.logger.warn(`Producer ${producerId}: cartera sync already waiting or running — skipping this request`)
+      return Promise.resolve({ ...NOTHING_SYNCED, skippedRun: true })
+    }
+    this.inLine.add(producerId)
+    const run = this.turn
+      .then(() => this.syncProducer(producerId, options))
+      .finally(() => this.inLine.delete(producerId))
+    // The next in line starts whether this one ended well or not.
+    this.turn = run.catch(() => undefined)
+    return run
+  }
+
+  /**
+   * Asks Triunfo for each active code of the organization with the
+   * organization's own credentials. Triunfo returns a code's own cartera when
+   * its `Codigo` is sent with the master user (confirmed in Postman), so each
+   * client and policy is attributed to the producerCodeId of the query it came from.
+   */
+  private async syncProducer(
+    producerId: number,
+    { onlyNeverSynced = false }: CarteraSyncOptions,
+  ): Promise<CarteraSyncResult> {
+    const startedAt = Date.now()
+    const producer = await this.prisma.producer.findFirst({
+      where: { id: producerId, isActive: true, deletedAt: null },
       select: {
         id: true,
         masterCode: true,
@@ -261,110 +342,109 @@ export class CarteraSyncService implements OnApplicationBootstrap {
         },
       },
     })
+    if (!producer) return NOTHING_SYNCED
+
+    // An organization without credentials is skipped: its codes cannot be read with another's.
+    let credentials: TriunfoCredentials
+    try {
+      credentials = await this.triunfo.credentialsFor(producer.id)
+    } catch (err) {
+      this.logger.warn(`Producer ${producer.id}: cartera sync skipped — ${err instanceof Error ? err.message : err}`)
+      return NOTHING_SYNCED
+    }
+
+    // Defensive fallback: if no ProducerCode rows are loaded yet (migration/seed
+    // not applied), fall back to a single query with the env master code so the
+    // sync isn't silently empty. Attributes to null (back-fill to master later).
+    const everyTarget =
+      producer.producerCodes.length > 0
+        ? producer.producerCodes.map(pc => ({
+            id: pc.id as number | null,
+            code: pc.code,
+            lastSyncAt: pc.lastCarteraSyncAt,
+          }))
+        : [{ id: null as number | null, code: producer.masterCode ?? undefined, lastSyncAt: null as Date | null }]
+    const targets = onlyNeverSynced ? everyTarget.filter(target => target.lastSyncAt === null) : everyTarget
+    if (targets.length === 0) return NOTHING_SYNCED
+
+    if (producer.producerCodes.length === 0) {
+      this.logger.warn(
+        `Producer ${producer.id} has no ProducerCode rows — run the migration + seed. Using env/master code fallback.`,
+      )
+    }
 
     let synced = 0
     let skipped = 0
     let codesProcessed = 0
 
-    for (const producer of producers) {
-      // Each organization's cartera is asked with its own Triunfo credentials.
-      // One without them is skipped: its codes cannot be read with another's.
-      let credentials: TriunfoCredentials
+    for (const target of targets) {
+      codesProcessed++
+
+      // First sync of this code → 6-month backfill; afterwards → 3 months.
+      const { fechaDesde, fechaHasta, months } = buildDateRange(target.lastSyncAt)
+      const label = target.code ?? '(env master)'
+
+      let novedades: TriunfoNovedad[] = []
       try {
-        credentials = await this.triunfo.credentialsFor(producer.id)
+        // code undefined → TriunfoService uses the credential's own code.
+        novedades = await this.triunfo.getNovedadesCartera(
+          fechaDesde,
+          fechaHasta,
+          credentials,
+          producer.id,
+          target.code,
+        )
+        this.logger.log(
+          `Code ${label}: ${novedades.length} novedades (${months}m: ${fechaDesde} → ${fechaHasta}${target.lastSyncAt ? '' : ', backfill inicial'})`,
+        )
       } catch (err) {
-        this.logger.warn(`Producer ${producer.id}: cartera sync skipped — ${err instanceof Error ? err.message : err}`)
+        this.logger.warn(`Code ${label}: NovedadesCartera failed — ${err instanceof Error ? err.message : err}`)
+        // Deliberately NOT stamping lastCarteraSyncAt: a failed code must keep
+        // its backfill window on the next run instead of silently downgrading
+        // to the incremental one and leaving a permanent hole in the cartera.
         continue
       }
 
-      // Defensive fallback: if no ProducerCode rows are loaded yet (migration/seed
-      // not applied), fall back to a single query with the env master code so the
-      // sync isn't silently empty. Attributes to null (back-fill to master later).
-      const targets =
-        producer.producerCodes.length > 0
-          ? producer.producerCodes.map(pc => ({
-              id: pc.id as number | null,
-              code: pc.code,
-              lastSyncAt: pc.lastCarteraSyncAt,
-            }))
-          : [{ id: null as number | null, code: producer.masterCode ?? undefined, lastSyncAt: null as Date | null }]
-
-      if (producer.producerCodes.length === 0) {
-        this.logger.warn(
-          `Producer ${producer.id} has no ProducerCode rows — run the migration + seed. Using env/master code fallback.`,
-        )
+      // Oldest endorsement first, so the newest movement of a certificate is the
+      // last one written. Triunfo does not guarantee any order.
+      let codeFailures = 0
+      for (const novedad of sortBySuplemento(novedades)) {
+        try {
+          await this.syncNovedad(novedad, producer.id, target.id)
+          synced++
+        } catch (err) {
+          skipped++
+          codeFailures++
+          this.logger.warn(
+            `Skipped certificate ${novedad.Certificado} (code ${label}) — ${err instanceof Error ? err.message : err}`,
+          )
+        }
       }
 
-      for (const target of targets) {
-        codesProcessed++
-
-        // First sync of this code → 6-month backfill; afterwards → 3 months.
-        const { fechaDesde, fechaHasta, months } = buildDateRange(target.lastSyncAt)
-        const label = target.code ?? '(env master)'
-
-        let novedades: TriunfoNovedad[] = []
+      // Mark the code as synced so the next run uses the incremental window.
+      // Only when the Triunfo call itself succeeded (individual novedades that
+      // failed to persist are logged above and retried within the 3-month window).
+      if (target.id !== null) {
         try {
-          // code undefined → TriunfoService uses the credential's own code.
-          novedades = await this.triunfo.getNovedadesCartera(
-            fechaDesde,
-            fechaHasta,
-            credentials,
-            producer.id,
-            target.code,
-          )
-          this.logger.log(
-            `Code ${label}: ${novedades.length} novedades (${months}m: ${fechaDesde} → ${fechaHasta}${target.lastSyncAt ? '' : ', backfill inicial'})`,
-          )
+          await this.prisma.producerCode.update({
+            where: { id: target.id },
+            data: { lastCarteraSyncAt: new Date() },
+          })
         } catch (err) {
-          this.logger.warn(`Code ${label}: NovedadesCartera failed — ${err instanceof Error ? err.message : err}`)
-          // Deliberately NOT stamping lastCarteraSyncAt: a failed code must keep
-          // its backfill window on the next run instead of silently downgrading
-          // to the incremental one and leaving a permanent hole in the cartera.
-          continue
+          this.logger.warn(
+            `Code ${label}: could not stamp lastCarteraSyncAt — ${err instanceof Error ? err.message : err}`,
+          )
         }
+      }
 
-        // Oldest endorsement first, so the newest movement of a certificate is the
-        // last one written. Triunfo does not guarantee any order.
-        let codeFailures = 0
-        for (const novedad of sortBySuplemento(novedades)) {
-          try {
-            await this.syncNovedad(novedad, producer.id, target.id)
-            synced++
-          } catch (err) {
-            skipped++
-            codeFailures++
-            this.logger.warn(
-              `Skipped certificate ${novedad.Certificado} (code ${label}) — ${err instanceof Error ? err.message : err}`,
-            )
-          }
-        }
-
-        // Mark the code as synced so the next run uses the incremental window.
-        // Only when the Triunfo call itself succeeded (individual novedades that
-        // failed to persist are logged above and retried within the 3-month window).
-        if (target.id !== null) {
-          try {
-            await this.prisma.producerCode.update({
-              where: { id: target.id },
-              data: { lastCarteraSyncAt: new Date() },
-            })
-          } catch (err) {
-            this.logger.warn(
-              `Code ${label}: could not stamp lastCarteraSyncAt — ${err instanceof Error ? err.message : err}`,
-            )
-          }
-        }
-
-        if (codeFailures > 0) {
-          this.logger.warn(`Code ${label}: ${codeFailures} novedades could not be persisted`)
-        }
+      if (codeFailures > 0) {
+        this.logger.warn(`Code ${label}: ${codeFailures} novedades could not be persisted`)
       }
     }
 
     const elapsedMs = Date.now() - startedAt
-    const elapsed = formatDuration(elapsedMs)
     this.logger.log(
-      `Cartera sync complete — ${codesProcessed} codes, ${synced} upserted, ${skipped} skipped in ${elapsed} (${elapsedMs} ms)`,
+      `Producer ${producer.id}: cartera synced — ${codesProcessed} codes, ${synced} upserted, ${skipped} skipped in ${formatDuration(elapsedMs)}`,
     )
     return { codesProcessed, synced, skipped, elapsedMs }
   }
