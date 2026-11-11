@@ -114,8 +114,9 @@ export class ScopeService {
   /**
    * Unified section filter for the admin views. Narrows the accessible codes by
    * EITHER a specific producer code OR a specific phone number (a number resolves
-   * to the codes it serves). Both inputs stay within what the user may access, so
-   * a SuperAdmin's "filter by número/productor" can never leak another org's data.
+   * to its cartera, see codeIdsForPhoneNumber). Both inputs stay within what the
+   * user may access, so a SuperAdmin's "filter by número/productor" can never
+   * leak another org's data.
    * `producerCodeId` wins if both are provided (the combobox only sends one).
    */
   async resolveScopedCodeIdsFor(
@@ -133,16 +134,35 @@ export class ScopeService {
     return accessible
   }
 
-  /** Producer codes a phone number serves (responsible + served), within an org. */
+  /**
+   * A number's cartera, for the section filter: its responsible code plus the
+   * codes it also serves, minus those of another branch. A code another number
+   * is billed to is that branch's; and the default number (the office line,
+   * which serves every code so its bot can attend anyone) also gives up the
+   * codes another number serves. So the office line shows the office's
+   * cartera, not the whole organization's. The bot keeps every served code.
+   */
   async codeIdsForPhoneNumber(producerId: number, phoneNumberId: number): Promise<number[]> {
-    const phone = await this.prisma.phoneNumber.findFirst({
-      where: { id: phoneNumberId, producerId, deletedAt: null },
-      select: { responsibleProducerCodeId: true, servedCodes: { select: { producerCodeId: true } } },
-    })
+    const [phones, defaultNumber] = await Promise.all([
+      this.prisma.phoneNumber.findMany({
+        where: { producerId, deletedAt: null },
+        select: { id: true, responsibleProducerCodeId: true, servedCodes: { select: { producerCodeId: true } } },
+      }),
+      this.defaultPhoneNumber(producerId),
+    ])
+    const phone = phones.find(p => p.id === phoneNumberId)
     if (!phone) return []
+    const others = phones.filter(p => p.id !== phoneNumberId)
+    const billedToOthers = new Set(others.map(p => p.responsibleProducerCodeId))
+    const servedByOthers = new Set(others.flatMap(p => p.servedCodes.map(s => s.producerCodeId)))
+    const isOfficeLine = defaultNumber?.id === phoneNumberId
     const ids = new Set<number>()
     if (phone.responsibleProducerCodeId != null) ids.add(phone.responsibleProducerCodeId)
-    for (const s of phone.servedCodes) ids.add(s.producerCodeId)
+    for (const { producerCodeId } of phone.servedCodes) {
+      if (billedToOthers.has(producerCodeId)) continue
+      if (isOfficeLine && servedByOthers.has(producerCodeId)) continue
+      ids.add(producerCodeId)
+    }
     return [...ids]
   }
 
