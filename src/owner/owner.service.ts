@@ -118,6 +118,7 @@ export class OwnerService {
         logoUrl: true,
         isActive: true,
         createdAt: true,
+        planId: true,
       },
     })
     if (!org) throw new NotFoundException(`Organization ${id} not found`)
@@ -135,12 +136,13 @@ export class OwnerService {
       }),
     ])
 
-    const [numbers, codeMetrics] = await Promise.all([
+    const [numbers, codeMetrics, startingPlan] = await Promise.all([
       this.phoneNumberDetail(id),
       this.producerCodeDetail(
         id,
         codes.map(c => c.id),
       ),
+      this.startingPlan(id),
     ])
 
     // Merge the per-code metrics onto the code rows so the panel has one object.
@@ -160,6 +162,7 @@ export class OwnerService {
 
     return {
       ...org,
+      startingPlan,
       codes: codesWithMetrics,
       users: users.map(toOrgUser),
       numbers,
@@ -393,6 +396,29 @@ export class OwnerService {
     await this.getOrganization(id)
     await this.prisma.producer.update({ where: { id }, data: { isActive } })
     return { id, isActive }
+  }
+
+  /**
+   * Puts the organization on a plan of the catalog, or takes it off (null). It
+   * is the plan the organization has while it has no number and the plan its
+   * new numbers start on; numbers it already has keep theirs.
+   */
+  async setOrganizationPlan(id: number, planId: number | null) {
+    await this.assertOrganizationExists(id)
+    if (planId !== null) {
+      const plan = (await this.usage.catalog()).find(p => p.id === planId)
+      if (!plan) throw new NotFoundException('Ese plan no está en el catálogo.')
+      if (!plan.isActive) throw new BadRequestException('Ese plan está desactivado. Activalo o elegí otro.')
+    }
+    await this.prisma.producer.update({ where: { id }, data: { planId } })
+    return { id, planId, startingPlan: await this.startingPlan(id) }
+  }
+
+  /** The plan the organization has with no number and its next number starts on. */
+  private async startingPlan(producerId: number) {
+    const [planId, catalog] = await Promise.all([this.usage.initialPlanIdFor(producerId), this.usage.catalog()])
+    const plan = this.usage.assignedPlanFor(planId, catalog, true)
+    return plan ? { id: plan.id, name: plan.name, trial: plan.trial } : null
   }
 
   // ── Producer codes ──────────────────────────────────────

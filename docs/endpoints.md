@@ -4975,6 +4975,41 @@ Each organization quotes, syncs its cartera and downloads documents with its own
 
 Every failed call to Triunfo (getTokenRest, RESTNovedadesCartera, RESTDocumentosV2, the PDF download and RESTCotizadorAutV2) is recorded, one row per distinct failure. A new one, or one back after a week, mails every OWNER user and `TRIUNFO_ALERT_EMAIL`. When Triunfo refuses the credentials in use, the organization gets a notice in Asuntos pendientes (type `triunfo`), its SuperAdmins and Lumarsoft get a mail (again once a day while it lasts and when it ends), and nothing asks Triunfo again with them for 15 minutes. Saving credentials Triunfo accepts ends the outage.
 
+### PATCH /owner/organizations/:id/plan
+
+Puts an organization on a plan of the catalog (`GET /owner/plans`), or takes it off. It is the plan the organization has while it has **no number** (which panel functions its users may use, `GET /admin/billing/features`) and the plan each of its new numbers starts on. Numbers it already has keep their own plan. Nothing is invoiced from it: billing is per number, so an organization with no number pays nothing whatever its plan. With `planId: null` the organization goes back to the automatic plan: the trial plan for a new account, else the smallest paid plan.
+
+`GET /owner/organizations/:id` carries `planId` (what the owner chose, or `null`) and `startingPlan` (`{ id, name, trial }`, the plan in effect: the chosen one, or the automatic one), or `startingPlan: null` when the catalog has no plan.
+
+**Auth required:** Yes — OWNER
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `planId` | number \| null | Yes | An active plan of the catalog, or `null` |
+
+```json
+{ "planId": 5 }
+```
+
+**Responses**
+
+`200 OK`
+```json
+{ "id": 3, "planId": 5, "startingPlan": { "id": 5, "name": "Profesional", "trial": false } }
+```
+
+`400 Bad Request` — the plan is switched off
+```json
+{ "statusCode": 400, "message": "Ese plan está desactivado. Activalo o elegí otro.", "error": "Bad Request" }
+```
+
+`404 Not Found` — the organization or the plan does not exist
+```json
+{ "statusCode": 404, "message": "Ese plan no está en el catálogo.", "error": "Not Found" }
+```
+
 ### GET /owner/organizations/:id/triunfo
 
 **Auth required:** Yes (OWNER)
