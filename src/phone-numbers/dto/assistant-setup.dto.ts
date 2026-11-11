@@ -1,4 +1,5 @@
-import { ArrayMaxSize, IsArray, IsObject, IsOptional, IsString, MaxLength } from 'class-validator'
+import { ArrayMaxSize, IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator'
+import { TRANSFER_BY_OFFICE } from '../../common/bot-profile'
 
 /**
  * The assistant a number starts with, asked by the panel together with the
@@ -20,6 +21,12 @@ export class AssistantSetupDto {
   @IsString()
   @MaxLength(120)
   presentationName?: string
+
+  // "office": this branch gives customers no alias, the office passes the
+  // data in the chat (the alias is then ignored). Empty: it gives the alias.
+  @IsOptional()
+  @IsIn([TRANSFER_BY_OFFICE, ''])
+  transferMode?: string
 
   // The alias customers transfer to. The transfer account is the number's own
   // as a whole once any of its fields is set: CBU, holder and bank are

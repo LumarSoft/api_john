@@ -44,6 +44,8 @@ export class NovedadesService {
       clientId: number
       clienteNombre: string
       descripcion: string
+      /** Why the policy did not cover the day of the incident; opens the matter's text. */
+      alerta?: string | null
       producerCodeId?: number | null
       /** Meta id of the number the claim came through; null from the panel. */
       phoneNumberId?: string | null
@@ -57,7 +59,7 @@ export class NovedadesService {
       producerCodeId: input.producerCodeId ?? null,
       phoneNumberId: input.phoneNumberId ?? null,
       title: `Nuevo siniestro · ${input.clienteNombre}`,
-      body: input.descripcion,
+      body: input.alerta ? `⚠️ ${input.alerta}\n\n${input.descripcion}` : input.descripcion,
     })
   }
 

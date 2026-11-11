@@ -144,6 +144,42 @@ describe('assistantSetupData', () => {
     })
   })
 
+  describe('a branch that gives no alias', () => {
+    it("stores that the office passes the data, never the organization's account", () => {
+      expect(assistantSetupData({ transferMode: 'office', transferAlias: 'NORTE.SEGUROS' }, newNumber)).toEqual({
+        botProfile: { transferMode: 'office' },
+      })
+    })
+
+    it('drops the account the number had of its own and keeps the rest', () => {
+      const number = {
+        ...blank,
+        botProfile: { transferAlias: 'VIEJO.ALIAS', transferCbu: '0070', claimsPhone: '0810' },
+      }
+      expect(assistantSetupData({ transferMode: 'office' }, { organization, number })).toEqual({
+        botProfile: { transferMode: 'office', claimsPhone: '0810' },
+      })
+    })
+
+    it('changes nothing when it comes back as it was', () => {
+      const number = { ...blank, botProfile: { transferMode: 'office' } }
+      expect(assistantSetupData({ transferMode: 'office' }, { organization, number })).toEqual({})
+      expect(assistantSetupData({ transferAlias: '' }, { organization, number })).toEqual({})
+    })
+
+    it("gives an alias again, its own or the organization's", () => {
+      const number = { ...blank, botProfile: { transferMode: 'office', claimsPhone: '0810' } }
+      expect(assistantSetupData({ transferAlias: 'ROLDAN.PAGOS' }, { organization, number })).toEqual({
+        botProfile: { transferAlias: 'ROLDAN.PAGOS', claimsPhone: '0810' },
+      })
+      expect(
+        assistantSetupData({ transferMode: '', transferAlias: 'norte.seguros' }, { organization, number }),
+      ).toEqual({
+        botProfile: { claimsPhone: '0810' },
+      })
+    })
+  })
+
   it("clears the number's own values sent empty on purpose", () => {
     const own = { botName: 'Nico', staffNames: 'Vanesa', businessHours: null, botProfile: { transferAlias: 'X.Y.Z' } }
     expect(

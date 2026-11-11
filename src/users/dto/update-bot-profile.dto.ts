@@ -1,4 +1,5 @@
-import { IsEmail, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator'
+import { IsEmail, IsIn, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator'
+import { TRANSFER_BY_OFFICE } from '../../common/bot-profile'
 
 /**
  * What the bot says that is particular to the organization. Every field is
@@ -38,6 +39,15 @@ export class UpdateBotProfileDto {
   @IsString()
   @MaxLength(200)
   cashPaymentPlaces?: string
+
+  /**
+   * "office": the bot gives no account and the office passes the data in the
+   * chat (the account fields are cleared). Empty: give the account, or on a
+   * number without one, its organization's.
+   */
+  @IsOptional()
+  @IsIn([TRANSFER_BY_OFFICE, ''])
+  transferMode?: string
 
   @IsOptional()
   @IsString()

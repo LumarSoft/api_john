@@ -14,6 +14,8 @@ import {
   pausedIn,
   UsageService,
 } from '../usage/usage.service'
+import { CAMPAIGN_CATEGORIES, CAMPAIGN_WEIGHT } from '../usage/commercial-pricing'
+import { pricedFor } from '../usage/plan-prices'
 import { CreateMessagePlanDto, UpdateMessagePlanDto } from './dto/message-plan.dto'
 
 const PLAN_SELECT = {
@@ -152,11 +154,13 @@ export class BillingService {
   /**
    * The month of every number the user may see: its assigned plan, the plan the
    * month is billed on, how far into it the number is (the consumption bar) and
-   * the plan it moves to next. The SuperAdmin also gets the month's total.
+   * the plan it moves to next. Prices are the owner's: only the OWNER gets each
+   * plan's price, what each number is billed and the month's total; the
+   * organization sees its plans by name and messages.
    */
   async overview(user: ScopeUser, period = currentPeriod()) {
     this.assertPeriod(period)
-    const manager = this.isManager(user)
+    const owner = user.role === Role.OWNER
     const [numbers, catalog] = await Promise.all([
       this.prisma.phoneNumber.findMany({
         where: { producerId: user.producerId, deletedAt: null, ...(await this.numberScope(user)) },
@@ -185,6 +189,7 @@ export class BillingService {
     const { blockMessages } = this.usage.commercialPricing
     const running = period === currentPeriod()
 
+    let totalBilledUsd = 0
     const rows = numbers.map(n => {
       const usage = n.usageMonthly[0]
       const bill = this.usage.billFor(
@@ -200,14 +205,15 @@ export class BillingService {
       )
       const included = bill.plan.includedMessages
       const paused = running && pausedIn(n.planPausedAt, period)
+      totalBilledUsd += bill.billedUsd
       return {
         id: n.id,
         number: n.number,
         branchName: n.branchName,
         isActive: n.isActive,
         responsibleCode: n.responsibleProducerCode,
-        assignedPlan: bill.assignedPlan,
-        plan: bill.plan,
+        assignedPlan: pricedFor(bill.assignedPlan, owner),
+        plan: pricedFor(bill.plan, owner),
         // Past its plan this month, or already moved up to the plan that covers it.
         upgraded: bill.upgraded || movedUpIn(n.planUpgradedAt, period),
         movedUpAt: movedUpIn(n.planUpgradedAt, period) ? n.planUpgradedAt!.toISOString() : null,
@@ -215,8 +221,8 @@ export class BillingService {
         includedMessages: included,
         remainingMessages: Math.max(0, included - bill.messages),
         percentUsed: included > 0 ? Math.round((bill.messages / included) * 1000) / 10 : 0,
-        nextPlan: this.nextPlan(bill.plan, catalog),
-        billedUsd: bill.billedUsd,
+        nextPlan: pricedFor(this.nextPlan(bill.plan, catalog), owner),
+        ...(owner ? { billedUsd: bill.billedUsd } : {}),
         // At the plan's limit the assistant pauses until someone continues on nextPlan or the month ends.
         limit: {
           reached: bill.limitReached,
@@ -232,9 +238,9 @@ export class BillingService {
     return {
       period,
       blockMessages,
-      plans: catalog.filter(p => p.isActive).map(p => this.toOffer(p)),
+      plans: catalog.filter(p => p.isActive).map(p => pricedFor(this.toOffer(p), owner)),
       numbers: rows,
-      ...(manager ? { totalBilledUsd: round2(rows.reduce((sum, r) => sum + r.billedUsd, 0)) } : {}),
+      ...(owner ? { totalBilledUsd: round2(totalBilledUsd) } : {}),
     }
   }
 
@@ -332,22 +338,37 @@ export class BillingService {
   // ─── Owner dashboard ───────────────────────────────────
 
   /**
-   * What the platform bills each organization in a month and what Meta really
-   * charges for it. OpenAI is prepaid, so it is shown apart and left out of the
-   * profit: profit = billed − Meta. A closed month is read as it was frozen on the
-   * 1st of the next month (MonthlyCloseService); only a month not closed yet (the
-   * running one) is computed with each number's current plan.
+   * What the platform bills each organization in a month against what its messages cost.
+   *
+   * The cost the owner works with is per message sent: Lumarsoft's cost per message
+   * (PARTNER_COST_PER_MESSAGE_USD) for every message of the bot, the office or a notice,
+   * and CAMPAIGN_WEIGHT times that for a campaign (marketing) message, whatever the
+   * plan counted. The margin is billed − that cost: what selling a plan bigger than the
+   * messages leaves. What Meta and OpenAI really charged is shown apart (profitUsd =
+   * billed − Meta, OpenAI being prepaid). A closed month is read as it was frozen on
+   * the 1st of the next month (MonthlyCloseService), with the cost per message of that
+   * day; only a month not closed yet (the running one) is computed with each number's
+   * current plan. Without the rate configured the message cost is null.
    */
   async ownerDashboard(period = currentPeriod()) {
     this.assertPeriod(period)
     const month = await this.closes.monthSnapshot(period)
+    const campaigns = await this.campaignMessagesByNumber(
+      month.numbers.map(n => n.phoneNumberId),
+      period,
+    )
+    const todayRate = this.closes.terms?.costPerMessageUsd ?? null
+    let usedRate: number | null = null
 
     const zero = () => ({
       messages: 0,
       sentMessages: 0,
       templateMessages: 0,
+      botMessages: 0,
+      campaignMessages: 0,
       metaBillableMessages: 0,
       billedUsd: 0,
+      messageCostUsd: 0,
       metaCostUsd: 0,
       openaiCostUsd: 0,
     })
@@ -358,6 +379,13 @@ export class BillingService {
       const numbers = month.numbers
         .filter(n => n.producerId === org.id)
         .map(n => {
+          // Every message sent is the bot's, the office's or a notice, except the campaign ones.
+          const campaignMessages = Math.min(campaigns.get(n.phoneNumberId) ?? 0, n.messages)
+          const botMessages = n.messages - campaignMessages
+          // The rate the month was closed with, or today's.
+          const rate = n.settlement?.costPerMessageUsd ?? todayRate
+          if (rate !== null) usedRate ??= rate
+          const messageCostUsd = rate === null ? 0 : round2((botMessages + campaignMessages * CAMPAIGN_WEIGHT) * rate)
           const row = {
             id: n.phoneNumberId,
             number: n.number,
@@ -372,8 +400,14 @@ export class BillingService {
             messages: n.consumedMessages,
             sentMessages: n.messages,
             templateMessages: n.templateMessages,
+            // The messages sent, split by what each costs.
+            botMessages,
+            campaignMessages,
             metaBillableMessages: n.metaBillableMessages,
             billedUsd: n.billedUsd,
+            messageCostUsd,
+            // What the plan leaves over its messages' cost.
+            marginUsd: round2(n.billedUsd - messageCostUsd),
             metaCostUsd: n.metaCostUsd,
             openaiCostUsd: n.openaiCostUsd,
             profitUsd: round2(n.billedUsd - n.metaCostUsd),
@@ -393,6 +427,8 @@ export class BillingService {
         totals: {
           ...sum,
           billedUsd: round2(sum.billedUsd),
+          messageCostUsd: round2(sum.messageCostUsd),
+          marginUsd: round2(sum.billedUsd - sum.messageCostUsd),
           metaCostUsd: round2(sum.metaCostUsd),
           openaiCostUsd: round2(sum.openaiCostUsd),
           profitUsd: round2(sum.billedUsd - sum.metaCostUsd),
@@ -400,12 +436,16 @@ export class BillingService {
       }
     })
 
+    const rate = usedRate ?? todayRate
     return {
       period,
       // Frozen on the 1st of the next month; `backfilled` = closed later, with that day's plans.
       closed: month.closed,
       closedAt: month.closedAt?.toISOString() ?? null,
       backfilled: month.backfilled,
+      // What a message costs (null = PARTNER_COST_PER_MESSAGE_USD not configured: no message cost).
+      messageCost:
+        rate === null ? null : { messageUsd: rate, campaignMessageUsd: Number((rate * CAMPAIGN_WEIGHT).toFixed(6)) },
       organizations: rows,
       totals: {
         organizations: rows.length,
@@ -415,13 +455,33 @@ export class BillingService {
         messages: totals.messages,
         sentMessages: totals.sentMessages,
         templateMessages: totals.templateMessages,
+        botMessages: totals.botMessages,
+        campaignMessages: totals.campaignMessages,
         metaBillableMessages: totals.metaBillableMessages,
         billedUsd: round2(totals.billedUsd),
+        messageCostUsd: round2(totals.messageCostUsd),
+        marginUsd: round2(totals.billedUsd - totals.messageCostUsd),
         metaCostUsd: round2(totals.metaCostUsd),
         openaiCostUsd: round2(totals.openaiCostUsd),
         profitUsd: round2(totals.billedUsd - totals.metaCostUsd),
       },
     }
+  }
+
+  /** How many campaign (marketing) messages each number sent in `period`, from the messages Meta priced. */
+  private async campaignMessagesByNumber(phoneNumberIds: number[], period: string): Promise<Map<number, number>> {
+    if (phoneNumberIds.length === 0) return new Map()
+    const counts = await this.prisma.usageEvent.groupBy({
+      by: ['phoneNumberId'],
+      where: {
+        phoneNumberId: { in: phoneNumberIds },
+        period,
+        provider: 'meta',
+        category: { in: CAMPAIGN_CATEGORIES },
+      },
+      _count: { _all: true },
+    })
+    return new Map(counts.map(c => [c.phoneNumberId, c._count._all]))
   }
 
   // ─── Helpers ───────────────────────────────────────────

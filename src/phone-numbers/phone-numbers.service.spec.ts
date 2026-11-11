@@ -82,22 +82,20 @@ describe('monthly phone number report', () => {
       where: { producerId: 2, deletedAt: null },
       select: { usageMonthly: { where: { period: '2026-09' } } },
     })
-    // Its plan and what the month adds up to, but never our cost.
+    // Its plan by its messages: neither the plan's price, what the month is billed, nor our cost.
     const beyond = {
       id: null,
       name: 'Profesional + 1.000',
       includedMessages: 2000,
-      priceUsd: 100,
       trial: false,
       extraBlocks: 1,
     }
     expect(row.usage).toEqual({
       period: '2026-09',
       messages: 1200,
-      assignedPlan: { id: 2, name: 'Profesional', includedMessages: 1000, priceUsd: 50, trial: false, extraBlocks: 0 },
+      assignedPlan: { id: 2, name: 'Profesional', includedMessages: 1000, trial: false, extraBlocks: 0 },
       plan: beyond,
       upgraded: true,
-      billedUsd: 100,
       planPaused: false,
     })
     for (const field of ownerOnly) expect(row.usage).not.toHaveProperty(field)
@@ -115,6 +113,8 @@ describe('monthly phone number report', () => {
       outputTokens: 1000,
     })
     for (const field of ownerOnly) expect(row.usage).not.toHaveProperty(field)
+    expect(row.usage).not.toHaveProperty('billedUsd')
+    expect(row.usage.plan).not.toHaveProperty('priceUsd')
     expect(row).not.toHaveProperty('monthlyBudgetUsd')
     expect(row).toHaveProperty('budgetExceededAt')
   })

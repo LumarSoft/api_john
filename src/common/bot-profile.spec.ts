@@ -9,6 +9,7 @@ describe('bot profile', () => {
       towTruckPhone: null,
       claimsPhone: null,
       cashPaymentPlaces: null,
+      transferMode: null,
       transferAlias: null,
       transferCbu: null,
       transferHolder: null,
@@ -26,6 +27,34 @@ describe('bot profile', () => {
       { towTruckPhone: '', claimsPhone: '0810' },
     )
     expect(merged).toMatchObject({ orgName: 'Norte', towTruckPhone: null, claimsPhone: '0810' })
+  })
+
+  it('keeps only a transfer mode that exists', () => {
+    expect(parseBotProfile({ transferMode: 'office' }).transferMode).toBe('office')
+    expect(parseBotProfile({ transferMode: 'nunca' }).transferMode).toBeNull()
+  })
+
+  it('drops the account when the office passes the data, and stops it when an account is typed', () => {
+    const account = { transferAlias: 'NORTE.PAGOS', transferCbu: '0070', transferBank: 'Galicia', claimsPhone: '0810' }
+    expect(mergeBotProfile(account, { transferMode: 'office' })).toMatchObject({
+      transferMode: 'office',
+      transferAlias: null,
+      transferCbu: null,
+      transferBank: null,
+      claimsPhone: '0810',
+    })
+    expect(mergeBotProfile({ transferMode: 'office' }, { transferAlias: 'ROLDAN.PAGOS' })).toMatchObject({
+      transferMode: null,
+      transferAlias: 'ROLDAN.PAGOS',
+    })
+    // Clearing the account (back to the organization's) does not stop the office mode by itself.
+    expect(mergeBotProfile({ transferMode: 'office' }, { transferAlias: '' }).transferMode).toBe('office')
+    expect(mergeBotProfile({ transferMode: 'office' }, { transferMode: '' }).transferMode).toBeNull()
+  })
+
+  it('gives the bot no account when the office passes the data', () => {
+    const botProfile = { transferMode: 'office', transferAlias: 'QUEDO.GUARDADO', transferCbu: '0070' }
+    expect(toBotContextProfile({ name: 'Norte SRL', botProfile }, false)?.transfer).toBeNull()
   })
 
   it('offers a transfer only with an alias or a CBU', () => {
@@ -82,6 +111,27 @@ describe('overlayBotProfile', () => {
       transferCbu: null,
       transferHolder: null,
       transferBank: null,
+    })
+  })
+
+  it("never shows the organization's account on a number whose office passes the data", () => {
+    const profile = overlayBotProfile(organization, { transferMode: 'office' })
+    expect(profile).toMatchObject({
+      transferMode: 'office',
+      transferAlias: null,
+      transferCbu: null,
+      transferHolder: null,
+      transferBank: null,
+      towTruckPhone: '0800-111-2222',
+    })
+    expect(toBotContextProfile({ name: 'Norte SRL', botProfile: profile }, false)?.transfer).toBeNull()
+  })
+
+  it("takes the organization's office mode on a number without a transfer of its own", () => {
+    expect(overlayBotProfile({ transferMode: 'office' }, {})?.transferMode).toBe('office')
+    expect(overlayBotProfile({ transferMode: 'office' }, { transferAlias: 'PROPIO.ALIAS' })).toMatchObject({
+      transferMode: null,
+      transferAlias: 'PROPIO.ALIAS',
     })
   })
 

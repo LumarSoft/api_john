@@ -17,6 +17,8 @@ export interface SiniestroNotification {
   cliente: { firstName: string; lastName: string; dni: string; email: string | null }
   poliza: { certificateNumber: string; company: string; licensePlate?: string | null }
   adjuntosCount: number
+  /** Why the policy did not cover the day of the incident, when Triunfo's data says so. */
+  alerta?: string | null
 }
 
 /**
@@ -156,10 +158,14 @@ export class MailService {
     const patente = data.poliza.licensePlate
       ? `<tr><td style="padding: 6px 0; color: #888;">Patente</td><td style="padding: 6px 0;">${data.poliza.licensePlate}</td></tr>`
       : ''
+    const alerta = data.alerta
+      ? `<div style="margin: 0 0 16px; padding: 12px; background: #fdecec; border: 1px solid #f5b5b5; border-radius: 8px; color: #a11212; font-size: 14px;"><strong>Revisar la cobertura.</strong> ${this.escape(data.alerta)}</div>`
+      : ''
     return `
       <div style="font-family: Arial, sans-serif; color: #1a1a1a; max-width: 560px;">
         <h2 style="margin: 0 0 12px;">Nueva denuncia de siniestro</h2>
         <p style="margin: 0 0 16px; color: #555;">Se registró una nueva denuncia en el portal del cliente.</p>
+        ${alerta}
         <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
           <tr><td style="padding: 6px 0; color: #888;">N° denuncia</td><td style="padding: 6px 0;">#${data.siniestroId}</td></tr>
           <tr><td style="padding: 6px 0; color: #888;">Tipo</td><td style="padding: 6px 0;">${data.tipo}</td></tr>

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { Role } from 'generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { ScopeService, ScopeUser } from '../common/scope/scope.service'
-import { parseBotProfile, TRANSFER_FIELDS } from '../common/bot-profile'
+import { parseBotProfile, TRANSFER_BY_OFFICE, TRANSFER_FIELDS } from '../common/bot-profile'
 import { PLAN_FEATURES, PlanFeatures } from '../plan-features/plan-features'
 import { formatToday } from './assistant-prompt'
 import { numberLabel, visibleNumbers } from './tools/config.tools'
@@ -72,9 +72,11 @@ export class AssistantContextService {
       const traits = [
         n.isActive ? null : 'inactivo',
         n.botEnabled ? 'bot prendido' : 'bot apagado',
-        TRANSFER_FIELDS.some(f => own[f] != null)
-          ? 'cuenta para transferir propia'
-          : 'usa la cuenta de la organización',
+        own.transferMode === TRANSFER_BY_OFFICE
+          ? 'no da cuenta para transferir: los datos los pasa la oficina'
+          : TRANSFER_FIELDS.some(f => own[f] != null)
+            ? 'cuenta para transferir propia'
+            : 'usa la cuenta de la organización',
         n.businessHours == null ? null : 'horario propio',
       ].filter(Boolean)
       return `  - id ${n.id}: ${oneLine(numberLabel(n))} (${traits.join(', ')})`

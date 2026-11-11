@@ -337,7 +337,8 @@ describe('monthly usage recording', () => {
       refId: 4,
       title: 'El asistente del +54 9 341 600-0000 está en pausa',
     })
-    expect(notice.body).toContain('pasar a Profesional (1.000 mensajes, USD 50 por mes)')
+    expect(notice.body).toContain('pasar a Profesional (1.000 mensajes por mes)')
+    expect(notice.body).not.toContain('USD')
     expect(prisma.user.findMany.mock.calls[0][0].where).toMatchObject({
       producerId: 2,
       OR: [{ role: 'SUPERADMIN' }, { role: 'ADMIN', producerCodes: { some: { producerCodeId: 8 } } }],

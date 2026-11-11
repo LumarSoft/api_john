@@ -15,7 +15,8 @@ const REPLY_CATEGORIES = new Set(['service', 'referral_conversion'])
  * Messages Lite). The only messages that weigh more on the plan: replies, utility templates (rejection and expiry
  * notices, quote follow-ups) and authentication consume 1.
  */
-const CAMPAIGN_CATEGORIES = new Set(['marketing', 'marketing_lite'])
+export const CAMPAIGN_CATEGORIES = ['marketing', 'marketing_lite']
+const CAMPAIGN_CATEGORY_SET = new Set(CAMPAIGN_CATEGORIES)
 
 /**
  * What billing needs besides the catalog (MessagePlan rows, edited by the owner).
@@ -66,7 +67,7 @@ export function isTemplateCategory(category: string): boolean {
 
 /** Whether Meta priced a delivered message as a campaign (marketing). */
 export function isCampaignCategory(category: string): boolean {
-  return CAMPAIGN_CATEGORIES.has(category.trim().toLowerCase())
+  return CAMPAIGN_CATEGORY_SET.has(category.trim().toLowerCase())
 }
 
 /**

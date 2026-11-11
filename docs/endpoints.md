@@ -666,6 +666,7 @@ What the bot says that is particular to the organization: how it names it, the g
   "towTruckPhone": "3415690470",
   "claimsPhone": "0810-666-0302",
   "cashPaymentPlaces": "Rapipago, Pago Fácil o Santa Fe Servicios",
+  "transferMode": null,
   "transferAlias": "TRUENO.VUELO.DELTA",
   "transferCbu": "0070081820000004432793",
   "transferHolder": "Triunfo Coop. de Seguros Ltda. (CUIT 30-50006577-6)",
@@ -674,6 +675,8 @@ What the bot says that is particular to the organization: how it names it, the g
   "quoteClosingNote": "Un asesor seguro te va a poder mejorar el precio con una bonificación"
 }
 ```
+
+`transferMode` is `"office"` when the bot gives no account at all and tells the customer the office passes the data in the chat (a branch that does not hand out an alias); then the four `transfer*` account fields are `null`. `null` = the bot gives the account, if there is one.
 
 `quoteClosingNote` is the line the bot adds at the end of every quote it gives; `null` leaves the quote as the model wrote it.
 
@@ -699,7 +702,8 @@ Changes the fields sent; an empty string clears one. The bot reads it on its nex
 | towTruckPhone     | string | No       | ≤ 40                                                |
 | claimsPhone       | string | No       | ≤ 40; empty → the bot gives Triunfo's line          |
 | cashPaymentPlaces | string | No       | ≤ 200; empty → "Rapipago o Pago Fácil"              |
-| transferAlias     | string | No       | ≤ 60                                                |
+| transferMode      | string | No       | `"office"` or empty; `"office"` clears the account  |
+| transferAlias     | string | No       | ≤ 60; a typed account empties `transferMode`        |
 | transferCbu       | string | No       | ≤ 30                                                |
 | transferHolder    | string | No       | ≤ 160                                               |
 | transferBank      | string | No       | ≤ 80                                                |
@@ -984,7 +988,7 @@ siniestros. All metrics are scoped to the authenticated user's producer.
 
 The organization's numbers at the close of each month, to see where it grows and where it weakens. A row per producer code and month (`MonthlyBalance`) is written on the 1st at 00:30 (Argentina) for the month that just closed; when the API starts (and on the 1st) any of the last `MONTHLY_BALANCE_BACKFILL_MONTHS` months (default 6) without rows is rebuilt from dated records. A month is never rewritten unless the owner forces it. Turn both off with `MONTHLY_BALANCE_ENABLED=false`.
 
-Every record is credited to one of the organization's codes: its own code; else the code billed for the number it came through; else the master code. Quotes go by the number they came through first (their code is a default). So the section filter works as everywhere: the user's codes, narrowed by `producerCodeId` or by `phoneNumberId` (the codes that number serves).
+Every record is credited to one of the organization's codes: its own code; else the code billed for the number it came through; else the master code. Quotes go by the number they came through first (their code is a default). So the section filter works as everywhere: the user's codes, narrowed by `producerCodeId` or by `phoneNumberId` (that branch's codes, see **Filter by número** in Cobranzas).
 
 **Metrics.** Policy dates are Triunfo's calendar days; everything else is the month in Argentina.
 
@@ -1020,7 +1024,7 @@ The last closed months, oldest first, each metric with its change against the mo
 | -------------- | ------ | -------- | -------------------------------------------------------------- |
 | months         | number | No       | 1–24, default 12. The last one is the month before the current |
 | producerCodeId | number | No       | One of the user's codes; another returns no data               |
-| phoneNumberId  | number | No       | A PhoneNumber id: the codes that number serves                 |
+| phoneNumberId  | number | No       | A PhoneNumber id: that branch's codes (see **Filter by número**) |
 
 **Responses**
 
@@ -1116,6 +1120,8 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 
 **What counts as debt.** Only cuotas of policies Triunfo has not cancelled (`lastMovement` not starting with `ANUL`/`RESCISION`): a cancelled policy keeps its unpaid cuotas, and they are not owed. Cuotas Triunfo reports as `ANULADA` are soft deleted by the cartera sync, and one `EN PRELIQUIDACIÓN` (the debit was sent to the bank) stays `pending`, never `overdue`, until the next novedad says paid or rejected. A `pending` cuota whose due date went by is marked `overdue` every night at 00:15 (Argentina), so a policy with no recent novedad still shows its debt. The same rules apply to `/admin/cobranzas/stats`, the asegurados KPIs and the dashboard.
 
+**Filter by número** (2026-11-11). Where a section filters by code (Cobranzas, Pólizas vencidas, Asegurados, Siniestros, Dashboard, Balance and the policy campaigns), `phoneNumberId` stands for that branch's cartera: the number's own code plus the codes it also serves, minus those of another branch — a code another number is billed to, and, on the organization's default number (the office line), a code another number also serves. The office line serves every code so its bot can attend anyone; filtering by it shows the office's cartera, not the whole organization's. The bot still serves every code its number has.
+
 **Auth required:** Yes (JWT user token)
 
 **Query parameters**
@@ -1125,7 +1131,7 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 | search         | string | No       | Filter by first name, last name, email, DNI, phone, or plate                                                                                                       |
 | status         | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`)                                                                                            |
 | producerCodeId | number | No       | Only the debt of this producer code's policies (must be accessible to the user)                                                                                    |
-| phoneNumberId  | number | No       | Only the codes this number serves (SuperAdmin section filter)                                                                                                      |
+| phoneNumberId  | number | No       | Only this number's branch codes (SuperAdmin section filter; see **Filter by número** above)                                                                 |
 | paymentMethod  | string | No       | Only policies with this medio de pago, as Triunfo names it (`Plan De Pago`, `Convenio`, `Débito Tarjeta`…); the values in scope come from `/admin/cobranzas/stats` |
 | page           | number | No       | Page number (default: 1)                                                                                                                                           |
 | pageSize       | number | No       | Results per page (default: 20, max: 100)                                                                                                                           |
@@ -1179,7 +1185,7 @@ Returns aggregate debt stats for the authenticated producer. Includes both per-c
 | Parameter      | Type   | Required | Description                                              |
 | -------------- | ------ | -------- | -------------------------------------------------------- |
 | producerCodeId | number | No       | Only this producer code (must be accessible to the user) |
-| phoneNumberId  | number | No       | Only the codes this number serves                        |
+| phoneNumberId  | number | No       | Only this number's branch codes (see **Filter by número**) |
 | paymentMethod  | string | No       | Only policies with this medio de pago                    |
 
 **Responses**
@@ -1216,7 +1222,7 @@ The "pólizas vencidas" worklist of the Cobranzas screen: policies that ran out 
 | -------------- | ------- | -------- | -------------------------------------------------------------------- |
 | search         | string  | No       | Client name or DNI, certificate number or plate                      |
 | producerCodeId | number  | No       | Only this producer code (must be accessible to the user)             |
-| phoneNumberId  | number  | No       | Only the codes this number serves                                    |
+| phoneNumberId  | number  | No       | Only this number's branch codes (see **Filter by número**)      |
 | paymentMethod  | string  | No       | Only policies with this medio de pago                                |
 | hidden         | boolean | No       | `true` lists the hidden policies instead (default: the visible ones) |
 | sort           | string  | No       | `oldest` (longest expired first, default) \| `recent`                |
@@ -1368,11 +1374,11 @@ The office told these clients by other means (a call, in person): a `MARKED` not
 
 ## Facturación (planes de mensajes)
 
-Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends, notices); only a **campaign** message (Meta pricing category `marketing`) delivered from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on (default 2026-12-01) consumes **2**. Every other message consumes 1: replies (`service`, `referral_conversion`), `utility` templates (rejection and expiry notices, quote follow-ups) and `authentication`. Every figure the organization sees (`messages`, `messagesUsed`, the bar, the limit) is that consumed count; the weight, the raw counts and the categories are the OWNER's only. The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). A number never moves up on its own: when its consumed messages reach its plan, its assistant **pauses**; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and an e-mail, and chooses to continue on the next plan (`POST /admin/billing/numbers/:id/limit`) or to wait for next month. Past the largest plan, continuing adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message. The billing cycle is the calendar month (from the 1st to the last day) and it is always charged whole: an active number pays its whole plan, also in the month it went live, whatever day that was. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost; the profit is billed − Meta (OpenAI is prepaid). Rules and examples: `docs/message-plans-october-2026.md`.
+Every WhatsApp number is billed monthly on a **message plan** of the platform's catalog: 1 message = 1 message the platform sends (bot replies, panel sends, notices); only a **campaign** message (Meta pricing category `marketing`) delivered from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on (default 2026-12-01) consumes **2**. Every other message consumes 1: replies (`service`, `referral_conversion`), `utility` templates (rejection and expiry notices, quote follow-ups) and `authentication`. Every figure the organization sees (`messages`, `messagesUsed`, the bar, the limit) is that consumed count; the weight, the raw counts and the categories are the OWNER's only. The **OWNER** (Lumar) is the only one who edits the catalog, the same for every organization; a plan's price can be 0 (the trial). **Prices are the OWNER's only**: no endpoint gives an ADMIN or a SUPERADMIN a plan's price, what a number is billed or the month's total (`priceUsd`, `billedUsd`, `totalBilledUsd`); they see plans by name and messages, and the plan-limit notice and e-mail name the next plan by its messages. The **SuperAdmin** assigns a paid plan to each number of the organization (no plan = the smallest paid plan). A number never moves up on its own: when its consumed messages reach its plan, its assistant **pauses**; the office gets a notice (type `plan` in `GET /admin/novedades`, it opens Facturación) and an e-mail, and chooses to continue on the next plan (`POST /admin/billing/numbers/:id/limit`) or to wait for next month. Past the largest plan, continuing adds blocks of `COMMERCIAL_TOKEN_BLOCK_SIZE` (1,000) at the largest plan's price per message. The billing cycle is the calendar month (from the 1st to the last day) and it is always charged whole: an active number pays its whole plan, also in the month it went live, whatever day that was. A new account's number (organization created from `COMMERCIAL_TRIAL_FROM`) starts on the trial plan, valid only in its first month. Only the OWNER sees what Meta and OpenAI really cost, and the cost per message it works with: `PARTNER_COST_PER_MESSAGE_USD` (set only in the server's `.env`) for each message of the bot, the office or a notice and twice that for each campaign message (`GET /owner/billing`). Rules and examples: `docs/message-plans-october-2026.md`.
 
 ### GET /admin/billing
 
-The month of every number in scope: its assigned plan, the plan the month is billed on, how far into it the number is (the consumption bar) and the plan it moves to next. ADMIN sees the numbers billed to its codes; SUPERADMIN (and OWNER) every number of the organization plus the month's total.
+The month of every number in scope: its assigned plan, the plan the month is billed on, how far into it the number is (the consumption bar) and the plan it moves to next. ADMIN sees the numbers billed to its codes; SUPERADMIN (and OWNER) every number of the organization. Prices (`priceUsd` in `plans`, `assignedPlan`, `plan` and `nextPlan`, `billedUsd` and `totalBilledUsd`) come only for the OWNER.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 
@@ -1384,7 +1390,7 @@ The month of every number in scope: its assigned plan, the plan the month is bil
 
 **Responses**
 
-`200 OK` — `upgraded` is true when the month's messages passed the assigned plan or the number already moved up on its own this month (`movedUpAt`). `plan.id` is null past the largest plan (`extraBlocks` > 0). `totalBilledUsd` comes only for SUPERADMIN and OWNER.
+`200 OK` — `upgraded` is true when the month's messages passed the assigned plan or the number already moved up on its own this month (`movedUpAt`). `plan.id` is null past the largest plan (`extraBlocks` > 0). The example is the OWNER's; an ADMIN or a SUPERADMIN gets the same without `priceUsd`, `billedUsd` and `totalBilledUsd`.
 ```json
 {
   "period": "2026-10",
@@ -1455,7 +1461,7 @@ puede responder por los números de sus códigos.
 
 En `GET /admin/billing` cada número trae `limit`: `reached` (sus mensajes llegaron al plan), `paused` (su asistente
 está en pausa este mes), `confirmed` (alguien eligió dejarlo en pausa), `pausedAt` y `resumesOn` (`YYYY-MM-01`).
-`nextPlan` es lo que da "continuar". `billedUsd` es el plan completo para todos los roles: el mes se cobra completo, también el mes en que el número salió.
+`nextPlan` es lo que da "continuar". `billedUsd` (solo para el OWNER) es el plan completo: el mes se cobra completo, también el mes en que el número salió.
 
 ### GET /admin/billing/features
 
@@ -1530,7 +1536,7 @@ Puts a number of the organization on a paid plan of the catalog. Clears the numb
 
 ### GET /owner/billing
 
-The platform's month: what each organization and number is billed, what Meta really charged, OpenAI apart, and the profit (billed − Meta). A **closed** month (see `POST /owner/billing/close`) is read as it was frozen: plan, messages, billed and costs of that day, never recomputed with today's plans; `assignedPlan` is `null` and `paused` `false` there. Only a month not closed yet (the running one, or a past one before its close) is computed with each number's current plan. `messages` is the plan messages consumed (a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on); `sentMessages` counts each message once and `templateMessages` the templates among them (every template, campaigns, notices and authentication alike).
+The platform's month: what each organization and number is billed against what its messages cost, plus what Meta really charged and OpenAI apart. **Message cost** = `botMessages` × `PARTNER_COST_PER_MESSAGE_USD` (every message of the bot, the office or a notice) + `campaignMessages` × twice that (campaign messages, Meta category `marketing`/`marketing_lite`), whatever the plan counted; `marginUsd` = billed − message cost (what selling a plan bigger than the messages leaves); `profitUsd` = billed − Meta. `messageCost` gives the rates used (a closed month uses the rate it was closed with) and is `null` when `PARTNER_COST_PER_MESSAGE_USD` is not configured (then `messageCostUsd` is 0). A **closed** month (see `POST /owner/billing/close`) is read as it was frozen: plan, messages, billed and costs of that day, never recomputed with today's plans; `assignedPlan` is `null` and `paused` `false` there. Only a month not closed yet (the running one, or a past one before its close) is computed with each number's current plan. `messages` is the plan messages consumed (a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on); `sentMessages` counts each message once and `templateMessages` the templates among them (every template, campaigns, notices and authentication alike).
 
 **Auth required:** Yes (OWNER)
 
@@ -1543,6 +1549,7 @@ The platform's month: what each organization and number is billed, what Meta rea
   "closed": true,
   "closedAt": "2026-11-01T03:00:00.000Z",
   "backfilled": false,
+  "messageCost": { "messageUsd": 0.03, "campaignMessageUsd": 0.06 },
   "organizations": [
     {
       "id": 1,
@@ -1561,14 +1568,18 @@ The platform's month: what each organization and number is billed, what Meta rea
           "messages": 502,
           "sentMessages": 502,
           "templateMessages": 2,
+          "botMessages": 500,
+          "campaignMessages": 2,
           "metaBillableMessages": 2,
           "billedUsd": 50,
+          "messageCostUsd": 15.12,
+          "marginUsd": 34.88,
           "metaCostUsd": 0.05,
           "openaiCostUsd": 1.4,
           "profitUsd": 49.95
         }
       ],
-      "totals": { "messages": 502, "sentMessages": 502, "templateMessages": 2, "metaBillableMessages": 2, "billedUsd": 50, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
+      "totals": { "messages": 502, "sentMessages": 502, "templateMessages": 2, "botMessages": 500, "campaignMessages": 2, "metaBillableMessages": 2, "billedUsd": 50, "messageCostUsd": 15.12, "marginUsd": 34.88, "metaCostUsd": 0.05, "openaiCostUsd": 1.4, "profitUsd": 49.95 }
     }
   ],
   "totals": {
@@ -1579,8 +1590,12 @@ The platform's month: what each organization and number is billed, what Meta rea
     "messages": 502,
     "sentMessages": 502,
     "templateMessages": 2,
+    "botMessages": 500,
+    "campaignMessages": 2,
     "metaBillableMessages": 2,
     "billedUsd": 50,
+    "messageCostUsd": 15.12,
+    "marginUsd": 34.88,
     "metaCostUsd": 0.05,
     "openaiCostUsd": 1.4,
     "profitUsd": 49.95
@@ -1912,6 +1927,36 @@ Triunfo's API has no claims endpoint, so claims filed through the bot or the cli
 
 All endpoints require an employee/admin JWT (`type: "user"`). A client token returns `403`.
 
+**`coverageCheck`** — every claim returned here (list, detail and `PATCH`) says whether its policy covered the day of the incident, computed on each read from the cartera as it is now:
+
+```json
+{
+  "level": "danger",
+  "issues": [
+    {
+      "code": "CANCELLED",
+      "level": "danger",
+      "title": "Póliza anulada por falta de pago",
+      "detail": "Triunfo la anuló (ANULA COBRANZA) con efecto desde el 03/09/2026. El hecho fue el 12/10/2026: ese día ya no tenía cobertura.",
+      "date": "2026-09-03"
+    }
+  ]
+}
+```
+
+`level` is the worst of its issues: `ok` (none), `warning` or `danger`. `date` is the day the issue hinges on (`YYYY-MM-DD`) or `null`.
+
+| `code`                | `level`   | When                                                                                                                                              |
+| --------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CANCELLED`           | `danger`  | Triunfo cancelled the policy (movement `ANUL…` / `RESCISION…`) and the cancellation was in effect on the day, or it gives no effective day         |
+| `CANCELLED_AFTER`     | `warning` | The policy is cancelled, with effect from a day after the incident                                                                                |
+| `BEFORE_START`        | `danger`  | The incident is from before the policy's term started                                                                                             |
+| `AFTER_END`           | `danger`  | The incident is from after the policy's term ended                                                                                                |
+| `OTHER_POLICY`        | `warning` | Outside this policy's term, but another policy of the same client and plate (or kind of risk) covered that day — usually the one it renewed       |
+| `UNPAID_INSTALLMENTS` | `warning` | Installments due before the day still read as unpaid in the last cartera sync (those sent to the bank, `EN PRELIQUIDACIÓN`, are left out)         |
+
+A policy cancelled by the day of the incident carries only `CANCELLED`. Unpaid installments are a warning, not a fact: the sync may lag a few days behind a payment.
+
 ### GET /admin/siniestros
 
 Paginated list of the producer's claims, newest first.
@@ -1958,7 +2003,8 @@ Paginated list of the producer's claims, newest first.
         "company": "triunfo",
         "riskType": "auto",
         "vehicle": { "licensePlate": "AB123CD", "brand": "FIAT", "model": "CRONOS" }
-      }
+      },
+      "coverageCheck": { "level": "ok", "issues": [] }
     }
   ],
   "total": 1,
@@ -2942,7 +2988,7 @@ Resolves the producer (tenant) behind a Meta phone number ID, including its syst
 }
 ```
 
-`profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU, `quoteClosingNote` is the line the bot appends to every quote (`null` = none). It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
+`profile` is the organization's bot profile (see `GET /admin/config/profile`, without `claimsEmail`): `orgName` falls back to the organization's name, `transfer` is `null` without an alias or CBU or when `transferMode` is `"office"` (the bot then says the office passes the data), `quoteClosingNote` is the line the bot appends to every quote (`null` = none). It is `null` only for the default organization (`DEFAULT_PRODUCER_SLUG`) while it has no saved profile, and the bot then keeps its built-in values.
 
 `internalWaIds` are the organization's active WhatsApp lines (this number included) as digits, `54` + area + number without WhatsApp's mobile `9`. A message from one of them (a branch writing to the office from its bot number) is kept for the inbox and never answered by the bot, and the inactivity goodbye is not sent to it either.
 
@@ -3228,7 +3274,7 @@ Leaves a `baja_poliza` notification for the office with the policy, the client's
 
 ### POST /bot/conversation/:conversationId/request-handoff
 
-The customer needs a person: the conversation goes to `pending` and the office gets a `handoff` matter in Asuntos pendientes (an exact repeat, or a follow-up of an open request of the same kind within 24 h, joins the open one). When the bot refused to file a claim it sends `blockedClaimReason`; the matter is marked "denuncia frenada", filed under siniestros and counted in the monthly balance. No claim is created. A bot that only sends `reason` still gets the mark when the reason starts with "Denuncia de siniestro no registrada:".
+The customer needs a person: the conversation goes to `pending` and the office gets a `handoff` matter in Asuntos pendientes (an exact repeat, or a follow-up of an open request of the same kind within 24 h, joins the open one). When the bot refused to file a claim it sends `blockedClaimReason`; the matter is marked "denuncia frenada", filed under siniestros and counted in the monthly balance. No claim is created. A bot that only sends `reason` still gets the mark when the reason starts with "Denuncia de siniestro no registrada:". With `blockedClaimReason: "NO_POLICY"` and an identified client, the matter's text also lists the client's three latest policies and why each is not in force ("Sus últimas pólizas: N° 4400001 (AB123CD): anulada por falta de pago (ANULA COBRANZA) desde el 03/06/2026; N° 4300009 (AB123CD): vencida el 03/03/2026.").
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -3421,7 +3467,7 @@ Claims filed by the identified client, newest first, with their internal trackin
 
 ### POST /bot/conversation/:conversationId/siniestros
 
-Files a new claim for one of the identified client's policies and notifies the advisor by email. The policy must be in force. Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
+Files a new claim for one of the identified client's policies and notifies the advisor by email. The policy must be in force. The response carries the claim's `coverageCheck` (see **Admin — Siniestros**): the policy is in force today, but the incident may be from before it started (`BEFORE_START`), and the bot tells the customer only that. What Triunfo states against the cover (a `danger` issue) also opens the office's matter and e-mail. Photos can be attached afterwards via `POST /bot/conversation/:conversationId/adjuntos` (the bot forwards images received over WhatsApp).
 
 **Auth required:** Yes (`x-bot-secret`)
 
@@ -3451,7 +3497,8 @@ Files a new claim for one of the identified client's policies and notifies the a
   "status": "pending",
   "insurerClaimNumber": null,
   "createdAt": "2026-06-12T13:05:00.000Z",
-  "policy": { "id": 12, "certificateNumber": "334455", "riskType": "auto" }
+  "policy": { "id": 12, "certificateNumber": "334455", "riskType": "auto" },
+  "coverageCheck": { "level": "ok", "issues": [] }
 }
 ```
 
@@ -3559,23 +3606,23 @@ for accounts never read. `null` until Meta was read.
 
 ### What each role gets from `GET /admin/phone-numbers`
 
-Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role; every role sees the plan's price, only the OWNER sees what Meta and OpenAI cost:
+Readable by ADMIN, SUPERADMIN and OWNER; creating, editing and removing numbers stay SUPERADMIN (and OWNER). An admin receives only the numbers billed to one of their codes (`responsibleCode`); the SuperAdmin and the OWNER, every number of the organization. The month's `usage` depends on the role; only the OWNER sees plan prices, what the month is billed and what Meta and OpenAI cost (the organization sees its plans by name and messages):
 
 | Role       | `usage` fields                                                                                                                       | Number fields                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| ADMIN      | `period`, `messages` (plan messages consumed this month: a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on), `assignedPlan`, `plan` (the plan the month is billed on; its price, never its cost), `upgraded`, `billedUsd` (the plan's full price: the month is always charged whole), `planPaused` | no budget fields |
+| ADMIN      | `period`, `messages` (plan messages consumed this month: a campaign message counts 2 from `COMMERCIAL_TEMPLATE_WEIGHT_FROM` on), `assignedPlan`, `plan` (the plan the month is billed on, without `priceUsd`), `upgraded`, `planPaused` | no budget fields |
 | SUPERADMIN | plus `metaConversations`, `openaiCalls`, `inputTokens`, `outputTokens` | `budgetExceededAt` (the AI paused for the month) |
-| OWNER      | plus `metaMessages` (sent, one each) and `metaTemplateMessages` (of those, templates), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta) | `monthlyBudgetUsd`, `budgetExceededAt` |
+| OWNER      | plus `priceUsd` in `assignedPlan` and `plan`, `billedUsd` (the plan's full price: the month is always charged whole), `metaMessages` (sent, one each) and `metaTemplateMessages` (of those, templates), `metaBillableMessages`, `openaiCostUsd`, `metaCostUsd`, `totalCostUsd`, `marginUsd` (billed minus Meta) | `monthlyBudgetUsd`, `budgetExceededAt` |
 
 `monthlyBudgetUsd` in `POST`/`PATCH /admin/phone-numbers` is only applied for the OWNER; other roles' value is ignored. `GET /admin/usage` (cost report with margin) is OWNER only.
 
 Every number also carries `branchName` (the branch it belongs to, as the office calls it: `"27 de Febrero"`, or `null`; set when the number is connected, `branchName` in `POST /admin/whatsapp/onboard`, or registered by hand, `branchName` in `POST /admin/phone-numbers` (≤ 60 chars, trimmed); changed with `PATCH /admin/phone-numbers/:id` or `PATCH /admin/phone-numbers/:id/assistant`, where an empty string clears it; the panel shows it next to the number), `assistant` (`{ "botName": "Sofi" | null, "customized": true | false }`: its own assistant name and whether it changes any setting of the organization), `canConfigureAssistant` (whether the caller may change it, see below; `true` on every number listed, since an admin only receives their own) and `botEnabled` (the number's own bot switch, see `PATCH /admin/phone-numbers/:id/bot-status`).
 
-Both `POST /admin/whatsapp/onboard` and `POST /admin/phone-numbers` also take the assistant the number starts with, which the panel asks for together with the branch name so a new branch never greets as another office: `botName` (≤ 60 chars), `presentationName` (≤ 120 chars: whose assistant the bot says it is, stored as the number's own `orgName`, `orgLegalName` and `orgShortName`), `transferAlias` (≤ 60 chars: the alias customers transfer to, stored as the number's own `transferAlias`; since the transfer account is the number's own as a whole once any field is set, CBU, holder and bank are completed with `PATCH /admin/phone-numbers/:id/assistant`), `staffNames` (up to 10 names of ≤ 30 chars) and `businessHours` (a weekly schedule as in `PATCH /admin/phone-numbers/:id/assistant`; invalid hours answer `400` before Meta's code is used). All optional for the API: a field not sent is left as it was. Only what changes is written: a field equal to what the number already uses (its own value, or the organization's when it has none) is left alone, so a reconnect that sends back the prefilled form keeps the number's assistant as it was and a value equal to the organization's keeps following the organization. `presentationName` and `transferAlias` are merged into the number's own profile, never replacing the rest (CBU, holder, bank, lines, closing note); typing the organization's alias (case-insensitive) drops the number's own account so it uses the organization's whole account. A field sent empty clears the number's own value, so the organization's applies again.
+Both `POST /admin/whatsapp/onboard` and `POST /admin/phone-numbers` also take the assistant the number starts with, which the panel asks for together with the branch name so a new branch never greets as another office: `botName` (≤ 60 chars), `presentationName` (≤ 120 chars: whose assistant the bot says it is, stored as the number's own `orgName`, `orgLegalName` and `orgShortName`), `transferAlias` (≤ 60 chars: the alias customers transfer to, stored as the number's own `transferAlias`; since the transfer account is the number's own as a whole once any field is set, CBU, holder and bank are completed with `PATCH /admin/phone-numbers/:id/assistant`), `transferMode` (`"office"` for a branch that gives no alias: stored as the number's own `transferMode`, its own account is dropped, the organization's is never given and `transferAlias` is ignored; `""` stops it), `staffNames` (up to 10 names of ≤ 30 chars) and `businessHours` (a weekly schedule as in `PATCH /admin/phone-numbers/:id/assistant`; invalid hours answer `400` before Meta's code is used). All optional for the API: a field not sent is left as it was. Only what changes is written: a field equal to what the number already uses (its own value, or the organization's when it has none) is left alone, so a reconnect that sends back the prefilled form keeps the number's assistant as it was and a value equal to the organization's keeps following the organization. `presentationName` and `transferAlias` are merged into the number's own profile, never replacing the rest (CBU, holder, bank, lines, closing note); typing the organization's alias (case-insensitive) drops the number's own account so it uses the organization's whole account. A field sent empty clears the number's own value, so the organization's applies again.
 
 ### GET /admin/phone-numbers/:id/assistant
 
-A number's own assistant next to its organization's. Whatever the number leaves empty (`null`, empty list, `null` field of `botProfile`) is the organization's: that is what the bot uses on this number (`GET /bot/context`, `GET /bot/numbers/:phoneNumberId/hours`, the inactivity notice, the takeover sweep and the claims e-mail). Holidays and closures are each number's own (`own.closures`, upcoming and under way, national holidays included with `holiday: true`): there are no organization-wide ones. The transfer account goes as a whole: a number with any `transfer*` field of its own uses only its own account fields, never the organization's alias with its own CBU or the other way around.
+A number's own assistant next to its organization's. Whatever the number leaves empty (`null`, empty list, `null` field of `botProfile`) is the organization's: that is what the bot uses on this number (`GET /bot/context`, `GET /bot/numbers/:phoneNumberId/hours`, the inactivity notice, the takeover sweep and the claims e-mail). Holidays and closures are each number's own (`own.closures`, upcoming and under way, national holidays included with `holiday: true`): there are no organization-wide ones. The transfer account goes as a whole: a number with any `transfer*` field of its own uses only its own account fields, never the organization's alias with its own CBU or the other way around. A number with `botProfile.transferMode` `"office"` gives no account at all, not even the organization's: the bot tells the customer the office passes the data in the chat. Set it with `PATCH /admin/phone-numbers/:id/assistant` and `{ "botProfile": { "transferMode": "office" } }` (it clears the number's own account); typing an account or sending `"transferMode": ""` gives one again.
 
 **Auth required:** Yes (ADMIN, SUPERADMIN, OWNER)
 

@@ -151,6 +151,47 @@ describe('proponer_cambio_datos_de_pago', () => {
     })
   })
 
+  it('lets a branch stop giving an account: the office passes the data', async () => {
+    const { tool, ctx, actions } = setup({ role: Role.ADMIN, numbers: [number(1)] })
+    await tool.run(ctx, { alcance: 'numero', numero_id: 1, la_oficina_pasa_los_datos: true })
+
+    const [, , payload, preview, undo] = actions.propose.mock.calls[0] as unknown as [
+      unknown,
+      string,
+      { changes: Record<string, string> },
+      ActionPreview,
+      { changes: Record<string, string> },
+    ]
+    expect(payload.changes).toEqual({
+      transferMode: 'office',
+      transferAlias: '',
+      transferCbu: '',
+      transferHolder: '',
+      transferBank: '',
+    })
+    expect(preview.changes).toEqual([
+      { label: 'Datos para transferir', before: 'Los da el bot', after: 'Los pasa la oficina por el chat' },
+      { label: 'Alias', before: 'viejo.alias', after: null },
+      { label: 'CBU / CVU', before: orgAccount.transferCbu, after: null },
+      { label: 'Titular', before: 'Seguros Prueba SRL', after: null },
+      { label: 'Banco', before: 'Galicia', after: null },
+    ])
+    // Undoing gives the number back the organization's account.
+    expect(Object.values(undo.changes).every(value => value === '')).toBe(true)
+  })
+
+  it('gives an account again to a branch whose office passed the data', async () => {
+    const { tool, ctx, actions } = setup({ role: Role.ADMIN, numbers: [number(1, { transferMode: 'office' })] })
+    await tool.run(ctx, { alcance: 'numero', numero_id: 1, alias: 'centro.cobros' })
+
+    const preview = actions.propose.mock.calls[0][3]
+    expect(preview.changes).toEqual([
+      { label: 'Datos para transferir', before: 'Los pasa la oficina por el chat', after: 'Los da el bot' },
+      { label: 'Alias', before: null, after: 'centro.cobros' },
+    ])
+    expect(actions.propose.mock.calls[0][4]).toMatchObject({ changes: { transferMode: 'office', transferAlias: '' } })
+  })
+
   it('says so when nothing would change', async () => {
     const { tool, ctx } = setup()
     await expect(tool.run(ctx, { alcance: 'organizacion', alias: 'viejo.alias' })).rejects.toThrow(

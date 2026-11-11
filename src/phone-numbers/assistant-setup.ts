@@ -1,6 +1,6 @@
 import { Prisma } from 'generated/prisma/client'
 import { parseSchedule, validateSchedule } from '../business-hours/schedule'
-import { mergeBotProfile, parseBotProfile, type BotProfile } from '../common/bot-profile'
+import { mergeBotProfile, parseBotProfile, TRANSFER_BY_OFFICE, type BotProfile } from '../common/bot-profile'
 import { effectiveAssistant, type AssistantSettings } from '../common/number-assistant'
 import { parseStaffNames, serializeStaffNames } from '../common/staff-names'
 import { AssistantSetupDto } from './dto/assistant-setup.dto'
@@ -36,7 +36,9 @@ const sameAlias = (a: string | null | undefined, b: string | null | undefined) =
 
 /** Whether the panel sent any of the assistant fields. */
 export const sendsAssistantSetup = (dto: AssistantSetupDto): boolean =>
-  [dto.botName, dto.presentationName, dto.transferAlias, dto.staffNames, dto.businessHours].some(v => v !== undefined)
+  [dto.botName, dto.presentationName, dto.transferMode, dto.transferAlias, dto.staffNames, dto.businessHours].some(
+    v => v !== undefined,
+  )
 
 /** Rejects hours that cannot be stored, before Meta's 30-second code is spent. */
 export function validateAssistantSetup(dto: AssistantSetupDto): void {
@@ -51,13 +53,23 @@ function profileChanges(dto: AssistantSetupDto, current: CurrentAssistant, now: 
       Object.assign(changes, { orgName: name, orgLegalName: name, orgShortName: name })
     }
   }
+  const byOffice = now?.transferMode === TRANSFER_BY_OFFICE
+  if (dto.transferMode === TRANSFER_BY_OFFICE) {
+    // The branch gives no alias: the office passes the data in the chat, whatever the organization's account.
+    if (!byOffice) changes.transferMode = TRANSFER_BY_OFFICE
+    return changes
+  }
+  if (dto.transferMode === '' && parseBotProfile(current.number?.botProfile).transferMode === TRANSFER_BY_OFFICE) {
+    changes.transferMode = ''
+  }
   if (dto.transferAlias !== undefined) {
     const alias = dto.transferAlias.trim()
     const organizationAlias = parseBotProfile(current.organization.botProfile).transferAlias
-    if (alias && sameAlias(alias, organizationAlias) && !sameAlias(alias, now?.transferAlias)) {
+    if (alias && sameAlias(alias, organizationAlias) && (byOffice || !sameAlias(alias, now?.transferAlias))) {
       // The organization's alias: the number goes back to the organization's whole account (CBU, holder, bank).
       for (const field of ACCOUNT_FIELDS) changes[field] = ''
-    } else if (!sameAlias(alias, now?.transferAlias)) {
+      changes.transferMode = ''
+    } else if (byOffice ? alias !== '' : !sameAlias(alias, now?.transferAlias)) {
       changes.transferAlias = alias
     }
   }
@@ -74,6 +86,8 @@ function profileChanges(dto: AssistantSetupDto, current: CurrentAssistant, now: 
  *    alias keeps the organization's whole account, CBU and holder included);
  *  - the presentation and the alias are merged into the number's own profile:
  *    its CBU, holder, bank, lines and closing note are never dropped;
+ *  - a branch that gives no alias (transferMode "office") keeps none of its
+ *    own and never takes the organization's: the office passes the data;
  *  - a field sent empty on purpose clears the number's own value, so the
  *    organization's applies again.
  */
