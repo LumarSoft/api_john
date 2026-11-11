@@ -16,7 +16,7 @@ export class GetBalanceDto {
   @Min(1)
   producerCodeId?: number
 
-  // Section filter "número/sucursal": a PhoneNumber id, resolved to the codes it serves.
+  // Section filter "número/sucursal": a PhoneNumber id, resolved to that branch's codes.
   @IsOptional()
   @Type(() => Number)
   @IsInt()

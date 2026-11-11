@@ -1,5 +1,5 @@
 import { Role } from 'generated/prisma/client'
-import { ScopeService, numberWhere } from './scope.service'
+import { ScopeService, ScopeUser, numberWhere } from './scope.service'
 
 describe('ScopeService.resolveChatScope', () => {
   function setup() {
@@ -91,5 +91,61 @@ describe('numberWhere', () => {
     ).toEqual({
       phoneNumberId: { in: [] },
     })
+  })
+})
+
+describe('ScopeService.resolveScopedCodeIdsFor by número', () => {
+  // As in production: the office line (8, billed to the master code 1) serves
+  // every code so its bot can attend anyone; Pueblo Esther (11) is billed to 3
+  // and also serves 6 and 7; Funes (12) and Roldán (13) only their own code.
+  const phones = [
+    { id: 8, responsibleProducerCodeId: 1, servedCodes: [1, 2, 3, 4, 5, 6, 7, 8] },
+    { id: 11, responsibleProducerCodeId: 3, servedCodes: [3, 6, 7] },
+    { id: 12, responsibleProducerCodeId: 4, servedCodes: [] },
+    { id: 13, responsibleProducerCodeId: 5, servedCodes: [] },
+  ]
+
+  function setup(numbers = phones) {
+    const prisma = {
+      producerCode: { findMany: jest.fn().mockResolvedValue([1, 2, 3, 4, 5, 6, 7, 8].map(id => ({ id }))) },
+      userProducerCode: { findMany: jest.fn().mockResolvedValue([{ producerCodeId: 2 }, { producerCodeId: 3 }]) },
+      phoneNumber: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue(
+            numbers.map(n => ({ ...n, servedCodes: n.servedCodes.map(producerCodeId => ({ producerCodeId })) })),
+          ),
+        // The organization's default number (the office line).
+        findFirst: jest.fn().mockResolvedValue({ id: 8, phoneNumberId: 'OFFICE', number: '+54 9 341 000-0000' }),
+      },
+    }
+    return new ScopeService(prisma as never)
+  }
+
+  const superadmin: ScopeUser = { id: 1, producerId: 1, role: Role.SUPERADMIN }
+  const codesOf = (phoneNumberId: number, scope = setup(), user = superadmin) =>
+    scope.resolveScopedCodeIdsFor(user, { phoneNumberId }).then(ids => [...ids].sort((a, b) => a - b))
+
+  it('leaves out of the office line the codes of the other branches', async () => {
+    await expect(codesOf(8)).resolves.toEqual([1, 2, 8])
+  })
+
+  it('gives each branch its own code and the ones it also serves', async () => {
+    await expect(codesOf(11)).resolves.toEqual([3, 6, 7])
+    await expect(codesOf(12)).resolves.toEqual([4])
+    await expect(codesOf(13)).resolves.toEqual([5])
+  })
+
+  it('keeps on a branch a code another branch also serves, but not one billed to another number', async () => {
+    const shared = phones.map(n => (n.id === 12 ? { ...n, servedCodes: [6, 1] } : n))
+    await expect(codesOf(12, setup(shared))).resolves.toEqual([4, 6])
+  })
+
+  it("sees nothing for a number that is not the organization's", async () => {
+    await expect(codesOf(99)).resolves.toEqual([])
+  })
+
+  it("stays within an admin's own codes", async () => {
+    await expect(codesOf(8, setup(), { id: 2, producerId: 1, role: Role.ADMIN })).resolves.toEqual([2])
   })
 })

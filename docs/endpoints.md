@@ -988,7 +988,7 @@ siniestros. All metrics are scoped to the authenticated user's producer.
 
 The organization's numbers at the close of each month, to see where it grows and where it weakens. A row per producer code and month (`MonthlyBalance`) is written on the 1st at 00:30 (Argentina) for the month that just closed; when the API starts (and on the 1st) any of the last `MONTHLY_BALANCE_BACKFILL_MONTHS` months (default 6) without rows is rebuilt from dated records. A month is never rewritten unless the owner forces it. Turn both off with `MONTHLY_BALANCE_ENABLED=false`.
 
-Every record is credited to one of the organization's codes: its own code; else the code billed for the number it came through; else the master code. Quotes go by the number they came through first (their code is a default). So the section filter works as everywhere: the user's codes, narrowed by `producerCodeId` or by `phoneNumberId` (the codes that number serves).
+Every record is credited to one of the organization's codes: its own code; else the code billed for the number it came through; else the master code. Quotes go by the number they came through first (their code is a default). So the section filter works as everywhere: the user's codes, narrowed by `producerCodeId` or by `phoneNumberId` (that branch's codes, see **Filter by número** in Cobranzas).
 
 **Metrics.** Policy dates are Triunfo's calendar days; everything else is the month in Argentina.
 
@@ -1024,7 +1024,7 @@ The last closed months, oldest first, each metric with its change against the mo
 | -------------- | ------ | -------- | -------------------------------------------------------------- |
 | months         | number | No       | 1–24, default 12. The last one is the month before the current |
 | producerCodeId | number | No       | One of the user's codes; another returns no data               |
-| phoneNumberId  | number | No       | A PhoneNumber id: the codes that number serves                 |
+| phoneNumberId  | number | No       | A PhoneNumber id: that branch's codes (see **Filter by número**) |
 
 **Responses**
 
@@ -1120,6 +1120,8 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 
 **What counts as debt.** Only cuotas of policies Triunfo has not cancelled (`lastMovement` not starting with `ANUL`/`RESCISION`): a cancelled policy keeps its unpaid cuotas, and they are not owed. Cuotas Triunfo reports as `ANULADA` are soft deleted by the cartera sync, and one `EN PRELIQUIDACIÓN` (the debit was sent to the bank) stays `pending`, never `overdue`, until the next novedad says paid or rejected. A `pending` cuota whose due date went by is marked `overdue` every night at 00:15 (Argentina), so a policy with no recent novedad still shows its debt. The same rules apply to `/admin/cobranzas/stats`, the asegurados KPIs and the dashboard.
 
+**Filter by número** (2026-11-11). Where a section filters by code (Cobranzas, Pólizas vencidas, Asegurados, Siniestros, Dashboard, Balance and the policy campaigns), `phoneNumberId` stands for that branch's cartera: the number's own code plus the codes it also serves, minus those of another branch — a code another number is billed to, and, on the organization's default number (the office line), a code another number also serves. The office line serves every code so its bot can attend anyone; filtering by it shows the office's cartera, not the whole organization's. The bot still serves every code its number has.
+
 **Auth required:** Yes (JWT user token)
 
 **Query parameters**
@@ -1129,7 +1131,7 @@ Returns a paginated worklist of clients that owe money, enriched with debt stats
 | search         | string | No       | Filter by first name, last name, email, DNI, phone, or plate                                                                                                       |
 | status         | string | No       | `vencidas` \| `rechazadas` \| `pendientes` \| `todas` (default `todas`)                                                                                            |
 | producerCodeId | number | No       | Only the debt of this producer code's policies (must be accessible to the user)                                                                                    |
-| phoneNumberId  | number | No       | Only the codes this number serves (SuperAdmin section filter)                                                                                                      |
+| phoneNumberId  | number | No       | Only this number's branch codes (SuperAdmin section filter; see **Filter by número** above)                                                                 |
 | paymentMethod  | string | No       | Only policies with this medio de pago, as Triunfo names it (`Plan De Pago`, `Convenio`, `Débito Tarjeta`…); the values in scope come from `/admin/cobranzas/stats` |
 | page           | number | No       | Page number (default: 1)                                                                                                                                           |
 | pageSize       | number | No       | Results per page (default: 20, max: 100)                                                                                                                           |
@@ -1183,7 +1185,7 @@ Returns aggregate debt stats for the authenticated producer. Includes both per-c
 | Parameter      | Type   | Required | Description                                              |
 | -------------- | ------ | -------- | -------------------------------------------------------- |
 | producerCodeId | number | No       | Only this producer code (must be accessible to the user) |
-| phoneNumberId  | number | No       | Only the codes this number serves                        |
+| phoneNumberId  | number | No       | Only this number's branch codes (see **Filter by número**) |
 | paymentMethod  | string | No       | Only policies with this medio de pago                    |
 
 **Responses**
@@ -1220,7 +1222,7 @@ The "pólizas vencidas" worklist of the Cobranzas screen: policies that ran out 
 | -------------- | ------- | -------- | -------------------------------------------------------------------- |
 | search         | string  | No       | Client name or DNI, certificate number or plate                      |
 | producerCodeId | number  | No       | Only this producer code (must be accessible to the user)             |
-| phoneNumberId  | number  | No       | Only the codes this number serves                                    |
+| phoneNumberId  | number  | No       | Only this number's branch codes (see **Filter by número**)      |
 | paymentMethod  | string  | No       | Only policies with this medio de pago                                |
 | hidden         | boolean | No       | `true` lists the hidden policies instead (default: the visible ones) |
 | sort           | string  | No       | `oldest` (longest expired first, default) \| `recent`                |

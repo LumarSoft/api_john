@@ -16,8 +16,8 @@ export class CobranzasScopeDto {
   @Min(1)
   producerCodeId?: number
 
-  // SuperAdmin "filter by número/sucursal" — a PhoneNumber id; resolves to the
-  // producer codes that number serves.
+  // SuperAdmin "filter by número/sucursal" — a PhoneNumber id; resolves to that
+  // branch's codes (ScopeService.codeIdsForPhoneNumber).
   @IsOptional()
   @Type(() => Number)
   @IsInt()
