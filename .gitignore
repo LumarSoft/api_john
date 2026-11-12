@@ -60,3 +60,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # uploaded files
 /uploads/*
 !/uploads/.gitkeep
+
+# scratch of scripts/deploy/install-dist.sh
+/.install-dist.*
+/dist.new
+/dist.old
